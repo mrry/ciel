@@ -14,3 +14,11 @@ def pinger_main(master_address, task_result_queue):
         except Empty:
             # Send heartbeat ping to master.
             pass
+        
+def dummy_pinger_main(master_address, pinger_queue):
+    while True:
+        try:
+            result = pinger_queue.get(True, 30)
+            print "PINGER: %s" % (str(result), )
+        except Empty:
+            print "PINGER: Periodic heartbeat..."

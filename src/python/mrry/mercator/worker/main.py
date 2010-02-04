@@ -5,25 +5,26 @@ Created on 29 Jan 2010
 '''
 
 from multiprocessing import Process
-from jobrunner import job_runner_main
+from jobstarter import job_starter_main
 from server import server_main
-from pinger import pinger_main
+from pinger import dummy_pinger_main
 from multiprocessing import Queue
 
 def start_worker_processes():
     
-    task_queue = Queue()
-    task_result_queue = Queue()
+    # Server uses this to send job-start messages to the job starter.
+    job_starter_queue = Queue()
     
-    master_address = "127.0.0.1:7999"
+    # All processes use this to send ping messages to the relevant master (if necessary).
+    pinger_queue = Queue()
     
-    jobrunner = Process(target=job_runner_main, args=(task_queue, task_result_queue), name="JobRunner")
-    pinger = Process(target=pinger_main, args=(master_address, task_result_queue), name="Pinger")
+    jobstarter = Process(target=job_starter_main, args=(job_starter_queue, pinger_queue), name="JobStarter")
+    pinger = Process(target=dummy_pinger_main, args=(pinger_queue, ), name="Pinger")
     
-    jobrunner.start()
+    jobstarter.start()
     pinger.start()
     
-    server_main(task_queue)
+    server_main(job_starter_queue, pinger_queue)
 
 if __name__ == "__main__":
     start_worker_processes()
