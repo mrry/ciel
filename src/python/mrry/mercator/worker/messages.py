@@ -10,13 +10,7 @@ class Message:
     def __init__(self, type, fieldDict={}):
         self.fieldDict = fieldDict
         self.type = type
-        
-    def __setattr__(self, name, value):
-        self.fieldDict[name] = value
-        
-    def __getattr__(self, name):
-        return self.fieldDict[name]
-    
+  
 class JobCompletedMessage:
     
     def __init__(self, jobName):
