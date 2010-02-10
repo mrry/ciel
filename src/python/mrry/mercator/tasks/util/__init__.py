@@ -26,7 +26,7 @@ class MercatorIPC:
     
     def thread_main(self):
         while True:
-            msg_len = struct.unpack("I", self.in_channel.read(struct.calcsize("I")))
+            msg_len, = struct.unpack("I", self.in_channel.read(struct.calcsize("I")))
             if msg_len == 0:
                 if self.terminating:
                     return
