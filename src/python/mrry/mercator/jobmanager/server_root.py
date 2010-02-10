@@ -18,8 +18,9 @@ class ServerRoot:
     
 class JobsRoot:
     
-    def __init__(self, status_maintainer):
+    def __init__(self, status_maintainer, job_runner):
         self.status_maintainer = status_maintainer
+        self.job_runner = job_runner
     
     @cherrypy.expose    
     def index(self):
@@ -36,7 +37,11 @@ class JobsRoot:
         
     @cherrypy.expose
     def default(self, job_id):
-        status = self.status_maintainer.get_status(job_id)
-        if status is None:
-            raise cherrypy.HTTPError(404)
-        return simplejson.dumps(status)
+        if cherrypy.request.method == 'POST':
+            self.job_runner.send_to_process(job_id, cherrypy.request.body.read())
+            return None
+        elif cherrypy.request.method == 'GET':
+            status = self.status_maintainer.get_status(job_id)
+            if status is None:
+                raise cherrypy.HTTPError(404)
+            return simplejson.dumps(status)

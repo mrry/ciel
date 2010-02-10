@@ -25,7 +25,7 @@ class JobRunner(plugins.SimplePlugin):
         self.queue = Queue()
         self.threads = []
         self.running_processes_lock = Lock()
-        self.running_processes = set()
+        self.running_processes = {}
         self.is_running = False
         
     def subscribe(self):
@@ -45,8 +45,8 @@ class JobRunner(plugins.SimplePlugin):
         for i in range(self.pool_size):
             self.queue.put(THREAD_TERMINATOR)
         with self.running_processes_lock:
-            for process in self.running_processes:
-                process.kill()
+            for running_job in self.running_processes.values():
+                running_job.kill()
         for thread in self.threads:
             thread.join()
         self.threads = []
@@ -57,11 +57,8 @@ class JobRunner(plugins.SimplePlugin):
     
     def send_to_process(self, job_id, message):
         with self.running_processes_lock:
-            stdin = self.running_processes[job_id].stdin
-            stdin.write(struct.pack("I", len(message)))
-            stdin.write(message)
-            stdin.flush()
-        
+            job = self.running_processes[job_id]
+        job.send_message(message)
     
     def thread_main(self):
         
@@ -72,58 +69,14 @@ class JobRunner(plugins.SimplePlugin):
             if job is THREAD_TERMINATOR:
                 break
             
-            self.bus.publish('update_status', job.id, "RUNNING")
-            
-            stdout_file = open("%s.out" % (job.id, ), "w")
-            stderr_file = open("%s.err" % (job.id, ), "w")
-            
-            proc = subprocess.Popen(args=job.args, close_fds=True, stdin=subprocess.PIPE, stdout=stdout_file, stderr=stderr_file)
-    
+            with self.running_processes_lock:
+                self.running_processes[job.id] = job
+                
+            job.run(self.bus)
             
             with self.running_processes_lock:
-                self.running_processes.add(proc)
-                        
-            sizeof_uint = struct.calcsize("I")
+                del self.running_processes[job.id]
             
-            sync_terminate = False
-            
-            while True:
-                length_str = proc.stdout.read(sizeof_uint)
-            
-                if length_str == "":
-                    # Reached EOF without receiving a zero-length string. This means that
-                    # the process has died and we should not try to write to it. Should
-                    # really separate out the communicable-vs-non-communicable job 
-                    # processes.
-                    sync_terminate = False
-                    break
-                    
-                length = struct.unpack("I", length_str)
-                
-                # The final message from the process will be zero-length.
-                if length == 0:
-                    sync_terminate = True
-                    break
-                
-                message = proc.stdout.read(length)
-                self.bus.publish('update_status', job.id, ("RUNNING", message))
-                
-            with self.running_processes_lock:
-                self.running_processes.remove(proc)
-                
-            if sync_terminate:
-                # Finally send a zero-length message to the process to acknowledge that
-                # it is terminated. At this point, we know that we will not try to send
-                # any more messages to the process.
-                proc.stdin.write(struct.pack("I", 0))
-                proc.stdin.flush()
-            
-            rc = proc.wait()
-            
-            with self.running_processes_lock:
-                self.running_processes.remove(proc)
-            
-            self.bus.publish('update_status', job.id, ("TERMINATED", rc))
             
 class StatusMaintainer(plugins.SimplePlugin):
     

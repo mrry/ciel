@@ -8,10 +8,11 @@ from mrry.mercator.jobmanager.plugins import JobRunner, StatusMaintainer
 from mrry.mercator.jobmanager.server_root import JobsRoot
 
 if __name__ == '__main__':
-    JobRunner(cherrypy.engine, 10).subscribe()
+    jr = JobRunner(cherrypy.engine, 10)
+    jr.subscribe()
     sm = StatusMaintainer(cherrypy.engine)
     sm.subscribe()
     
-    root = JobsRoot(sm)
+    root = JobsRoot(sm, jr)
 
     cherrypy.quickstart(root)
