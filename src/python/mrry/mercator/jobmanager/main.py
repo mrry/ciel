@@ -12,7 +12,5 @@ if __name__ == '__main__':
     jr.subscribe()
     sm = StatusMaintainer(cherrypy.engine)
     sm.subscribe()
-    
     root = JobsRoot(sm, jr)
-
     cherrypy.quickstart(root)
