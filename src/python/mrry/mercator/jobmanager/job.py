@@ -4,6 +4,9 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from uuid import uuid4
+from mrry.mercator.jobmanager.inputs import JobArguments, JobLiteralInput,\
+    MultipleSourceJobInput, HttpJobInput, LocalFileJobInput, JobOutputs
+import simplejson
 import threading
 import struct
 import subprocess
@@ -13,6 +16,42 @@ class Job:
     def __init__(self):
         self.id = str(uuid4())
 
+class WorkflowJob(Job):
+    
+    def __init__(self, executor_process, inputs=[], outputs=[]):
+        Job.__init__(self)
+        self.executor_process = executor_process
+        self._lock = threading.Lock()
+        self.args = JobArguments(self, inputs)
+        self.outputs = JobOutputs(self, outputs)
+        
+    def set_input_filename(self, input, filename):
+        with self._lock:
+            self.args.pending_inputs.remove(input.id)
+        input.filename = filename
+        
+    def is_runnable(self):
+        with self._lock:
+            return len(self.args.pending_inputs) == 0
+        
+    def run(self, bus):
+        
+        # Create arguments file.
+        arguments = {}
+        arguments["inputs"] = self.args.get_input_structure()
+        arguments["outputs"] = self.outputs.get_output_structure()
+        with open("%s.in" % (self.id, ), "w") as args_file:
+            simplejson.dump(arguments, args_file)
+        
+        stdin_file = open("%s.in" % (self.id, ), "r")
+        stdout_file = open("%s.out" % (self.id, ), "w")
+        stderr_file = open("%s.err" % (self.id, ), "w")
+        
+        self.proc = subprocess.Popen(args=[], close_fds=True, stdin=stdin_file, stdout=stdout_file, stderr=stderr_file)
+        bus.publish('update_status', self.id, "RUNNING")
+        rc = self.proc.wait()
+        bus.publish('update_status', self.id, ("TERMINATED", rc))
+        
 class SubprocessJob(Job):
 
     def __init__(self, args):
@@ -108,3 +147,16 @@ job_builders = { "pyecho" : build_pyecho_job,
 def build_job(details):
     job_type = details["job_type"]
     return job_builders[job_type](details)
+
+if __name__ == '__main__':
+    
+    inputs = [JobLiteralInput(None, "/usr/bin/cat").to_external_format(),
+              MultipleSourceJobInput(None, "0123", [HttpJobInput(None, "0123", "http://www.cl.cam.ac.uk/~dgm36/test_input.txt"),
+                                                    LocalFileJobInput(None, "0123", "heavenly.cl.cam.ac.uk", "/local/scratch/dgm36/test_input.txt")]).to_external_format()]
+    
+    outputs = [{"id": "01223"}]
+
+    wj = WorkflowJob("stdinout_workflow", inputs, outputs)
+    
+    print wj.args.get_input_structure()
+    print wj.outputs.get_output_structure()

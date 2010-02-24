@@ -10,9 +10,9 @@ import cherrypy
 
 class MasterRoot:
     
-    def __init__(self, scheduler):
+    def __init__(self):
         self.ping = PingReceiver()
-        self.workflow = WorkflowsRoot()
+        self.workflow = WorkflowsRoot(None)
 
 class PingReceiver:
     
