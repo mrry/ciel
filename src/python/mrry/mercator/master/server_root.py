@@ -29,8 +29,8 @@ class WorkflowsRoot:
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
-            workflow_details = simplejson.loads(cherrypy.request.body.read())
-            workflow = build_workflow(workflow_details)
+            workflow_description = simplejson.loads(cherrypy.request.body.read())
+            workflow = build_workflow(workflow_description)
             cherrypy.engine.publish('create_workflow', workflow)
             return simplejson.dumps(workflow.id)
         raise HTTPError(405)

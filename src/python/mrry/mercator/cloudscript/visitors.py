@@ -126,6 +126,11 @@ class ExpressionEvaluatorVisitor(Visitor):
     def visit_Constant(self, node):
         return node.value
     
+    def visit_Dereference(self, node):
+        reference = self.visit(node.reference)
+        star_function = self.context.value_of('__star__')
+        return star_function.call([reference])
+    
     def visit_Dict(self, node):
         ret = {}
         for item in node.items:

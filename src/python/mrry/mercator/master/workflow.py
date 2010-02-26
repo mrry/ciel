@@ -5,12 +5,51 @@ Created on 11 Feb 2010
 '''
 from uuid import uuid4
 from threading import Lock
+from mrry.mercator.cloudscript.parser import CloudScriptParser
+from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction
+from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor
 import cherrypy
 import collections
 
 class ConcreteInput:
     pass
 CONCRETE_INPUT = ConcreteInput()
+
+class WorkflowProductionRule:
+    
+    def __init__(self, inputs, method, outputs):
+        self.inputs = inputs
+        self.method = method
+        self.outputs = outputs
+
+
+class SkyWritingWorkflow:
+    
+    def __init__(self, text, context, targets):
+        self.id = str(uuid4())
+        self.text = text
+        self.context = context
+        self.ast = None
+        self.targets = targets
+        
+    def parse(self):
+        csp = CloudScriptParser()
+        self.ast = csp.parse(self.text)
+        
+    def interpret(self, emit_function, star_function):
+        if self.ast is None:
+            self.parse()
+        real_context = SimpleContext()
+        for (name, value) in self.context:
+            real_context.bind_identifier(name, value)
+            
+        # TODO: decide arguments for emit_function. 
+        real_context.bind_identifier("execute_remote_job", LambdaFunction(emit_function))
+        real_context.bind_identifier("__star__", LambdaFunction(star_function))
+        
+        StatementExecutorVisitor(real_context).visit(self.ast)
+
+        # Wait for targets to be produced, somehow, and stuff them in an appropriate place.
 
 class WorkflowBase:
     
