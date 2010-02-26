@@ -20,7 +20,9 @@ class CloudScriptLexer:
     def token(self):
         tok = self.lexer.token()
         return tok
-    
+
+    states = (('string', 'exclusive'), ('escaped', 'exclusive'))
+
     keywords = { 'function' : 'FUNC',
                  'if' : 'IF',
                  'else' : 'ELSE',
@@ -36,7 +38,7 @@ class CloudScriptLexer:
                  'lambda' : 'LAMBDA' }
     
     tokens = keywords.values() + \
-        ['ID', 'INT_LITERAL', 'STRING_LITERAL', 
+        ['ID', 'INT_LITERAL', 
          'PLUS', 'MINUS',
          'OR', 'AND', 'NOT', 'LT', 'LEQ', 'GT', 'GEQ', 'EQ', 'NE',
          'ASSIGN', 'ASSIGN_PLUS',
@@ -44,12 +46,13 @@ class CloudScriptLexer:
          'LPAREN', 'RPAREN',
          'LBRACKET', 'RBRACKET',
          'LBRACE', 'RBRACE',
-         'SEMICOLON', 'COMMA', 'COLON']
+         'SEMICOLON', 'COMMA', 'COLON',
+         'QUOTATION_MARK',
+         'UNESCAPED', 'ESCAPE', 'BACKSLASH', 'BACKSPACE_CHAR', 'FORM_FEED_CHAR',
+         'LINE_FEED_CHAR', 'CARRIAGE_RETURN_CHAR', 'TAB_CHAR', 'UNICODE_HEX']
     
     identifier = r'[a-zA-Z_][a-zA-Z_0-9]*'
     integer_literal = r'(0)|([1-9][0-9]*)'
-    string_literal = r'"[^"\\\n]*"'
-    
     
     @TOKEN(identifier)
     def t_ID(self, t):
@@ -73,7 +76,73 @@ class CloudScriptLexer:
     t_EQ = r'=='
     t_NE = r'!='
     t_SEMICOLON = r';'
-    t_STRING_LITERAL = string_literal
+
+    # String handling from jsonply.
+
+    def t_QUOTATION_MARK(self, t):
+        r'\x22'
+        t.lexer.push_state('string')
+        return t
+
+    t_string_ignore = ''
+    t_string_UNESCAPED = r'[\x20-\x21,\x23-\x5B,\x5D-\xFF]+'
+    
+    def t_string_QUOTATION_MARK(self, t):
+        r'\x22'
+        t.lexer.pop_state()
+        return t
+        
+    def t_string_ESCAPE(self, t):
+        r'\x5C'
+        t.lexer.push_state('escaped')
+        return t
+    
+    t_escaped_ignore = ''
+    
+    def t_escaped_QUOTATION_MARK(self, t):
+        r'\x22'
+        t.lexer.pop_state()
+        return t
+    
+    def t_escaped_BACKSLASH(self, t):
+        r'\x5C'
+        t.lexer.pop_state()
+        return t
+    
+    def t_escaped_BACKSPACE_CHAR(self, t):
+        r'\x62'
+        t.lexer.pop_state()
+        t.value = chr(0x0008)
+        return t
+        
+    def t_escaped_FORM_FEED_CHAR(self, t):
+        r'\x66'
+        t.lexer.pop_state()
+        t.value = chr(0x000c)
+        return t
+    
+    def t_escaped_CARRIAGE_RETURN_CHAR(self, t):
+        r'\x72'
+        t.lexer.pop_state()
+        t.value = chr(0x000d)
+        return t
+        
+    def t_escaped_LINE_FEED_CHAR(self, t):
+        r'\x6E'
+        t.lexer.pop_state()
+        t.value = chr(0x000a)
+        return t
+
+    def t_escaped_TAB_CHAR(self, t):
+        r'\x74'
+        t.lexer.pop_state()
+        t.value = chr(0x0009)
+        return t
+    
+    def t_escaped_UNICODE_HEX(self, t):
+        r'\x75[\x30-\x39,\x41-\x46,\x61-\x66]{4}'
+        t.lexer.pop_state()
+        return t
     
     t_ASSIGN = r'='
     t_ASSIGN_PLUS = r'\+='

@@ -16,7 +16,7 @@ class CloudScriptParser:
         self.tokens = self.lexer.tokens
         
         self.parser = ply.yacc.yacc(module=self, start='script_file')
-        
+ 
     def parse(self, text):
         return self.parser.parse(text)
     
@@ -233,6 +233,7 @@ class CloudScriptParser:
                                | constant
                                | function_decl_expression
                                | lambda_expression
+                               | dict_expression
         """
         p[0] = p[1]
         
@@ -243,7 +244,7 @@ class CloudScriptParser:
         
     def p_constant_1(self, p):
         """ constant : INT_LITERAL
-                     | STRING_LITERAL
+                     | string_literal
         """
         p[0] = ast.Constant(p[1])
         
@@ -252,6 +253,41 @@ class CloudScriptParser:
         """
         p[0] = p[1]
         
+    def p_string_literal(self, p):
+        """ string_literal : QUOTATION_MARK string_chars QUOTATION_MARK
+        """
+        p[0] = p[2]
+        
+    def p_string_chars(self, p):
+        """ string_chars :
+                         | string_chars string_char
+        """
+        if len(p) == 1:
+            p[0] = unicode()
+        else:
+            p[0] = p[1] + p[2]
+        
+    def p_string_char_1(self, p):
+        """ string_char : UNESCAPED
+        """
+        p[0] = p[1]
+        
+    def p_string_char_2(self, p):
+        """ string_char : ESCAPE QUOTATION_MARK
+                        | ESCAPE BACKSLASH
+                        | ESCAPE BACKSPACE_CHAR
+                        | ESCAPE FORM_FEED_CHAR
+                        | ESCAPE LINE_FEED_CHAR
+                        | ESCAPE CARRIAGE_RETURN_CHAR
+                        | ESCAPE TAB_CHAR
+        """
+        p[0] = p[2]
+        
+    def p_string_char_3(self, p):
+        """ string_char : ESCAPE UNICODE_HEX
+        """
+        p[0] = unichr(int(p[2][1:], 16))
+    
     def p_boolean_literal_1(self, p):
         """ boolean_literal : TRUE
         """
@@ -291,6 +327,26 @@ class CloudScriptParser:
         """ lambda_expression : LAMBDA COLON expression
         """
         p[0] = ast.LambdaExpression(p[3])
+    
+    def p_dict_expression_1(self, p):
+        """ dict_expression : LBRACE RBRACE
+        """
+        p[0] = ast.Dict()
+    
+    def p_dict_expression_2(self, p):
+        """ dict_expression : LBRACE key_value_list RBRACE
+        """
+        p[0] = ast.Dict(p[2])
+        
+    def p_key_value_list_1(self, p):
+        """ key_value_list : expression COLON expression
+        """
+        p[0] = [ast.KeyValuePair(p[1], p[3])]
+    
+    def p_key_value_list_2(self, p):
+        """ key_value_list : key_value_list COMMA expression COLON expression
+        """
+        p[0] = p[1] + [ast.KeyValuePair(p[3], p[5])]
     
     def p_expression_list(self, p):
         """ expression_list : expression

@@ -131,6 +131,11 @@ class Dereference(Expression):
     
     def __init__(self, reference):
         self.reference = reference
+
+class Dict(Expression):
+    
+    def __init__(self, items=[]):
+        self.items = items
     
 class FieldReference(Expression):
     
@@ -154,6 +159,12 @@ class Identifier(Expression):
     
     def __init__(self, identifier):
         self.identifier = identifier
+    
+class KeyValuePair(Expression):
+    
+    def __init__(self, key_expr, value_expr):
+        self.key_expr = key_expr
+        self.value_expr = value_expr
     
 class LambdaExpression(Expression):
     

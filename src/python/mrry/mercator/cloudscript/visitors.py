@@ -126,6 +126,13 @@ class ExpressionEvaluatorVisitor(Visitor):
     def visit_Constant(self, node):
         return node.value
     
+    def visit_Dict(self, node):
+        ret = {}
+        for item in node.items:
+            key, value = self.visit(item)
+            ret[key] = value
+        return ret
+    
     def visit_Equal(self, node):
         return self.visit(node.lexpr) == self.visit(node.rexpr)
     
@@ -146,6 +153,11 @@ class ExpressionEvaluatorVisitor(Visitor):
     
     def visit_Identifier(self, node):
         return self.context.value_of(node.identifier)
+
+    def visit_KeyValuePair(self, node):
+        key = self.visit(node.key_expr)
+        value = self.visit(node.value_expr)
+        return key, value
     
     def visit_LambdaExpression(self, node):
         return UserDefinedLambda(self.context, self.context.fresh_context(), node)
