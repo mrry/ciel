@@ -1,6 +1,4 @@
 from optparse import OptionParser
-from mrry.mercator.jobmanager import jobmanager_main
-from mrry.mercator.master import master_main
 import cherrypy
 
 def set_port(port):
@@ -8,9 +6,6 @@ def set_port(port):
 
 def set_config(filename):
     cherrypy.config.update(filename)
-
-role_mains = {'jobmanager': jobmanager_main,
-              'master': master_main}
 
 def main(default_role=None):
     
@@ -21,7 +16,14 @@ def main(default_role=None):
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="URI")
     (options, args) = parser.parse_args()
 
-    role_mains[options.role](options)
-
+    if options.role == 'master':
+        from mrry.mercator.master import master_main
+        master_main(options)
+    elif options.role == 'jobmanager':
+        from mrry.mercator.jobmanager import jobmanager_main
+        jobmanager_main(options)
+    else:
+        raise
+    
 if __name__ == '__main__':
     main()

@@ -7,11 +7,15 @@ from cherrypy._cperror import HTTPError
 from mrry.mercator.master.workflow import build_workflow
 import simplejson
 import cherrypy
+from mrry.mercator.master.datamodel import Session, Worker, WORKER_STATUS_IDLE,\
+    engine
+import time
 
 class MasterRoot:
     
     def __init__(self):
         self.ping = PingReceiver()
+        self.worker = WorkersRoot()
         self.workflow = WorkflowsRoot(None)
 
 class PingReceiver:
@@ -20,6 +24,25 @@ class PingReceiver:
     def index(self):
         update = simplejson.loads(cherrypy.request.body.read())
         cherrypy.engine.publish('ping', update)
+
+class WorkersRoot:
+    
+    def __init__(self):
+        pass
+    
+    @cherrypy.expose
+    def index(self):
+        if cherrypy.request.method == 'POST':
+            session = Session()
+            worker_description = simplejson.loads(cherrypy.request.body.read())
+            worker = Worker(uri=worker_description['uri'], status=WORKER_STATUS_IDLE)
+            session.add(worker)
+            id = worker.id
+            session.commit()
+            session.close()
+            cherrypy.engine.publish('add_worker', worker)
+            return simplejson.dumps(id)
+        raise HTTPError(405)
 
 class WorkflowsRoot:
     

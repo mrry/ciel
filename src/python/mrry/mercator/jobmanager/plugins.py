@@ -194,6 +194,7 @@ class Pinger(plugins.SimplePlugin):
         self.target = target
         self.name = name
         self.thread = None
+        self.is_running = False
                 
     def subscribe(self):
         self.bus.subscribe('start', self.start)
@@ -201,12 +202,15 @@ class Pinger(plugins.SimplePlugin):
         self.bus.subscribe('update_status', self.update_status)
         
     def start(self):
-        self.thread = threading.Thread(target=self.thread_main, args=())
-        self.thread.start()
+        if not self.is_running:
+            self.is_running = True
+            self.thread = threading.Thread(target=self.thread_main, args=())
+            self.thread.start()
     
     def stop(self):
-        self.queue.put(THREAD_TERMINATOR)
-        if self.thread is not None:
+        if self.is_running:
+            self.is_running = False
+            self.queue.put(THREAD_TERMINATOR)
             self.thread.join()
     
     def update_status(self, job_id, status):

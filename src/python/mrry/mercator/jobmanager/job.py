@@ -10,11 +10,82 @@ import simplejson
 import threading
 import struct
 import subprocess
+import os
 
 class Job:
     
     def __init__(self):
         self.id = str(uuid4())
+
+output_dir = '/tmp/'
+
+class CloudScriptJob:
+    
+    def __init__(self, master_task_id, master_task_attempt_id, executor, args, arg_representations, outputs):
+        self.master_task_id = master_task_id
+        self.id = master_task_attempt_id
+        self.executor = executor
+        self.args = args
+        self.arg_representations = arg_representations
+        self.outputs = outputs
+    
+        self.fetched_arg_filenames = {}
+        
+        self._lock = threading.Lock()
+
+    def set_input_filename(self, input, filename):
+        with self._lock:
+            self.fetched_arg_filenames[input] = filename
+        
+    def rewrite_single_arg(self, arg):
+        if arg[0] == 'list':
+            return ('list', self.rewrite_args_list(arg[1]))
+        elif arg[0] == 'dict':
+            return ('dict', self.rewrite_args_dict(arg[1]))
+        elif arg[0] == 'datum':
+            return ('file', self.fetched_arg_filenames[arg[1]])
+        else:
+            return arg
+    
+    def rewrite_args_list(self, args_list):
+        ret = []
+        for arg in args_list:
+            ret.append(self.rewrite_single_arg(arg))
+        return ret
+            
+    def rewrite_args_dict(self, args_dict):
+        ret = {}
+        for (name, arg) in args_dict.items():
+            ret[name] = self.rewrite_single_arg(arg)
+        return ret
+
+    def is_runnable(self):
+        with self._lock:
+            return len(self.fetched_arg_filenames) == len(self.arg_representations)
+        
+    def allocate_output_filenames(self):
+        output_path = os.path.join(output_dir, str(self.id))
+        os.mkdir(output_path)
+        
+        return [('file', os.path.join(output_path, str(x))) for x in self.outputs]
+                 
+    def run(self, bus):
+
+        real_args = self.rewrite_args_dict(self.args)
+        real_outputs = self.allocate_output_filenames()
+        
+        process_args = {}
+        process_args['inputs'] = real_args
+        process_args['outputs'] = real_outputs
+        
+        stdin_file = open("%s.in" % (self.id, ), "r")
+        stdout_file = open("%s.out" % (self.id, ), "w")
+        stderr_file = open("%s.err" % (self.id, ), "w")
+        
+        self.proc = subprocess.Popen(args=[], close_fds=True, stdin=stdin_file, stdout=stdout_file, stderr=stderr_file)
+        bus.publish('update_status', self.id, "RUNNING")
+        rc = self.proc.wait()
+        bus.publish('update_status', self.id, ("TERMINATED", rc))
 
 class WorkflowJob(Job):
     

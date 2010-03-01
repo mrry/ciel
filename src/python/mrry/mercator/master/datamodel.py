@@ -9,7 +9,7 @@ from sqlalchemy import Column, Integer, String, Text, Table, create_engine
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy import PickleType
 import simplejson
-from sqlalchemy.orm import relation
+from sqlalchemy.orm import relation, scoped_session
 from sqlalchemy.schema import ForeignKey
 
 Base = declarative_base()
@@ -145,10 +145,10 @@ class Regenerate(DataRepresentation):
     def as_dict(self):
         return {'type':'regenerate', 'task':'task_id'}
 
-engine = create_engine('sqlite:///:memory:', echo=True)
+engine = create_engine('sqlite:////tmp/mercator.db', echo=True, strategy='threadlocal')
 Base.metadata.create_all(engine)
 
-Session = sessionmaker(bind=engine)
+Session = scoped_session(sessionmaker(bind=engine))
     
 if __name__ == '__main__':
     

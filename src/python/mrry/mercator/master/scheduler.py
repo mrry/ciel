@@ -9,9 +9,9 @@ from Queue import Queue, Empty
 from uuid import uuid4
 from mrry.mercator.jobmanager.plugins import THREAD_TERMINATOR
 from mrry.mercator.master.datamodel import Session, Worker, TaskAttempt,\
-    TASK_ATTEMPT_STATUS_FAILED, TASK_STATUS_QUEUED, TASK_STATUS_COMPLETED,\
+    TASK_ATTEMPT_STATUS_FAILED, TASK_STATUS_COMPLETED,\
     TASK_ATTEMPT_STATUS_COMPLETED, WORKER_STATUS_IDLE, TASK_STATUS_RUNNABLE,\
-    WORKER_STATUS_BUSY, TASK_STATUS_RUNNING
+    WORKER_STATUS_BUSY, TASK_STATUS_RUNNING, TASK_STATUS_BLOCKED, Task
 from sqlalchemy.orm import eagerload
 import simplejson
 import httplib2
@@ -119,7 +119,8 @@ class SingleThreadedScheduler:
         self.blocked_list = []
     
     def add_worker(self, worker):
-        self.session.add(worker)
+        #self.session.add(worker)
+        pass
         
     def remove_worker(self, worker_id):
         worker = self.session.query(Worker).get(worker_id)
@@ -149,7 +150,7 @@ class SingleThreadedScheduler:
         task = attempt.task
         
         attempt.status = TASK_ATTEMPT_STATUS_FAILED
-        task.status = TASK_STATUS_QUEUED
+        task.status = TASK_STATUS_BLOCKED
         
     def add_completed_task_attempt(self, task_attempt_id, new_output_data):
         attempt = self.session.query(TaskAttempt).get(task_attempt_id)
@@ -188,12 +189,6 @@ class SingleThreadedScheduler:
 #        for newly_available_output in newly_available_data:
 #            self.available_data.add(newly_available_output)
     
-    def assign_task(self, attempt):
-        self.idle_workers.remove(task.worker)
-        self.busy_workers[task.worker] = task.id
-        self.running_tasks[task.id] = task
-        
-    
     def do_schedule(self):
         self.session.flush()
         idle_workers = self.session.query(Worker).filter_by(status=WORKER_STATUS_IDLE)
@@ -212,16 +207,15 @@ class SingleThreadedScheduler:
         
 class TaskExecutor(plugins.SimplePlugin):
     
-    def __init__(self, bus, worker_pool):
+    def __init__(self, bus):
         plugins.SimplePlugin.__init__(self, bus)
         self.is_running = False
         self.task_queue = Queue()
-        self.worker_pool = worker_pool
         
     def subscribe(self):
         self.bus.subscribe('start', self.start)
         self.bus.subscribe('stop', self.stop)
-        self.bus.subscribe('execute_task', self.execute_task)
+        self.bus.subscribe('execute_task_attempt', self.execute_task_attempt)
         
     def start(self):
         if not self.is_running:
