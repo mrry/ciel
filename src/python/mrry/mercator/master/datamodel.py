@@ -58,6 +58,7 @@ class Task(Base):
     workflow_id = Column(Integer, ForeignKey('workflow.id'))
     
     inputs = relation(Data, order_by=Data.id, backref='task')
+    outputs = relation(Data, order_by=Data.id, backref)
     
     def __init__(self, inputs):
-        
+        pass
