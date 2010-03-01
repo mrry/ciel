@@ -246,4 +246,3 @@ class WorkerPool(plugins.SimplePlugin):
         # Map from worker-id to worker object.
         self.workers = {}
         
-    def 
