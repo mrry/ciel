@@ -4,9 +4,8 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.process import plugins
-from threading import Lock, Thread
+from threading import Thread
 from Queue import Queue, Empty
-from uuid import uuid4
 from mrry.mercator.jobmanager.plugins import THREAD_TERMINATOR
 from mrry.mercator.master.datamodel import Session, Worker, TaskAttempt,\
     TASK_ATTEMPT_STATUS_FAILED, TASK_STATUS_COMPLETED,\
@@ -15,7 +14,6 @@ from mrry.mercator.master.datamodel import Session, Worker, TaskAttempt,\
 from sqlalchemy.orm import eagerload
 import simplejson
 import httplib2
-import collections
 
 class SchedulerProxy(plugins.SimplePlugin):
     
@@ -278,5 +276,63 @@ class TaskExecutor(plugins.SimplePlugin):
 
         self.session.close()
         
-
+class PingHandler(plugins.SimplePlugin):
+    
+    def __init__(self, bus):
+        plugins.SimplePlugin.__init__(self, bus)
+        self.queue = Queue()
+        self.is_running = False
         
+    def subscribe(self):
+        self.bus.subscribe('start', self.start)
+        self.bus.subscribe('stop', self.stop)
+        self.bus.subscribe('ping_received', self.ping_received)
+        
+    def start(self):
+        if not self.is_running:
+            self.is_running = True
+            self.thread = Thread(target=self.ping_handler_main, args=())
+            self.thread.start()
+            
+    def stop(self):
+        if self.is_running:
+            self.is_running = False
+            self.queue.put(THREAD_TERMINATOR)
+            self.thread.join()
+            
+    def ping_received(self, worker_id, update):
+        self.queue.put((worker_id, update))
+                    
+    def ping_handler_main(self):
+        while True:
+            update = self.queue.get()
+            if update is THREAD_TERMINATOR or not self.is_running:
+                break
+            
+            worker_id = update[0]
+            ping_update = update[1]
+            
+            if ping_update[0] == 'worker':
+                
+                if ping_update[1] == 'TERMINATING':
+                    self.bus.publish('remove_worker', int(worker_id))
+                else:
+                    # HEARTBEAT
+                    pass
+                
+            elif ping_update[0] == 'data_representation':
+                
+                datum_id = ping_update[1]
+                
+            elif ping_update[0] == 'task_attempt':
+                
+                task_attempt_id = ping_update[1]
+                task_attempt_status = ping_update[2]
+                
+                if task_attempt_status == 'COMPLETED':
+                    self.bus.publish('add_completed_task_attempt', task_attempt_id)
+                elif task_attempt_status == 'FAILED':
+                    self.bus.publish('add_failed_task_attempt', task_attempt_id)
+                else:
+                    # ??
+                    pass

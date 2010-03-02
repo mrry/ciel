@@ -38,7 +38,9 @@ def jobmanager_main(options):
     jr.subscribe()
     sm = StatusMaintainer(cherrypy.engine)
     sm.subscribe()
-    root = JobsRoot(sm, jr)
+    dm = DataManager(cherrypy.engine)
+    dm.subscribe()
+    root = JobsRoot(sm, jr, dm)
     
     pinger = Pinger(cherrypy.engine, options.master, worker_id) 
     pinger.subscribe()

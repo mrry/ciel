@@ -16,8 +16,6 @@ def master_main(options):
 #    pool = Scheduler(cherrypy.engine)
 #    pool.subscribe()
 
-    
-
     te = TaskExecutor(cherrypy.engine)
     te.subscribe()
 

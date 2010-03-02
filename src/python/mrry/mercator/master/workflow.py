@@ -142,7 +142,7 @@ class MapReduceWorkflow(WorkflowBase):
         
         self.runnable_jobs = {}
         for map_input in self.map_inputs:
-            map_job = JobDetails(self, "map", [mapper_class, num_reducers, map_input])
+            map_job = JobDetails(self, 'map', [mapper_class, num_reducers, map_input])
             self.runnable_jobs[map_job.id] = map_job
         
         self.running_jobs = {}

@@ -191,6 +191,7 @@ class Pinger(plugins.SimplePlugin):
     def __init__(self, bus, target, name):
         plugins.SimplePlugin.__init__(self, bus)
         self.queue = Queue()
+        self.non_urgent_queue = Queue()
         self.target = target
         self.name = name
         self.thread = None
@@ -199,7 +200,8 @@ class Pinger(plugins.SimplePlugin):
     def subscribe(self):
         self.bus.subscribe('start', self.start)
         self.bus.subscribe('stop', self.stop)
-        self.bus.subscribe('update_status', self.update_status)
+        self.bus.subscribe('ping_master', self.ping_master)
+        self.bus.subscribe('ping_non_urgent', self.ping_non_urgent)
         
     def start(self):
         if not self.is_running:
@@ -213,17 +215,60 @@ class Pinger(plugins.SimplePlugin):
             self.queue.put(THREAD_TERMINATOR)
             self.thread.join()
     
-    def update_status(self, job_id, status):
-        self.queue.put(('STATUS_UPDATE', { 'job': job_id, 'status': status }))
+    def ping_master(self, message):
+        self.queue.put(message)
+        
+    def ping_non_urgent(self, message):
+        self.non_urgent_queue.put(message)
         
     def thread_main(self):
         http = httplib2.Http()
         while True:
+            
+            update = []
+            
             try:
                 update = self.queue.get(block=True, timeout=30)
-                if update is THREAD_TERMINATOR:
-                    update = ("PINGER_TERMINATING")
+                if not self.is_running or update is THREAD_TERMINATOR:
+                    update.append(('worker', 'TERMINATING'))
             except Empty:
-                update = ("HEARTBEAT")
+                update.append(('worker', 'HEARTBEAT'))
+                
+            try:
+                while True:
+                    update.append(self.queue.get_nowait())
+            except Empty:
+                pass
+            
+            try:
+                while True:
+                    update.append(self.non_urgent_queue.get_nowait())
+            except Empty:
+                pass
             
             http.request(uri=self.target, method='POST', body=simplejson.dumps((self.name, update)))
+            
+            if not self.is_running:
+                break
+            
+class DataManager(plugins.SimplePlugin):
+    
+    def __init__(self, bus):
+        plugins.SimplePlugin.__init__(self, bus)
+        self.data_dict = {}
+        self._lock = Lock()
+        
+    def subscribe(self):
+        self.bus.subscribe('publish_static_file', self.publish_static_file)
+        
+    def publish_static_file(self, datum_id, filename):
+        with self._lock:
+            self.data_dict[datum_id] = filename
+            
+    def get_filename(self, datum_id):
+        with self._lock:
+            return self.data_dict[datum_id]
+        
+    def get_all_data(self):
+        with self._lock:
+            return list(self.data_dict.keys())

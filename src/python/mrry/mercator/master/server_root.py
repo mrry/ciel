@@ -5,6 +5,7 @@ Created on 8 Feb 2010
 '''
 from cherrypy._cperror import HTTPError
 from mrry.mercator.master.workflow import build_workflow
+from cherrypy.lib.static import serve_file
 import simplejson
 import cherrypy
 from mrry.mercator.master.datamodel import Session, Worker, WORKER_STATUS_IDLE,\
@@ -22,8 +23,12 @@ class PingReceiver:
     
     @cherrypy.expose
     def index(self):
-        update = simplejson.loads(cherrypy.request.body.read())
-        cherrypy.engine.publish('ping', update)
+        update_tuple = simplejson.loads(cherrypy.request.body.read())
+        worker_id = update_tuple[0]
+        update_list = update_tuple[1]
+        
+        for update in update_list:
+            cherrypy.engine.publish("ping_received", worker_id, update)
 
 class WorkersRoot:
     

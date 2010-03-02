@@ -6,6 +6,7 @@ Created on 8 Feb 2010
 from uuid import uuid4
 from mrry.mercator.jobmanager.inputs import JobArguments, JobLiteralInput,\
     MultipleSourceJobInput, HttpJobInput, LocalFileJobInput, JobOutputs
+import socket
 import simplejson
 import threading
 import struct
@@ -85,7 +86,27 @@ class CloudScriptJob:
         self.proc = subprocess.Popen(args=[], close_fds=True, stdin=stdin_file, stdout=stdout_file, stderr=stderr_file)
         bus.publish('update_status', self.id, "RUNNING")
         rc = self.proc.wait()
-        bus.publish('update_status', self.id, ("TERMINATED", rc))
+        
+        if rc == 0:
+            local_fqdn = socket.getfqdn()
+            output_path = os.path.join(output_dir, str(self.id))
+            new_data_representations = []
+            for output in self.outputs:
+                # TODO: combine this with the allocate_output_filenames method.
+                filename = os.path.join(output_path, str(output))
+                
+                new_local_representation = {'type' : 'file', 'worker' : local_fqdn, 'filename' : filename}
+                new_http_representation = {'type' : 'http', 'url' : "http://%s/data/%s" % (local_fqdn, str(output))}
+                bus.publish('publish_static_file', str(output), filename)
+                new_data_representations.append((output, new_local_representation))
+                new_data_representations.append((output, new_http_representation))
+            
+            ping_message = ('worker', self.id, 'COMPLETED')
+
+        else:
+            ping_message = ('worker', self.id, 'FAILED', { 'reason' : 'ERROR', 'rc' : rc })
+        
+        bus.publish('ping_master', ping_message)
 
 class WorkflowJob(Job):
     
