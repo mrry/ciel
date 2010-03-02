@@ -5,7 +5,7 @@ Created on Feb 26, 2010
 '''
 
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, String, Text, Table, create_engine
+from sqlalchemy import Column, Integer, String, Text, Table, create_engine, DateTime
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy import PickleType
 import simplejson
@@ -23,8 +23,10 @@ class Worker(Base):
     __tablename__ = 'worker'
     
     id = Column(Integer, primary_key=True)
-    uri = Column(String, unique=True)
+    uri = Column(String)
     status = Column(Integer)
+    
+    last_heartbeat = Column(DateTime)
 
 task_input = Table('task_input', Base.metadata,
                    Column('task_id', Integer, ForeignKey('task.id')),
@@ -67,6 +69,9 @@ class Task(Base):
     
     id = Column(Integer, primary_key=True)
     workflow_id = Column(Integer, ForeignKey('workflow.id'))
+    
+    method = Column(String)
+    
     args = Column(PickleType)
     status = Column(Integer)
 
@@ -88,6 +93,11 @@ class TaskAttempt(Base):
     
     task = relation(Task, backref='attempts')
     worker = relation(Worker, backref='task_attempts')
+           
+WORKFLOW_STATUS_QUEUED = 0
+WORKFLOW_STATUS_RUNNING = 1
+WORKFLOW_STATUS_COMPLETED = 2
+WORKFLOW_STATUS_FAILED = 3
             
 class Workflow(Base):
     
@@ -95,7 +105,9 @@ class Workflow(Base):
     
     id = Column(Integer, primary_key=True)
     script_text = Column(Text)
-    script_context = Column(Text)
+    script_context = Column(PickleType)
+    
+    status = Column(Integer, default=WORKFLOW_STATUS_QUEUED)
     
     tasks = relation(Task, order_by=Task.id, backref='workflow')
     
@@ -104,11 +116,6 @@ class Workflow(Base):
         self.script_context = script_context
         self.parsed_ast = None
         self.parsed_context = None
-        
-    def context(self):
-        if self.parsed_context is None:
-            self.parsed_context = simplejson.loads(self.script_context)
-        return self.parsed_context
         
     def ast(self, parser):
         if self.parsed_ast is None:

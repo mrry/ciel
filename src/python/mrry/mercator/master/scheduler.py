@@ -10,8 +10,13 @@ from mrry.mercator.jobmanager.plugins import THREAD_TERMINATOR
 from mrry.mercator.master.datamodel import Session, Worker, TaskAttempt,\
     TASK_ATTEMPT_STATUS_FAILED, TASK_STATUS_COMPLETED,\
     TASK_ATTEMPT_STATUS_COMPLETED, WORKER_STATUS_IDLE, TASK_STATUS_RUNNABLE,\
-    WORKER_STATUS_BUSY, TASK_STATUS_RUNNING, TASK_STATUS_BLOCKED, Task
+    WORKER_STATUS_BUSY, TASK_STATUS_RUNNING, TASK_STATUS_BLOCKED, Task, Workflow,\
+    Datum, WORKFLOW_STATUS_RUNNING, WORKFLOW_STATUS_COMPLETED
 from sqlalchemy.orm import eagerload
+from mrry.mercator.cloudscript.parser import CloudScriptParser
+from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction
+from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor
+import datetime
 import simplejson
 import httplib2
 
@@ -19,11 +24,8 @@ class SchedulerProxy(plugins.SimplePlugin):
     
     def __init__(self, bus):
         plugins.SimplePlugin.__init__(self, bus)
-
         self.internal_scheduler = SingleThreadedScheduler(bus)
-        
         self.input_queue = Queue()
-        
         self.is_running = False
 
     def subscribe(self):
@@ -291,12 +293,14 @@ class PingHandler(plugins.SimplePlugin):
     def start(self):
         if not self.is_running:
             self.is_running = True
+            self.session = Session()
             self.thread = Thread(target=self.ping_handler_main, args=())
             self.thread.start()
             
     def stop(self):
         if self.is_running:
             self.is_running = False
+            self.session.close()
             self.queue.put(THREAD_TERMINATOR)
             self.thread.join()
             
@@ -316,13 +320,14 @@ class PingHandler(plugins.SimplePlugin):
                 
                 if ping_update[1] == 'TERMINATING':
                     self.bus.publish('remove_worker', int(worker_id))
-                else:
-                    # HEARTBEAT
-                    pass
+                elif ping_update[1] == 'HEARTBEAT':
+                    worker = self.session.query(Worker).get(worker_id)
+                    worker.last_heartbeat = datetime.datetime.now()
+                    self.session.commit()
                 
             elif ping_update[0] == 'data_representation':
-                
-                datum_id = ping_update[1]
+                # TODO: something about this (loading data representations)
+                self.add_new_data_representation(ping_update)
                 
             elif ping_update[0] == 'task_attempt':
                 
@@ -336,3 +341,120 @@ class PingHandler(plugins.SimplePlugin):
                 else:
                     # ??
                     pass
+    
+    def add_new_data_representation(self, repr):
+        pass
+                
+class WorkflowRunner(plugins.SimplePlugin):
+    
+    def __init__(self, bus):
+        plugins.SimplePlugin.__init__(self, bus)
+        self.is_running = False
+        self.queue = Queue()
+        
+    def subscribe(self):
+        self.bus.subscribe('start', self.start)
+        self.bus.subscribe('stop', self.stop)
+        self.bus.subscribe('start_workflow', self.start_workflow)
+        
+    def start(self):
+        if not self.is_running:
+            self.is_running = True
+            # TODO: should be threadpool.
+            self.thread = Thread(target=self.workflow_runner_main, args=())
+            self.thread.start()
+            self.session = Session()
+            
+    def stop(self):
+        if self.is_running:
+            self.is_running = False
+            self.queue.put(THREAD_TERMINATOR)
+            self.thread.join()
+            self.session.close()
+            
+    def start_workflow(self, workflow_id):
+        self.queue.put(workflow_id)
+            
+    def workflow_runner_main(self):
+        while True:
+            workflow_id = self.queue.get()
+            if workflow_id is THREAD_TERMINATOR or not self.is_running:
+                break
+
+            workflow = self.session.query(Workflow).get(workflow_id)
+            self.current_workflow = workflow
+
+            workflow.status = WORKFLOW_STATUS_RUNNING
+            self.session.commit()
+            
+            parser = CloudScriptParser()
+            
+            ast = workflow.ast(parser) 
+            
+            real_context = SimpleContext()
+            for (name, value) in self.context:
+                real_context.bind_identifier(name, value)
+            
+            # TODO: decide arguments for emit_function. 
+            real_context.bind_identifier("emit_task", LambdaFunction(self.emit_function))
+            real_context.bind_identifier("__star__", LambdaFunction(self.star_function))
+        
+            # TODO: make interruptible.
+            StatementExecutorVisitor(real_context).visit(self.ast)
+            
+            workflow.status = WORKFLOW_STATUS_COMPLETED
+            self.session.commit()
+            
+    def emit_function(self, input_dict, method, num_outputs):
+        
+        idp = InputDictParser(input_dict)
+        idp.parse()
+        
+        task = Task(method=method, workflow=self.current_workflow)
+        
+        for input in idp.referenced_input_data:
+            task.inputs.append(input)
+
+        for output in range(num_outputs):
+            task.outputs.append(Datum())
+            
+        self.session.commit()
+
+        ret = [RemoteDatum(x.id) for x in task.outputs]
+        
+    def star_function(self, datum):
+        return {'foo' : 'bar', 'baz' : 'blinky'}
+    
+class InputDictParser:
+    
+    def __init__(self, input_dict):
+        self.input_dict = input_dict
+        self.referenced_input_data = set()
+        
+        self.parsed_dict = {}
+        
+    def parse_single_input(self, input):
+        if type(input) is dict:
+            return ('dict', self.parse_dict(input))
+        elif type(input) is list:
+            return ('list', self.parse_list(input))
+        elif type(input) is RemoteDatum:
+            self.referenced_input_data.add(input.id)
+            return ('datum', input.id)
+        else:
+            return ('literal', input)
+        
+    def parse_dict(self, input_dict):
+        ret = {}
+        for name, value in input_dict.items():
+            ret[name] = self.parse_single_input(value)
+    
+    def parse_list(self, input_list):
+        return [self.parse_single_input(x) for x in input_list]
+        
+    def parse(self):
+        self.parsed_dict = self.parse_dict(self.input_dict)
+        
+class RemoteDatum:
+    def __init__(self, id):
+        self.id = id

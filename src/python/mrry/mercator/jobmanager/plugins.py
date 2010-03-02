@@ -7,6 +7,7 @@ Created on 4 Feb 2010
 from cherrypy.process import plugins
 from Queue import Queue, Empty
 from threading import Lock
+from urlparse import urljoin
 import struct
 import simplejson
 import subprocess
@@ -188,11 +189,11 @@ class StatusMaintainer(plugins.SimplePlugin):
     
 class Pinger(plugins.SimplePlugin):
     
-    def __init__(self, bus, target, name):
+    def __init__(self, bus, master_uri, name):
         plugins.SimplePlugin.__init__(self, bus)
         self.queue = Queue()
         self.non_urgent_queue = Queue()
-        self.target = target
+        self.ping_uri = urljoin(master_uri, 'ping/')
         self.name = name
         self.thread = None
         self.is_running = False
@@ -228,10 +229,13 @@ class Pinger(plugins.SimplePlugin):
             update = []
             
             try:
-                update = self.queue.get(block=True, timeout=30)
+                update.append(self.queue.get(block=True, timeout=30))
                 if not self.is_running or update is THREAD_TERMINATOR:
                     update.append(('worker', 'TERMINATING'))
             except Empty:
+                pass
+            
+            if self.is_running:
                 update.append(('worker', 'HEARTBEAT'))
                 
             try:
@@ -246,7 +250,7 @@ class Pinger(plugins.SimplePlugin):
             except Empty:
                 pass
             
-            http.request(uri=self.target, method='POST', body=simplejson.dumps((self.name, update)))
+            http.request(uri=self.ping_uri, method='POST', body=simplejson.dumps((self.name, update)))
             
             if not self.is_running:
                 break

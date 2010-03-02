@@ -4,13 +4,10 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy._cperror import HTTPError
-from mrry.mercator.master.workflow import build_workflow
-from cherrypy.lib.static import serve_file
 import simplejson
 import cherrypy
 from mrry.mercator.master.datamodel import Session, Worker, WORKER_STATUS_IDLE,\
-    engine
-import time
+    Workflow
 
 class MasterRoot:
     
@@ -42,11 +39,17 @@ class WorkersRoot:
             worker_description = simplejson.loads(cherrypy.request.body.read())
             worker = Worker(uri=worker_description['uri'], status=WORKER_STATUS_IDLE)
             session.add(worker)
-            id = worker.id
             session.commit()
+            id = worker.id
             session.close()
             cherrypy.engine.publish('add_worker', worker)
             return simplejson.dumps(id)
+        elif cherrypy.request.method == 'GET':
+            session = Session()
+            workers = session.query(Worker).all()
+            ret = simplejson.dumps([(x.id, x.uri) for x in workers])
+            session.close()
+            return ret
         raise HTTPError(405)
 
 class WorkflowsRoot:
@@ -57,16 +60,20 @@ class WorkflowsRoot:
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
+            session = Session()
             workflow_description = simplejson.loads(cherrypy.request.body.read())
-            workflow = build_workflow(workflow_description)
-            cherrypy.engine.publish('create_workflow', workflow)
-            return simplejson.dumps(workflow.id)
+            workflow = Workflow(script_text=workflow_description['text'], script_context=workflow_description['context'])
+            session.add(workflow)
+            session.commit()
+            id = workflow.id
+            cherrypy.engine.publish('start_workflow', id)
+            session.close()
+            return simplejson.dumps(id)
+        elif cherrypy.request.method == 'GET':
+            session = Session()
+            workflows = session.query(Workflow).all()
+            ret = simplejson.dumps([w.id for w in workflows])
+            session.close()
+            return ret
         raise HTTPError(405)
-    
-    @cherrypy.expose
-    def default(self, workflow_id, job_id):
-        if cherrypy.request.method == 'POST':
-            job_result = simplejson.loads(cherrypy.request.body.read())
-            cherrypy.engine.publish('job_completed', workflow_id, job_id, job_result)
-            return
-        raise HTTPError(405)
+

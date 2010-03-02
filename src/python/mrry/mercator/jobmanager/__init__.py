@@ -6,7 +6,7 @@ Created on 4 Feb 2010
 import cherrypy
 import mrry.mercator
 from mrry.mercator.jobmanager.plugins import JobExecutor, StatusMaintainer,\
-    Pinger
+    Pinger, DataManager
 from mrry.mercator.jobmanager.server_root import JobsRoot
 import httplib2
 import os
@@ -33,6 +33,7 @@ def register_with_master(options):
 def jobmanager_main(options):
     
     worker_id = register_with_master(options)
+    cherrypy.config.update({'worker.id' : worker_id})
     
     jr = JobExecutor(cherrypy.engine, 10)
     jr.subscribe()
