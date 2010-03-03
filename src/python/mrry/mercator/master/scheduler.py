@@ -25,6 +25,7 @@ class SchedulerProxy(plugins.SimplePlugin):
     def __init__(self, bus):
         plugins.SimplePlugin.__init__(self, bus)
         self.internal_scheduler = SingleThreadedScheduler(bus)
+        self.scheduler_invoke_queue = Queue()
         self.input_queue = Queue()
         self.is_running = False
 
@@ -125,10 +126,13 @@ class SingleThreadedScheduler:
     def remove_worker(self, worker_id):
         worker = self.session.query(Worker).get(worker_id)
         
-        for attempt in worker.task_attempts:
-            self.add_failed_task_attempt(attempt.id)
+        if worker is None:
+            self.bus.log("Worker %d is None" % (worker_id, ))
+        else:
+            for attempt in worker.task_attempts:
+                self.add_failed_task_attempt(attempt.id)
         
-        self.session.delete(worker)
+            self.session.delete(worker)
         
         # TODO: see if this worker was the only source for a bunch of inputs, if so, may have to reproduce them.
         # This may make a bunch of tasks non-runnable.
@@ -190,10 +194,10 @@ class SingleThreadedScheduler:
 #            self.available_data.add(newly_available_output)
     
     def do_schedule(self):
-        self.session.flush()
-        idle_workers = self.session.query(Worker).filter_by(status=WORKER_STATUS_IDLE)
-        runnable_tasks = self.session.query(Task).filter_by(status=TASK_STATUS_RUNNABLE)
-        while not len(self.idle_workers) == 0 or len(self.runnable_list) == 0:
+        self.session.commit()
+        idle_workers = list(self.session.query(Worker).filter_by(status=WORKER_STATUS_IDLE).all())
+        runnable_tasks = list(self.session.query(Task).filter_by(status=TASK_STATUS_RUNNABLE).all())
+        while not (len(idle_workers) == 0 or len(runnable_tasks)) == 0:
             # Really we should be doing Quincy or something locality-aware in here, but instead let's just do an arbitrary mapping.
             task = runnable_tasks.pop()
             worker = idle_workers.pop()
@@ -278,13 +282,60 @@ class TaskExecutor(plugins.SimplePlugin):
 
         self.session.close()
         
+class WorkerReaper(plugins.SimplePlugin):
+    
+    def __init__(self, bus, reap_period=120, dead_period=120):
+        plugins.SimplePlugin.__init__(self, bus)
+        self.queue = Queue()
+        self.is_running = False
+        self.reap_period = reap_period
+        self.dead_period = dead_period
+        
+    def subscribe(self):
+        self.bus.subscribe('start', self.start)
+        self.bus.subscribe('stop', self.stop)
+        
+    def start(self):
+        if not self.is_running:
+            self.is_running = True
+            self.thread = Thread(target=self.worker_reaper_main, args=())
+            self.thread.start()
+            
+    def stop(self):
+        if self.is_running:
+            self.is_running = False
+            self.queue.put(THREAD_TERMINATOR)
+            self.thread.join()
+
+    def worker_reaper_main(self):
+        self.session = Session()
+        while True:
+            
+            try:
+                update = self.queue.get(block=True, timeout=self.reap_period)
+                if update is THREAD_TERMINATOR or not self.is_running:
+                    break
+            except Empty:
+                pass
+            
+            failing_worker_ids = []
+            
+            for failing_worker in self.session.query(Worker).filter(Worker.last_heartbeat < (datetime.datetime.now() - datetime.timedelta(seconds=self.dead_period))).all():
+                failing_worker_ids.append(failing_worker.id)
+            self.session.flush()    
+            
+            for failing_worker_id in failing_worker_ids:
+                self.bus.publish('remove_worker', failing_worker_id)
+            
+        self.session.close()
+        
 class PingHandler(plugins.SimplePlugin):
     
     def __init__(self, bus):
         plugins.SimplePlugin.__init__(self, bus)
         self.queue = Queue()
         self.is_running = False
-        
+
     def subscribe(self):
         self.bus.subscribe('start', self.start)
         self.bus.subscribe('stop', self.stop)
@@ -293,14 +344,12 @@ class PingHandler(plugins.SimplePlugin):
     def start(self):
         if not self.is_running:
             self.is_running = True
-            self.session = Session()
             self.thread = Thread(target=self.ping_handler_main, args=())
             self.thread.start()
             
     def stop(self):
         if self.is_running:
             self.is_running = False
-            self.session.close()
             self.queue.put(THREAD_TERMINATOR)
             self.thread.join()
             
@@ -308,6 +357,7 @@ class PingHandler(plugins.SimplePlugin):
         self.queue.put((worker_id, update))
                     
     def ping_handler_main(self):
+        self.session = Session()
         while True:
             update = self.queue.get()
             if update is THREAD_TERMINATOR or not self.is_running:
@@ -341,6 +391,8 @@ class PingHandler(plugins.SimplePlugin):
                 else:
                     # ??
                     pass
+        self.session.close()
+        
     
     def add_new_data_representation(self, repr):
         pass

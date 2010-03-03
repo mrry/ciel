@@ -6,14 +6,17 @@ Created on 11 Feb 2010
 from mrry.mercator.master.server_root import MasterRoot
 import mrry.mercator
 from mrry.mercator.master.scheduler import TaskExecutor, WorkflowRunner,\
-    PingHandler
+    PingHandler, SchedulerProxy, WorkerReaper
 #from mrry.mercator.master.datamodel import JobManagerPool
 import cherrypy
 
-def pinger(update):
-    print "PING RECEIVED: %s" % (str(update), )
-
 def master_main(options):
+
+    sch = SchedulerProxy(cherrypy.engine)
+    sch.subscribe()
+
+    reaper = WorkerReaper(cherrypy.engine)
+    reaper.subscribe()
 
     wr = WorkflowRunner(cherrypy.engine)
     wr.subscribe()

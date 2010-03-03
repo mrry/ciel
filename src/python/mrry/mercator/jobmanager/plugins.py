@@ -229,26 +229,28 @@ class Pinger(plugins.SimplePlugin):
             update = []
             
             try:
-                update.append(self.queue.get(block=True, timeout=30))
+                new_thing = self.queue.get(block=True, timeout=30)
                 if not self.is_running or update is THREAD_TERMINATOR:
                     update.append(('worker', 'TERMINATING'))
+                else:
+                    update.append(new_thing)
             except Empty:
                 pass
             
             if self.is_running:
                 update.append(('worker', 'HEARTBEAT'))
                 
-            try:
-                while True:
-                    update.append(self.queue.get_nowait())
-            except Empty:
-                pass
-            
-            try:
-                while True:
-                    update.append(self.non_urgent_queue.get_nowait())
-            except Empty:
-                pass
+                try:
+                    while True:
+                        update.append(self.queue.get_nowait())
+                except Empty:
+                    pass
+                
+                try:
+                    while True:
+                        update.append(self.non_urgent_queue.get_nowait())
+                except Empty:
+                    pass
             
             http.request(uri=self.ping_uri, method='POST', body=simplejson.dumps((self.name, update)))
             
