@@ -1,0 +1,9 @@
+
+syntax: regexp
+^src/python/mrry/mercator/cloudscript/parser\.out$
+syntax: regexp
+^src/python/mrry/mercator/cloudscript/parsetab\.py$
+syntax: regexp
+^src/python/mrry/mercator/master/parser\.out$
+syntax: regexp
+^src/python/mrry/mercator/master/parsetab\.py$
