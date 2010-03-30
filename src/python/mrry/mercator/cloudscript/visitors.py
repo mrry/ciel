@@ -3,6 +3,9 @@ Created on 23 Feb 2010
 
 @author: dgm36
 '''
+from mrry.mercator.cloudscript.interpreter.resume import BinaryExpressionRR,\
+    FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
+    ListIndexRR
 
 
 class Visitor:
@@ -20,181 +23,532 @@ class StatementExecutorVisitor(Visitor):
     def __init__(self, context):
         self.context = context
         
-    def visit_statement_list(self, statements):
-        for statement in statements:
-            print statement
-            ret = self.visit(statement)
-            if ret is not None:
-                return ret
-        return None
+    def visit(self, node, stack, stack_base):
+        return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
+        
+    def visit_statement_list(self, statements, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = StatementListRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        try:
+            for i in range(resume_record.current_statement_index, len(statements)):
+                resume_record.current_statement_index = i
+            
+                print i
+                ret = self.visit(statements[i], stack, stack_base + 1)
+        
+                if ret is not None:
+                    break
+                
+        except:
+            raise
+            
+        stack.pop()
+        return ret
     
-    def visit_Assignment(self, node):
+    def visit_Assignment(self, node, stack, stack_base):
         lvalue = node.lvalue
-        rvalue = ExpressionEvaluatorVisitor(self.context).visit(node.rvalue)
+        
+        try:
+            rvalue = ExpressionEvaluatorVisitor(self.context).visit(node.rvalue, stack, stack_base)
+        except:
+            raise
+        
         self.context.update_value(lvalue, rvalue)
         return None
     
-    def visit_Break(self, node):
+    def visit_Break(self, node, stack, stack_base):
         return RESULT_BREAK
     
-    def visit_Continue(self, node):
+    def visit_Continue(self, node, stack, stack_base):
         return RESULT_CONTINUE
     
-    def visit_Do(self, node):
-        while True:
-            
-            ret = self.visit_statement_list(node.body)
+    def visit_Do(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = DoRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+        
+        try:
 
-            if ret is not None:
-                if ret is RESULT_BREAK:
+            while True:
+                # N.B. We may be resuming after having completed the body, but faulting on the condition test.
+                if not resume_record.done_body:
+                    ret = self.visit_statement_list(node.body, stack, stack_base + 1)
+                    resume_record.done_body = True
+                    if ret is not None:
+                        if ret is RESULT_BREAK:
+                            ret = None
+                            break
+                        elif ret is RESULT_CONTINUE:
+                            continue
+                        else:
+                            break        
+
+                condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition, stack, stack_base + 1)
+
+                if not condition:
                     ret = None
                     break
-                elif ret is RESULT_CONTINUE:
-                    continue
-                else:
-                    break
-                
-            condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition)
 
-            if not condition:
-                break
-                
+        except:
+            raise
+
+        stack.pop()
         return ret
     
-    def visit_If(self, node):
-        condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition)
-        if condition:
-            return self.visit_statement_list(node.true_body)
-        elif node.false_body is not None:
-            return self.visit_statement_list(node.false_body)
-
-    def visit_For(self, node):
-        iterator = ExpressionEvaluatorVisitor(self.context).visit(node.iterator)
-        indexer_lvalue = node.indexer
-        for indexer in iterator:
-            self.context.update_value(indexer_lvalue, indexer)
+    def visit_If(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = IfRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
             
-            ret = self.visit_statement_list(node.body)
-
-            if ret is not None:
-                if ret is RESULT_BREAK:
-                    ret = None
-                    break
-                elif ret is RESULT_CONTINUE:
-                    continue
-                else:
-                    break
+        try:
+            if resume_record.condition is None:
+                resume_record.condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition, stack, stack_base + 1)
             
-        self.context.remove_binding(indexer_lvalue.identifier)
+            if resume_record.condition:
+                ret = self.visit_statement_list(node.true_body, stack, stack_base + 1)
+            elif node.false_body is not None:
+                ret = self.visit_statement_list(node.false_body, stack, stack_base + 1)
+            
+        except:
+            raise
+        
+        stack.pop()
         return ret
 
-    def visit_Return(self, node):
+    def visit_For(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = ForRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        try:
+            
+            if resume_record.iterator is None:
+                resume_record.iterator = ExpressionEvaluatorVisitor(self.context).visit(node.iterator, stack, stack_base + 1)
+
+            indexer_lvalue = node.indexer                
+            for i in range(resume_record.i, len(resume_record.iterator)):
+                resume_record.i = i
+                self.context.update_value(indexer_lvalue, resume_record.iterator[i])
+                ret = self.visit_statement_list(node.body, stack, stack_base + 1)
+                    
+                if ret is not None:
+                    if ret is RESULT_BREAK:
+                        ret = None
+                        break
+                    elif ret is RESULT_CONTINUE:
+                        continue
+                    else:
+                        break                
+                
+        except:
+            raise
+        
+        stack.pop()
+        return ret
+
+    def visit_Return(self, node, stack, stack_base):
         if node.expr is not None:
-            return ExpressionEvaluatorVisitor(self.context).visit(node.expr)
+            return ExpressionEvaluatorVisitor(self.context).visit(node.expr, stack, stack_base)
         else:
             return None
 
-    def visit_While(self, node):
-        while True:
-            condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition)
-            if not condition:
-                break
+    def visit_While(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = WhileRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
             
-            ret = self.visit_statement_list(node.body)
+        try:
+            
+            while True:
+                
+                if not resume_record.done_condition:
+                    condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition, stack, stack_base + 1)
+                    if not condition:
+                        ret = None
+                        break
+                    resume_record.done_condition = True
+        
+                ret = self.visit_statement_list(node.body, stack, stack_base + 1)
+                if ret is not None:
+                    if ret is RESULT_BREAK:
+                        ret = None
+                        break
+                    elif ret is RESULT_CONTINUE:
+                        continue
+                    else:
+                        break
+        
+        except:
+            raise
+        
+        stack.pop()
+        return ret
 
-            if ret is not None:
-                if ret is RESULT_BREAK:
-                    break
-                elif ret is RESULT_CONTINUE:
-                    continue
-                else:
-                    break
+    def visit_Script(self, node, stack, stack_base):
+        self.visit_statement_list(node.body, stack, stack_base)
 
-        return None
+class ExecutionInterruption(Exception):
+    
+    def __init__(self, resume_chain=[]):
+        self.resume_chain = resume_chain
 
-    def visit_Script(self, node):
-        self.visit_statement_list(node.body)
-
-class ExpressionEvaluatorVisitor(Visitor):
+class ExpressionEvaluatorVisitor:
     
     def __init__(self, context):
         self.context = context
     
-    def visit_And(self, node):
-        return self.visit(node.lexpr) and self.visit(node.rexpr)
+    def visit(self, node, stack, stack_base):
+        return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
     
-    def visit_Constant(self, node):
+    def visit_And(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr and rexpr
+
+        except:
+            raise
+    
+    def visit_Constant(self, node, stack, stack_base):
         return node.value
     
-    def visit_Dereference(self, node):
+    def visit_Dereference(self, node, stack, stack_base):
+        # FIXME! Need to add to a list of pending data, and return a wrapper object that will cause an
+        # execution fault if the user attempts to use the dereferenced value.
         reference = self.visit(node.reference)
         star_function = self.context.value_of('__star__')
         return star_function.call([reference])
     
-    def visit_Dict(self, node):
-        ret = {}
-        for item in node.items:
-            key, value = self.visit(item)
-            ret[key] = value
-        return ret
+    def visit_Dict(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = DictRR(len(node.items))
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+        
+        try:    
+            ret = {}
+            for i in len(node.items):
+                if resume_record.contents[i] is None:
+                    resume_record.contents[i] = self.visit(node.items[i], stack, stack_base + 1)
+                
+                key, value = resume_record.contents[i]
+                ret[key] = value
+            stack.pop()
+            return ret
+        except:
+            raise
     
-    def visit_Equal(self, node):
-        return self.visit(node.lexpr) == self.visit(node.rexpr)
+    def visit_Equal(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr == rexpr
+
+        except:
+            raise
+        
+    def visit_FunctionCall(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = FunctionCallRR(len(node.args))
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        try:
+            for i in range(len(node.args)):
+                if resume_record.args[i] is None:
+                    resume_record.args[i] = self.visit(node.args[i], stack, stack_base + 1)
+        
+            function = self.visit(node.function, stack, stack_base + 1)
+            
+            ret = function.call(resume_record.args, stack, stack_base + 1)
+        
+            stack.pop()
+            return ret
+        
+        except:
+            raise
+        
     
-    def visit_FunctionCall(self, node):
-        function = self.visit(node.function)
-        args = [self.visit(arg) for arg in node.args]
-        print self.context.bindings
-        return function.call(args)
-    
-    def visit_FunctionDeclaration(self, node):
+    def visit_FunctionDeclaration(self, node, stack, stack_base):
         return UserDefinedFunction(self.context, self.context.fresh_context(), node)
     
-    def visit_GreaterThan(self, node):
-        return self.visit(node.lexpr) > self.visit(node.rexpr)
+    def visit_GreaterThan(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr == rexpr
+
+        except:
+            raise
     
-    def visit_GreaterThanOrEqual(self, node):
-        return self.visit(node.lexpr) >= self.visit(node.rexpr)
-    
-    def visit_Identifier(self, node):
+    def visit_GreaterThanOrEqual(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr == rexpr
+
+        except:
+            raise
+
+    def visit_Identifier(self, node, stack, stack_base):
         return self.context.value_of(node.identifier)
 
-    def visit_KeyValuePair(self, node):
+    def visit_KeyValuePair(self, node, stack, stack_base):
         key = self.visit(node.key_expr)
         value = self.visit(node.value_expr)
         return key, value
     
-    def visit_LambdaExpression(self, node):
+    def visit_LambdaExpression(self, node, stack, stack_base):
         return UserDefinedLambda(self.context, self.context.fresh_context(), node)
     
-    def visit_LessThan(self, node):
-        return self.visit(node.lexpr) < self.visit(node.rexpr)
+    def visit_LessThan(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr < rexpr
+
+        except:
+            raise
     
-    def visit_LessThanOrEqual(self, node):
-        return self.visit(node.lexpr) <= self.visit(node.rexpr)
+    def visit_LessThanOrEqual(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr <= rexpr
+
+        except:
+            raise
     
-    def visit_List(self, node):
-        return [self.visit(elem) for elem in node.contents]
+    def visit_List(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = ListRR(len(node.contents))
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+        
+        try:
+            
+            for i in range(len(node.contents)):
+                if resume_record.items[i] is None:
+                    resume_record.items[i] = self.visit(node.contents[i], stack, stack_base + 1)
     
-    def visit_ListIndex(self, node):
-        list = self.visit(node.list_expr)
-        index = self.visit(node.index)
-        return list[index]
+            stack.pop()
+            return resume_record.items
+        
+        except:
+            raise
+        
+    def visit_ListIndex(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = ListIndexRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        try:
+            if resume_record.list is None:
+                resume_record.list = self.visit(node.list_expr, stack, stack_base + 1)
+                
+            index = self.visit(node.index, stack, stack_base + 1)
+            
+            stack.pop()
+            return resume_record.list[index]
+        
+        except:
+            raise
     
-    def visit_Minus(self, node):
-        return self.visit(node.lexpr) - self.visit(node.rexpr)
+    def visit_Minus(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr - rexpr
+
+        except:
+            raise
     
-    def visit_Not(self, node):
-        return not self.visit(node.expr)
+    def visit_Not(self, node, stack, stack_base):
+        return not self.visit(node.expr, stack, stack_base)
     
-    def visit_NotEqual(self, node):
-        return self.visit(node.lexpr) != self.visit(node.rexpr)
+    def visit_NotEqual(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr != rexpr
+
+        except:
+            raise
     
-    def visit_Or(self, node):
-        return self.visit(node.lexpr) or self.visit(node.rexpr)
+    def visit_Or(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr or rexpr
+
+        except:
+            raise
     
-    def visit_Plus(self, node):
-        return self.visit(node.lexpr) + self.visit(node.rexpr)
+    def visit_Plus(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is not None:
+            lexpr = resume_record.left
+
+        try:
+            if lexpr is None:
+                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = lexpr
+
+            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            
+            stack.pop()
+            return lexpr + rexpr
+
+        except:
+            raise
     
 class CloudScriptFunction:
     
@@ -215,7 +569,7 @@ class UserDefinedLambda:
             if declaration_context.has_binding_for(object):
                 self.execution_context.bind_identifier(object, declaration_context.value_of(object))
                 
-    def call(self, args_list):
+    def call(self, args_list, stack, stack_base):
         self.execution_context.enter_subcontext()
         for (formal_param, actual_param) in zip(self.lambda_ast.variables, args_list):
             self.execution_context.bind_identifier(formal_param, actual_param)
@@ -250,7 +604,7 @@ class UserDefinedFunction:
             if declaration_context.has_binding_for(object):
                 self.execution_context.bind_identifier(object, declaration_context.value_of(object))
         
-    def call(self, args_list):
+    def call(self, args_list, stack, stack_base):
         self.execution_context.enter_subcontext()
         for (formal_param, actual_param) in zip(self.function_ast.formal_params, args_list):
             self.execution_context.bind_identifier(formal_param, actual_param)
@@ -259,7 +613,7 @@ class UserDefinedFunction:
         # TODO: runtime protection in case lists, etc. get aliased.
         self.execution_context.enter_subcontext()
             
-        ret = StatementExecutorVisitor(self.execution_context).visit_statement_list(self.function_ast.body)
+        ret = StatementExecutorVisitor(self.execution_context).visit_statement_list(self.function_ast.body, stack, stack_base)
         
         self.execution_context.exit_subcontext()
         self.execution_context.exit_subcontext()

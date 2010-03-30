@@ -24,7 +24,7 @@ class LambdaFunction:
     def __init__(self, function):
         self.function = function
         
-    def call(self, args_list):
+    def call(self, args_list, stack, stack_base):
         return self.function(args_list)
 
 class SimpleContext(Context):
@@ -111,7 +111,7 @@ if __name__ == '__main__':
     start = datetime.datetime.now()
     
     ctxt = SimpleContext()
-    StatementExecutorVisitor(ctxt).visit(script)
+    StatementExecutorVisitor(ctxt).visit(script, [], 0)
     
     end = datetime.datetime.now()
     
