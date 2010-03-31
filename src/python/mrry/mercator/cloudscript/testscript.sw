@@ -46,4 +46,4 @@ map_reduce = function (map_inputs, map_class, reduce_class) {
 	return reduce_outputs;
 };
 
-results = map_reduce([1, 2, 3, 4], "uk.co.mrry.mercator.MapTest", "uk.co.mrry.mercator.ReduceTest");
+results = map_reduce([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "uk.co.mrry.mercator.MapTest", "uk.co.mrry.mercator.ReduceTest");

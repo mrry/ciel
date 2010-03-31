@@ -5,7 +5,7 @@ Created on 23 Feb 2010
 '''
 from mrry.mercator.cloudscript.interpreter.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
-    ListIndexRR
+    ListIndexRR, AssignmentRR
 
 
 class Visitor:
@@ -34,12 +34,10 @@ class StatementExecutorVisitor(Visitor):
             resume_record = stack[stack_base]
             
         try:
+
             for i in range(resume_record.current_statement_index, len(statements)):
                 resume_record.current_statement_index = i
-            
-                print i
                 ret = self.visit(statements[i], stack, stack_base + 1)
-        
                 if ret is not None:
                     break
                 
@@ -50,16 +48,26 @@ class StatementExecutorVisitor(Visitor):
         return ret
     
     def visit_Assignment(self, node, stack, stack_base):
-        lvalue = node.lvalue
-        
+
+        if stack_base == len(stack):
+            resume_record = AssignmentRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
         try:
-            rvalue = ExpressionEvaluatorVisitor(self.context).visit(node.rvalue, stack, stack_base)
+            
+            if resume_record.rvalue is None:
+                resume_record.rvalue = ExpressionEvaluatorVisitor(self.context).visit(node.rvalue, stack, stack_base + 1)
+
+            self.context.update_value(node.lvalue, resume_record.rvalue, stack, stack_base + 1)
+        
         except:
             raise
         
-        self.context.update_value(lvalue, rvalue)
+        stack.pop()
         return None
-    
+
     def visit_Break(self, node, stack, stack_base):
         return RESULT_BREAK
     
@@ -138,7 +146,7 @@ class StatementExecutorVisitor(Visitor):
             indexer_lvalue = node.indexer                
             for i in range(resume_record.i, len(resume_record.iterator)):
                 resume_record.i = i
-                self.context.update_value(indexer_lvalue, resume_record.iterator[i])
+                self.context.update_value(indexer_lvalue, resume_record.iterator[i], stack, stack_base + 1)
                 ret = self.visit_statement_list(node.body, stack, stack_base + 1)
                     
                 if ret is not None:
@@ -301,7 +309,6 @@ class ExpressionEvaluatorVisitor:
                     resume_record.args[i] = self.visit(node.args[i], stack, stack_base + 1)
         
             function = self.visit(node.function, stack, stack_base + 1)
-            
             ret = function.call(resume_record.args, stack, stack_base + 1)
         
             stack.pop()
@@ -312,7 +319,8 @@ class ExpressionEvaluatorVisitor:
         
     
     def visit_FunctionDeclaration(self, node, stack, stack_base):
-        return UserDefinedFunction(self.context, self.context.fresh_context(), node)
+        ret = UserDefinedFunction(self.context, node)
+        return ret
     
     def visit_GreaterThan(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -510,19 +518,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr or rexpr
+            return resume_record.left or rexpr
 
         except:
             raise
@@ -533,19 +537,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr + rexpr
+            return resume_record.left + rexpr
 
         except:
             raise
@@ -570,24 +570,26 @@ class UserDefinedLambda:
                 self.execution_context.bind_identifier(object, declaration_context.value_of(object))
                 
     def call(self, args_list, stack, stack_base):
-        self.execution_context.enter_subcontext()
+        self.execution_context.enter_scope()
         for (formal_param, actual_param) in zip(self.lambda_ast.variables, args_list):
             self.execution_context.bind_identifier(formal_param, actual_param)
         ret = ExpressionEvaluatorVisitor(self.execution_context).visit(self.lambda_ast.expr)
-        self.execution_context.exit_subcontext()
+        self.execution_context.exit_scope()
         return ret
             
         
     
 class UserDefinedFunction:
     
-    def __init__(self, declaration_context, execution_context, function_ast):
-        
+    def __init__(self, declaration_context, function_ast):
+        self.context = declaration_context
         self.function_ast = function_ast
+        self.captured_bindings = {}
         
         body_bindings = FunctionDeclarationBindingVisitor()
         body_bindings.visit_statement_list(function_ast.body)
         
+
         formal_params = set(function_ast.formal_params)
         
         for variable in body_bindings.lvalue_object_identifiers:
@@ -598,25 +600,28 @@ class UserDefinedFunction:
                 # Formal parameters are read-only.
                 raise
             
-        self.execution_context = execution_context
+        #self.execution_context = execution_context
         
-        for object in body_bindings.rvalue_object_identifiers:
-            if declaration_context.has_binding_for(object):
-                self.execution_context.bind_identifier(object, declaration_context.value_of(object))
+        for identifier in body_bindings.rvalue_object_identifiers:
+            if declaration_context.has_binding_for(identifier):
+                self.captured_bindings[identifier] = declaration_context.value_of(identifier)
+                
+                #self.execution_context.bind_identifier(object, declaration_context.value_of(object))
         
     def call(self, args_list, stack, stack_base):
-        self.execution_context.enter_subcontext()
+        self.context.enter_context(self.captured_bindings)
+        #self.execution_context.enter_scope()
         for (formal_param, actual_param) in zip(self.function_ast.formal_params, args_list):
-            self.execution_context.bind_identifier(formal_param, actual_param)
+            self.context.bind_identifier(formal_param, actual_param)
             
         # Belt-and-braces approach to protect formal parameters (not strictly necessary).
         # TODO: runtime protection in case lists, etc. get aliased.
-        self.execution_context.enter_subcontext()
-            
-        ret = StatementExecutorVisitor(self.execution_context).visit_statement_list(self.function_ast.body, stack, stack_base)
-        
-        self.execution_context.exit_subcontext()
-        self.execution_context.exit_subcontext()
+        self.context.enter_scope()
+        ret = StatementExecutorVisitor(self.context).visit_statement_list(self.function_ast.body, stack, stack_base)
+        self.context.exit_scope()
+
+        self.context.exit_context()
+
         return ret
     
 # TODO: could do better than this by passing over the whole script at the start. But

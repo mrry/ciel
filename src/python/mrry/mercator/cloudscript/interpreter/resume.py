@@ -54,3 +54,19 @@ class ListIndexRR:
     
     def __init__(self):
         self.list = None
+       
+class AssignmentRR:
+    
+    def __init__(self):
+        self.rvalue = None
+        
+class ContextAssignRR:
+    
+    def __init__(self):
+        self.base_lvalue = None
+        
+class IndexedLValueRR:
+    
+    def __init__(self):
+        self.index = None
+        
