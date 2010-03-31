@@ -5,9 +5,11 @@ Created on 23 Feb 2010
 '''
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.cloudscript.parser import CloudScriptParser
-from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, ExpressionEvaluatorVisitor
+from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, ExpressionEvaluatorVisitor,\
+    ExecutionInterruption
 from mrry.mercator.cloudscript.interpreter.resume import ContextAssignRR,\
     IndexedLValueRR
+import os
 
 
 class Context:
@@ -36,6 +38,10 @@ class SimpleContext(Context):
         self.context_base = 0
         self.binding_bases = []
         self.enter_context()
+    
+    def restart(self):
+        self.context_base = 1
+        self.binding_bases[self.context_base-1] = 1
     
     def bind_identifier(self, identifier, value):
         self.contexts[self.context_base-1][self.binding_bases[self.context_base-1]-1][identifier] = value
@@ -76,8 +82,9 @@ class SimpleContext(Context):
             raise
                 
     def enter_scope(self):
-        # FIXME: may need to re-enter scopes.
-        self.contexts[self.context_base-1].append({})
+        if self.binding_bases[self.context_base-1] == len(self.contexts[self.context_base-1]):
+            self.contexts[self.context_base-1].append({})
+        
         self.binding_bases[self.context_base-1] += 1
     
     def exit_scope(self):
@@ -86,7 +93,7 @@ class SimpleContext(Context):
         
     def enter_context(self, initial_bindings={}):
         if self.context_base == len(self.contexts):
-            # FIXME: need to walk resumption....
+
             base_scope = {}
             base_scope["len"] = LambdaFunction(lambda x: len(x[0]))
             base_scope["range"] = LambdaFunction(lambda x: range(x[0], x[1]))
@@ -99,7 +106,7 @@ class SimpleContext(Context):
             self.binding_bases.append(1)
         
         self.context_base += 1
-
+        self.binding_bases[self.context_base-1] = 1
     
     def exit_context(self):
         self.contexts.pop()
@@ -118,6 +125,7 @@ class SimpleContext(Context):
                 return binding[base_identifier]
             except KeyError:
                 pass
+        print "Context[%d][%d]:" % (self.context_base-1, self.binding_bases[self.context_base-1]), self.contexts
         raise KeyError(base_identifier)
     
     def remove_binding(self, base_identifier):
@@ -157,10 +165,11 @@ class GetBaseLValueBindingVisitor:
 if __name__ == '__main__':
     
     csp = CloudScriptParser()
-    script = csp.parse(open('testscript.sw').read())
+    script = csp.parse(open('testscript2.sw').read())
     
     print script
     
+    print os.getcwd()
     
     import datetime
 
@@ -168,7 +177,16 @@ if __name__ == '__main__':
     for i in range(0, 1000):
         start = datetime.datetime.now()
         ctxt = SimpleContext()
-        StatementExecutorVisitor(ctxt).visit(script, [], 0)
+        
+        stack = []
+        while True:
+            try:
+                StatementExecutorVisitor(ctxt).visit(script, stack, 0)
+                break
+            except ExecutionInterruption:
+                ctxt.restart()
+                print "Resuming..."
+            
         end = datetime.datetime.now()
         print end - start
     

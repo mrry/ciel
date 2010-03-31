@@ -6,7 +6,7 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript.interpreter.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR
-
+import random
 
 class Visitor:
     
@@ -24,6 +24,8 @@ class StatementExecutorVisitor(Visitor):
         self.context = context
         
     def visit(self, node, stack, stack_base):
+        #if random.uniform(0, 1) < 0.01:
+        #    raise ExecutionInterruption(stack)
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
         
     def visit_statement_list(self, statements, stack, stack_base):
@@ -102,6 +104,8 @@ class StatementExecutorVisitor(Visitor):
                 if not condition:
                     ret = None
                     break
+                
+                resume_record.done_body = False
 
         except:
             raise
@@ -124,6 +128,8 @@ class StatementExecutorVisitor(Visitor):
                 ret = self.visit_statement_list(node.true_body, stack, stack_base + 1)
             elif node.false_body is not None:
                 ret = self.visit_statement_list(node.false_body, stack, stack_base + 1)
+            else:
+                ret = None
             
         except:
             raise
@@ -197,6 +203,8 @@ class StatementExecutorVisitor(Visitor):
                         continue
                     else:
                         break
+                    
+                resume_record.done_condition = False
         
         except:
             raise
@@ -226,19 +234,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr and rexpr
+            return resume_record.left and rexpr
 
         except:
             raise
@@ -262,7 +266,7 @@ class ExpressionEvaluatorVisitor:
         
         try:    
             ret = {}
-            for i in len(node.items):
+            for i in range(len(node.items)):
                 if resume_record.contents[i] is None:
                     resume_record.contents[i] = self.visit(node.items[i], stack, stack_base + 1)
                 
@@ -279,19 +283,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr == rexpr
+            return resume_record.left == rexpr
 
         except:
             raise
@@ -319,6 +319,7 @@ class ExpressionEvaluatorVisitor:
         
     
     def visit_FunctionDeclaration(self, node, stack, stack_base):
+        print "Defining a function!"
         ret = UserDefinedFunction(self.context, node)
         return ret
     
@@ -328,19 +329,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr == rexpr
+            return resume_record.left > rexpr
 
         except:
             raise
@@ -351,19 +348,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr == rexpr
+            return resume_record.left >= rexpr
 
         except:
             raise
@@ -372,12 +365,26 @@ class ExpressionEvaluatorVisitor:
         return self.context.value_of(node.identifier)
 
     def visit_KeyValuePair(self, node, stack, stack_base):
-        key = self.visit(node.key_expr)
-        value = self.visit(node.value_expr)
-        return key, value
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        try:
+            # We store the key in resume_record.left
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.key_expr, stack, stack_base + 1)
+            
+            value = self.visit(node.value_expr, stack, stack_base + 1)
+            
+        except:
+            raise
+
+        return resume_record.left, value
     
     def visit_LambdaExpression(self, node, stack, stack_base):
-        return UserDefinedLambda(self.context, self.context.fresh_context(), node)
+        return UserDefinedLambda(self.context, node)
     
     def visit_LessThan(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -385,19 +392,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr < rexpr
+            return resume_record.left < rexpr
 
         except:
             raise
@@ -408,19 +411,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr <= rexpr
+            return resume_record.left <= rexpr
 
         except:
             raise
@@ -469,19 +468,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr - rexpr
+            return resume_record.left - rexpr
 
         except:
             raise
@@ -495,19 +490,15 @@ class ExpressionEvaluatorVisitor:
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
-            
-        if resume_record.left is not None:
-            lexpr = resume_record.left
 
         try:
-            if lexpr is None:
-                lexpr = self.visit(node.lexpr, stack, stack_base + 1)
-                resume_record.left = lexpr
+            if resume_record.left is None:
+                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
 
             rexpr = self.visit(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            return lexpr != rexpr
+            return resume_record.left != rexpr
 
         except:
             raise
@@ -557,24 +548,24 @@ class CloudScriptFunction:
     
 class UserDefinedLambda:
     
-    def __init__(self, declaration_context, execution_context, lambda_ast):
+    def __init__(self, declaration_context, lambda_ast):
+        self.context = declaration_context
         self.lambda_ast = lambda_ast
+        self.captured_bindings = {}
         
         body_bindings = FunctionDeclarationBindingVisitor()
         body_bindings.visit(lambda_ast.expr)
         
-        self.execution_context = execution_context
-        
-        for object in body_bindings.rvalue_object_identifiers:
-            if declaration_context.has_binding_for(object):
-                self.execution_context.bind_identifier(object, declaration_context.value_of(object))
+        for identifier in body_bindings.rvalue_object_identifiers:
+            if declaration_context.has_binding_for(identifier):
+                self.captured_bindings[identifier] = declaration_context.value_of(identifier)
                 
     def call(self, args_list, stack, stack_base):
-        self.execution_context.enter_scope()
+        self.context.enter_context(self.captured_bindings)
         for (formal_param, actual_param) in zip(self.lambda_ast.variables, args_list):
-            self.execution_context.bind_identifier(formal_param, actual_param)
-        ret = ExpressionEvaluatorVisitor(self.execution_context).visit(self.lambda_ast.expr)
-        self.execution_context.exit_scope()
+            self.context.bind_identifier(formal_param, actual_param)
+        ret = ExpressionEvaluatorVisitor(self.context).visit(self.lambda_ast.expr, stack, stack_base)
+        self.context.exit_context()
         return ret
             
         
