@@ -226,6 +226,8 @@ class ExpressionEvaluatorVisitor:
         self.context = context
     
     def visit(self, node, stack, stack_base):
+        if random.uniform(0, 1) < 0.01:
+            raise ExecutionInterruption(stack)
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
     
     def visit_And(self, node, stack, stack_base):
@@ -319,7 +321,6 @@ class ExpressionEvaluatorVisitor:
         
     
     def visit_FunctionDeclaration(self, node, stack, stack_base):
-        print "Defining a function!"
         ret = UserDefinedFunction(self.context, node)
         return ret
     

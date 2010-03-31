@@ -9,6 +9,7 @@ from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, Express
     ExecutionInterruption
 from mrry.mercator.cloudscript.interpreter.resume import ContextAssignRR,\
     IndexedLValueRR
+import cPickle
 import os
 
 
@@ -30,6 +31,22 @@ class LambdaFunction:
         
     def call(self, args_list, stack, stack_base):
         return self.function(args_list)
+
+class GlobalScope:
+    
+    def __init__(self):
+        self.bindings = {}
+        self.bindings["len"] = LambdaFunction(lambda x: len(x[0]))
+        self.bindings["range"] = LambdaFunction(lambda x: range(x[0], x[1]))
+            
+
+    def has_binding_for(self, base_identifier):
+        return base_identifier in self.bindings.keys()
+        
+    def value_of(self, base_identifier):
+        return self.bindings[base_identifier]
+    
+GLOBAL_SCOPE = GlobalScope()
 
 class SimpleContext(Context):
 
@@ -95,8 +112,6 @@ class SimpleContext(Context):
         if self.context_base == len(self.contexts):
 
             base_scope = {}
-            base_scope["len"] = LambdaFunction(lambda x: len(x[0]))
-            base_scope["range"] = LambdaFunction(lambda x: range(x[0], x[1]))
             
             for name, value in initial_bindings.items():
                 base_scope[name] = value
@@ -117,7 +132,7 @@ class SimpleContext(Context):
         for binding in reversed(self.contexts[self.context_base-1][0:self.binding_bases[self.context_base-1]]):
             if base_identifier in binding.keys():
                 return True
-        return False
+        return GLOBAL_SCOPE.has_binding_for(base_identifier)
         
     def value_of(self, base_identifier):
         for binding in reversed(self.contexts[self.context_base-1][0:self.binding_bases[self.context_base-1]]):
@@ -125,8 +140,10 @@ class SimpleContext(Context):
                 return binding[base_identifier]
             except KeyError:
                 pass
-        print "Context[%d][%d]:" % (self.context_base-1, self.binding_bases[self.context_base-1]), self.contexts
-        raise KeyError(base_identifier)
+        try:
+            return GLOBAL_SCOPE.value_of(base_identifier)
+        except:
+            print "Error context[%d][%d]:" % (self.context_base - 1, self.binding_bases[self.context_base-1] - 1), self.contexts
     
     def remove_binding(self, base_identifier):
         del self.contexts[self.context_base-1][self.binding_bases[self.context_base-1]-1][base_identifier]
@@ -184,8 +201,9 @@ if __name__ == '__main__':
                 StatementExecutorVisitor(ctxt).visit(script, stack, 0)
                 break
             except ExecutionInterruption:
+                stack = cPickle.loads((cPickle.dumps(stack)))
+                ctxt = cPickle.loads((cPickle.dumps(ctxt)))
                 ctxt.restart()
-                print "Resuming..."
             
         end = datetime.datetime.now()
         print end - start
