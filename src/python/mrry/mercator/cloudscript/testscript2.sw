@@ -30,4 +30,6 @@ h = hfunc(10);
 
 z = [h(20), h(30), h(40)];
 
-dicty = { "foo" : "bar", "b\n\nad" : h(100) };
+dicty = { "b\n\nad" : hfunc(100), "foo" : "bar" };
+
+zoo = dicty["b\n\nad"](145);

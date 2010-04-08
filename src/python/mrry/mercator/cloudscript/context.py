@@ -191,7 +191,7 @@ if __name__ == '__main__':
     import datetime
 
     
-    for i in range(0, 1000):
+    for i in range(0, 1):
         start = datetime.datetime.now()
         ctxt = SimpleContext()
         
