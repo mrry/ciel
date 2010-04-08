@@ -11,7 +11,7 @@ from mrry.mercator.cloudscript.interpreter.resume import ContextAssignRR,\
     IndexedLValueRR
 import cPickle
 import os
-
+import sys
 
 class Context:
     
@@ -182,7 +182,7 @@ class GetBaseLValueBindingVisitor:
 if __name__ == '__main__':
     
     csp = CloudScriptParser()
-    script = csp.parse(open('testscript2.sw').read())
+    script = csp.parse(open(sys.argv[1]).read())
     
     print script
     
