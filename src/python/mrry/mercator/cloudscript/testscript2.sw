@@ -5,6 +5,10 @@ foo = function (x) {
 	return 100 + j + x;
 };
 
+boo = function (y, z) {
+    return (z) + 2000;
+};
+
 do {
 	j = j + 1;
 	if (j == 42) {
@@ -20,9 +24,15 @@ m = len(k);
 
 ns = [];
 
-for (yy in range(0, 200)) {
-	//xx = 100;
+for (yy in range(0, 2000)) {
+	xx = 100;
 	ns[yy] = spawn(foo, [yy]);
+}
+
+qs = [];
+
+for (ee in range(0, 2000)) {
+    qs[ee] = spawn(boo, [ns[1999 - ee], *ns[ee]]);
 }
 
 testy = function (x) { return 100 + x; } (50);
@@ -39,10 +49,12 @@ dicty = { "b\n\nad" : hfunc(100), "foo" : "bar" };
 
 zoo = dicty["b\n\nad"](145);
 
-starns = [];
-for (zz in range(0, 200)) {
+starqs = [];
+for (zz in range(0, 2000)) {
 	ww = 3 + zz;
-	starns[zz] = *ns[199 - zz];
+	starqs[zz] = (*qs[zz]) + 0;
 }
 
-return starns;
+
+
+return starqs;
