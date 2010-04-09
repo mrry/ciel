@@ -51,12 +51,6 @@ class StatementExecutorVisitor(Visitor):
     
     def visit_Assignment(self, node, stack, stack_base):
 
-        print "Visiting assignment!!! %s" % (node.lvalue)
-        try:
-            print node.lvalue.identifier
-        except:
-            pass 
-
         if stack_base == len(stack):
             resume_record = AssignmentRR()
             stack.append(resume_record)
@@ -268,7 +262,6 @@ class ExpressionEvaluatorVisitor:
         return star_function.call([reference])
     
     def visit_Dict(self, node, stack, stack_base):
-        print "Visiting a Dict!"
         if stack_base == len(stack):
             resume_record = DictRR(len(node.items))
             stack.append(resume_record)
@@ -277,17 +270,14 @@ class ExpressionEvaluatorVisitor:
         
         try:    
             ret = {}
-            print len(node.items)
             for i in range(len(node.items)):
                 if resume_record.contents[i] is None:
                     resume_record.contents[i] = self.visit(node.items[i], stack, stack_base + 1)
                 
                 key, value = resume_record.contents[i]
-                print key, value
                 ret[key] = value
             stack.pop()
             
-            print ret
             return ret
         except:
             raise
@@ -379,7 +369,6 @@ class ExpressionEvaluatorVisitor:
         return self.context.value_of(node.identifier)
 
     def visit_KeyValuePair(self, node, stack, stack_base):
-        print "Visiting a KVP!"
         if stack_base == len(stack):
             resume_record = BinaryExpressionRR()
             stack.append(resume_record)
@@ -460,7 +449,6 @@ class ExpressionEvaluatorVisitor:
             raise
         
     def visit_ListIndex(self, node, stack, stack_base):
-        print "Visiting ListIndex"
         if stack_base == len(stack):
             resume_record = ListIndexRR()
             stack.append(resume_record)
@@ -472,8 +460,6 @@ class ExpressionEvaluatorVisitor:
                 resume_record.list = self.visit(node.list_expr, stack, stack_base + 1)
                 
             index = self.visit(node.index, stack, stack_base + 1)
-            
-            print "Visiting ListIndex: list = %s; index = %s" % (str(resume_record.list), str(index))
             
             stack.pop()
             return resume_record.list[index]

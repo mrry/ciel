@@ -182,12 +182,14 @@ class GetBaseLValueBindingVisitor:
 if __name__ == '__main__':
     
     csp = CloudScriptParser()
-    script = csp.parse(open(sys.argv[1]).read())
     
-    print script
+    try:
+        filename = sys.argv[1]
+    except:
+        filename = "testscript2.sw"
     
-    print os.getcwd()
-    
+    script = csp.parse(open(filename).read())
+        
     import datetime
 
     
