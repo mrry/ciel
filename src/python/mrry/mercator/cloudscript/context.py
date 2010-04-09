@@ -7,7 +7,7 @@ from mrry.mercator.cloudscript import ast
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, ExpressionEvaluatorVisitor,\
     ExecutionInterruption
-from mrry.mercator.cloudscript.interpreter.resume import ContextAssignRR,\
+from mrry.mercator.cloudscript.resume import ContextAssignRR,\
     IndexedLValueRR
 import cPickle
 import os
@@ -132,22 +132,80 @@ class SimpleContext(Context):
         for binding in reversed(self.contexts[self.context_base-1][0:self.binding_bases[self.context_base-1]]):
             if base_identifier in binding.keys():
                 return True
-        return GLOBAL_SCOPE.has_binding_for(base_identifier)
-        
+        return False
+                
     def value_of(self, base_identifier):
         for binding in reversed(self.contexts[self.context_base-1][0:self.binding_bases[self.context_base-1]]):
             try:
                 return binding[base_identifier]
             except KeyError:
                 pass
-        try:
-            return GLOBAL_SCOPE.value_of(base_identifier)
-        except:
-            print "Error context[%d][%d]:" % (self.context_base - 1, self.binding_bases[self.context_base-1] - 1), self.contexts
+        raise KeyError(base_identifier)
     
     def remove_binding(self, base_identifier):
         del self.contexts[self.context_base-1][self.binding_bases[self.context_base-1]-1][base_identifier]
     
+class TaskContext:
+    
+    def __init__(self, wrapped_context, task):
+        self.wrapped_context = wrapped_context
+        self.task = task
+        self.tasklocal_bindings = {}
+   
+    def restart(self):
+        return self.wrapped_context.restart()
+        
+    def bind_identifier(self, identifier, value):
+        return self.wrapped_context.bind_identifier(identifier, value)
+    
+    def bind_tasklocal_identifier(self, identifier, value):
+        self.tasklocal_bindings[identifier] = value
+    
+    def eager_dereference(self, reference):
+        return self.task.eager_dereference(reference)
+    
+    def update_value(self, lvalue, rvalue, stack, stack_base):
+        return self.wrapped_context.update_value(lvalue, rvalue, stack, stack_base)
+                
+    def enter_scope(self):
+        return self.wrapped_context.enter_scope()
+    
+    def exit_scope(self):
+        return self.wrapped_context.exit_scope()
+    
+    def enter_context(self, initial_bindings={}):
+        return self.wrapped_context.enter_context(initial_bindings)
+            
+    def exit_context(self):
+        return self.wrapped_context.exit_context()
+                
+    def has_binding_for(self, base_identifier):
+        ret = self.wrapped_context.has_binding_for(base_identifier)
+        if ret:
+            return ret
+        else:
+            return GLOBAL_SCOPE.has_binding_for(base_identifier) or base_identifier in self.tasklocal_bindings.keys()
+        
+    def value_of(self, base_identifier):
+        try:
+            return self.wrapped_context.value_of(base_identifier)
+        except KeyError:
+            pass
+        
+        try:
+            return GLOBAL_SCOPE.value_of(base_identifier)
+        except:
+            pass
+        
+        try:
+            return self.tasklocal_bindings[base_identifier]
+        except:
+            print "Error context[%d][%d]:" % (self.wrapped_context.context_base - 1, self.wrapped_context.binding_bases[self.wrapped_context.context_base-1] - 1), self.wrapped_context.contexts
+            raise
+
+    def remove_binding(self, base_identifier):
+        return self.wrapped_context.remove_binding(base_identifier)
+   
 class GetBaseLValueBindingVisitor:
     
     def __init__(self, context):

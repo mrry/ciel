@@ -3,15 +3,28 @@ Created on 23 Feb 2010
 
 @author: dgm36
 '''
-from mrry.mercator.cloudscript.interpreter.resume import BinaryExpressionRR,\
+from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR
 import random
+
+indent = 0
 
 class Visitor:
     
     def visit(self, node):
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node)
+
+class SWFutureReference:
+    
+    def __init__(self, ref_id):
+        self.is_future = True
+        self.id = ref_id
+
+class SWDereferenceWrapper:
+    
+    def __init__(self, ref):
+        self.ref = ref
 
 class StatementResult:
     pass
@@ -26,7 +39,12 @@ class StatementExecutorVisitor(Visitor):
     def visit(self, node, stack, stack_base):
         #if random.uniform(0, 1) < 0.01:
         #    raise ExecutionInterruption(stack)
-        return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
+#        global indent
+#        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
+#        indent += 1
+        ret = getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
+#        indent -= 1
+        return ret
         
     def visit_statement_list(self, statements, stack, stack_base):
         if stack_base == len(stack):
@@ -34,6 +52,8 @@ class StatementExecutorVisitor(Visitor):
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
+            
+        ret = None
             
         try:
 
@@ -61,8 +81,6 @@ class StatementExecutorVisitor(Visitor):
             
             if resume_record.rvalue is None:
                 resume_record.rvalue = ExpressionEvaluatorVisitor(self.context).visit(node.rvalue, stack, stack_base + 1)
-
-            
 
             self.context.update_value(node.lvalue, resume_record.rvalue, stack, stack_base + 1)
         
@@ -101,7 +119,7 @@ class StatementExecutorVisitor(Visitor):
                         else:
                             break        
 
-                condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition, stack, stack_base + 1)
+                condition = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.condition, stack, stack_base + 1)
 
                 if not condition:
                     ret = None
@@ -124,7 +142,7 @@ class StatementExecutorVisitor(Visitor):
             
         try:
             if resume_record.condition is None:
-                resume_record.condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition, stack, stack_base + 1)
+                resume_record.condition = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.condition, stack, stack_base + 1)
             
             if resume_record.condition:
                 ret = self.visit_statement_list(node.true_body, stack, stack_base + 1)
@@ -149,7 +167,7 @@ class StatementExecutorVisitor(Visitor):
         try:
             
             if resume_record.iterator is None:
-                resume_record.iterator = ExpressionEvaluatorVisitor(self.context).visit(node.iterator, stack, stack_base + 1)
+                resume_record.iterator = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.iterator, stack, stack_base + 1)
 
             indexer_lvalue = node.indexer                
             for i in range(resume_record.i, len(resume_record.iterator)):
@@ -174,7 +192,7 @@ class StatementExecutorVisitor(Visitor):
 
     def visit_Return(self, node, stack, stack_base):
         if node.expr is not None:
-            return ExpressionEvaluatorVisitor(self.context).visit(node.expr, stack, stack_base)
+            return ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.expr, stack, stack_base)
         else:
             return None
 
@@ -190,7 +208,7 @@ class StatementExecutorVisitor(Visitor):
             while True:
                 
                 if not resume_record.done_condition:
-                    condition = ExpressionEvaluatorVisitor(self.context).visit(node.condition, stack, stack_base + 1)
+                    condition = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.condition, stack, stack_base + 1)
                     if not condition:
                         ret = None
                         break
@@ -215,7 +233,7 @@ class StatementExecutorVisitor(Visitor):
         return ret
 
     def visit_Script(self, node, stack, stack_base):
-        self.visit_statement_list(node.body, stack, stack_base)
+        return self.visit_statement_list(node.body, stack, stack_base)
 
 class ExecutionInterruption(Exception):
     
@@ -228,10 +246,37 @@ class ExpressionEvaluatorVisitor:
         self.context = context
     
     def visit(self, node, stack, stack_base):
-        if random.uniform(0, 1) < 0.01:
-            raise ExecutionInterruption(stack)
-        return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
+#        global indent
+#        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
+#        indent += 1
+        ret = getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
+#        indent -= 1
+        return ret
     
+    def visit_and_force_eval(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        if resume_record.left is None:
+            resume_record.left = self.visit(node, stack, stack_base + 1)
+
+        try:
+            if isinstance(resume_record.left, SWDereferenceWrapper):
+#                print "Trying to eagerly dereference!"
+                ret = self.context.eager_dereference(resume_record.left.ref)
+            else:
+                ret = resume_record.left
+
+            stack.pop()
+#            print "VAFEd", node, ret
+            return ret
+
+        except:
+            raise
+                
     def visit_And(self, node, stack, stack_base):
         if stack_base == len(stack):
             resume_record = BinaryExpressionRR()
@@ -241,9 +286,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left and rexpr
@@ -257,10 +302,26 @@ class ExpressionEvaluatorVisitor:
     def visit_Dereference(self, node, stack, stack_base):
         # FIXME! Need to add to a list of pending data, and return a wrapper object that will cause an
         # execution fault if the user attempts to use the dereferenced value.
-        reference = self.visit(node.reference)
-        star_function = self.context.value_of('__star__')
-        return star_function.call([reference])
-    
+        if stack_base == len(stack):
+            resume_record = BinaryExpressionRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+            
+        try:
+            if resume_record.left is None:
+                resume_record.left = self.visit_and_force_eval(node.reference, stack, stack_base + 1)
+            
+            star_function = self.context.value_of('__star__')
+            
+            ret = star_function.call([resume_record.left], stack, stack_base + 1)
+            
+            stack.pop()
+            return ret
+        
+        except:
+            raise
+
     def visit_Dict(self, node, stack, stack_base):
         if stack_base == len(stack):
             resume_record = DictRR(len(node.items))
@@ -291,15 +352,18 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left == rexpr
 
         except:
             raise
+    
+    def visit_SpawnedFunction(self, node, stack, stack_base):
+        return node.function.call(node.args, stack, stack_base)
         
     def visit_FunctionCall(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -312,8 +376,8 @@ class ExpressionEvaluatorVisitor:
             for i in range(len(node.args)):
                 if resume_record.args[i] is None:
                     resume_record.args[i] = self.visit(node.args[i], stack, stack_base + 1)
-        
-            function = self.visit(node.function, stack, stack_base + 1)
+    
+            function = self.visit_and_force_eval(node.function, stack, stack_base + 1)
             ret = function.call(resume_record.args, stack, stack_base + 1)
         
             stack.pop()
@@ -322,7 +386,6 @@ class ExpressionEvaluatorVisitor:
         except:
             raise
         
-    
     def visit_FunctionDeclaration(self, node, stack, stack_base):
         ret = UserDefinedFunction(self.context, node)
         return ret
@@ -336,9 +399,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left > rexpr
@@ -355,9 +418,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left >= rexpr
@@ -378,9 +441,9 @@ class ExpressionEvaluatorVisitor:
         try:
             # We store the key in resume_record.left
             if resume_record.left is None:
-                resume_record.left = self.visit(node.key_expr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.key_expr, stack, stack_base + 1)
             
-            value = self.visit(node.value_expr, stack, stack_base + 1)
+            value = self.visit_and_force_eval(node.value_expr, stack, stack_base + 1)
             
         except:
             raise
@@ -400,9 +463,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left < rexpr
@@ -419,9 +482,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left <= rexpr
@@ -440,7 +503,7 @@ class ExpressionEvaluatorVisitor:
             
             for i in range(len(node.contents)):
                 if resume_record.items[i] is None:
-                    resume_record.items[i] = self.visit(node.contents[i], stack, stack_base + 1)
+                    resume_record.items[i] = self.visit_and_force_eval(node.contents[i], stack, stack_base + 1)
     
             stack.pop()
             return resume_record.items
@@ -457,9 +520,9 @@ class ExpressionEvaluatorVisitor:
             
         try:
             if resume_record.list is None:
-                resume_record.list = self.visit(node.list_expr, stack, stack_base + 1)
+                resume_record.list = self.visit_and_force_eval(node.list_expr, stack, stack_base + 1)
                 
-            index = self.visit(node.index, stack, stack_base + 1)
+            index = self.visit_and_force_eval(node.index, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.list[index]
@@ -476,9 +539,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left - rexpr
@@ -487,7 +550,7 @@ class ExpressionEvaluatorVisitor:
             raise
     
     def visit_Not(self, node, stack, stack_base):
-        return not self.visit(node.expr, stack, stack_base)
+        return not self.visit_and_force_eval(node.expr, stack, stack_base)
     
     def visit_NotEqual(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -498,9 +561,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left != rexpr
@@ -517,9 +580,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left or rexpr
@@ -536,9 +599,9 @@ class ExpressionEvaluatorVisitor:
 
         try:
             if resume_record.left is None:
-                resume_record.left = self.visit(node.lexpr, stack, stack_base + 1)
+                resume_record.left = self.visit_and_force_eval(node.lexpr, stack, stack_base + 1)
 
-            rexpr = self.visit(node.rexpr, stack, stack_base + 1)
+            rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
             return resume_record.left + rexpr

@@ -47,6 +47,7 @@ class CloudScriptLexer:
          'LBRACKET', 'RBRACKET',
          'LBRACE', 'RBRACE',
          'SEMICOLON', 'COMMA', 'COLON',
+         'COMMENT_SINGLELINE', 'COMMENT_MULTILINE',
          'QUOTATION_MARK',
          'UNESCAPED', 'ESCAPE', 'BACKSLASH', 'BACKSPACE_CHAR', 'FORM_FEED_CHAR',
          'LINE_FEED_CHAR', 'CARRIAGE_RETURN_CHAR', 'TAB_CHAR', 'UNICODE_HEX']
@@ -54,6 +55,18 @@ class CloudScriptLexer:
     identifier = r'[a-zA-Z_][a-zA-Z_0-9]*'
     integer_literal = r'(0)|([1-9][0-9]*)'
     
+    def t_error(self, t):
+        print "Illegal character '%s'" % t.value[0]
+        t.lexer.skip(1)
+        
+    def t_escaped_error(self, t):
+        print "Illegal escape character '%s'" % t.value[0]
+        t.lexer.skip(1)
+        
+    def t_string_error(self, t):
+        print "Illegal character in string '%s'" % t.value[0]
+        t.lexer.skip(1)
+
     @TOKEN(identifier)
     def t_ID(self, t):
         t.type = self.keywords.get(t.value, 'ID')
@@ -76,6 +89,15 @@ class CloudScriptLexer:
     t_EQ = r'=='
     t_NE = r'!='
     t_SEMICOLON = r';'
+
+    # Comment handling from CppHeaderParser
+    def t_COMMENT_SINGLELINE(self, t):
+        r'\/\/.*\n'
+        return None
+    
+    def t_COMMENT_MULTILINE(self, t):
+        r'/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/'
+        return None
 
     # String handling from jsonply.
 

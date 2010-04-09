@@ -143,12 +143,20 @@ class FieldReference(Expression):
         self.object = object
         self.field = field    
 
+# Pseudo-AST node used when we are spawning a function and have already visited the
+# function body and args.
+class SpawnedFunction(Expression):
+
+    def __init__(self, function, args):
+        self.function = function
+        self.args = args
+
 class FunctionCall(Expression):
     
     def __init__(self, function, args=[]):
         self.function = function
         self.args = args
-        
+       
 class FunctionDeclaration(Expression):
     
     def __init__(self, formal_params, body):
