@@ -20,7 +20,7 @@ class SWInterpreter:
         # Process command-line options.
         self.script_filename = sys.argv[1]
             
-    def start(self, num_threads=4):
+    def start(self, num_threads=10):
         # Parse provided script file.
         script_ast = CloudScriptParser().parse(open(self.script_filename).read())
         
@@ -187,6 +187,8 @@ class SWInterpreterTask:
     def interpret(self):
         if self.context is None:
             self.context = SimpleContext()
+        else:
+            self.context.restart()
             
         task_context = TaskContext(self.context, self)
         # TODO: investigate when we might need to change the scheduler.

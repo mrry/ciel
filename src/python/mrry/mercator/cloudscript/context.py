@@ -29,7 +29,7 @@ class LambdaFunction:
     def __init__(self, function):
         self.function = function
         
-    def call(self, args_list, stack, stack_base):
+    def call(self, args_list, stack, stack_base, context):
         return self.function(args_list)
 
 class GlobalScope:
@@ -166,7 +166,7 @@ class TaskContext:
     
     def update_value(self, lvalue, rvalue, stack, stack_base):
         return self.wrapped_context.update_value(lvalue, rvalue, stack, stack_base)
-                
+
     def enter_scope(self):
         return self.wrapped_context.enter_scope()
     
@@ -215,7 +215,12 @@ class GetBaseLValueBindingVisitor:
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
         
     def visit_IdentifierLValue(self, node, stack, stack_base):
-        return self.context.contexts[self.context.context_base-1][self.context.binding_bases[self.context.context_base-1]-1][node.identifier]
+        #print "Identifier is", node.identifier, self.context.context_base-1, self.context.binding_bases[self.context.context_base-1]-1, len(self.context.contexts), len(self.context.contexts[self.context.binding_bases[self.context.context_base-1]-1])
+        try:
+            return self.context.contexts[self.context.context_base-1][self.context.binding_bases[self.context.context_base-1]-1][node.identifier]
+        except KeyError:
+            print self.context.contexts
+            raise
     
     def visit_FieldLValue(self, node, stack, stack_base):
         return self.visit(node.base_lvalue, stack, stack_base)[node.field_name]

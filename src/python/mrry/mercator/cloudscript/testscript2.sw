@@ -18,9 +18,11 @@ k[2] = true;
 
 m = len(k);
 
-for (yy in range(0, 100)) {
-	xx = 100;
-	n = spawn(len, [k]);
+ns = [];
+
+for (yy in range(0, 200)) {
+	//xx = 100;
+	ns[yy] = spawn(foo, [yy]);
 }
 
 testy = function (x) { return 100 + x; } (50);
@@ -37,4 +39,10 @@ dicty = { "b\n\nad" : hfunc(100), "foo" : "bar" };
 
 zoo = dicty["b\n\nad"](145);
 
-return *n;
+starns = [];
+for (zz in range(0, 200)) {
+	ww = 3 + zz;
+	starns[zz] = *ns[199 - zz];
+}
+
+return starns;

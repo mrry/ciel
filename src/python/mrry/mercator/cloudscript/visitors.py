@@ -314,7 +314,7 @@ class ExpressionEvaluatorVisitor:
             
             star_function = self.context.value_of('__star__')
             
-            ret = star_function.call([resume_record.left], stack, stack_base + 1)
+            ret = star_function.call([resume_record.left], stack, stack_base + 1, self.context)
             
             stack.pop()
             return ret
@@ -363,7 +363,7 @@ class ExpressionEvaluatorVisitor:
             raise
     
     def visit_SpawnedFunction(self, node, stack, stack_base):
-        return node.function.call(node.args, stack, stack_base)
+        return node.function.call(node.args, stack, stack_base, self.context)
         
     def visit_FunctionCall(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -378,7 +378,7 @@ class ExpressionEvaluatorVisitor:
                     resume_record.args[i] = self.visit(node.args[i], stack, stack_base + 1)
     
             function = self.visit_and_force_eval(node.function, stack, stack_base + 1)
-            ret = function.call(resume_record.args, stack, stack_base + 1)
+            ret = function.call(resume_record.args, stack, stack_base + 1, self.context)
         
             stack.pop()
             return ret
@@ -609,15 +609,9 @@ class ExpressionEvaluatorVisitor:
         except:
             raise
     
-class CloudScriptFunction:
-    
-    def call(self, args_list):
-        pass
-    
 class UserDefinedLambda:
     
     def __init__(self, declaration_context, lambda_ast):
-        self.context = declaration_context
         self.lambda_ast = lambda_ast
         self.captured_bindings = {}
         
@@ -628,20 +622,17 @@ class UserDefinedLambda:
             if declaration_context.has_binding_for(identifier):
                 self.captured_bindings[identifier] = declaration_context.value_of(identifier)
                 
-    def call(self, args_list, stack, stack_base):
-        self.context.enter_context(self.captured_bindings)
+    def call(self, args_list, stack, stack_base, context):
+        context.enter_context(self.captured_bindings)
         for (formal_param, actual_param) in zip(self.lambda_ast.variables, args_list):
-            self.context.bind_identifier(formal_param, actual_param)
-        ret = ExpressionEvaluatorVisitor(self.context).visit(self.lambda_ast.expr, stack, stack_base)
-        self.context.exit_context()
+            context.bind_identifier(formal_param, actual_param)
+        ret = ExpressionEvaluatorVisitor(context).visit(self.lambda_ast.expr, stack, stack_base)
+        context.exit_context()
         return ret
-            
-        
-    
+
 class UserDefinedFunction:
     
     def __init__(self, declaration_context, function_ast):
-        self.context = declaration_context
         self.function_ast = function_ast
         self.captured_bindings = {}
         
@@ -667,19 +658,19 @@ class UserDefinedFunction:
                 
                 #self.execution_context.bind_identifier(object, declaration_context.value_of(object))
         
-    def call(self, args_list, stack, stack_base):
-        self.context.enter_context(self.captured_bindings)
+    def call(self, args_list, stack, stack_base, context):
+        context.enter_context(self.captured_bindings)
         #self.execution_context.enter_scope()
         for (formal_param, actual_param) in zip(self.function_ast.formal_params, args_list):
-            self.context.bind_identifier(formal_param, actual_param)
+            context.bind_identifier(formal_param, actual_param)
             
         # Belt-and-braces approach to protect formal parameters (not strictly necessary).
         # TODO: runtime protection in case lists, etc. get aliased.
-        self.context.enter_scope()
-        ret = StatementExecutorVisitor(self.context).visit_statement_list(self.function_ast.body, stack, stack_base)
-        self.context.exit_scope()
+        context.enter_scope()
+        ret = StatementExecutorVisitor(context).visit_statement_list(self.function_ast.body, stack, stack_base)
+        context.exit_scope()
 
-        self.context.exit_context()
+        context.exit_context()
 
         return ret
     
