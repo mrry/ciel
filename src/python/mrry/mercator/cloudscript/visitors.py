@@ -21,6 +21,12 @@ class SWFutureReference:
         self.is_future = True
         self.id = ref_id
 
+class SWDataReference:
+    
+    def __init__(self, urls):
+        self.is_future = False
+        self.urls = urls
+
 class SWDereferenceWrapper:
     
     def __init__(self, ref):

@@ -2,13 +2,15 @@ from Queue import Queue
 from threading import Lock, Condition, Thread
 from mrry.mercator.cloudscript.visitors import ExpressionEvaluatorVisitor,\
     ExecutionInterruption, StatementExecutorVisitor, SWDereferenceWrapper,\
-    SWFutureReference
+    SWFutureReference, SWDataReference
 from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction,\
     TaskContext
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript import ast
 import traceback
 import sys
+import urllib2
+import simplejson
 
 class SWThreadTerminator:
     pass
@@ -195,7 +197,8 @@ class SWInterpreterTask:
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.scheduler.spawn_func(x[0], x[1])))
         task_context.bind_tasklocal_identifier("spawn_list", LambdaFunction(lambda x: self.scheduler.spawn_list_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
-    
+        task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
+        task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: SWDataReference(x)))
         visitor = StatementExecutorVisitor(task_context)
         
         try:
@@ -206,6 +209,15 @@ class SWInterpreterTask:
         except ExecutionInterruption as exi:
             print "Blocking on", self.blocked_on
             self.scheduler.block_on_references(self, self.blocked_on)
+    
+    def exec_func(self, executor_name, args, num_outputs):
+        if executor_name == 'stdinout':
+            target = args["target"]
+            inputs = args["input"]
+            
+            
+            
+            
             
     def propagate_result(self, result):
         if self.result_ref_id is not None:
@@ -234,16 +246,20 @@ class SWInterpreterTask:
         return SWDereferenceWrapper(ref)
 
     def eager_dereference(self, ref):
-        if ref.is_future:
+        if isinstance(ref, SWFutureReference):
             value = self.scheduler.try_dereference(ref.id)
             if value is not None:
                 return value
             else:
                 self.blocked_on.add(ref.id)
                 raise ExecutionInterruption()
+        elif isinstance(ref, SWDataReference):
+            print "Eagerly dereffing a file"
+            value = simplejson.load(urllib2.urlopen(ref.urls[0]))
+            return value
         else:
-            # TODO: handle loading files, etc.
-            pass
+            raise
+        
     def reference_resolved(self, ref_id):
         self.blocked_on.remove(ref_id)
         
