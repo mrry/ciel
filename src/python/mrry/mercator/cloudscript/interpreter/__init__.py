@@ -11,6 +11,7 @@ import traceback
 import sys
 import urllib2
 import simplejson
+from mrry.mercator.cloudscript.interpreter.executors import StdinoutExecutor
 
 class SWThreadTerminator:
     pass
@@ -211,13 +212,14 @@ class SWInterpreterTask:
             self.scheduler.block_on_references(self, self.blocked_on)
     
     def exec_func(self, executor_name, args, num_outputs):
-        if executor_name == 'stdinout':
-            target = args["target"]
-            inputs = args["input"]
+        executor_class_map = {'stdinout' : StdinoutExecutor}
+        try:
+            executor = executor_class_map[executor_name](args, num_outputs)
+        except KeyError:
+            raise "No such executor: %s" % (executor_name, )
             
-            
-            
-            
+        executor.execute()
+        return map(lambda x: SWDataReference([x]), executor.output_urls)    
             
     def propagate_result(self, result):
         if self.result_ref_id is not None:
@@ -234,13 +236,13 @@ class SWInterpreterTask:
             
     def lazy_dereference(self, ref):
         # TODO: consider whether this should be different from blocked_on.
-        if ref.is_future:
+        if isinstance(ref, SWFutureReference):
             value = self.scheduler.try_dereference(ref.id)
             if value is not None:
                 return value
             self.blocked_on.add(ref.id)
         else:
-            # TODO: handle loading files, etc.
+            # TODO: could schedule asynchronous loading of files if that seemed like a good idea....
             pass
 
         return SWDereferenceWrapper(ref)
@@ -258,6 +260,7 @@ class SWInterpreterTask:
             value = simplejson.load(urllib2.urlopen(ref.urls[0]))
             return value
         else:
+            print type(ref)
             raise
         
     def reference_resolved(self, ref_id):
