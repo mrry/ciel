@@ -6,7 +6,7 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, ExpressionEvaluatorVisitor,\
-    ExecutionInterruption
+    ExecutionInterruption, SkywritingException
 from mrry.mercator.cloudscript.resume import ContextAssignRR,\
     IndexedLValueRR
 import cPickle
@@ -96,7 +96,7 @@ class SimpleContext(Context):
             base_lvalue = GetBaseLValueBindingVisitor(self).visit(lvalue.base_lvalue, stack, stack_base + 1)
             base_lvalue[lvalue.field_name] = rvalue
         else:
-            raise
+            assert False
                 
     def enter_scope(self):
         if self.binding_bases[self.context_base-1] == len(self.contexts[self.context_base-1]):

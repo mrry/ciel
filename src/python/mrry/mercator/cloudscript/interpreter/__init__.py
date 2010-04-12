@@ -7,6 +7,7 @@ from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction,\
     TaskContext
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript import ast
+import threading
 import traceback
 import sys
 import urllib2
@@ -168,13 +169,18 @@ class SWScheduler:
 
 class SWInterpreterTask:
     
-    def __init__(self, scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None):
+    def __init__(self, scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
         self.blocked_on = set()
-        self.context = None
+        self.context = context
         self.stack = []
         
         self.scheduler = scheduler
         self.task_expr = task_expr
+        
+        self.done = False
+        
+        # May be used to wait on the task completion.
+        self.condvar = condvar
         
         self.is_root = is_root
         self.result_ref_id = None
@@ -184,8 +190,8 @@ class SWInterpreterTask:
             self.result_ref_id = result_ref_id
         elif result_ref_id_list is not None:
             self.result_ref_id_list = result_ref_id_list
-        if (not self.is_root) and result_ref_id is None and result_ref_id_list is None:
-            raise 
+        if (not self.is_root) and result_ref_id is None and result_ref_id_list is None and condvar is None:
+            raise RuntimeWarning("Task has no way of signalling its result")
 
     def interpret(self):
         if self.context is None:
@@ -204,12 +210,22 @@ class SWInterpreterTask:
         
         try:
             self.result = visitor.visit(self.task_expr, self.stack, 0)
-            self.propagate_result(self.result)
-            if self.is_root:
-                self.scheduler.halt()
         except ExecutionInterruption as exi:
             print "Blocking on", self.blocked_on
             self.scheduler.block_on_references(self, self.blocked_on)
+            return
+        except Exception as e:
+            # TODO: could handle this better....
+            self.result = e
+
+        self.done = True
+        self.propagate_result(self.result)
+        
+        if self.is_root:
+            self.scheduler.halt()
+        if self.condvar is not None:
+            with self.condvar:
+                self.condvar.notify_all()
     
     def exec_func(self, executor_name, args, num_outputs):
         executor_class_map = {'stdinout' : StdinoutExecutor}
@@ -270,4 +286,20 @@ class SWInterpreterTask:
         return len(self.blocked_on) == 0
     
 if __name__ == '__main__':
+    
+    def dumpstacks(signal, frame):
+        id2name = dict([(th.ident, th.name) for th in threading.enumerate()])
+        code = []
+        for threadId, stack in sys._current_frames().items():
+            code.append("\n# Thread: %s(%d)" % (id2name[threadId], threadId))
+            for filename, lineno, name, line in traceback.extract_stack(stack):
+                code.append('File: "%s", line %d, in %s' % (filename, lineno, name))
+                if line:
+                    code.append("  %s" % (line.strip()))
+        print "\n".join(code)
+
+    import signal
+    signal.signal(signal.SIGQUIT, dumpstacks)
+
+    
     SWInterpreter().start()

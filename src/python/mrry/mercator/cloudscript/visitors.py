@@ -10,6 +10,14 @@ import random
 
 indent = 0
 
+class SkywritingException(Exception):
+    
+    def __init__(self, reason):
+        self.reason = reason
+        
+    def __str__(self):
+        return repr(self.reason)
+
 class Visitor:
     
     def visit(self, node):

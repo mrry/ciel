@@ -3,10 +3,13 @@ Created on Apr 11, 2010
 
 @author: derek
 '''
+from threading import Lock
 import subprocess
 from subprocess import PIPE
 import tempfile
 import urllib2
+
+SUBPROCESS_LOCK = Lock()
 
 class StdinoutExecutor:
     
@@ -22,14 +25,17 @@ class StdinoutExecutor:
     
     def execute(self):
         temp_output = tempfile.NamedTemporaryFile(delete=False)
-        temp_output_fp = open(temp_output.name, "w")
         print temp_output.name
-        proc = subprocess.Popen(self.command_line, stdin=PIPE, stdout=temp_output_fp)
-        for input in self.input_refs:
-            proc.stdin.write(urllib2.urlopen(input.urls[0]).read())
-        proc.stdin.close()
+        
+        with open(temp_output.name, "w") as temp_output_fp:
+            # This hopefully avoids the race condition in subprocess.Popen()
+            with SUBPROCESS_LOCK:
+                proc = subprocess.Popen(self.command_line, stdin=PIPE, stdout=temp_output_fp)
+        
+        proc.communicate("".join([urllib2.urlopen(x.urls[0]).read() for x in self.input_refs]))
+        print "About to wait..."
         rc = proc.wait()
         if rc != 0:
             print rc
-            raise
+            raise OSError()
         self.output_urls[0] = "file://%s" % (temp_output.name, )

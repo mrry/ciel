@@ -371,6 +371,23 @@ class CloudScriptParser:
         """
         p[0] = ast.Identifier(p[1])
         
+
+class SWStatementParser(CloudScriptParser):
+    
+    def __init__(self):
+        self.lexer = CloudScriptLexer()
+        self.lexer.build()
+        self.tokens = self.lexer.tokens
+        self.parser = ply.yacc.yacc(module=self, start='statement')
+
+class SWExpressionParser(CloudScriptParser):
+    
+    def __init__(self):
+        self.lexer = CloudScriptLexer()
+        self.lexer.build()
+        self.tokens = self.lexer.tokens
+        self.parser = ply.yacc.yacc(module=self, start='expression')
+        
 if __name__ == '__main__':
     
     csp = CloudScriptParser()
