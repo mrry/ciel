@@ -278,8 +278,8 @@ class ExpressionEvaluatorVisitor:
             resume_record.left = self.visit(node, stack, stack_base + 1)
 
         try:
+#            print type(resume_record.left)
             if isinstance(resume_record.left, SWDereferenceWrapper):
-#                print "Trying to eagerly dereference!"
                 ret = self.context.eager_dereference(resume_record.left.ref)
             else:
                 ret = resume_record.left

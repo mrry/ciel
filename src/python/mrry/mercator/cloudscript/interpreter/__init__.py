@@ -24,7 +24,7 @@ class SWInterpreter:
         # Process command-line options.
         self.script_filename = sys.argv[1]
             
-    def start(self, num_threads=10):
+    def start(self, num_threads=4):
         # Parse provided script file.
         script_ast = CloudScriptParser().parse(open(self.script_filename).read())
         
@@ -153,7 +153,7 @@ class SWScheduler:
                 self._term_condition.wait()
 
     def spawn_func(self, callable, args):
-        print "Spawning a task!!!"
+        #print "Spawning a task!!!"
         ref_id = self.allocate_future_reference()
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(callable, args))
         spawned_task = SWInterpreterTask(self, spawned_task_stmt, result_ref_id=ref_id)
