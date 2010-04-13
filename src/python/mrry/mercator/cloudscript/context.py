@@ -63,6 +63,12 @@ class SimpleContext(Context):
     def bind_identifier(self, identifier, value):
         self.contexts[self.context_base-1][self.binding_bases[self.context_base-1]-1][identifier] = value
     
+    def values(self):
+        for context in self.contexts:
+            for binding_group in context:
+                for value in binding_group:
+                    yield value
+    
     def update_value(self, lvalue, rvalue, stack, stack_base):
         if isinstance(lvalue, ast.IdentifierLValue):
             self.bind_identifier(lvalue.base_identifier(), rvalue)
