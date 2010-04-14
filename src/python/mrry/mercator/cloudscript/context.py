@@ -48,6 +48,25 @@ class GlobalScope:
     
 GLOBAL_SCOPE = GlobalScope()
 
+def all_leaf_values(value):
+    """
+    Recurses over a Skywriting data structure (containing lists, dicts and 
+    primitive leaves), and yields all of the leaf objects.
+    """
+    if value is list:
+        for list_elem in value:
+            for leaf in all_leaf_values(list_elem):
+                yield leaf
+    elif value is dict:
+        for (dict_key, dict_value) in dict.items():
+            for leaf in all_leaf_values(dict_key):
+                yield leaf
+            for leaf in all_leaf_values(dict_value):
+                yield leaf
+    else:
+        # TODO: should we consider objects with fields?
+        yield value
+
 class SimpleContext(Context):
 
     def __init__(self):
@@ -64,10 +83,14 @@ class SimpleContext(Context):
         self.contexts[self.context_base-1][self.binding_bases[self.context_base-1]-1][identifier] = value
     
     def values(self):
+        """
+        Returns a list of all primitive values reachable in the current context.
+        """
         for context in self.contexts:
             for binding_group in context:
                 for value in binding_group:
-                    yield value
+                    for leaf in all_leaf_values(value):
+                        yield leaf
     
     def update_value(self, lvalue, rvalue, stack, stack_base):
         if isinstance(lvalue, ast.IdentifierLValue):
