@@ -93,6 +93,12 @@ class ReferenceTableEntry:
         self.reference = reference
         self.is_dereferenced = False
         self.is_execd = False
+        
+class SpawnListEntry:
+    
+    def __init__(self, task_descriptor, continuation):
+        self.task_descriptor = task_descriptor
+        self.continuation = continuation
     
 class SWContinuation:
     
@@ -254,14 +260,13 @@ class SWRuntimeInterpreterTask:
             
         except ExecutionInterruption as exi:
             # Need to add a continuation task to the spawn list.
-            cont_url = self.data_store.store_object(self.continuation)
-            cont_deps = {'_cont': ('urls', [cont_url])}
+            cont_deps = {}
             for index in self.continuation_will_require:
                 cont_deps[index] = self.continuation.resolve_tasklocal_reference(index).as_tuple()
             cont_task_descriptor = {'handler': 'swi',
-                                    'inputs': cont_deps,
+                                    'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_output': self.expected_output_id}
-            self.spawn_list.append(cont_task_descriptor)
+            self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             return None
             
         except Exception as e:
@@ -271,18 +276,42 @@ class SWRuntimeInterpreterTask:
 
     def spawn_all(self):
         current_batch = []
-        for task in self.spawn_list:
-            # If task does not contain any LocalFutureReferences to other tasks in
-            # its reference_table, add it to the current batch.
-            
-            # else: Spawn the current batch. Obtain a list of global identifiers to
-            # be used in place of LocalFutureReferences. Rewrite the reference tables
-            # of all successive tasks with the new information about global identifiers.
-            # Then reiterate while still on the current item.
-            pass
         
-        # Spawn the current batch.
-
+        local_to_global_translations = {}
+        
+        current_index = 0
+        while current_index < len(self.spawn_list):
+            
+            must_wait = False
+            for ref_table_entry in self.spawn_list[current_index].continuation.reference_table:
+                if isinstance(ref_table_entry.real_ref, SWLocalFutureReference):
+                    # if available in the local lookup table (from previous spawn batches), rewrite the reference.
+                    # if not available, must wait.
+                    must_wait = True
+                    break
+                
+            if must_wait:
+                
+                # Fire off the current batch.
+                
+                # Update a local structure containing all of the spawn/global ids so far.
+                
+                # Iterate again on the same index.
+                continue
+                
+            else:
+                
+                # Store the continuation and add it to the task descriptor.
+                cont_url = self.block_store.store_object(self.spawn_list[current_index].continuation)
+                self.spawn_list[current_index].task_descriptor['input']['_cont']
+            
+                current_batch.append(self.spawn_list[current_index].task_descriptor)
+                current_index += 1
+            
+        if len(current_batch > 0):
+            
+            # Fire off the current batch.
+        
     def publish_result(self):
         if self.result is not None:
             result_url = self.block_store.store_object(self.result)
@@ -317,16 +346,13 @@ class SWRuntimeInterpreterTask:
     def spawn_func(self, spawn_expr, args):
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
-
-        # Create swfs URI for continuation object.
-        continuation_url = self.block_store.store_object(spawned_continuation)
         
         # Match up the output with a new tasklocal reference.
         ret = self.continuation.create_tasklocal_reference(SWLocalFutureReference(len(self.spawn_list)))
         
         # Append the new task definition to the spawn list.
         task_descriptor = {'handler': 'swi',
-                           'inputs': {'_cont' : ('urls', [continuation_url])}
+                           'inputs': {} # _cont will be added later
                           }
         
         # TODO: we could visit the spawn expression and try to guess what requirements
@@ -334,7 +360,7 @@ class SWRuntimeInterpreterTask:
         # TODO: should probably look at dereference wrapper objects in the spawn context
         #       and ship them as inputs.
         
-        self.spawn_list.append(task_descriptor)
+        self.spawn_list.append(SpawnListEntry(task_descriptor, spawned_continuation))
 
         # Return local reference to the interpreter.
         return ret

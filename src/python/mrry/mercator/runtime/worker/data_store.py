@@ -18,7 +18,7 @@ urlparse.uses_netloc.append("swbs")
 
 class BlockStore:
     
-    def __init__(self, hostname, port, base_dir):
+    def __init__(self, hostname, port, base_dir, master_proxy):
         self._lock = Lock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
@@ -34,7 +34,7 @@ class BlockStore:
         return os.path.join(self.base_dir, str(id))
     
     def publish_global_object(self, global_id, url):
-        pass
+        self.master_proxy.publish_global_object(global_id, [url])
     
     def store_object(self, object):
         """Stores the given object as a block, and returns a swbs URL to it."""
@@ -101,12 +101,3 @@ class BlockStore:
         
         return self.filename
     
-class DataRoot:
-    
-    def __init__(self, block_store):
-        self.block_store = block_store
-        
-    @cherrypy.expose
-    def default(self, id):
-        safe_id = int(id)
-        return serve_file(self.block_store.filename(safe_id))
