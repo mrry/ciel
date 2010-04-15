@@ -15,6 +15,9 @@ class Task:
         self.task_id = task_id
         self.handler = task_descriptor['handler']
         self.inputs = {}
+        self.current_attempt = 0
+        
+        self.worker_id = None
         
         for local_id, input_tuple in task_descriptor['inputs'].items():
             self.inputs[local_id] = build_reference_from_tuple(input_tuple)
@@ -67,6 +70,7 @@ class TaskPool(plugins.SimplePlugin):
     
     def subscribe(self):
         self.bus.subscribe('global_name_available', self.reference_available)
+        self.bus.subscribe('task_failed', self.task_failed)
     
     def unsubscribe(self):
         self.bus.unsubscribe('global_name_available', self.reference_available)
@@ -99,3 +103,18 @@ class TaskPool(plugins.SimplePlugin):
                 task.unblock_on(id, urls)
                 if not task.is_blocked():
                     self.runnable_queue.put(task)
+    
+    def task_failed(self, id, reason, details=None):
+        if reason == 'WORKER_FAILED':
+            # Try to reschedule task.
+            with self._lock:
+                task = self.tasks[id]
+                task.current_attempt += 1
+                task.worker_id = None
+            self.runnable_queue.put(task)
+        elif reason == 'MISSING_INPUT':
+            # Problem fetching input, so we will have to recreate it.
+            pass
+        elif reason == 'RUNTIME_EXCEPTION':
+            # Kill the entire job, citing the problem.
+            pass

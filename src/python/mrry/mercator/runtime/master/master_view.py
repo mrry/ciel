@@ -16,7 +16,7 @@ class MasterRoot:
         self.task = MasterTaskRoot()
         self.data = DataRoot(block_store)
         self.global_data = GlobalDataRoot(global_name_directory)
-        self.cluster = ClusterDetailsRoot()
+        #self.cluster = ClusterDetailsRoot()
 
 class PingReceiver:
     
@@ -145,10 +145,9 @@ class GlobalDataRoot:
                 raise HTTPError(404)
         raise HTTPError(405)
     
-class ClusterDetailsRoot:
-    
-    def __init__(self):
-        pass
-    
-    # This could provide a way to provide details about the cluster in the
-    # program.
+#class ClusterDetailsRoot:
+#    
+#    def __init__(self):
+#        pass
+#    
+#    # This could provide a way to provide details about the cluster in the 
