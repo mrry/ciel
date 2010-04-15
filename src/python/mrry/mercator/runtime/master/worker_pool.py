@@ -19,6 +19,11 @@ class Worker:
         self.features = worker_descriptor['features']
         self.current_task_id = None
 
+    def as_descriptor(self):
+        return {'worker_id': self.id,
+                'netloc': self.netloc,
+                'features': self.features,
+                'current_task_id': self.current_task_id}
 
 class WorkerPool(plugins.SimplePlugin):
     
@@ -81,3 +86,7 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             self.workers[id].current_task_id = None
             self.idle_set.add(id)
+            
+    def get_all_workers(self):
+        with self._lock:
+            return map(lambda x: x.as_descriptor(), self.workers.values())

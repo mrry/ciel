@@ -15,7 +15,6 @@ class Scheduler(AsynchronousExecutePlugin):
         
     def handle_input(self, input):
         idle_workers = self.worker_pool.get_idle_workers()
-        
         for worker in idle_workers:
             try:
                 task = self.task_pool.runnable_queue.get()

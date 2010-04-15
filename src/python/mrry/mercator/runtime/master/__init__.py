@@ -36,12 +36,22 @@ def master_main(options):
     task_executor.subscribe()
     
     root = MasterRoot(task_pool, worker_pool, block_store, global_name_directory)
-    cherrypy.quickstart(root)
 
+    cherrypy.tree.mount(root, "", None)
+    
+    if hasattr(cherrypy.engine, "signal_handler"):
+        cherrypy.engine.signal_handler.subscribe()
+    if hasattr(cherrypy.engine, "console_control_handler"):
+        cherrypy.engine.console_control_handler.subscribe()
+
+    cherrypy.engine.start()
+    
     if options.workerlist is not None:
         with (open(options.workerlist, "r")) as f:
             for worker_url in f.readlines():
                 worker_pool.add_worker(worker_url)
+
+    cherrypy.engine.block()
 
 #    sch = SchedulerProxy(cherrypy.engine)
 #    sch.subscribe()
@@ -58,7 +68,5 @@ def master_main(options):
 #    ph = PingHandler(cherrypy.engine)
 #    ph.subscribe()
 
-    
-    
 if __name__ == '__main__':
     mrry.mercator.main("master")

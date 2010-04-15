@@ -77,5 +77,6 @@ class FeaturesRoot:
     def __init__(self, node_features):
         self.node_features = node_features
     
+    @cherrypy.expose
     def index(self):
         return simplejson.dumps(self.node_features.all_features())

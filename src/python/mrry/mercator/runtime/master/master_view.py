@@ -18,6 +18,10 @@ class MasterRoot:
         self.global_data = GlobalDataRoot(global_name_directory)
         #self.cluster = ClusterDetailsRoot()
 
+    @cherrypy.expose
+    def index(self):
+        return "Hello from the master!"
+
 class PingReceiver:
     
     @cherrypy.expose
@@ -61,7 +65,8 @@ class MasterTaskRoot:
     #       The master might also have some special functionality that can only be provided
     #       by invoking the master (such as cluster details), but this could potentially be
     #       provided at the master.
-        
+       
+    @cherrypy.expose 
     def default(self, id=None, action=None):
         if id is not None:
             # Spawn and commit actions should probably happen on a buffer object for transactional
@@ -119,6 +124,7 @@ class GlobalDataRoot:
     def __init__(self, global_name_directory):
         self.global_name_directory = global_name_directory
 
+    @cherrypy.expose
     def index(self, id):
         if cherrypy.request.method == 'POST':
             # Create a new global ID, and add the POSTed URLs if any.
@@ -126,6 +132,7 @@ class GlobalDataRoot:
             id = self.global_name_directory.create_global_id(urls)
             return simplejson.dumps(id)
         
+    @cherrypy.expose
     def default(self, id):
         if cherrypy.request.method == 'POST':
             # Add a new URL for the global ID.

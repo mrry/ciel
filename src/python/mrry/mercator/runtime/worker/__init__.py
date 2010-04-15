@@ -23,13 +23,18 @@ def register_with_master(master_uri, local_hostname, local_port):
     local_netloc = "%s:%d" % (local_hostname, local_port)
     
     master_register_url = urlparse.urljoin(master_uri, 'worker/')
+    print master_register_url
     
     (response, content) = http.request(uri=master_register_url, method='POST', body=simplejson.dumps({'netloc': local_netloc, 'features': {}}))
+
+    print response
 
     if response.status != 200:
         print response
         print content
         raise cherrypy.HTTPError(response.status)
+    
+
     
 
 def worker_main(options):
@@ -47,10 +52,22 @@ def worker_main(options):
     
     root = WorkerRoot(master_proxy, block_store, node_features)
     
-    cherrypy.quickstart(root)
+    cherrypy.tree.mount(root, "", None)
     
-    if options.master is not None:
-        register_with_master(options.master, local_hostname, local_port)
+    if hasattr(cherrypy.engine, "signal_handler"):
+        cherrypy.engine.signal_handler.subscribe()
+    if hasattr(cherrypy.engine, "console_control_handler"):
+        cherrypy.engine.console_control_handler.subscribe()
+
+    cherrypy.engine.start()
+    
+    try:
+        if options.master is not None:
+            register_with_master(options.master, local_hostname, local_port)
+    except:
+        pass
+    
+    cherrypy.engine.block()
         
 #    pinger = Pinger(cherrypy.engine, options.master, worker_id) 
 #    pinger.subscribe()
