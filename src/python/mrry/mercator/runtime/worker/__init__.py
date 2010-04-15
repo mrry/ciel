@@ -43,9 +43,6 @@ def worker_main(options):
     task_executor = TaskExecutorPlugin(cherrypy.engine, block_store, master_proxy, 1)
     task_executor.subscribe()
     
-    worker_id = register_with_master(options)
-    cherrypy.config.update({'worker.id' : worker_id})
-    
     node_features = WorkerFeatures()
     
     root = WorkerRoot(master_proxy, block_store, node_features)

@@ -43,7 +43,7 @@ class AsynchronousExecutePlugin(SimplePlugin):
                 
     def stop(self):
         self.is_running = False
-        for i in range(self.pool_size):
+        for i in range(self.num_threads):
             self.queue.put(THREAD_TERMINATOR)
         for thread in self.threads:
             thread.join()
