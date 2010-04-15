@@ -5,9 +5,6 @@ Created on 4 Feb 2010
 '''
 import cherrypy
 import mrry.mercator
-from mrry.mercator.jobmanager.plugins import JobExecutor, StatusMaintainer,\
-    Pinger, DataManager
-from mrry.mercator.jobmanager.server_root import JobsRoot
 import httplib2
 import os
 import socket
@@ -30,7 +27,7 @@ def register_with_master(options):
     
     return simplejson.loads(content)
 
-def jobmanager_main(options):
+def worker_main(options):
     
     worker_id = register_with_master(options)
     cherrypy.config.update({'worker.id' : worker_id})
@@ -49,4 +46,4 @@ def jobmanager_main(options):
     cherrypy.quickstart(root)
     
 if __name__ == '__main__':
-    mrry.mercator.main("jobmanager")
+    mrry.mercator.main("worker")

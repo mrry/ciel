@@ -4,6 +4,7 @@ Created on Apr 15, 2010
 @author: derek
 '''
 from threading import Lock
+import cherrypy
 
 class GlobalNameDirectory:
     
@@ -26,7 +27,9 @@ class GlobalNameDirectory:
         with self._lock:
             url_set = self.name_bindings[id]
             for url in urls:
-                url_set.add(urls)
+                url_set.add(url)
+            url_list = list(url_set)
+        cherrypy.engine.publish('global_name_available', id, url_list)
     
     def get_urls_for_id(self, id):
         with self._lock:

@@ -9,15 +9,33 @@ import cherrypy
 
 class WorkerRoot:
     
-    def __init__(self, status_maintainer, block_store, exec_facility):
-        self.status_maintainer = status_maintainer
+    def __init__(self, master_proxy, block_store, node_features):
+        self.master = RegisterMasterRoot(master_proxy)
         self.task = TaskRoot()
         self.data = DataRoot(block_store)
-        self.features = FeaturesRoot(exec_facility)
+        self.features = FeaturesRoot(node_features)
     
     @cherrypy.expose
     def index(self):
         return "Hello from the job manager server...."
+    
+class RegisterMasterRoot:
+    
+    def __init__(self, master_proxy):
+        self.master_proxy = master_proxy
+    
+    @cherrypy.expose
+    def index(self):
+        if cherrypy.request.method == 'POST':
+            master_details = simplejson.loads(cherrypy.request.body.read())
+            try:
+                self.master_proxy.change_master(master_details)
+            except:
+                raise cherrypy.HTTPError(500)
+        elif cherrypy.request.method == 'GET':
+            return simplejson.dumps(self.master_proxy.get_master_details())
+        else:
+            raise cherrypy.HTTPError(405)
     
 class TaskRoot:
     
@@ -56,8 +74,8 @@ class DataRoot:
     
 class FeaturesRoot:
     
-    def __init__(self, exec_facility):
-        self.exec_facility = exec_facility
-        
+    def __init__(self, node_features):
+        self.node_features = node_features
+    
     def index(self):
-        return simplejson.dumps(self.exec_facility.all_facilities())
+        return simplejson.dumps(self.node_features.all_features())

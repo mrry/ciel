@@ -14,14 +14,15 @@ def main(default_role=None):
     parser.add_option("-p", "--port", action="callback", callback=lambda w, x, y, z: set_port(y), type="int", help="Server port", metavar="PORT")
     parser.add_option("-c", "--config", action="callback", callback=lambda w, x, y, z: set_config(y), help="Configuration file", metavar="FILE")
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="URI")
-    (options, args) = parser.parse_args()
+    parser.add_output("-w", "--workerlist", action="store", dest="workerlist", help="List of workers", metavar = "FILE", default=None)
+    (options, _) = parser.parse_args()
 
     if options.role == 'master':
-        from mrry.mercator.master import master_main
+        from mrry.mercator.runtime.master import master_main
         master_main(options)
-    elif options.role == 'jobmanager':
-        from mrry.mercator.jobmanager import jobmanager_main
-        jobmanager_main(options)
+    elif options.role == 'worker':
+        from mrry.mercator.runtime.worker import worker_main
+        worker_main(options)
     else:
         raise
     

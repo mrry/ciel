@@ -8,7 +8,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, Text, Table, create_engine, DateTime
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy import PickleType
-import simplejson
 from sqlalchemy.orm import relation, scoped_session
 from sqlalchemy.schema import ForeignKey
 

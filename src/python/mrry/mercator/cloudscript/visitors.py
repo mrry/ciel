@@ -6,7 +6,6 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR
-import random
 
 indent = 0
 

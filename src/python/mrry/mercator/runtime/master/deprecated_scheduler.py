@@ -473,6 +473,7 @@ class WorkflowRunner(plugins.SimplePlugin):
         self.session.commit()
 
         ret = [RemoteDatum(x.id) for x in task.outputs]
+        return ret
         
     def star_function(self, datum):
         return {'foo' : 'bar', 'baz' : 'blinky'}

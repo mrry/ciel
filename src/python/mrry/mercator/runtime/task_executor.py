@@ -7,85 +7,35 @@ from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
 from mrry.mercator.cloudscript.context import SimpleContext, TaskContext,\
     LambdaFunction, all_leaf_values
 from mrry.mercator.cloudscript.visitors import SWDataReference,\
-    StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper,\
-    SWFutureReference
-from django.utils import simplejson
+    StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
 from mrry.mercator.cloudscript.interpreter.executors import StdinoutExecutor
 from mrry.mercator.cloudscript import ast
-import pickle
-import urllib
-import urllib2
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, block_store, num_threads=1):
+    def __init__(self, bus, block_store, master_proxy, num_threads=1):
         AsynchronousExecutePlugin.__init__(self, bus, num_threads, "execute_task")
         self.block_store = block_store
+        self.master_proxy = master_proxy
     
     def handle_input(self, input):
         assert input['handler'] == 'swi'
         return self.handle_swi_task(input)
         
-    def fetch_reference(self):
-        pass
-        
     def handle_swi_task(self, task_descriptor):
-        task_id = task_descriptor['task_id']
-        inputs = task_descriptor['inputs']
-        expected_output_id = task_descriptor['expected_output']
-        
-        # 1. Fetch data-dependent inputs and rewrite the continuation to use them.
-
-        
-        continuation_ref = None
-        parsed_inputs = {}
-        
-        for local_id, ref_tuple in inputs.items():
-            ref = build_reference_from_tuple(ref_tuple)
-            if local_id == '_cont':
-                continuation_ref = ref
-            else:
-                parsed_inputs[local_id] = ref
-        
-        assert isinstance(continuation_ref, SWURLReference)
-        continuation = self.block_store.retrieve_object_by_url(continuation_ref.urls[0])
-        
-        for local_id, ref in parsed_inputs.items():
-            if continuation.is_marked_as_dereferenced(local_id):
-                if isinstance(ref, SWDataValue):
-                    continuation.rewrite_reference(local_id, ref)
-                else:
-                    assert isinstance(ref, SWURLReference)
-                    value = self.block_store.retrieve_object_by_url(ref.urls[0])
-                    continuation.rewrite_reference(local_id, SWDataValue(value))
-            elif continuation.is_marked_as_execd(local_id):
-                if isinstance(ref, SWDataValue):
-                    url = self.block_store.store_object(ref.value)
-                    filename = self.block_store.retrieve_filename_by_url(url)
-                else:
-                    assert isinstance(ref, SWURLReference)
-                    filename = self.block_store.retrieve_filename_by_url(ref.urls[0])
-                continuation.rewrite_reference(local_id, SWLocalDataFile(filename))
-            else:
-                assert False
-        
-        # 2. Build interpreter task and run it.
-        interpreter = SWRuntimeInterpreterTask(task_descriptor['task_id'], continuation, self.block_store)
-        try:
-            result = interpreter.interpret()
-        except:
-            pass
-        
-        # 3. Spawn all tasks in the spawn list.
-        interpreter.spawn_all()
-        
-        # 4. Publish result if necessary.
-        interpreter.publish_result()
-        
-        # 5. TODO: we should really have a commit operation in case the worker fails when part of the result
-        #          has been committed.
+        try:     
+            task_id = task_descriptor['task_id']
+        except KeyError:
+            return
                 
-        pass
+        try:
+            interpreter = SWRuntimeInterpreterTask(task_descriptor, self.block_store)
+            interpreter.fetch_inputs()
+            interpreter.interpret()
+            interpreter.spawn_all()
+            interpreter.commit_task()
+        except:
+            self.master_proxy.failed_task(task_id)
 
 class ReferenceTableEntry:
     
@@ -93,6 +43,7 @@ class ReferenceTableEntry:
         self.reference = reference
         self.is_dereferenced = False
         self.is_execd = False
+        self.is_returned = False
         
 class SpawnListEntry:
     
@@ -130,6 +81,10 @@ class SWContinuation:
         self.reference_table[id].is_execd = True
     def is_marked_as_execd(self, ref):
         return self.reference_table[ref.id].is_execd
+    def mark_as_returned(self, id):
+        self.reference_table[id].is_returned = True
+    def is_marked_as_returned(self, ref):
+        return self.reference_table[ref.id].is_returned
         
     def rewrite_reference(self, id, real_ref):
         self.reference_table[id].reference = real_ref
@@ -157,7 +112,7 @@ class SWLocalFutureReference:
     as the argument to another spawned task.
     """
     
-    def __init__(self, spawn_list_index, result_index=None):
+    def __init__(self, spawn_list_index, result_index=0):
         self.spawn_list_index = spawn_list_index
         self.result_index = result_index
         
@@ -235,14 +190,46 @@ def build_reference_from_tuple(reference_tuple):
     
 class SWRuntimeInterpreterTask:
     
-    def __init__(self, task_id, expected_output, continuation, block_store): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
-        self.task_id = task_id
-        self.expected_output = expected_output
-        self.continuation = continuation
-        self.block_store = block_store
-        
+    def __init__(self, task_descriptor): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
+        self.task_id = task_descriptor['task_id']
+        self.expected_outputs = task_descriptor['expected_outputs']
+        self.inputs = task_descriptor['inputs']
+
         self.continuation_will_require = set()
         self.spawn_list = []
+
+    def fetch_inputs(self, block_store):
+        continuation_ref = None
+        parsed_inputs = {}
+        
+        for local_id, ref_tuple in self.inputs.items():
+            ref = build_reference_from_tuple(ref_tuple)
+            if local_id == '_cont':
+                continuation_ref = ref
+            else:
+                parsed_inputs[local_id] = ref
+        
+        assert isinstance(continuation_ref, SWURLReference)
+        self.continuation = block_store.retrieve_object_by_url(continuation_ref.urls[0])
+        
+        for local_id, ref in parsed_inputs.items():
+            if self.continuation.is_marked_as_dereferenced(local_id):
+                if isinstance(ref, SWDataValue):
+                    self.continuation.rewrite_reference(local_id, ref)
+                else:
+                    assert isinstance(ref, SWURLReference)
+                    value = block_store.retrieve_object_by_url(ref.urls[0])
+                    self.continuation.rewrite_reference(local_id, SWDataValue(value))
+            elif self.continuation.is_marked_as_execd(local_id):
+                if isinstance(ref, SWDataValue):
+                    url = block_store.store_object(ref.value)
+                    filename = block_store.retrieve_filename_by_url(url)
+                else:
+                    assert isinstance(ref, SWURLReference)
+                    filename = block_store.retrieve_filename_by_url(ref.urls[0])
+                self.continuation.rewrite_reference(local_id, SWLocalDataFile(filename))
+            else:
+                assert False
 
     def interpret(self):
         self.continutation.context.restart()
@@ -258,43 +245,49 @@ class SWRuntimeInterpreterTask:
         try:
             self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
             
-        except ExecutionInterruption as exi:
+        except ExecutionInterruption:
             # Need to add a continuation task to the spawn list.
             cont_deps = {}
             for index in self.continuation_will_require:
                 cont_deps[index] = self.continuation.resolve_tasklocal_reference(index).as_tuple()
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
-                                    'expected_output': self.expected_output_id}
+                                    'expected_outputs': self.expected_outputs}
             self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
-            return None
+            return
             
         except Exception as e:
             raise
-        
-        return self.result
 
-    def spawn_all(self):
+    def spawn_all(self, block_store, master_proxy):
         current_batch = []
         
-        local_to_global_translations = {}
+        spawn_task_result_global_ids = []
         
         current_index = 0
         while current_index < len(self.spawn_list):
             
             must_wait = False
-            for ref_table_entry in self.spawn_list[current_index].continuation.reference_table:
+            current_cont = self.spawn_list[current_index].continuation
+            
+            for index, ref_table_entry in enumerate(current_cont.reference_table):
                 if isinstance(ref_table_entry.real_ref, SWLocalFutureReference):
-                    # if available in the local lookup table (from previous spawn batches), rewrite the reference.
-                    # if not available, must wait.
-                    must_wait = True
-                    break
+                    # if unavailable in the local lookup table (from previous spawn batches), must wait;
+                    # else rewrite the reference.
+                    spawn_list_index = ref_table_entry.real_ref.spawn_list_index
+                    if spawn_list_index >= len(spawn_task_result_global_ids):
+                        must_wait = True
+                        break
+                    else:
+                        current_cont.rewrite_reference(index, SWGlobalFutureReference(spawn_task_result_global_ids[spawn_list_index]))
                 
             if must_wait:
                 
                 # Fire off the current batch.
+                batch_result_ids = master_proxy.spawn_tasks(self.task_id, current_batch)
                 
                 # Update a local structure containing all of the spawn/global ids so far.
+                spawn_task_result_global_ids.extend(batch_result_ids)
                 
                 # Iterate again on the same index.
                 continue
@@ -302,20 +295,41 @@ class SWRuntimeInterpreterTask:
             else:
                 
                 # Store the continuation and add it to the task descriptor.
-                cont_url = self.block_store.store_object(self.spawn_list[current_index].continuation)
-                self.spawn_list[current_index].task_descriptor['input']['_cont']
+                cont_url = block_store.store_object(current_cont)
+                self.spawn_list[current_index].task_descriptor['input']['_cont'] = SWURLReference([cont_url])
             
+                # Current task is now ready to be spawned.
                 current_batch.append(self.spawn_list[current_index].task_descriptor)
                 current_index += 1
             
         if len(current_batch > 0):
             
             # Fire off the current batch.
+            master_proxy.spawn_tasks(self.task_id, current_batch)
         
-    def publish_result(self):
-        if self.result is not None:
-            result_url = self.block_store.store_object(self.result)
-            self.block_store.publish_global_object(self.expected_output, result_url)
+    def commit_result(self, block_store, master_proxy):
+        if self.result is None:
+            master_proxy.commit(self.task_id, {})
+            return
+        
+        commit_bindings = {}
+        
+        if self.result is list and self.expected_outputs is list:
+            assert len(self.result) >= len(self.expected_outputs)
+            for i, output in enumerate(self.expected_outputs):
+                # TODO: handle the case where we return a spawned reference (tail-recursion).
+                #       ...could make this happen in visit_Return with an "is_returned" Ref Table Entry.
+                assert isinstance(self.result[i], SWLocalReference)
+                commit_bindings[output] = self.continuation.resolve_tasklocal_reference(self.result[i]).urls
+            
+        elif self.expected_outputs is not list:
+            result_url = block_store.store_object(self.result)
+            commit_bindings[self.expected_outputs] = [result_url]
+        
+        else:
+            assert False
+            
+        master_proxy.commit(self.task_id, commit_bindings)
 
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
@@ -352,7 +366,7 @@ class SWRuntimeInterpreterTask:
         
         # Append the new task definition to the spawn list.
         task_descriptor = {'handler': 'swi',
-                           'inputs': {} # _cont will be added later
+                           'inputs': {}, # _cont will be added later
                           }
         
         # TODO: we could visit the spawn expression and try to guess what requirements
@@ -367,19 +381,31 @@ class SWRuntimeInterpreterTask:
         
     def spawn_list_func(self, spawn_expr, args, num_outputs):
         # Create new continuation for the spawned function.
-        # FIXME: consider spawning a tasklocal identifier like exec or spawn....
-        
+        spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
+
         # Create swfs URI for continuation object.
-        # FIXME: handle in memory if possible.
+        spawn_list_index = len(self.spawn_list)
         
-        # Record any references that might be necessary inputs to the spawned function.
-        # FIXME: add a means of walking the spawn context.
-        
-        # Match up the outputs with new tasklocal references.
+        ret = []
+        for i in range(0, num_outputs):
+            ret.append(self.continuation.create_tasklocal_reference(SWLocalFutureReference(spawn_list_index, i)))
 
         # Append the new task definition to the spawn list.
-        pass
+        task_descriptor = {'handler': 'swi',
+                           'inputs': {}, # _cont will be added later
+                           'num_outputs': num_outputs
+                          }
+        
+        # TODO: we could visit the spawn expression and try to guess what requirements
+        #       and executors we need in here. 
+        # TODO: should probably look at dereference wrapper objects in the spawn context
+        #       and ship them as inputs.
+        
+        self.spawn_list.append(SpawnListEntry(task_descriptor, spawned_continuation))
 
+        # Return local reference to the interpreter.
+        return ret
+    
     def exec_func(self, executor_name, args, num_outputs):
         executor_class_map = {'stdinout' : StdinoutExecutor}
         try:
@@ -411,20 +437,3 @@ class SWRuntimeInterpreterTask:
             self.continuation_will_require.add(ref.id)
             self.continuation.mark_as_dereferenced(ref)
             raise ExecutionInterruption()
-        
-def map_over_sw_list(f, l):
-    for item in list:
-        map_over_sw_data_structure(f, item)
-        
-def map_over_sw_dict(f, d):
-    for key, value in d.items():
-        map_over_sw_data_structure(f, key)
-        map_over_sw_data_structure(f, value)
-        
-def map_over_sw_data_structure(f, structure):
-    if structure is list:
-        map_over_sw_list(f, structure)
-    elif structure is dict:
-        map_over_sw_dict(f, structure)
-    else:
-        f(structure)

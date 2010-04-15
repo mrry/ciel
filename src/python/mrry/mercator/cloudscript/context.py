@@ -6,11 +6,10 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, ExpressionEvaluatorVisitor,\
-    ExecutionInterruption, SkywritingException
+    ExecutionInterruption
 from mrry.mercator.cloudscript.resume import ContextAssignRR,\
     IndexedLValueRR
 import cPickle
-import os
 import sys
 
 class Context:

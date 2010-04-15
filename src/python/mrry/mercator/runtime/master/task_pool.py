@@ -1,0 +1,101 @@
+'''
+Created on 15 Apr 2010
+
+@author: dgm36
+'''
+from Queue import Queue
+from cherrypy.process import plugins
+from threading import Lock
+from mrry.mercator.runtime.task_executor import build_reference_from_tuple,\
+    SWGlobalFutureReference, SWURLReference
+
+class Task:
+    
+    def __init__(self, task_id, task_descriptor, global_name_directory):
+        self.task_id = task_id
+        self.handler = task_descriptor['handler']
+        self.inputs = {}
+        
+        for local_id, input_tuple in task_descriptor['inputs'].items():
+            self.inputs[local_id] = build_reference_from_tuple(input_tuple)
+        
+        self.expected_outputs = task_descriptor['expected_outputs']
+    
+        self.blocking_dict = {}
+        for local_id, input in self.inputs:
+            if isinstance(input, SWGlobalFutureReference):
+                global_id = input.id
+                urls = global_name_directory.get_urls_for_id(global_id)
+                if len(urls) > 0:
+                    self.inputs[local_id] = SWURLReference(urls)
+                else:
+                    try:
+                        self.blocked_dict[global_id].add(local_id)
+                    except KeyError:
+                        self.blocked_dict[global_id] = set([local_id])
+        
+    def is_blocked(self, global_name_directory):
+        return len(self.blocking_dict) > 0
+    
+    def blocked_on(self):    
+        return self.blocking_dict.keys()
+    
+    def unblock_on(self, global_id, urls):
+        local_ids = self.blocking_dict.pop(global_id)
+        for local_id in local_ids:
+            self.inputs[local_id] = SWURLReference(urls)
+        
+    def as_descriptor(self):        
+        tuple_inputs = {}
+        for local_id, input in self.inputs:
+            tuple_inputs[local_id] = input.as_tuple()
+        return {'task_id': self.task_id,
+                'handler': self.handler,
+                'expected_outputs': self.expected_outputs,
+                'inputs': tuple_inputs}
+        
+class TaskPool(plugins.SimplePlugin):
+    
+    def __init__(self, bus, global_name_directory):
+        plugins.SimplePlugin.__init__(self, bus)
+        self.global_name_directory = global_name_directory
+        self.current_task_id = 0
+        self.tasks = {}
+        self.runnable_queue = Queue()
+        self.references_blocking_tasks = {}
+        self._lock = Lock()
+    
+    def subscribe(self):
+        self.bus.subscribe('global_name_available', self.reference_available)
+    
+    def unsubscribe(self):
+        self.bus.unsubscribe('global_name_available', self.reference_available)
+    
+    def add_task(self, task_descriptor):
+        with self._lock:
+            task_id = self.current_task_id
+            self.current_task_id += 1
+            
+            task = Task(task_id, task_descriptor, self.global_name_directory)
+            self.tasks[task_id] = task
+        
+            if task.is_blocked():
+                for global_id in task.blocked_on():
+                    try:
+                        self.references_blocking_tasks[global_id].add(task_id)
+                    except KeyError:
+                        self.references_blocking_tasks[global_id] = set([task_id])
+            else:
+                self.runnable_queue.put(task)
+    
+    def reference_available(self, id, urls):
+        with self._lock:
+            try:
+                blocked_tasks_set = self.references_blocking_tasks.pop(id)
+            except KeyError:
+                return
+            for task_id in blocked_tasks_set:
+                task = self.tasks[task_id]
+                task.unblock_on(id, urls)
+                if not task.is_blocked():
+                    self.runnable_queue.put(task)

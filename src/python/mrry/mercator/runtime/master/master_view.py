@@ -3,7 +3,7 @@ Created on 8 Feb 2010
 
 @author: dgm36
 '''
-from cherrypy._cperror import HTTPError
+from cherrypy import HTTPError
 import simplejson
 import cherrypy
 from mrry.mercator.runtime.worker.worker_view import DataRoot
@@ -13,7 +13,7 @@ class MasterRoot:
     def __init__(self, worker_pool, block_store, global_name_directory):
         self.ping = PingReceiver()
         self.worker = WorkersRoot(worker_pool)
-        #self.task = MasterTaskRoot()
+        self.task = MasterTaskRoot()
         self.data = DataRoot(block_store)
         self.global_data = GlobalDataRoot(global_name_directory)
         self.cluster = ClusterDetailsRoot()
@@ -48,9 +48,10 @@ class WorkersRoot:
 
 class MasterTaskRoot:
     
-    def __init__(self):
-        pass
-    
+    def __init__(self, global_name_directory, task_pool):
+        self.global_name_directory = global_name_directory
+        self.task_pool = task_pool
+        
     # TODO: decide how to submit tasks to the cluster. Effectively, we want to mirror
     #       the way workers do it. Want to have a one-shot distributed execution on the
     #       master before sending out continuations to the cluster. The master should
@@ -68,18 +69,38 @@ class MasterTaskRoot:
             if action == 'spawn':
                 if cherrypy.request.method == 'POST':
                     task_descriptors = simplejson.loads(cherrypy.request.body.read())
-                    # Spawn additional tasks.
-                    pass
+                    spawn_result_ids = []
+                    
+                    # TODO: stage this in a task-local transaction buffer.
+                    for task in task_descriptors:
+                        try:
+                            num_outputs = task['num_outputs']
+                            expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
+                        except:
+                            expected_outputs = self.global_name_directory.create_global_id()
+                        
+                        task['expected_outputs'] = expected_outputs
+                        self.task_pool.add_task(task)
+                        spawn_result_ids.append(expected_outputs) 
+                    
+                    return simplejson.dumps(spawn_result_ids)
+                    
                 else:
                     raise HTTPError(405)
                 pass
             elif action == 'commit':
                 if cherrypy.request.method == 'POST':
                     commit_bindings = simplejson.loads(cherrypy.request.body.read())
+                    
                     # Apply commit bindings (if any), i.e. publish results.
-                    # Check task for consistency.
-                    # Commit all task activities.
-                    pass
+                    for global_id, urls in commit_bindings.items():
+                        self.data_store.add_urls_for_id(global_id, urls)
+                    
+                    # TODO: Check task for consistency.
+                    # TODO: Commit all task activities.
+
+                    return simplejson.dumps(True)
+                    
                 else:
                     raise HTTPError(405)
             elif action is None:

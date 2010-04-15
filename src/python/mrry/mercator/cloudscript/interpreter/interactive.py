@@ -6,13 +6,11 @@ Created on 12 Apr 2010
 from mrry.mercator.cloudscript.interpreter import SWScheduler,\
     SW_THREAD_TERMINATOR, SWInterpreterTask
 from mrry.mercator.cloudscript.context import SimpleContext
-from mrry.mercator.cloudscript.parser import CloudScriptParser,\
+from mrry.mercator.cloudscript.parser import \
     SWStatementParser, SWExpressionParser
-from mrry.mercator.cloudscript.visitors import ExpressionEvaluatorVisitor
 from threading import Condition, Thread
 import traceback
 import cmd
-import readline
 
 class SWInteractiveShell(cmd.Cmd):
     
@@ -50,7 +48,7 @@ class SWInteractiveShell(cmd.Cmd):
             
             try:
                 task.interpret()
-            except Exception as e:
+            except Exception:
                 traceback.print_exc()
                 self.scheduler.halt()
     
@@ -97,5 +95,3 @@ class SWInteractiveShell(cmd.Cmd):
 if __name__ == '__main__':
     shell = SWInteractiveShell()
     shell.cmdloop()
-    scheduler.halt()
-    sh
