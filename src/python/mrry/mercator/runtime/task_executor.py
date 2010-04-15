@@ -19,10 +19,12 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.master_proxy = master_proxy
     
     def handle_input(self, input):
+        print 'Handling a task!'
         assert input['handler'] == 'swi'
         return self.handle_swi_task(input)
         
     def handle_swi_task(self, task_descriptor):
+        print 'Handling an SWI task!'
         try:     
             task_id = task_descriptor['task_id']
         except KeyError:

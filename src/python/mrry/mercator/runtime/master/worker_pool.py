@@ -6,6 +6,7 @@ Created on Apr 15, 2010
 from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock
+import sys
 import simplejson
 import httplib2
 
@@ -54,6 +55,8 @@ class WorkerPool(plugins.SimplePlugin):
             self.current_worker_id += 1
             worker = Worker(id, worker_descriptor)
             self.workers[id] = worker
+            self.idle_set.add(id)
+        self.bus.publish('schedule')
         
     def get_worker_by_id(self, id):
         with self._lock:
@@ -63,16 +66,21 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             return list(self.idle_set)
     
-    def execute_task_on_worker(self, worker, task):
+    def execute_task_on_worker_id(self, worker_id, task):
         with self._lock:
-            self.idle_set.remove(worker.id)
+            self.idle_set.remove(worker_id)
+            worker = self.workers[worker_id]
             worker.current_task_id = task.task_id
-            task.worker_id = worker.id
+            task.worker_id = worker_id
     
         try:
-            self.http.request("http://%s/task", "POST", simplejson.dumps(task.as_descriptor()))
+            response, content = self.http.request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor()))
+            print response
+            print content
         except:
-            self.worker_failed(worker.id)
+            print sys.exc_info()
+            print 'Worker failed:', worker_id
+            self.worker_failed(worker_id)
     
     def worker_failed(self, id):
         with self._lock:
@@ -86,6 +94,7 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             self.workers[id].current_task_id = None
             self.idle_set.add(id)
+        self.bus.publish('schedule')
             
     def get_all_workers(self):
         with self._lock:

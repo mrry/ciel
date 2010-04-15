@@ -49,7 +49,7 @@ class AsynchronousExecutePlugin(SimplePlugin):
             thread.join()
         self.threads = []
         
-    def receive_input(self, input):
+    def receive_input(self, input=None):
         self.queue.put(input)
         
     def thread_main(self):
@@ -69,6 +69,6 @@ class AsynchronousExecutePlugin(SimplePlugin):
                 if self.publish_fail_event is not None:
                     self.bus.publish(self.publish_fail_event, input, ex)
                     
-    def handle_input(self):
+    def handle_input(self, input):
         """Override this method to specify the behaviour on processing a single input."""
         pass

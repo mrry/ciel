@@ -25,7 +25,7 @@ class Task:
         self.expected_outputs = task_descriptor['expected_outputs']
     
         self.blocking_dict = {}
-        for local_id, input in self.inputs:
+        for local_id, input in self.inputs.items():
             if isinstance(input, SWGlobalFutureReference):
                 global_id = input.id
                 urls = global_name_directory.get_urls_for_id(global_id)
@@ -37,7 +37,7 @@ class Task:
                     except KeyError:
                         self.blocked_dict[global_id] = set([local_id])
         
-    def is_blocked(self, global_name_directory):
+    def is_blocked(self):
         return len(self.blocking_dict) > 0
     
     def blocked_on(self):    
@@ -50,7 +50,7 @@ class Task:
         
     def as_descriptor(self):        
         tuple_inputs = {}
-        for local_id, input in self.inputs:
+        for local_id, input in self.inputs.items():
             tuple_inputs[local_id] = input.as_tuple()
         return {'task_id': self.task_id,
                 'handler': self.handler,
@@ -91,6 +91,8 @@ class TaskPool(plugins.SimplePlugin):
                         self.references_blocking_tasks[global_id] = set([task_id])
             else:
                 self.runnable_queue.put(task)
+                
+        self.bus.publish('schedule')
     
     def reference_available(self, id, urls):
         with self._lock:

@@ -167,6 +167,9 @@ class SWScheduler:
         self.scheduler.add_task(spawned_task)
         return ref_id_list
 
+    def spawn_cluster_func(self, callable, args, cluster_name):
+        pass
+
 class SWInterpreterTask:
     
     def __init__(self, scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
@@ -203,6 +206,7 @@ class SWInterpreterTask:
         # TODO: investigate when we might need to change the scheduler.
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.scheduler.spawn_func(x[0], x[1])))
         task_context.bind_tasklocal_identifier("spawn_list", LambdaFunction(lambda x: self.scheduler.spawn_list_func(x[0], x[1], x[2])))
+        task_context.bind_tasklocal_identifier("spawn_cluster", LambdaFunction(lambda x: self.scheduler.spawn_cluster_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: SWDataReference(x)))

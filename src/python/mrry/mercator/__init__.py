@@ -1,5 +1,7 @@
 from optparse import OptionParser
+import socket
 import cherrypy
+
 
 def set_port(port):
     cherrypy.config.update({'server.socket_port': port})
@@ -8,6 +10,8 @@ def set_config(filename):
     cherrypy.config.update(filename)
 
 def main(default_role=None):
+
+    cherrypy.config.update({'server.socket_host': socket.getfqdn()})
     
     parser = OptionParser()
     parser.add_option("-r", "--role", action="store", dest="role", help="Server role", metavar="ROLE", default=default_role)

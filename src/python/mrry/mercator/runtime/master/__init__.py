@@ -12,6 +12,7 @@ from mrry.mercator.runtime.task_executor import TaskExecutorPlugin
 from mrry.mercator.runtime.master.local_master_proxy import LocalMasterProxy
 from mrry.mercator.runtime.master.task_pool import TaskPool
 import mrry.mercator
+from mrry.mercator.runtime.master.scheduler import Scheduler
 import tempfile
 import socket
 import cherrypy
@@ -34,6 +35,9 @@ def master_main(options):
 
     task_executor = TaskExecutorPlugin(cherrypy.engine, block_store, master_proxy, 1)
     task_executor.subscribe()
+    
+    scheduler = Scheduler(cherrypy.engine, task_pool, worker_pool)
+    scheduler.subscribe()
     
     root = MasterRoot(task_pool, worker_pool, block_store, global_name_directory)
 

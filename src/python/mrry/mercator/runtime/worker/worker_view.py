@@ -68,6 +68,12 @@ class DataRoot:
         safe_id = int(id)
         return serve_file(self.block_store.filename(safe_id))
 
+    @cherrypy.expose
+    def index(self):
+        data = cherrypy.request.body.read()
+        url = self.block_store.store_object(data)
+        return simplejson.dumps(url)
+
     # TODO: have a way from outside the cluster to push some data to a node.
     #       Also might investigate a way for us to have a spanning tree broadcast
     #       for common files.

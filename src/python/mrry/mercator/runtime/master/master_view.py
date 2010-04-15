@@ -114,8 +114,18 @@ class MasterTaskRoot:
             # New task spawning in here.
             task_descriptor = simplejson.loads(cherrypy.request.body.read())
             if task_descriptor is not None:
-                cherrypy.engine.publish('execute_task', task_descriptor)
-                return
+                
+                try:
+                    num_outputs = task['num_outputs']
+                    expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
+                except:
+                    expected_outputs = self.global_name_directory.create_global_id()
+                
+                task_descriptor['expected_outputs'] = expected_outputs
+                self.task_pool.add_task(task_descriptor)
+                
+                return simplejson.dumps(expected_outputs)
+                        
         else:
             raise HTTPError(405)
             
@@ -125,11 +135,12 @@ class GlobalDataRoot:
         self.global_name_directory = global_name_directory
 
     @cherrypy.expose
-    def index(self, id):
+    def index(self):
         if cherrypy.request.method == 'POST':
             # Create a new global ID, and add the POSTed URLs if any.
             urls = simplejson.loads(cherrypy.request.body.read())
             id = self.global_name_directory.create_global_id(urls)
+            print id
             return simplejson.dumps(id)
         
     @cherrypy.expose

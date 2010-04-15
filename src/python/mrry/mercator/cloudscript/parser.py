@@ -380,6 +380,14 @@ class SWStatementParser(CloudScriptParser):
         self.tokens = self.lexer.tokens
         self.parser = ply.yacc.yacc(module=self, start='statement')
 
+class SWScriptParser(CloudScriptParser):
+    
+    def __init__(self):
+        self.lexer = CloudScriptLexer()
+        self.lexer.build()
+        self.tokens = self.lexer.tokens
+        self.parser = ply.yacc.yacc(module=self, start='script')
+
 class SWExpressionParser(CloudScriptParser):
     
     def __init__(self):
