@@ -35,7 +35,7 @@ def master_main(options):
     task_executor = TaskExecutorPlugin(cherrypy.engine, block_store, master_proxy, 1)
     task_executor.subscribe()
     
-    root = MasterRoot(worker_pool, block_store, global_name_directory)
+    root = MasterRoot(task_pool, worker_pool, block_store, global_name_directory)
     cherrypy.quickstart(root)
 
     if options.workerlist is not None:

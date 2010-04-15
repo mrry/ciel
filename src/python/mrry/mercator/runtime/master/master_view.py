@@ -10,10 +10,10 @@ from mrry.mercator.runtime.worker.worker_view import DataRoot
 
 class MasterRoot:
     
-    def __init__(self, worker_pool, block_store, global_name_directory):
+    def __init__(self, task_pool, worker_pool, block_store, global_name_directory):
         self.ping = PingReceiver()
         self.worker = WorkersRoot(worker_pool)
-        self.task = MasterTaskRoot()
+        self.task = MasterTaskRoot(global_name_directory, task_pool)
         self.data = DataRoot(block_store)
         self.global_data = GlobalDataRoot(global_name_directory)
         #self.cluster = ClusterDetailsRoot()

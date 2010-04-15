@@ -13,7 +13,7 @@ THREAD_TERMINATOR = ThreadTerminator()
 
 class AsynchronousExecutePlugin(SimplePlugin):
     
-    def __init__(self, bus, num_threads=1, subscribe_event, publish_success_event=None, publish_fail_event=None):
+    def __init__(self, bus, num_threads, subscribe_event, publish_success_event=None, publish_fail_event=None):
         SimplePlugin.__init__(self, bus)
         self.threads = []
         
