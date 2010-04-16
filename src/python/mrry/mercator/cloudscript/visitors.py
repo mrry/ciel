@@ -39,6 +39,16 @@ class SWDereferenceWrapper:
     def __init__(self, ref):
         self.ref = ref
 
+class SWDynamicScopeWrapper:
+    
+    def __init__(self, identifier):
+        self.identifier = identifier
+        self.captured_bindings = {}
+
+    def call(self, args_list, stack, stack_base, context):
+        actual_function = context.value_of_dynamic_scope(self.identifier)
+        return actual_function.call(args_list, stack, stack_base, context)
+
 class StatementResult:
     pass
 RESULT_BREAK = StatementResult()
@@ -280,6 +290,9 @@ class ExpressionEvaluatorVisitor:
 #            print type(resume_record.left)
             if isinstance(resume_record.left, SWDereferenceWrapper):
                 ret = self.context.eager_dereference(resume_record.left.ref)
+            elif isinstance(resume_record.left, SWDynamicScopeWrapper):
+                print resume_record.left.identifier
+                ret = self.context.value_of_dynamic_scope(resume_record.left.identifier)
             else:
                 ret = resume_record.left
 
@@ -632,7 +645,7 @@ class UserDefinedLambda:
         body_bindings.visit(lambda_ast.expr)
         
         for identifier in body_bindings.rvalue_object_identifiers:
-            if declaration_context.has_binding_for(identifier):
+            if declaration_context.has_binding_for(identifier) and not declaration_context.is_dynamic(identifier):
                 self.captured_bindings[identifier] = declaration_context.value_of(identifier)
                 
     def call(self, args_list, stack, stack_base, context):

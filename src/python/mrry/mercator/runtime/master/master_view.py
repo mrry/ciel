@@ -106,6 +106,8 @@ class MasterTaskRoot:
                     for global_id, urls in commit_bindings.items():
                         self.global_name_directory.add_urls_for_id(int(global_id), urls)
                     
+                    self.task_pool.task_completed(task_id)
+                    
                     # TODO: Check task for consistency.
                     # TODO: Commit all task activities.
 

@@ -106,6 +106,14 @@ class TaskPool(plugins.SimplePlugin):
                 if not task.is_blocked():
                     self.runnable_queue.put(task)
     
+    def task_completed(self, id):
+        with self._lock:
+            task = self.tasks[id]
+            worker_id = task.worker_id
+            task.worker_id = None
+            
+        self.bus.publish('worker_idle', worker_id)
+    
     def task_failed(self, id, reason, details=None):
         if reason == 'WORKER_FAILED':
             # Try to reschedule task.

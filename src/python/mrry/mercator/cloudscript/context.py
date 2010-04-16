@@ -6,27 +6,17 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, ExpressionEvaluatorVisitor,\
-    ExecutionInterruption
+    ExecutionInterruption, SWDynamicScopeWrapper
 from mrry.mercator.cloudscript.resume import ContextAssignRR,\
     IndexedLValueRR
 import cPickle
 import sys
 
-class Context:
-    
-    def update_value(self, lvalue, rvalue):
-        pass
-    
-    def value_of(self, name):
-        pass
-    
-    def remove_binding(self, name):
-        pass
-
 class LambdaFunction:
     
     def __init__(self, function):
         self.function = function
+        self.captured_bindings = {}
         
     def call(self, args_list, stack, stack_base, context):
         return self.function(args_list)
@@ -52,12 +42,12 @@ def all_leaf_values(value):
     Recurses over a Skywriting data structure (containing lists, dicts and 
     primitive leaves), and yields all of the leaf objects.
     """
-    if value is list:
+    if isinstance(value, list):
         for list_elem in value:
             for leaf in all_leaf_values(list_elem):
                 yield leaf
-    elif value is dict:
-        for (dict_key, dict_value) in dict.items():
+    elif isinstance(value, dict):
+        for (dict_key, dict_value) in value.items():
             for leaf in all_leaf_values(dict_key):
                 yield leaf
             for leaf in all_leaf_values(dict_value):
@@ -66,7 +56,7 @@ def all_leaf_values(value):
         # TODO: should we consider objects with fields?
         yield value
 
-class SimpleContext(Context):
+class SimpleContext:
 
     def __init__(self):
         self.contexts = []
@@ -80,6 +70,9 @@ class SimpleContext(Context):
     
     def bind_identifier(self, identifier, value):
         self.contexts[self.context_base-1][self.binding_bases[self.context_base-1]-1][identifier] = value
+    
+    def is_dynamic(self, identifier):
+        return False
     
     def values(self):
         """
@@ -186,6 +179,9 @@ class TaskContext:
     def bind_identifier(self, identifier, value):
         return self.wrapped_context.bind_identifier(identifier, value)
     
+    def is_dynamic(self, identifier):
+        return identifier in self.tasklocal_bindings.keys() or self.wrapped_context.is_dynamic(identifier)
+    
     def bind_tasklocal_identifier(self, identifier, value):
         self.tasklocal_bindings[identifier] = value
     
@@ -226,13 +222,19 @@ class TaskContext:
             pass
         
         try:
-            return self.tasklocal_bindings[base_identifier]
+            value = self.tasklocal_bindings[base_identifier]
+            print "Making a DynamicScopeWrapper for %s --> %s" % (base_identifier, str(value))
+            return SWDynamicScopeWrapper(base_identifier)
         except:
             print "Error context[%d][%d]:" % (self.wrapped_context.context_base - 1, self.wrapped_context.binding_bases[self.wrapped_context.context_base-1] - 1), self.wrapped_context.contexts
             raise
 
+    def value_of_dynamic_scope(self, base_identifier):
+        return self.tasklocal_bindings[base_identifier]
+
     def remove_binding(self, base_identifier):
         return self.wrapped_context.remove_binding(base_identifier)
+
    
 class GetBaseLValueBindingVisitor:
     
