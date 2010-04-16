@@ -69,6 +69,9 @@ class MasterTaskRoot:
     @cherrypy.expose 
     def default(self, id=None, action=None):
         if id is not None:
+            
+            task_id = int(id)
+            
             # Spawn and commit actions should probably happen on a buffer object for transactional
             # semantics.
             if action == 'spawn':
@@ -97,15 +100,23 @@ class MasterTaskRoot:
                 if cherrypy.request.method == 'POST':
                     commit_bindings = simplejson.loads(cherrypy.request.body.read())
                     
+                    print commit_bindings
+                    
                     # Apply commit bindings (if any), i.e. publish results.
                     for global_id, urls in commit_bindings.items():
-                        self.data_store.add_urls_for_id(global_id, urls)
+                        self.global_name_directory.add_urls_for_id(int(global_id), urls)
                     
                     # TODO: Check task for consistency.
                     # TODO: Commit all task activities.
 
                     return simplejson.dumps(True)
                     
+                else:
+                    raise HTTPError(405)
+            elif action == 'failed':
+                if cherrypy.request.method == 'POST':
+                    cherrypy.engine.publish('task_failed', task_id, 'RUNTIME_EXCEPTION')
+                    return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)
             elif action is None:
@@ -150,14 +161,14 @@ class GlobalDataRoot:
             urls = simplejson.loads(cherrypy.request.body.read())
             assert urls is list
             try:
-                self.global_name_directory.add_urls_for_id(id, urls)
+                self.global_name_directory.add_urls_for_id(int(id), urls)
                 return
             except KeyError:
                 raise HTTPError(404)
         elif cherrypy.request.method == 'GET':
             # Return all URLs for the global ID.
             try:
-                urls = self.global_name_directory.get_urls_for_id(id)
+                urls = self.global_name_directory.get_urls_for_id(int(id))
                 return simplejson.dumps(urls)
             except KeyError:
                 raise HTTPError(404)

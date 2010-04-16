@@ -10,6 +10,8 @@ from mrry.mercator.cloudscript.visitors import SWDataReference,\
     StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
 from mrry.mercator.cloudscript.interpreter.executors import StdinoutExecutor
 from mrry.mercator.cloudscript import ast
+import cherrypy
+import logging
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -31,12 +33,13 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             return
                 
         try:
-            interpreter = SWRuntimeInterpreterTask(task_descriptor, self.block_store)
-            interpreter.fetch_inputs()
+            interpreter = SWRuntimeInterpreterTask(task_descriptor)
+            interpreter.fetch_inputs(self.block_store)
             interpreter.interpret()
-            interpreter.spawn_all()
-            interpreter.commit_task()
+            interpreter.spawn_all(self.block_store, self.master_proxy)
+            interpreter.commit_result(self.block_store, self.master_proxy)
         except:
+            cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
             self.master_proxy.failed_task(task_id)
 
 class ReferenceTableEntry:
@@ -199,6 +202,8 @@ class SWRuntimeInterpreterTask:
 
         self.continuation_will_require = set()
         self.spawn_list = []
+        
+        self.continuation = None
 
     def fetch_inputs(self, block_store):
         continuation_ref = None
@@ -234,7 +239,7 @@ class SWRuntimeInterpreterTask:
                 assert False
 
     def interpret(self):
-        self.continutation.context.restart()
+        self.continuation.context.restart()
         task_context = TaskContext(self.continuation.context, self)
         
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
@@ -304,14 +309,14 @@ class SWRuntimeInterpreterTask:
                 current_batch.append(self.spawn_list[current_index].task_descriptor)
                 current_index += 1
             
-        if len(current_batch > 0):
+        if len(current_batch) > 0:
             
             # Fire off the current batch.
             master_proxy.spawn_tasks(self.task_id, current_batch)
         
     def commit_result(self, block_store, master_proxy):
         if self.result is None:
-            master_proxy.commit(self.task_id, {})
+            master_proxy.commit_task(self.task_id, {})
             return
         
         commit_bindings = {}
@@ -331,7 +336,9 @@ class SWRuntimeInterpreterTask:
         else:
             assert False
             
-        master_proxy.commit(self.task_id, commit_bindings)
+        print commit_bindings
+            
+        master_proxy.commit_task(self.task_id, commit_bindings)
 
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))

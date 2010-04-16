@@ -5,6 +5,8 @@ Created on 13 Apr 2010
 '''
 from cherrypy.process.plugins import SimplePlugin
 from Queue import Queue
+import logging
+import cherrypy
 import threading
 
 class ThreadTerminator:
@@ -68,7 +70,9 @@ class AsynchronousExecutePlugin(SimplePlugin):
             except Exception as ex:
                 if self.publish_fail_event is not None:
                     self.bus.publish(self.publish_fail_event, input, ex)
-                    
+                else:
+                    cherrypy.log.error('Error handling input in %s' % (self.__class__, ), 'PLUGIN', logging.ERROR, True)
+
     def handle_input(self, input):
         """Override this method to specify the behaviour on processing a single input."""
         pass

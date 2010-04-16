@@ -42,7 +42,13 @@ def worker_main(options):
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
     
-    master_proxy = MasterProxy()
+    if options.master is not None:
+        master_netloc = urlparse.urlparse(options.master).netloc
+    else:
+        master_netloc = None
+        
+    master_proxy = MasterProxy(master_netloc)
+    
     block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
     
     task_executor = TaskExecutorPlugin(cherrypy.engine, block_store, master_proxy, 1)

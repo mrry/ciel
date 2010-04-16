@@ -4,6 +4,7 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
+import pickle
 import simplejson
 import cherrypy
 
@@ -70,7 +71,8 @@ class DataRoot:
 
     @cherrypy.expose
     def index(self):
-        data = cherrypy.request.body.read()
+        # TODO: obviate need for double-pickle.
+        data = pickle.load(cherrypy.request.body)
         url = self.block_store.store_object(data)
         return simplejson.dumps(url)
 

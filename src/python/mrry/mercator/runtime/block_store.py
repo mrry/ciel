@@ -73,8 +73,11 @@ class BlockStore:
             # Retrieve remote ex-system object.
             fetch_url = url
         
-        with urllib2.urlopen(fetch_url) as object_file:
-            return pickle.load(object_file)
+        object_file = urllib2.urlopen(fetch_url)
+        ret = pickle.load(object_file)
+        print ret
+        object_file.close()
+        return ret
                 
     def retrieve_filename_by_url(self, url):
         """Returns the filename of a file containing the data at the given URL."""

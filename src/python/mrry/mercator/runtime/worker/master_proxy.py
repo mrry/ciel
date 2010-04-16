@@ -26,16 +26,16 @@ class MasterProxy:
         
     def spawn_tasks(self, parent_task_id, tasks):
         message_payload = simplejson.dumps(tasks)
-        message_url = "http://%s/task/%d/spawn"
+        message_url = "http://%s/task/%d/spawn" % (self.master_netloc, parent_task_id)
         (_, result) = self.http.request(message_url, "POST", message_payload)
         return simplejson.loads(result)
     
     def commit_task(self, task_id, bindings):
         message_payload = simplejson.dumps(bindings)
-        message_url = "http://%s/task/%d/commit"
+        message_url = "http://%s/task/%d/commit" % (self.master_netloc, task_id)
         self.http.request(message_url, "POST", message_payload)
         
     def failed_task(self, task_id):
         message_payload = simplejson.dumps(task_id)
-        message_url = "http://%s/task/%d/failed"
+        message_url = "http://%s/task/%d/failed" % (self.master_netloc, task_id)
         self.http.request(message_url, "POST", message_payload)
