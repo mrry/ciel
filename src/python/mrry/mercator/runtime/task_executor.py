@@ -6,7 +6,7 @@ Created on 13 Apr 2010
 from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
 from mrry.mercator.cloudscript.context import SimpleContext, TaskContext,\
     LambdaFunction, all_leaf_values, map_leaf_values
-from mrry.mercator.cloudscript.visitors import SWDataReference,\
+from mrry.mercator.cloudscript.visitors import \
     StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
 from subprocess import PIPE
@@ -104,7 +104,6 @@ class SWContinuation:
     def resolve_tasklocal_reference_with_index(self, index):
         return self.reference_table[index].reference
     def resolve_tasklocal_reference_with_ref(self, ref):
-        print self.reference_table
         return self.reference_table[ref.index].reference
 
 class SWLocalReference:

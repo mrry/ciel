@@ -291,7 +291,6 @@ class ExpressionEvaluatorVisitor:
             if isinstance(resume_record.left, SWDereferenceWrapper):
                 ret = self.context.eager_dereference(resume_record.left.ref)
             elif isinstance(resume_record.left, SWDynamicScopeWrapper):
-                print resume_record.left.identifier
                 ret = self.context.value_of_dynamic_scope(resume_record.left.identifier)
             else:
                 ret = resume_record.left

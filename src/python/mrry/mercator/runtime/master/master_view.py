@@ -103,8 +103,6 @@ class MasterTaskRoot:
                 if cherrypy.request.method == 'POST':
                     commit_bindings = simplejson.loads(cherrypy.request.body.read())
                     
-                    print commit_bindings
-                    
                     # Apply commit bindings (if any), i.e. publish results.
                     for global_id, urls in commit_bindings.items():
                         self.global_name_directory.add_urls_for_id(int(global_id), urls)
@@ -158,7 +156,6 @@ class GlobalDataRoot:
             # Create a new global ID, and add the POSTed URLs if any.
             urls = simplejson.loads(cherrypy.request.body.read())
             id = self.global_name_directory.create_global_id(urls)
-            print id
             return simplejson.dumps(id)
         
     @cherrypy.expose

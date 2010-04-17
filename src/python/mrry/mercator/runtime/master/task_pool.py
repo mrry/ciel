@@ -33,9 +33,9 @@ class Task:
                     self.inputs[local_id] = SWURLReference(urls)
                 else:
                     try:
-                        self.blocked_dict[global_id].add(local_id)
+                        self.blocking_dict[global_id].add(local_id)
                     except KeyError:
-                        self.blocked_dict[global_id] = set([local_id])
+                        self.blocking_dict[global_id] = set([local_id])
         
     def is_blocked(self):
         return len(self.blocking_dict) > 0

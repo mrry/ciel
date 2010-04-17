@@ -39,7 +39,6 @@ class WorkerPool(plugins.SimplePlugin):
         self.idle_set = set()
         
         self._lock = Lock()
-        self.http = httplib2.Http()
         
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
@@ -74,9 +73,7 @@ class WorkerPool(plugins.SimplePlugin):
             task.worker_id = worker_id
     
         try:
-            response, content = self.http.request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor()))
-            print response
-            print content
+            httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor()), )
         except:
             print sys.exc_info()
             print 'Worker failed:', worker_id

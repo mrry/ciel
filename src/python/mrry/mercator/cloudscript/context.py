@@ -240,7 +240,6 @@ class TaskContext:
         
         try:
             value = self.tasklocal_bindings[base_identifier]
-            print "Making a DynamicScopeWrapper for %s --> %s" % (base_identifier, str(value))
             return SWDynamicScopeWrapper(base_identifier)
         except:
             print "Error context[%d][%d]:" % (self.wrapped_context.context_base - 1, self.wrapped_context.binding_bases[self.wrapped_context.context_base-1] - 1), self.wrapped_context.contexts
@@ -262,7 +261,6 @@ class GetBaseLValueBindingVisitor:
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
         
     def visit_IdentifierLValue(self, node, stack, stack_base):
-        #print "Identifier is", node.identifier, self.context.context_base-1, self.context.binding_bases[self.context.context_base-1]-1, len(self.context.contexts), len(self.context.contexts[self.context.binding_bases[self.context.context_base-1]-1])
         try:
             return self.context.contexts[self.context.context_base-1][self.context.binding_bases[self.context.context_base-1]-1][node.identifier]
         except KeyError:
