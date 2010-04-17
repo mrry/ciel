@@ -19,7 +19,7 @@ class Scheduler(AsynchronousExecutePlugin):
         print idle_workers
         for worker_id in idle_workers:
             try:
-                task = self.task_pool.runnable_queue.get()
+                task = self.task_pool.runnable_queue.get(block=False)
                 print task.task_id, '--->', worker_id
                 self.worker_pool.execute_task_on_worker_id(worker_id, task)
             except Empty:

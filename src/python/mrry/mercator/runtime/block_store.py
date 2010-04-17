@@ -88,8 +88,6 @@ class BlockStore:
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
         parsed_url = urlparse.urlparse(url)
-        print url, '<--->', parsed_url
-        
         if parsed_url.scheme == 'swbs':
             id = int(parsed_url.path[1:])
             if parsed_url.netloc == self.netloc:
@@ -109,7 +107,6 @@ class BlockStore:
         
         object_file = urllib2.urlopen(fetch_url)
         ret = self.decoders[decoder](object_file)
-        print ret
         object_file.close()
         return ret
                 

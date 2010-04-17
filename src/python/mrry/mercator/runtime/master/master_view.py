@@ -82,12 +82,15 @@ class MasterTaskRoot:
                     # TODO: stage this in a task-local transaction buffer.
                     for task in task_descriptors:
                         try:
-                            num_outputs = task['num_outputs']
-                            expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
-                        except:
-                            expected_outputs = self.global_name_directory.create_global_id()
-                        
-                        task['expected_outputs'] = expected_outputs
+                            expected_outputs = task['expected_outputs']
+                        except KeyError:
+                            try:
+                                num_outputs = task['num_outputs']
+                                expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
+                            except:
+                                expected_outputs = self.global_name_directory.create_global_id()
+                            
+                            task['expected_outputs'] = expected_outputs
                         self.task_pool.add_task(task)
                         spawn_result_ids.append(expected_outputs) 
                     
@@ -122,21 +125,23 @@ class MasterTaskRoot:
                 else:
                     raise HTTPError(405)
             elif action is None:
-                pass
+                if cherrypy.request.method == 'GET':
+                    return simplejson.dumps(self.task_pool.tasks[task_id].as_descriptor())
         elif cherrypy.request.method == 'POST':
             # New task spawning in here.
             task_descriptor = simplejson.loads(cherrypy.request.body.read())
             if task_descriptor is not None:
-                
                 try:
-                    num_outputs = task['num_outputs']
-                    expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
-                except:
-                    expected_outputs = self.global_name_directory.create_global_id()
+                    expected_outputs = task_descriptor['expected_outputs']
+                except KeyError:
+                    try:
+                        num_outputs = task_descriptor['num_outputs']
+                        expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
+                    except:
+                        expected_outputs = self.global_name_directory.create_global_id()
+                    task_descriptor['expected_outputs'] = expected_outputs
                 
-                task_descriptor['expected_outputs'] = expected_outputs
                 self.task_pool.add_task(task_descriptor)
-                
                 return simplejson.dumps(expected_outputs)
                         
         else:

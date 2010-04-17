@@ -18,12 +18,15 @@ class LocalMasterProxy:
         spawn_result_ids = []
         for task in task_descriptors:
             try:
-                num_outputs = task['num_outputs']
-                expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
-            except:
-                expected_outputs = self.global_name_directory.create_global_id()
-            
-            task['expected_outputs'] = expected_outputs
+                expected_outputs = task['expected_outputs']
+            except KeyError:
+                try:
+                    num_outputs = task['num_outputs']
+                    expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
+                except:
+                    expected_outputs = self.global_name_directory.create_global_id()
+                task['expected_outputs'] = expected_outputs
+
             self.task_pool.add_task(task)
             spawn_result_ids.append(expected_outputs) 
 

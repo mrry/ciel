@@ -25,12 +25,11 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.master_proxy = master_proxy
     
     def handle_input(self, input):
-        print 'Handling a task!'
         assert input['handler'] == 'swi'
         return self.handle_swi_task(input)
         
     def handle_swi_task(self, task_descriptor):
-        print 'Handling an SWI task!'
+        print '!!! Starting SWI task', task_descriptor['task_id']
         try:     
             task_id = task_descriptor['task_id']
         except KeyError:
@@ -254,12 +253,10 @@ class SWRuntimeInterpreterTask:
         self.continuation = block_store.retrieve_object_by_url(continuation_ref.urls[0], 'pickle')
         
         for local_id, ref in parsed_inputs.items():
-            print 'Fetching input:', local_id, ref
             if self.continuation.is_marked_as_dereferenced(local_id):
                 if isinstance(ref, SWDataValue):
                     self.continuation.rewrite_reference(local_id, ref)
                 else:
-                    print ref.__class__
                     assert isinstance(ref, SWURLReference)
                     value = block_store.retrieve_object_by_url(ref.urls[0], 'json')
                     self.continuation.rewrite_reference(local_id, SWDataValue(value))
@@ -368,9 +365,6 @@ class SWRuntimeInterpreterTask:
                 cont_url = block_store.store_object(current_cont, 'pickle')
                 self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = SWURLReference([cont_url]).as_tuple()
             
-                print self.spawn_list[current_index].task_descriptor['inputs']
-                
-            
                 # Current task is now ready to be spawned.
                 current_batch.append(self.spawn_list[current_index].task_descriptor)
                 current_index += 1
@@ -383,6 +377,7 @@ class SWRuntimeInterpreterTask:
     def commit_result(self, block_store, master_proxy):
         if self.result is None:
             master_proxy.commit_task(self.task_id, {})
+            print '### Successfully yielded in task', self.task_id, self.expected_outputs
             return
         
         
@@ -406,9 +401,9 @@ class SWRuntimeInterpreterTask:
         else:
             assert False
             
-        print commit_bindings
-            
         master_proxy.commit_task(self.task_id, commit_bindings)
+
+        print '### Successfully completed task', self.task_id, self.expected_outputs
 
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
@@ -418,7 +413,6 @@ class SWRuntimeInterpreterTask:
         local_reference_indices = set()
         
         # Local references in the arguments.
-        print 'ARGS\n----'
         for leaf in filter(lambda x: isinstance(x, SWLocalReference), all_leaf_values(args)):
             local_reference_indices.add(leaf.index)
             
@@ -434,8 +428,6 @@ class SWRuntimeInterpreterTask:
         #       So let's assume that we won't run out of indices in a normal run :).
         for index in local_reference_indices:
             cont.reference_table[index] = self.continuation.reference_table[index]
-        
-        print 'Spawned continuation reftable:', cont.reference_table
         
         return cont
 
@@ -534,8 +526,6 @@ class SWStdinoutExecutor:
     
     def execute(self, block_store):
         temp_output = tempfile.NamedTemporaryFile(delete=False)
-        print temp_output.name
-        
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
             proc = subprocess.Popen(self.command_line, stdin=PIPE, stdout=temp_output_fp)

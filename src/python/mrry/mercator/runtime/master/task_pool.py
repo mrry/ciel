@@ -74,6 +74,7 @@ class TaskPool(plugins.SimplePlugin):
     
     def unsubscribe(self):
         self.bus.unsubscribe('global_name_available', self.reference_available)
+        self.bus.unsubscribe('task_failed', self.task_failed)
     
     def add_task(self, task_descriptor):
         with self._lock:
