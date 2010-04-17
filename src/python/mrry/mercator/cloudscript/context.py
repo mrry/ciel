@@ -55,6 +55,23 @@ def all_leaf_values(value):
     else:
         # TODO: should we consider objects with fields?
         yield value
+        
+def map_leaf_values(f, value):
+    """
+    Recurses over a Skywriting data structure (containing lists, dicts and 
+    primitive leaves), and returns a new structure with the leaves mapped as specified.
+    """
+    if isinstance(value, list):
+        return map(lambda x: map_leaf_values(f, x), value)
+    elif isinstance(value, dict):
+        ret = {}
+        for (dict_key, dict_value) in value.items():
+            key = map_leaf_values(f, dict_key)
+            value = map_leaf_values(f, dict_value)
+            ret[key] = value
+        return ret
+    else:
+        return f(value)
 
 class SimpleContext:
 

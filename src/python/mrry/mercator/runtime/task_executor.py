@@ -5,7 +5,7 @@ Created on 13 Apr 2010
 '''
 from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
 from mrry.mercator.cloudscript.context import SimpleContext, TaskContext,\
-    LambdaFunction, all_leaf_values
+    LambdaFunction, all_leaf_values, map_leaf_values
 from mrry.mercator.cloudscript.visitors import SWDataReference,\
     StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
@@ -54,6 +54,9 @@ class ReferenceTableEntry:
         self.is_dereferenced = False
         self.is_execd = False
         self.is_returned = False
+        
+    def __repr__(self):
+        return 'ReferenceTableEntry(%s, d=%s, e=%s, r=%s)' % (repr(self.reference), repr(self.is_dereferenced), repr(self.is_execd), repr(self.is_returned))
         
 class SpawnListEntry:
     
@@ -115,7 +118,12 @@ class SWLocalReference:
     def __init__(self, index):
         self.index = index
 
-class SWLocalFutureReference:
+class SWRealReference:
+    
+    def as_tuple(self):
+        pass
+
+class SWLocalFutureReference(SWRealReference):
     """
     Used as a placeholder reference for the results of spawned tasks. Refers to the
     output of a particular task in the spawn list. If that task has multiple outputs,
@@ -134,8 +142,11 @@ class SWLocalFutureReference:
             return ('lfut', self.spawn_list_index)
         else:
             return ('lfut', self.spawn_list_index, self.result_index)
+        
+    def __repr__(self):
+        return 'SWLocalFutureReference(%d, %d)' % (self.spawn_list_index, self.result_index)
 
-class SWURLReference:
+class SWURLReference(SWRealReference):
     """
     A reference to one or more URLs representing the same data.
     """
@@ -145,8 +156,11 @@ class SWURLReference:
         
     def as_tuple(self):
         return ('urls', self.urls)
+    
+    def __repr__(self):
+        return 'SWURLReference(%s)' % (repr(self.urls))
 
-class SWGlobalFutureReference:
+class SWGlobalFutureReference(SWRealReference):
     """
     Used as a reference to a task that hasn't completed yet. The identifier is in a
     system-global namespace, and may be passed to other tasks or returned from
@@ -161,7 +175,10 @@ class SWGlobalFutureReference:
     def as_tuple(self):
         return ('gfut', self.id)
 
-class SWLocalDataFile:
+    def __repr__(self):
+        return 'SWGlobalFutureReference(%d)' % (self.id, )
+
+class SWLocalDataFile(SWRealReference):
     """
     Used when a reference is used as a file input (and hence should
     not be brought into the environment.
@@ -173,7 +190,10 @@ class SWLocalDataFile:
     def as_tuple(self):
         return ('lfile', self.filename)
 
-class SWDataValue:
+    def __repr__(self):
+        return 'SWLocalDataFile(%s)' % (repr(self.filename), )
+
+class SWDataValue(SWRealReference):
     """
     Used to store data that has been dereferenced and loaded into the environment.
     """
@@ -183,6 +203,9 @@ class SWDataValue:
         
     def as_tuple(self):
         return ('val', self.value)
+    
+    def __repr__(self):
+        return 'SWDataValue(%s)' % (repr(self.value), )
 
 def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
@@ -215,8 +238,6 @@ class SWRuntimeInterpreterTask:
         
         self.continuation = None
         self.result = None
-        
-
 
     def fetch_inputs(self, block_store):
         continuation_ref = None
@@ -230,20 +251,21 @@ class SWRuntimeInterpreterTask:
                 parsed_inputs[int(local_id)] = ref
         
         assert isinstance(continuation_ref, SWURLReference)
-        self.continuation = block_store.retrieve_object_by_url(continuation_ref.urls[0])
+        self.continuation = block_store.retrieve_object_by_url(continuation_ref.urls[0], 'pickle')
         
         for local_id, ref in parsed_inputs.items():
+            print 'Fetching input:', local_id, ref
             if self.continuation.is_marked_as_dereferenced(local_id):
                 if isinstance(ref, SWDataValue):
                     self.continuation.rewrite_reference(local_id, ref)
                 else:
                     print ref.__class__
                     assert isinstance(ref, SWURLReference)
-                    value = block_store.retrieve_object_by_url(ref.urls[0])
+                    value = block_store.retrieve_object_by_url(ref.urls[0], 'json')
                     self.continuation.rewrite_reference(local_id, SWDataValue(value))
             elif self.continuation.is_marked_as_execd(local_id):
                 if isinstance(ref, SWDataValue):
-                    url = block_store.store_object(ref.value)
+                    url = block_store.store_object(ref.value, 'json')
                     filename = block_store.retrieve_filename_by_url(url)
                 else:
                     assert isinstance(ref, SWURLReference)
@@ -251,6 +273,18 @@ class SWRuntimeInterpreterTask:
                 self.continuation.rewrite_reference(local_id, SWLocalDataFile(filename))
             else:
                 assert False
+
+    def convert_tasklocal_to_real_reference(self, value):
+        if isinstance(value, SWLocalReference):
+            return self.continuation.resolve_tasklocal_reference_with_ref(value)
+        else:
+            return value
+
+    def convert_real_to_tasklocal_reference(self, value):
+        if isinstance(value, SWRealReference):
+            return self.continuation.create_tasklocal_reference(value)
+        else:
+            return value
 
     def interpret(self):
         self.continuation.context.restart()
@@ -331,7 +365,7 @@ class SWRuntimeInterpreterTask:
             else:
                 
                 # Store the continuation and add it to the task descriptor.
-                cont_url = block_store.store_object(current_cont)
+                cont_url = block_store.store_object(current_cont, 'pickle')
                 self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = SWURLReference([cont_url]).as_tuple()
             
                 print self.spawn_list[current_index].task_descriptor['inputs']
@@ -351,6 +385,10 @@ class SWRuntimeInterpreterTask:
             master_proxy.commit_task(self.task_id, {})
             return
         
+        
+        self.result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
+            
+        
         commit_bindings = {}
         
         if self.result is list and self.expected_outputs is list:
@@ -362,7 +400,7 @@ class SWRuntimeInterpreterTask:
                 commit_bindings[output] = self.continuation.resolve_tasklocal_reference_with_ref(self.result[i]).urls
             
         elif self.expected_outputs is not list:
-            result_url = block_store.store_object(self.result)
+            result_url = block_store.store_object(self.result, 'json')
             commit_bindings[self.expected_outputs] = [result_url]
         
         else:
@@ -474,7 +512,8 @@ class SWRuntimeInterpreterTask:
     def eager_dereference(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            return real_ref.value
+            
+            return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
         else:
             # TODO: consider loading this immediately if it is local.
             self.continuation_will_require.add(ref.index)
@@ -515,7 +554,7 @@ class SWStdinoutExecutor:
             print rc
             raise OSError()
         
-        urls = block_store.store_file(temp_output.name)
-        real_ref = SWURLReference(urls)
+        url = block_store.store_file(temp_output.name)
+        real_ref = SWURLReference([url])
         tasklocal_ref = self.continuation.create_tasklocal_reference(real_ref)
         self.output_refs[0] = tasklocal_ref

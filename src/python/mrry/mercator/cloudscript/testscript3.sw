@@ -1,5 +1,5 @@
-words = ref("file:///usr/share/dict/british-english");
-shermans = ref("file:///usr/share/dict/american-english");
+words = ref("http://news.bbc.co.uk/");
+shermans = ref("http://nytimes.com/");
 
 boo = spawn(exec, ["stdinout", {"inputs" : [words], "command_line" : ["wc", "-w"]}, 1]);
 foo = spawn(exec, ["stdinout", {"inputs" : [shermans], "command_line" : ["wc", "-w"]}, 1]);

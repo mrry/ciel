@@ -71,9 +71,10 @@ class DataRoot:
 
     @cherrypy.expose
     def index(self):
+        # TODO: alternative data serialization formats; direct passthrough.
         # TODO: obviate need for double-pickle.
         data = pickle.load(cherrypy.request.body)
-        url = self.block_store.store_object(data)
+        url = self.block_store.store_object(data, 'pickle')
         return simplejson.dumps(url)
 
     # TODO: have a way from outside the cluster to push some data to a node.

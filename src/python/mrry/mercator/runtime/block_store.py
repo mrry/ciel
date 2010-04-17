@@ -14,7 +14,18 @@ import cherrypy
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
+import simplejson
+from mrry.mercator.runtime.task_executor import build_reference_from_tuple,\
+    SWRealReference
 urlparse.uses_netloc.append("swbs")
+
+class SWReferenceJSONEncoder(simplejson.JSONEncoder):
+
+    def default(self, obj):
+        if isinstance(obj, SWRealReference):
+            return {'__ref__': obj.as_tuple()}
+        else:
+            return simplejson.JSONEncoder.default(self, obj)
 
 class BlockStore:
     
@@ -24,6 +35,28 @@ class BlockStore:
         self.base_dir = base_dir
         self.current_id = 0
         self.object_cache = {}
+        
+        self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
+        self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle}
+        
+    def json_decode_object_hook(self, dict_):
+        if '__ref__' in dict_:
+            return build_reference_from_tuple(dict_['__ref__'])
+        else:
+            return dict_
+    
+    def encode_noop(self, obj, file):
+        return file.write(obj)
+    def decode_noop(self, file):
+        return file.read()    
+    def encode_json(self, obj, file):
+        return simplejson.dump(obj, file, cls=SWReferenceJSONEncoder)
+    def decode_json(self, file):
+        return simplejson.load(file, object_hook=self.json_decode_object_hook)
+    def encode_pickle(self, obj, file):
+        return pickle.dump(obj, file)
+    def decode_pickle(self, file):
+        return pickle.load(file)
     
     def allocate_new_id(self):
         ret = self.current_id
@@ -36,13 +69,13 @@ class BlockStore:
     def publish_global_object(self, global_id, url):
         self.master_proxy.publish_global_object(global_id, [url])
     
-    def store_object(self, object):
+    def store_object(self, object, encoder):
         """Stores the given object as a block, and returns a swbs URL to it."""
         with self._lock:
             id = self.allocate_new_id()
             self.object_cache[id] = object
         with open(self.filename(id), "wb") as object_file:
-            pickle.dump(object, object_file)
+            self.encoders[encoder](object, object_file)
         return 'swbs://%s/%d' % (self.netloc, id)
     
     def store_file(self, filename):
@@ -52,9 +85,10 @@ class BlockStore:
         shutil.copyfile(filename, self.filename(id))
         return 'swbs://%s/%d' % (self.netloc, id)
     
-    def retrieve_object_by_url(self, url):
+    def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
         parsed_url = urlparse.urlparse(url)
+        print url, '<--->', parsed_url
         
         if parsed_url.scheme == 'swbs':
             id = int(parsed_url.path[1:])
@@ -64,7 +98,7 @@ class BlockStore:
                     return self.object_cache[id]
                 except KeyError:
                     with open(self.filename(id)) as object_file:
-                        return pickle.load(object_file)
+                        return self.decoders[decoder](object_file)
             else:
                 # Retrieve remote in-system object.
                 # XXX: should extract this magic string constant.
@@ -74,7 +108,7 @@ class BlockStore:
             fetch_url = url
         
         object_file = urllib2.urlopen(fetch_url)
-        ret = pickle.load(object_file)
+        ret = self.decoders[decoder](object_file)
         print ret
         object_file.close()
         return ret
