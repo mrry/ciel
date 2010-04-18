@@ -69,4 +69,8 @@ class IndexedLValueRR:
     
     def __init__(self):
         self.index = None
-        
+    
+class ReturnRR:
+
+    def __init__(self):
+        self.ret = None

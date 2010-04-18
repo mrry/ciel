@@ -128,4 +128,9 @@ class TaskPool(plugins.SimplePlugin):
             pass
         elif reason == 'RUNTIME_EXCEPTION':
             # Kill the entire job, citing the problem.
+            with self._lock:
+                task = self.tasks[id]
+                worker_id = task.worker_id
+                task.worker_id = None
+            self.bus.publish('worker_idle', worker_id)
             pass

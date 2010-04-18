@@ -5,7 +5,8 @@ Created on 23 Feb 2010
 '''
 from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
-    ListIndexRR, AssignmentRR
+    ListIndexRR, AssignmentRR, ReturnRR
+from mrry.mercator.cloudscript.datatypes import all_leaf_values
 
 indent = 0
 
@@ -213,7 +214,35 @@ class StatementExecutorVisitor(Visitor):
         stack.pop()
         return ret
 
+    def convert_wrapper_to_eager_dereference(self, value):
+        if isinstance(value, SWDereferenceWrapper):
+            return self.context.eager_dereference(value.ref)
+        else:
+            return value
+
     def visit_Return(self, node, stack, stack_base):
+        if node.expr is None:
+            return None
+        
+        if stack_base == len(stack):
+            resume_record = ReturnRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+        
+        try: 
+            if resume_record.ret is None:
+                resume_record.ret = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.expr, stack, stack_base + 1)
+            
+            # We must scan through the return value to see if it contains any dereferenced references, and if so, yield so these can be fetched.
+            eager_derefd_val = map(self.convert_wrapper_to_eager_dereference, resume_record.ret)
+            
+            stack.pop()
+            return eager_derefd_val
+            
+        except:
+            raise
+            
         if node.expr is not None:
             return ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.expr, stack, stack_base)
         else:
@@ -763,6 +792,10 @@ class FunctionDeclarationBindingVisitor(Visitor):
     def visit_Dereference(self, node):
         self.visit(node.reference)
         
+    def visit_Dict(self, node):
+         for item in node.items:
+             self.visit(item)
+        
     def visit_FieldReference(self, node):
         self.visit(node.object)
 
@@ -776,6 +809,10 @@ class FunctionDeclarationBindingVisitor(Visitor):
         
     def visit_Identifier(self, node):
         self.rvalue_object_identifiers.add(node.identifier)
+        
+    def visit_KeyValuePair(self, node):
+        self.visit(node.key_expr)
+        self.visit(node.value_expr)
         
     def visit_LambdaExpression(self, node):
         self.visit(node.expr)

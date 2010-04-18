@@ -24,15 +24,15 @@ m = len(k);
 
 ns = [];
 
-for (yy in range(0, 2000)) {
+for (yy in range(0, 20)) {
 	xx = 100;
 	ns[yy] = spawn(foo, [yy]);
 }
 
 qs = [];
 
-for (ee in range(0, 2000)) {
-    qs[ee] = spawn(boo, [ns[1999 - ee], *ns[ee]]);
+for (ee in range(0, 20)) {
+    qs[ee] = spawn(boo, [ns[19 - ee], *ns[ee]]);
 }
 
 testy = function (x) { return 100 + x; } (50);
@@ -50,7 +50,7 @@ dicty = { "b\n\nad" : hfunc(100), "foo" : "bar" };
 zoo = dicty["b\n\nad"](145);
 
 starqs = [];
-for (zz in range(0, 2000)) {
+for (zz in range(0, 20)) {
 	ww = 3 + zz;
 	starqs[zz] = (*qs[zz]) + 0;
 }

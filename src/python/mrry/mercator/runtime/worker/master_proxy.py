@@ -24,6 +24,7 @@ class MasterProxy:
         httplib2.Http().request(message_url, "POST", message_payload)
         
     def spawn_tasks(self, parent_task_id, tasks):
+        print "Spawning %d tasks" % (len(tasks), )
         message_payload = simplejson.dumps(tasks)
         message_url = "http://%s/task/%d/spawn" % (self.master_netloc, parent_task_id)
         (_, result) = httplib2.Http().request(message_url, "POST", message_payload)

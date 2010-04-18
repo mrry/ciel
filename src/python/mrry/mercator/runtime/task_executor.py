@@ -5,7 +5,8 @@ Created on 13 Apr 2010
 '''
 from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
 from mrry.mercator.cloudscript.context import SimpleContext, TaskContext,\
-    LambdaFunction, all_leaf_values, map_leaf_values
+    LambdaFunction
+from mrry.mercator.cloudscript.datatypes import all_leaf_values, map_leaf_values
 from mrry.mercator.cloudscript.visitors import \
     StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
@@ -236,7 +237,8 @@ class SWRuntimeInterpreterTask:
         
         self.continuation = None
         self.result = None
-
+        self.spawn_task_result_global_ids = None
+        
     def fetch_inputs(self, block_store):
         continuation_ref = None
         parsed_inputs = {}
@@ -313,7 +315,7 @@ class SWRuntimeInterpreterTask:
     def spawn_all(self, block_store, master_proxy):
         current_batch = []
         
-        spawn_task_result_global_ids = []
+        self.spawn_task_result_global_ids = []
         
         current_index = 0
         while current_index < len(self.spawn_list):
@@ -327,20 +329,20 @@ class SWRuntimeInterpreterTask:
                     # if unavailable in the local lookup table (from previous spawn batches), must wait;
                     # else rewrite the reference.
                     spawn_list_index = ref_table_entry.reference.spawn_list_index
-                    if spawn_list_index >= len(spawn_task_result_global_ids):
+                    if spawn_list_index >= len(self.spawn_task_result_global_ids):
                         must_wait = True
                         break
                     else:
-                        current_cont.rewrite_reference(local_id, SWGlobalFutureReference(spawn_task_result_global_ids[spawn_list_index]))
+                        current_cont.rewrite_reference(local_id, SWGlobalFutureReference(self.spawn_task_result_global_ids[spawn_list_index]))
 
             rewritten_inputs = {}
             for local_id, ref_tuple in current_desc['inputs'].items():
                 if ref_tuple[0] == 'lfut':
-                    if ref_tuple[1] >= len(spawn_task_result_global_ids):
+                    if ref_tuple[1] >= len(self.spawn_task_result_global_ids):
                         must_wait = True
                         break
                     else:
-                        rewritten_inputs[local_id] = SWGlobalFutureReference(spawn_task_result_global_ids[ref_tuple[1]]).as_tuple()
+                        rewritten_inputs[local_id] = SWGlobalFutureReference(self.spawn_task_result_global_ids[ref_tuple[1]]).as_tuple()
                 else:
                     rewritten_inputs[local_id] = ref_tuple
             
@@ -353,7 +355,7 @@ class SWRuntimeInterpreterTask:
                 batch_result_ids = master_proxy.spawn_tasks(self.task_id, current_batch)
                 
                 # Update a local structure containing all of the spawn/global ids so far.
-                spawn_task_result_global_ids.extend(batch_result_ids)
+                self.spawn_task_result_global_ids.extend(batch_result_ids)
                 
                 # Iterate again on the same index.
                 continue
@@ -371,7 +373,11 @@ class SWRuntimeInterpreterTask:
         if len(current_batch) > 0:
             
             # Fire off the current batch.
-            master_proxy.spawn_tasks(self.task_id, current_batch)
+            batch_result_ids = master_proxy.spawn_tasks(self.task_id, current_batch)
+            
+            self.spawn_task_result_global_ids.extend(batch_result_ids)
+
+        print "Spawn lengths:", len(self.spawn_list), len(self.spawn_task_result_global_ids)
         
     def commit_result(self, block_store, master_proxy):
         if self.result is None:
@@ -380,26 +386,42 @@ class SWRuntimeInterpreterTask:
             return
         
         
-        self.result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
-            
+        for local_id, ref_table_entry in self.continuation.reference_table.items():
+            if isinstance(ref_table_entry.reference, SWLocalFutureReference):
+                print "About to rewrite!!!"
+                
+                # if unavailable in the local lookup table (from previous spawn batches), must wait;
+                # else rewrite the reference.
+                spawn_list_index = ref_table_entry.reference.spawn_list_index
+
+                # All subtasks have been spawned and we're completed so this assertion must hold.
+                print spawn_list_index, 
+                assert spawn_list_index < len(self.spawn_task_result_global_ids)
+
+
+                self.continuation.rewrite_reference(local_id, SWGlobalFutureReference(self.spawn_task_result_global_ids[spawn_list_index]))
+        
+        real_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
         
         commit_bindings = {}
         
-        if self.result is list and self.expected_outputs is list:
-            assert len(self.result) >= len(self.expected_outputs)
+
+        if real_result is list and self.expected_outputs is list:
+            assert len(real_result) >= len(self.expected_outputs)
             for i, output in enumerate(self.expected_outputs):
                 # TODO: handle the case where we return a spawned reference (tail-recursion).
                 #       ...could make this happen in visit_Return with an "is_returned" Ref Table Entry.
-                assert isinstance(self.result[i], SWLocalReference)
-                commit_bindings[output] = self.continuation.resolve_tasklocal_reference_with_ref(self.result[i]).urls
+                # FIXME: we should never have a LocalReference after doing this.
+                commit_bindings[output] = real_result[i].urls
             
         elif self.expected_outputs is not list:
-            result_url = block_store.store_object(self.result, 'json')
+            print "*!*!*!*", real_result
+            result_url = block_store.store_object(real_result, 'json')
             commit_bindings[self.expected_outputs] = [result_url]
         
         else:
             assert False
-            
+        
         master_proxy.commit_task(self.task_id, commit_bindings)
 
         print '### Successfully completed task', self.task_id, self.expected_outputs
