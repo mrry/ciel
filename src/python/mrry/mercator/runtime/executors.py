@@ -3,6 +3,12 @@ Created on 19 Apr 2010
 
 @author: dgm36
 '''
+from mrry.mercator.runtime.task_executor import SWLocalDataFile, SWURLReference
+from subprocess import PIPE
+import urllib2
+import shutil
+import subprocess
+import tempfile
 
 class SWStdinoutExecutor:
     

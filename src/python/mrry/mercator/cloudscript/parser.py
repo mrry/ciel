@@ -397,6 +397,7 @@ class SWExpressionParser(CloudScriptParser):
         self.parser = ply.yacc.yacc(module=self, start='expression')
         
 if __name__ == '__main__':
-    
+    import sys
     csp = CloudScriptParser()
-    csp.parse(open('testscript.sw').read())
+    result = csp.parse(open(sys.argv[1]).read())
+    print result
