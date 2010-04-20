@@ -69,11 +69,11 @@ class SpawnListEntry:
     
 class SWContinuation:
     
-    def __init__(self, task_stmt):
+    def __init__(self, task_stmt, context=SimpleContext()):
         self.task_stmt = task_stmt
         self.current_local_id_index = 0
         self.stack = []
-        self.context = SimpleContext()
+        self.context = context
         self.reference_table = {}
         
     def create_tasklocal_reference(self, ref):
