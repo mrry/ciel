@@ -397,7 +397,7 @@ class SWScriptParser(CloudScriptParser):
         self.lexer = CloudScriptLexer()
         self.lexer.build()
         self.tokens = self.lexer.tokens
-        self.parser = ply.yacc.yacc(module=self, start='script')
+        self.parser = ply.yacc.yacc(module=self, start='script_file')
 
 class SWExpressionParser(CloudScriptParser):
     

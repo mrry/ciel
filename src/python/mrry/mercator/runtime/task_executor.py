@@ -10,10 +10,11 @@ from mrry.mercator.cloudscript.datatypes import all_leaf_values, map_leaf_values
 from mrry.mercator.cloudscript.visitors import \
     StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
-from mrry.mercator.runtime.executors import SWStdinoutExecutor
-from mrry.mercator.runtime.references import SWLocalFutureReference,\
-    build_reference_from_tuple, SWURLReference, SWDataValue, SWLocalDataFile,\
-    SWRealReference, SWGlobalFutureReference
+from subprocess import PIPE
+import urllib2
+import shutil
+import subprocess
+import tempfile
 import cherrypy
 import logging
 
@@ -396,6 +397,7 @@ class SWRuntimeInterpreterTask:
         return ret
     
     def exec_func(self, executor_name, args, num_outputs):
+        from mrry.mercator.runtime.executors import SWStdinoutExecutor
         executor_class_map = {'stdinout' : SWStdinoutExecutor}
         try:
             # FIXME: may need to pass the continuation through because will need to deref the args.
