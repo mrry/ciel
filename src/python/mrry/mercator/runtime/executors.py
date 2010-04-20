@@ -3,8 +3,8 @@ Created on 19 Apr 2010
 
 @author: dgm36
 '''
-from mrry.mercator.runtime.task_executor import SWLocalDataFile, SWURLReference
 from subprocess import PIPE
+from mrry.mercator.runtime.references import SWLocalDataFile, SWURLReference
 import urllib2
 import shutil
 import subprocess

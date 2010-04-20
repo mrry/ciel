@@ -98,6 +98,9 @@ class SimpleContext:
         elif isinstance(lvalue, ast.FieldLValue):
             base_lvalue = GetBaseLValueBindingVisitor(self).visit(lvalue.base_lvalue, stack, stack_base + 1)
             base_lvalue[lvalue.field_name] = rvalue
+        elif isinstance(lvalue, ast.Identifier):
+            # XXX: do this to enable binding the name of a recursive function in its own context.
+            self.bind_identifier(lvalue.identifier, rvalue)
         else:
             assert False
                 

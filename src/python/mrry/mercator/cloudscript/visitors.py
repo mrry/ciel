@@ -6,7 +6,7 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR, ReturnRR
-from mrry.mercator.cloudscript.datatypes import all_leaf_values
+from mrry.mercator.cloudscript.datatypes import map_leaf_values
 
 indent = 0
 
@@ -235,7 +235,7 @@ class StatementExecutorVisitor(Visitor):
                 resume_record.ret = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.expr, stack, stack_base + 1)
             
             # We must scan through the return value to see if it contains any dereferenced references, and if so, yield so these can be fetched.
-            eager_derefd_val = map(self.convert_wrapper_to_eager_dereference, resume_record.ret)
+            eager_derefd_val = map_leaf_values(self.convert_wrapper_to_eager_dereference, resume_record.ret)
             
             stack.pop()
             return eager_derefd_val
@@ -286,6 +286,11 @@ class StatementExecutorVisitor(Visitor):
 
     def visit_Script(self, node, stack, stack_base):
         return self.visit_statement_list(node.body, stack, stack_base)
+
+    def visit_NamedFunctionDeclaration(self, node, stack, stack_base):
+        func = UserDefinedFunction(self.context, node)
+        self.context.update_value(node.name, func, stack, stack_base + 1)
+        return None
 
 class ExecutionInterruption(Exception):
     
@@ -709,7 +714,8 @@ class UserDefinedFunction:
         for identifier in body_bindings.rvalue_object_identifiers:
             if declaration_context.has_binding_for(identifier):
                 self.captured_bindings[identifier] = declaration_context.value_of(identifier)
-                
+            elif identifier == function_ast.name.identifier:
+                self.captured_bindings[identifier] = self
                 #self.execution_context.bind_identifier(object, declaration_context.value_of(object))
         
     def call(self, args_list, stack, stack_base, context):
@@ -793,8 +799,8 @@ class FunctionDeclarationBindingVisitor(Visitor):
         self.visit(node.reference)
         
     def visit_Dict(self, node):
-         for item in node.items:
-             self.visit(item)
+        for item in node.items:
+            self.visit(item)
         
     def visit_FieldReference(self, node):
         self.visit(node.object)

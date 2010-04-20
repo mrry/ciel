@@ -86,6 +86,13 @@ class While(Statement):
         self.condition = condition
         self.body = body
         
+class NamedFunctionDeclaration(Statement):
+    
+    def __init__(self, name, formal_params, body):
+        self.name = name
+        self.formal_params = formal_params
+        self.body = body
+        
 class LValue(ASTNode):
     
     def base_identifier(self):
@@ -162,6 +169,7 @@ class FunctionDeclaration(Expression):
     def __init__(self, formal_params, body):
         self.formal_params = formal_params
         self.body = body
+        self.name = None
     
 class Identifier(Expression):
     
@@ -179,6 +187,7 @@ class LambdaExpression(Expression):
     def __init__(self, expr, variables=[]):    
         self.variables = variables
         self.expr = expr
+        self.name = None
 
 class List(Expression):
     

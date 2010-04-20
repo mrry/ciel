@@ -3,8 +3,8 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from mrry.mercator.cloudscript.parser import SWExpressionParser,\
-    SWStatementParser, SWScriptParser
+from mrry.mercator.cloudscript.parser import \
+    SWScriptParser
 from mrry.mercator.cloudscript.visitors import SkywritingException
 from mrry.mercator.runtime.task_executor import SWContinuation
 import simplejson

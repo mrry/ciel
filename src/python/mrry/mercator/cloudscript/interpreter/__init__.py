@@ -7,12 +7,13 @@ from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction,\
     TaskContext
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript import ast
+from mrry.mercator.runtime.executors import SWStdinoutExecutor
+from mrry.mercator.runtime.references import SWLocalDataFile
 import threading
 import traceback
 import sys
 import urllib2
 import simplejson
-from mrry.mercator.cloudscript.interpreter.executors import StdinoutExecutor
 
 class SWThreadTerminator:
     pass
@@ -220,6 +221,7 @@ class SWInterpreterTask:
             return
         except Exception as e:
             # TODO: could handle this better....
+            traceback.print_exc()
             self.result = e
 
         self.done = True
@@ -232,14 +234,14 @@ class SWInterpreterTask:
                 self.condvar.notify_all()
     
     def exec_func(self, executor_name, args, num_outputs):
-        executor_class_map = {'stdinout' : StdinoutExecutor}
+        executor_class_map = {'stdinout' : SWStdinoutExecutor}
         try:
             executor = executor_class_map[executor_name](args, num_outputs)
         except KeyError:
             raise "No such executor: %s" % (executor_name, )
             
         executor.execute()
-        return map(lambda x: SWDataReference([x]), executor.output_urls)    
+        return executor.output_refs    
             
     def propagate_result(self, result):
         if self.result_ref_id is not None:

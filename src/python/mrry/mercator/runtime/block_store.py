@@ -4,13 +4,11 @@ Created on 14 Apr 2010
 @author: dgm36
 '''
 from threading import Lock
-from cherrypy.lib.static import serve_file
 import urllib
 import urllib2
 import shutil
 import pickle
 import os
-import cherrypy
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse

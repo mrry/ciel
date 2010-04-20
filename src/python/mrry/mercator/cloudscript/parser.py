@@ -42,6 +42,7 @@ class CloudScriptParser:
                       | continue_statement
                       | return_statement
                       | compound_statement
+                      | named_function_decl
         """
         p[0] = p[1]
         
@@ -317,6 +318,16 @@ class CloudScriptParser:
         """ function_decl_expression : FUNC LPAREN RPAREN compound_statement
         """
         p[0] = ast.FunctionDeclaration([], p[4])
+    
+    def p_named_function_decl_1(self, p):
+        """ named_function_decl : FUNC ID LPAREN identifier_list RPAREN compound_statement
+        """
+        p[0] = ast.NamedFunctionDeclaration(ast.Identifier(p[2]), p[4], p[6])
+        
+    def p_named_function_decl_2(self, p):
+        """ named_function_decl : FUNC ID LPAREN RPAREN compound_statement
+        """
+        p[0] = ast.NamedFunctionDeclaration(ast.Identifier(p[2]), [], p[5])
     
     def p_lambda_expression_1(self, p):
         """ lambda_expression : LAMBDA identifier_list COLON expression
