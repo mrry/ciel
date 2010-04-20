@@ -13,8 +13,8 @@ import os
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
 import simplejson
-from mrry.mercator.runtime.task_executor import build_reference_from_tuple,\
-    SWRealReference
+from mrry.mercator.runtime.references import SWRealReference,\
+    build_reference_from_tuple
 urlparse.uses_netloc.append("swbs")
 
 class SWReferenceJSONEncoder(simplejson.JSONEncoder):

@@ -17,6 +17,9 @@ import subprocess
 import tempfile
 import cherrypy
 import logging
+from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
+    SWLocalDataFile, build_reference_from_tuple, SWRealReference,\
+    SWLocalFutureReference, SWGlobalFutureReference
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -253,6 +256,7 @@ class SWRuntimeInterpreterTask:
                 self.spawn_task_result_global_ids.extend(batch_result_ids)
                 
                 # Iterate again on the same index.
+                current_batch = []
                 continue
                 
             else:
