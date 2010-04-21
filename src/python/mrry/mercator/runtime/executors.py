@@ -86,8 +86,33 @@ class JavaExecutor(SWExecutor):
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in len(self.output_refs)]
         
         jar_filenames = map(lambda ref: self.get_filename(block_store, ref), self.jar_refs)
+        java_stdout = tempfile.NamedTemporaryFile(delete=False)
+        java_stderr = tempfile.NamedTemporaryFile(delete=False)
         
-        # TODO: implement communication with JVM.
+        process_args = ["java", "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
+        for x in jar_filenames:
+            process_args.append("file://" + x)
+        proc = subprocess.Popen(process_args, shell=True, stdin=PIPE, stdout=java_stdout, stderr=java_stderr) # Shell=True to find Java in our path
+        
+        proc.stdin.write("%d,%d,%d\0" % (file_inputs.length, file_outputs.length, self.argv))
+        for x in file_inputs:
+            proc.stdin.write("%s\0" % x)
+        for x in file_outputs:
+            proc.stdin.write("%s\0" % x)
+        for x in self.argv:
+            proc.stdin.write("%s\0" % x)
+        proc.stdin.close()
+        rc = proc.wait()
+        if rc != 0:
+            with open(java_stdout.name) as stdout_fp:
+                with open(java_stderr.name) as stderr_fp:
+                    print "Java program failed, returning", rc, "with stdout:"
+                    for l in stdout_fp:
+                        print l
+                    print "...and stderr:"
+                    for l in stderr_fp:
+                        print l
+            raise OSError()
         
         urls = map(lambda filename: block_store.store_file(filename), file_outputs)
         url_refs = map(lambda url: SWURLReference[url], urls)
