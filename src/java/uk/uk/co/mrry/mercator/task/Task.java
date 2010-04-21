@@ -1,6 +1,7 @@
 package uk.co.mrry.mercator.task;
 
-import java.util.List;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * A task takes zero or more named data items, performs some computation on them, and yields one or more concrete data items
@@ -13,9 +14,6 @@ import java.util.List;
  */
 public interface Task {
 
-	List<String> getInputDataNames();
-	List<ConcreteData> getOutputs();
-	
-	List<WorkerFacility> getNeededFacilities();
+    public void invoke(InputStream[] fis, OutputStream[] fos, String[] args);
 	
 }
