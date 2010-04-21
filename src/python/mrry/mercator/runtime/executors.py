@@ -82,6 +82,8 @@ class JavaExecutor(SWExecutor):
         file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in len(self.output_refs)]
         
+        jar_filenames = map(lambda ref: self.get_filename(block_store, ref), self.jar_refs)
+        
         # TODO: implement communication with JVM.
         
         urls = map(lambda filename: block_store.store_file(filename), file_outputs)
