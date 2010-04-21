@@ -3,6 +3,7 @@ Created on Apr 15, 2010
 
 @author: derek
 '''
+from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock

@@ -3,6 +3,7 @@ Created on 14 Apr 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 from threading import Lock
 import urllib
 import urllib2

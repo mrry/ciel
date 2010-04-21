@@ -3,6 +3,7 @@ Created on 11 Feb 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 #from mrry.mercator.master.datamodel import JobManagerPool
 from mrry.mercator.runtime.master.master_view import MasterRoot
 from mrry.mercator.runtime.master.data_store import GlobalNameDirectory
