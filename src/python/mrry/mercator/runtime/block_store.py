@@ -131,5 +131,5 @@ class BlockStore:
         filename = self.filename(id)
         urllib.urlretrieve(fetch_url, filename)
         
-        return self.filename
+        return filename
     

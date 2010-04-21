@@ -93,14 +93,14 @@ class SWContinuation:
         self.reference_table[ref.index].is_dereferenced = True
     def is_marked_as_dereferenced(self, id):
         return self.reference_table[id].is_dereferenced
-    def mark_as_execd(self, id):
-        self.reference_table[id].is_execd = True
-    def is_marked_as_execd(self, ref):
-        return self.reference_table[ref.index].is_execd
-    def mark_as_returned(self, id):
-        self.reference_table[id].is_returned = True
-    def is_marked_as_returned(self, ref):
-        return self.reference_table[ref.index].is_returned
+    def mark_as_execd(self, ref):
+        self.reference_table[ref.index].is_execd = True
+    def is_marked_as_execd(self, id):
+        return self.reference_table[id].is_execd
+    def mark_as_returned(self, ref):
+        self.reference_table[ref.index].is_returned = True
+    def is_marked_as_returned(self, id):
+        return self.reference_table[id].is_returned
         
     def rewrite_reference(self, id, real_ref):
         self.reference_table[id].reference = real_ref
@@ -130,7 +130,6 @@ class SWRuntimeInterpreterTask:
 
         self.block_store = block_store
 
-        self.continuation_will_require = set()
         self.spawn_list = []
         
         self.continuation = None
@@ -199,8 +198,10 @@ class SWRuntimeInterpreterTask:
         except ExecutionInterruption:
             # Need to add a continuation task to the spawn list.
             cont_deps = {}
-            for index in self.continuation_will_require:
-                cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index).as_tuple()
+            for index in self.continuation.reference_table.keys():
+                if (not isinstance(self.continuation.resolve_tasklocal_reference_with_index(index), SWDataValue)) and \
+                   (self.continuation.is_marked_as_dereferenced(index) or self.continuation.is_marked_as_execd(index)):
+                    cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index).as_tuple()
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': self.expected_outputs}
@@ -418,17 +419,18 @@ class SWRuntimeInterpreterTask:
         return self.continuation.create_tasklocal_reference(SWURLReference(urls))
 
     def lazy_dereference(self, ref):
-        self.continuation_will_require.add(ref.index)
         self.continuation.mark_as_dereferenced(ref)
         return SWDereferenceWrapper(ref)
         
     def eager_dereference(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
+        elif isinstance(real_ref, SWURLReference):
+            value = self.block_store.retrieve_object_by_url(real_ref.urls[0])
+            dv_ref = SWDataValue(value)
+            self.continuation.rewrite_reference(ref.id, dv_ref)
+            return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
         else:
-            # TODO: consider loading this immediately if it is local.
-            self.continuation_will_require.add(ref.index)
             self.continuation.mark_as_dereferenced(ref)
             raise ExecutionInterruption()

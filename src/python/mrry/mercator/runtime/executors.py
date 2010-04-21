@@ -50,7 +50,10 @@ class SWStdinoutExecutor(SWExecutor):
             proc = subprocess.Popen(self.command_line, stdin=PIPE, stdout=temp_output_fp)
     
         for ref in self.input_refs:
-            shutil.copyfileobj(open(self.get_filename(block_store, ref), 'r'), proc.stdin)
+            filename = self.get_filename(block_store, ref)
+            print ref, '--->', filename
+            with open(filename) as input_file:
+                shutil.copyfileobj(input_file, proc.stdin)
 
         proc.stdin.close()
         rc = proc.wait()
