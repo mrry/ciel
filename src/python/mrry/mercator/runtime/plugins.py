@@ -3,6 +3,7 @@ Created on 13 Apr 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 from cherrypy.process.plugins import SimplePlugin
 from Queue import Queue
 import logging
@@ -67,7 +68,7 @@ class AsynchronousExecutePlugin(SimplePlugin):
                 result = self.handle_input(input)
                 if self.publish_success_event is not None:
                     self.bus.publish(self.publish_success_event, input, result)
-            except Exception as ex:
+            except Exception, ex:
                 if self.publish_fail_event is not None:
                     self.bus.publish(self.publish_fail_event, input, ex)
                 else:

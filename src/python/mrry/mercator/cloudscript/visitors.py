@@ -5,8 +5,10 @@ Created on 23 Feb 2010
 '''
 from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
-    ListIndexRR, AssignmentRR, ReturnRR
+    ListIndexRR, AssignmentRR, ReturnRR, PlusRR, LessThanOrEqualRR, EqualRR,\
+    StarRR, ForceEvalRR
 from mrry.mercator.cloudscript.datatypes import map_leaf_values
+import traceback
 
 indent = 0
 
@@ -66,7 +68,7 @@ class StatementExecutorVisitor(Visitor):
 #        global indent
 #        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
 #        indent += 1
-        ret = getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
+        ret = getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
 #        indent -= 1
         return ret
         
@@ -242,11 +244,6 @@ class StatementExecutorVisitor(Visitor):
             
         except:
             raise
-            
-        if node.expr is not None:
-            return ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.expr, stack, stack_base)
-        else:
-            return None
 
     def visit_While(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -289,7 +286,7 @@ class StatementExecutorVisitor(Visitor):
 
     def visit_NamedFunctionDeclaration(self, node, stack, stack_base):
         func = UserDefinedFunction(self.context, node)
-        self.context.update_value(node.name, func, stack, stack_base + 1)
+        self.context.update_value(node.name, func, stack, stack_base)
         return None
 
 class ExecutionInterruption(Exception):
@@ -306,28 +303,28 @@ class ExpressionEvaluatorVisitor:
 #        global indent
 #        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
 #        indent += 1
-        ret = getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node, stack, stack_base)
+        ret = getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
 #        indent -= 1
         return ret
     
     def visit_and_force_eval(self, node, stack, stack_base):
         if stack_base == len(stack):
-            resume_record = BinaryExpressionRR()
+            resume_record = ForceEvalRR()
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
             
-        if resume_record.left is None:
-            resume_record.left = self.visit(node, stack, stack_base + 1)
+        if resume_record.maybe_wrapped is None:
+            resume_record.maybe_wrapped = self.visit(node, stack, stack_base + 1)
 
         try:
 #            print type(resume_record.left)
-            if isinstance(resume_record.left, SWDereferenceWrapper):
-                ret = self.context.eager_dereference(resume_record.left.ref)
-            elif isinstance(resume_record.left, SWDynamicScopeWrapper):
-                ret = self.context.value_of_dynamic_scope(resume_record.left.identifier)
+            if isinstance(resume_record.maybe_wrapped, SWDereferenceWrapper):
+                ret = self.context.eager_dereference(resume_record.maybe_wrapped.ref)
+            elif isinstance(resume_record.maybe_wrapped, SWDynamicScopeWrapper):
+                ret = self.context.value_of_dynamic_scope(resume_record.maybe_wrapped.identifier)
             else:
-                ret = resume_record.left
+                ret = resume_record.maybe_wrapped
 
             stack.pop()
 #            print "VAFEd", node, ret
@@ -359,10 +356,8 @@ class ExpressionEvaluatorVisitor:
         return node.value
     
     def visit_Dereference(self, node, stack, stack_base):
-        # FIXME! Need to add to a list of pending data, and return a wrapper object that will cause an
-        # execution fault if the user attempts to use the dereferenced value.
         if stack_base == len(stack):
-            resume_record = BinaryExpressionRR()
+            resume_record = StarRR()
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
@@ -404,7 +399,7 @@ class ExpressionEvaluatorVisitor:
     
     def visit_Equal(self, node, stack, stack_base):
         if stack_base == len(stack):
-            resume_record = BinaryExpressionRR()
+            resume_record = EqualRR()
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
@@ -436,7 +431,11 @@ class ExpressionEvaluatorVisitor:
                 if resume_record.args[i] is None:
                     resume_record.args[i] = self.visit(node.args[i], stack, stack_base + 1)
     
-            function = self.visit_and_force_eval(node.function, stack, stack_base + 1)
+            # XXX: Dynamic scope hack -- we need to visit and force eval every time we resume (in case we
+            #      are now running on a different machine with a different implementation for the function).
+            #      This is okay because dynamic scope functions are all outwith Skywriting, so there will
+            #      not be any implementation-specific junk further down the stack.
+            function = self.visit_and_force_eval(node.function, stack[0:stack_base+1], stack_base + 1)
             ret = function.call(resume_record.args, stack, stack_base + 1, self.context)
         
             stack.pop()
@@ -534,7 +533,7 @@ class ExpressionEvaluatorVisitor:
     
     def visit_LessThanOrEqual(self, node, stack, stack_base):
         if stack_base == len(stack):
-            resume_record = BinaryExpressionRR()
+            resume_record = LessThanOrEqualRR()
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
@@ -651,7 +650,7 @@ class ExpressionEvaluatorVisitor:
     
     def visit_Plus(self, node, stack, stack_base):
         if stack_base == len(stack):
-            resume_record = BinaryExpressionRR()
+            resume_record = PlusRR()
             stack.append(resume_record)
         else:
             resume_record = stack[stack_base]
@@ -714,7 +713,7 @@ class UserDefinedFunction:
         for identifier in body_bindings.rvalue_object_identifiers:
             if declaration_context.has_binding_for(identifier):
                 self.captured_bindings[identifier] = declaration_context.value_of(identifier)
-            elif identifier == function_ast.name.identifier:
+            elif function_ast.name is not None and identifier == function_ast.name.identifier:
                 self.captured_bindings[identifier] = self
                 #self.execution_context.bind_identifier(object, declaration_context.value_of(object))
         
@@ -839,7 +838,7 @@ class FunctionDeclarationBindingVisitor(Visitor):
         self.visit(node.rexpr)
         
     visit_And = visit_BinaryExpression
-    visit_Equals = visit_BinaryExpression
+    visit_Equal = visit_BinaryExpression
     visit_GreaterThan = visit_BinaryExpression
     visit_GreaterThanOrEqual = visit_BinaryExpression
     visit_LessThan = visit_BinaryExpression

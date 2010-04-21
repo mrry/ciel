@@ -3,11 +3,13 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 from Queue import Queue
 from cherrypy.process import plugins
 from threading import Lock
-from mrry.mercator.runtime.task_executor import build_reference_from_tuple,\
+from mrry.mercator.runtime.references import build_reference_from_tuple,\
     SWGlobalFutureReference, SWURLReference
+
 
 class Task:
     

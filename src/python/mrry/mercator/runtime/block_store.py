@@ -3,6 +3,7 @@ Created on 14 Apr 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 from threading import Lock
 import urllib
 import urllib2
@@ -13,8 +14,8 @@ import os
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
 import simplejson
-from mrry.mercator.runtime.task_executor import build_reference_from_tuple,\
-    SWRealReference
+from mrry.mercator.runtime.references import SWRealReference,\
+    build_reference_from_tuple
 urlparse.uses_netloc.append("swbs")
 
 class SWReferenceJSONEncoder(simplejson.JSONEncoder):
@@ -131,5 +132,5 @@ class BlockStore:
         filename = self.filename(id)
         urllib.urlretrieve(fetch_url, filename)
         
-        return self.filename
+        return filename
     

@@ -1,3 +1,4 @@
+from __future__ import with_statement
 from optparse import OptionParser
 import socket
 import cherrypy
