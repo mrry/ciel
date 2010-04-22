@@ -11,6 +11,7 @@ from mrry.mercator.cloudscript.visitors import \
     StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
 from subprocess import PIPE
+from mrry.mercator.runtime.executors import JavaExecutor
 import urllib2
 import shutil
 import subprocess
@@ -403,7 +404,7 @@ class SWRuntimeInterpreterTask:
     
     def exec_func(self, executor_name, args, num_outputs):
         from mrry.mercator.runtime.executors import SWStdinoutExecutor
-        executor_class_map = {'stdinout' : SWStdinoutExecutor}
+        executor_class_map = {'stdinout' : SWStdinoutExecutor, 'java' : JavaExecutor}
         try:
             # FIXME: may need to pass the continuation through because will need to deref the args.
             executor = executor_class_map[executor_name](args, self.continuation, num_outputs)

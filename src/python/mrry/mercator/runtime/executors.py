@@ -69,6 +69,7 @@ class SWStdinoutExecutor(SWExecutor):
 class JavaExecutor(SWExecutor):
     
     def __init__(self, args, continuation, num_outputs):
+        SWExecutor.__init__(self, args, continuation, num_outputs)
         self.continuation = continuation
         try:
             self.input_refs = args['inputs']
@@ -78,23 +79,33 @@ class JavaExecutor(SWExecutor):
         except KeyError:
             print "Incorrect arguments for stdinout executor"
             raise
-        self.output_refs = [None for i in num_outputs]
 
     def execute(self, block_store):
         
         file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
-        file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in len(self.output_refs)]
+        file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
         
         jar_filenames = map(lambda ref: self.get_filename(block_store, ref), self.jar_refs)
         java_stdout = tempfile.NamedTemporaryFile(delete=False)
         java_stderr = tempfile.NamedTemporaryFile(delete=False)
+
+        print "Input filenames:"
+        for fn in file_inputs:
+            print '\t', fn
+        print "Output filenames:"
+        for fn in file_outputs:
+            print '\t', fn
         
-        process_args = ["java", "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
+        print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
+        
+        process_args = ["java", "-cp", "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar", "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
         for x in jar_filenames:
             process_args.append("file://" + x)
-        proc = subprocess.Popen(process_args, shell=True, stdin=PIPE, stdout=java_stdout, stderr=java_stderr) # Shell=True to find Java in our path
+        print 'Command-line:', " ".join(process_args)
         
-        proc.stdin.write("%d,%d,%d\0" % (file_inputs.length, file_outputs.length, self.argv))
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=java_stdout, stderr=java_stderr) # Shell=True to find Java in our path
+        
+        proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
             proc.stdin.write("%s\0" % x)
         for x in file_outputs:
@@ -103,17 +114,18 @@ class JavaExecutor(SWExecutor):
             proc.stdin.write("%s\0" % x)
         proc.stdin.close()
         rc = proc.wait()
+        print 'Return code', rc
         if rc != 0:
             with open(java_stdout.name) as stdout_fp:
                 with open(java_stderr.name) as stderr_fp:
                     print "Java program failed, returning", rc, "with stdout:"
-                    for l in stdout_fp:
+                    for l in stdout_fp.readlines():
                         print l
                     print "...and stderr:"
-                    for l in stderr_fp:
+                    for l in stderr_fp.readlines():
                         print l
             raise OSError()
         
         urls = map(lambda filename: block_store.store_file(filename), file_outputs)
-        url_refs = map(lambda url: SWURLReference[url], urls)
-        self.output_refs = map(lambda url_ref: self.continuation.create_tasklocal_reference(url_ref))
+        url_refs = map(lambda url: SWURLReference([url]), urls)
+        self.output_refs = map(lambda url_ref: self.continuation.create_tasklocal_reference(url_ref), url_refs)
