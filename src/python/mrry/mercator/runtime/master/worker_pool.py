@@ -7,6 +7,7 @@ from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock
+import datetime
 import sys
 import simplejson
 import httplib2
@@ -20,34 +21,34 @@ class Worker:
         self.netloc = worker_descriptor['netloc']
         self.features = worker_descriptor['features']
         self.current_task_id = None
+        self.last_ping = datetime.datetime.now()
 
     def as_descriptor(self):
         return {'worker_id': self.id,
                 'netloc': self.netloc,
                 'features': self.features,
-                'current_task_id': self.current_task_id}
+                'current_task_id': self.current_task_id,
+                'last_ping': self.last_ping.ctime()}
 
 class WorkerPool(plugins.SimplePlugin):
     
     def __init__(self, bus):
         plugins.SimplePlugin.__init__(self, bus)
-        
         self.idle_worker_queue = Queue()
-        
         self.current_worker_id = 0
         self.workers = {}
-        
         self.idle_set = set()
-        
         self._lock = Lock()
         
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
         self.bus.subscribe('worker_idle', self.worker_idle)
+        self.bus.subscribe('worker_ping', self.worker_ping)
         
     def unsubscribe(self):
         self.bus.unsubscribe('worker_failed', self.worker_failed)
         self.bus.unsubscribe('worker_idle', self.worker_idle)
+        self.bus.unsubscribe('worker_ping', self.worker_ping)
         
     def create_worker(self, worker_descriptor):
         with self._lock:
@@ -57,6 +58,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.workers[id] = worker
             self.idle_set.add(id)
         self.bus.publish('schedule')
+        return id
         
     def get_worker_by_id(self, id):
         with self._lock:
@@ -72,7 +74,7 @@ class WorkerPool(plugins.SimplePlugin):
             worker = self.workers[worker_id]
             worker.current_task_id = task.task_id
             task.worker_id = worker_id
-    
+            
         try:
             httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor()), )
         except:
@@ -94,6 +96,11 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.add(id)
         self.bus.publish('schedule')
             
+    def worker_ping(self, id, status, ping_news):
+        with self._lock:
+            worker = self.workers[id]
+        worker.last_ping = datetime.datetime.now()
+        
     def get_all_workers(self):
         with self._lock:
             return map(lambda x: x.as_descriptor(), self.workers.values())

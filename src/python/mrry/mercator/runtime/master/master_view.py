@@ -11,7 +11,6 @@ from mrry.mercator.runtime.worker.worker_view import DataRoot
 class MasterRoot:
     
     def __init__(self, task_pool, worker_pool, block_store, global_name_directory):
-        self.ping = PingReceiver()
         self.worker = WorkersRoot(worker_pool)
         self.task = MasterTaskRoot(global_name_directory, task_pool)
         self.data = DataRoot(block_store)
@@ -22,17 +21,6 @@ class MasterRoot:
     def index(self):
         return "Hello from the master!"
 
-class PingReceiver:
-    
-    @cherrypy.expose
-    def index(self):
-        update_tuple = simplejson.loads(cherrypy.request.body.read())
-        worker_id = update_tuple[0]
-        update_list = update_tuple[1]
-        
-        for update in update_list:
-            cherrypy.engine.publish("ping_received", worker_id, update)
-
 class WorkersRoot:
     
     def __init__(self, worker_pool):
@@ -42,13 +30,28 @@ class WorkersRoot:
     def index(self):
         if cherrypy.request.method == 'POST':
             worker_descriptor = simplejson.loads(cherrypy.request.body.read())
-            self.worker_pool.create_worker(worker_descriptor)
-            return
+            worker_id = self.worker_pool.create_worker(worker_descriptor)
+            return simplejson.dumps(worker_id)
         elif cherrypy.request.method == 'GET':
             workers = self.worker_pool.get_all_workers()
             return simplejson.dumps(workers)
         else:
             raise HTTPError(405)
+        
+    def default(self, worker_id, action=None):
+        if cherrypy.request.method == 'POST':
+            if action == 'ping':
+                ping_contents = simplejson.loads(cherrypy.request.body.read())
+                worker_status = ping_contents['status']
+                news_list = ping_contents['news']
+                cherrypy.engine.publish('worker_ping', worker_id, worker_status, news_list)
+            elif action == 'stopping':
+                cherrypy.engine.publish('worker_failed', worker_id)
+            else:
+                raise HTTPError(404)
+        else:
+            if action is None:
+                return simplejson.dumps(self.worker_pool.get_worker_by_id().as_descriptor())
 
 class MasterTaskRoot:
     
