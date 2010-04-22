@@ -82,7 +82,7 @@ class WorkerPool(plugins.SimplePlugin):
     
     def worker_failed(self, id):
         with self._lock:
-            self.idle_set.remove(id)
+            self.idle_set.discard(id)
             failed_task = self.workers[id].current_task_id
 
         if failed_task is not None:

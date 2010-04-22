@@ -106,6 +106,6 @@ def build_reference_from_tuple(reference_tuple):
     elif ref_type == 'gfut':
         return SWGlobalFutureReference(reference_tuple[1])
     elif ref_type == 'lfile':
-        return SWLocalDataFile(reference_tuple[2])
+        return SWLocalDataFile(reference_tuple[1])
     elif ref_type == 'val':
-        return SWDataValue(reference_tuple[2])
+        return SWDataValue(reference_tuple[1])

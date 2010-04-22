@@ -9,6 +9,8 @@ from cherrypy.process import plugins
 from threading import Lock
 from mrry.mercator.runtime.references import build_reference_from_tuple,\
     SWGlobalFutureReference, SWURLReference
+import logging
+import cherrypy
 
 
 class Task:
@@ -118,6 +120,7 @@ class TaskPool(plugins.SimplePlugin):
         self.bus.publish('worker_idle', worker_id)
     
     def task_failed(self, id, reason, details=None):
+        cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
         if reason == 'WORKER_FAILED':
             # Try to reschedule task.
             with self._lock:

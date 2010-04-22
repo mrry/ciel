@@ -163,9 +163,10 @@ class SWRuntimeInterpreterTask:
                 if isinstance(ref, SWDataValue):
                     url = block_store.store_object(ref.value, 'json')
                     filename = block_store.retrieve_filename_by_url(url)
-                else:
-                    assert isinstance(ref, SWURLReference)
+                elif isinstance(ref, SWURLReference):
                     filename = block_store.retrieve_filename_by_url(ref.urls[0])
+                elif isinstance(ref, SWLocalDataFile):
+                    filename = ref.filename
                 self.continuation.rewrite_reference(local_id, SWLocalDataFile(filename))
             else:
                 assert False
