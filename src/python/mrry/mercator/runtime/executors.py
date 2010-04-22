@@ -6,11 +6,27 @@ Created on 19 Apr 2010
 from subprocess import PIPE
 from mrry.mercator.runtime.references import SWLocalDataFile, SWURLReference,\
     SWDataValue
-from mrry.mercator.cloudscript.visitors import ExecutionInterruption
-import urllib2
+from mrry.mercator.runtime.exceptions import FeatureUnavailableException,\
+    ReferenceUnavailableException
 import shutil
 import subprocess
 import tempfile
+
+class ExecutionFeatures:
+    
+    def __init__(self):
+        self.executors = {'stdinout': SWStdinoutExecutor,
+                          'java': JavaExecutor}
+    
+    def all_features(self):
+        return self.executors.keys()
+    
+    def get_executor(self, name, args, continuation, num_outputs):
+        try:
+            Executor = self.executors[name]
+        except KeyError:
+            raise FeatureUnavailableException(name)
+        return Executor(args, continuation, num_outputs)
 
 class SWExecutor:
 
@@ -29,7 +45,7 @@ class SWExecutor:
             return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json'))
         else:
             # Data is not yet available, so 
-            raise ExecutionInterruption()
+            raise ReferenceUnavailableException(ref, self.continuation)
 
 class SWStdinoutExecutor(SWExecutor):
     

@@ -8,14 +8,11 @@ from mrry.mercator.cloudscript.context import SimpleContext, TaskContext,\
     LambdaFunction
 from mrry.mercator.cloudscript.datatypes import all_leaf_values, map_leaf_values
 from mrry.mercator.cloudscript.visitors import \
-    StatementExecutorVisitor, ExecutionInterruption, SWDereferenceWrapper
+    StatementExecutorVisitor, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
-from subprocess import PIPE
 from mrry.mercator.runtime.executors import JavaExecutor
-import urllib2
-import shutil
-import subprocess
-import tempfile
+from mrry.mercator.runtime.exceptions import ReferenceUnavailableException,\
+    FeatureUnavailableException, ExecutionInterruption
 import cherrypy
 import logging
 from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
@@ -24,10 +21,11 @@ from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, block_store, master_proxy, num_threads=1):
+    def __init__(self, bus, block_store, master_proxy, execution_features, num_threads=1):
         AsynchronousExecutePlugin.__init__(self, bus, num_threads, "execute_task")
         self.block_store = block_store
         self.master_proxy = master_proxy
+        self.execution_features = execution_features
     
     def handle_input(self, input):
         assert input['handler'] == 'swi'
@@ -41,7 +39,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             return
                 
         try:
-            interpreter = SWRuntimeInterpreterTask(task_descriptor, self.block_store)
+            interpreter = SWRuntimeInterpreterTask(task_descriptor, self.block_store, self.execution_features)
             # TODO: remove redundant arguments.
             interpreter.fetch_inputs(self.block_store)
             interpreter.interpret()
@@ -124,12 +122,14 @@ class SWLocalReference:
     
 class SWRuntimeInterpreterTask:
     
-    def __init__(self, task_descriptor, block_store): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
+    def __init__(self, task_descriptor, block_store, execution_features): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
         self.task_id = task_descriptor['task_id']
         self.expected_outputs = task_descriptor['expected_outputs']
         self.inputs = task_descriptor['inputs']
 
+
         self.block_store = block_store
+        self.execution_features = execution_features
 
         self.spawn_list = []
         
@@ -196,7 +196,7 @@ class SWRuntimeInterpreterTask:
         try:
             self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
             
-        except ExecutionInterruption:
+        except ExecutionInterruption as ei:
             # Need to add a continuation task to the spawn list.
             cont_deps = {}
             for index in self.continuation.reference_table.keys():
@@ -206,6 +206,10 @@ class SWRuntimeInterpreterTask:
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': self.expected_outputs}
+            
+            if isinstance(ei, FeatureUnavailableException):
+                cont_task_descriptor['require_features'] = [ei.feature_name]
+            
             self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             return
             
@@ -403,16 +407,8 @@ class SWRuntimeInterpreterTask:
         return ret
     
     def exec_func(self, executor_name, args, num_outputs):
-        from mrry.mercator.runtime.executors import SWStdinoutExecutor
-        executor_class_map = {'stdinout' : SWStdinoutExecutor, 'java' : JavaExecutor}
-        try:
-            # FIXME: may need to pass the continuation through because will need to deref the args.
-            executor = executor_class_map[executor_name](args, self.continuation, num_outputs)
-        except KeyError:
-            raise "No such executor: %s" % (executor_name, )
-            
+        executor = self.execution_features.get_executor(executor_name, args, self.continuation, num_outputs)
         executor.execute(self.block_store)
-        
         return executor.output_refs
 
     def make_reference(self, urls):
@@ -434,4 +430,4 @@ class SWRuntimeInterpreterTask:
             return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
         else:
             self.continuation.mark_as_dereferenced(ref)
-            raise ExecutionInterruption()
+            raise ReferenceUnavailableException(ref, self.continuation)

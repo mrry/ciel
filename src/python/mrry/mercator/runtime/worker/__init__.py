@@ -6,8 +6,9 @@ Created on 4 Feb 2010
 from mrry.mercator.runtime.worker.master_proxy import MasterProxy
 from mrry.mercator.runtime.task_executor import TaskExecutorPlugin
 from mrry.mercator.runtime.block_store import BlockStore
-from mrry.mercator.runtime.worker.worker_view import WorkerRoot
-from mrry.mercator.runtime.worker.features import WorkerFeatures
+from mrry.mercator.runtime.worker.worker_view import WorkerRoot,\
+    build_worker_descriptor
+from mrry.mercator.runtime.executors import ExecutionFeatures
 import tempfile
 import cherrypy
 import mrry.mercator
@@ -17,15 +18,13 @@ import socket
 import urlparse
 import simplejson
 
-def register_with_master(master_uri, local_hostname, local_port):
+def register_with_master(master_uri, execution_features):
     http = httplib2.Http()
-    
-    local_netloc = "%s:%d" % (local_hostname, local_port)
-    
+
     master_register_url = urlparse.urljoin(master_uri, 'worker/')
     print master_register_url
     
-    (response, content) = http.request(uri=master_register_url, method='POST', body=simplejson.dumps({'netloc': local_netloc, 'features': {}}))
+    (response, content) = http.request(uri=master_register_url, method='POST', body=simplejson.dumps(build_worker_descriptor(execution_features)))
 
     print response
 
@@ -33,9 +32,6 @@ def register_with_master(master_uri, local_hostname, local_port):
         print response
         print content
         raise cherrypy.HTTPError(response.status)
-    
-
-    
 
 def worker_main(options):
     
@@ -51,12 +47,13 @@ def worker_main(options):
     
     block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
     
-    task_executor = TaskExecutorPlugin(cherrypy.engine, block_store, master_proxy, 1)
+    execution_features = ExecutionFeatures()
+    
+    task_executor = TaskExecutorPlugin(cherrypy.engine, block_store, master_proxy, execution_features, 1)
     task_executor.subscribe()
     
-    node_features = WorkerFeatures()
     
-    root = WorkerRoot(master_proxy, block_store, node_features)
+    root = WorkerRoot(master_proxy, block_store, execution_features)
     
     cherrypy.tree.mount(root, "", None)
     
@@ -69,7 +66,7 @@ def worker_main(options):
     
     try:
         if options.master is not None:
-            register_with_master(options.master, local_hostname, local_port)
+            register_with_master(options.master, execution_features)
     except:
         pass
     

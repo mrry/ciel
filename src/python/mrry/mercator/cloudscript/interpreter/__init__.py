@@ -1,7 +1,7 @@
 from Queue import Queue
 from threading import Lock, Condition, Thread
 from mrry.mercator.cloudscript.visitors import ExpressionEvaluatorVisitor,\
-    ExecutionInterruption, StatementExecutorVisitor, SWDereferenceWrapper,\
+    StatementExecutorVisitor, SWDereferenceWrapper,\
     SWFutureReference, SWDataReference
 from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction,\
     TaskContext
@@ -9,6 +9,7 @@ from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.runtime.executors import SWStdinoutExecutor
 from mrry.mercator.runtime.references import SWLocalDataFile
+from mrry.mercator.runtime.exceptions import ExecutionInterruption
 import threading
 import traceback
 import sys
@@ -68,9 +69,8 @@ class SWInterpreter:
             try:
 #                print "Interpreting a task!"
                 task.interpret()
-            except Exception as e:
+            except Exception:
                 traceback.print_exc()
-
                 self.scheduler.halt()
     
 class SWReference:
@@ -215,7 +215,7 @@ class SWInterpreterTask:
         
         try:
             self.result = visitor.visit(self.task_expr, self.stack, 0)
-        except ExecutionInterruption as exi:
+        except ExecutionInterruption:
             print "Blocking on", self.blocked_on
             self.scheduler.block_on_references(self, self.blocked_on)
             return

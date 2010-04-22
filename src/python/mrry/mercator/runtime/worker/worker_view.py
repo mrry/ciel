@@ -4,26 +4,33 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
+import socket
 import pickle
 import simplejson
 import cherrypy
 
 class WorkerRoot:
     
-    def __init__(self, master_proxy, block_store, node_features):
-        self.master = RegisterMasterRoot(master_proxy)
+    def __init__(self, master_proxy, block_store, execution_features):
+        self.master = RegisterMasterRoot(master_proxy, execution_features)
         self.task = TaskRoot()
         self.data = DataRoot(block_store)
-        self.features = FeaturesRoot(node_features)
+        self.features = FeaturesRoot(execution_features)
     
     @cherrypy.expose
     def index(self):
         return "Hello from the job manager server...."
     
+def build_worker_descriptor(execution_features):
+    local_netloc = "%s:%d" % (socket.getfqdn(), cherrypy.config.get('server.socket_port'))
+    local_features = execution_features.all_features()
+    return {'netloc': local_netloc, 'features': local_features}
+    
 class RegisterMasterRoot:
     
-    def __init__(self, master_proxy):
+    def __init__(self, master_proxy, execution_features):
         self.master_proxy = master_proxy
+        self.execution_features = execution_features
     
     @cherrypy.expose
     def index(self):
@@ -31,6 +38,7 @@ class RegisterMasterRoot:
             master_details = simplejson.loads(cherrypy.request.body.read())
             try:
                 self.master_proxy.change_master(master_details)
+                return build_worker_descriptor(self.execution_features)
             except:
                 raise cherrypy.HTTPError(500)
         elif cherrypy.request.method == 'GET':
@@ -83,9 +91,9 @@ class DataRoot:
     
 class FeaturesRoot:
     
-    def __init__(self, node_features):
-        self.node_features = node_features
+    def __init__(self, execution_features):
+        self.execution_features = execution_features
     
     @cherrypy.expose
     def index(self):
-        return simplejson.dumps(self.node_features.all_features())
+        return simplejson.dumps(self.execution_features.all_features())

@@ -4,13 +4,10 @@ Created on 23 Feb 2010
 @author: dgm36
 '''
 from mrry.mercator.cloudscript import ast
-from mrry.mercator.cloudscript.parser import CloudScriptParser
-from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor, ExpressionEvaluatorVisitor,\
-    ExecutionInterruption, SWDynamicScopeWrapper
+from mrry.mercator.cloudscript.visitors import ExpressionEvaluatorVisitor,\
+    SWDynamicScopeWrapper
 from mrry.mercator.cloudscript.resume import ContextAssignRR,\
     IndexedLValueRR
-import cPickle
-import sys
 from mrry.mercator.cloudscript.datatypes import all_leaf_values
 
 class LambdaFunction:
@@ -254,38 +251,3 @@ class GetBaseLValueBindingVisitor:
             
         except:
             raise
-        
-if __name__ == '__main__':
-    
-    csp = CloudScriptParser()
-    
-    try:
-        filename = sys.argv[1]
-    except:
-        filename = "testscript2.sw"
-    
-    script = csp.parse(open(filename).read())
-        
-    import datetime
-
-    
-    for i in range(0, 1):
-        start = datetime.datetime.now()
-        ctxt = SimpleContext()
-        
-        stack = []
-        while True:
-            try:
-                StatementExecutorVisitor(ctxt).visit(script, stack, 0)
-                break
-            except ExecutionInterruption:
-                stack = cPickle.loads((cPickle.dumps(stack)))
-                ctxt = cPickle.loads((cPickle.dumps(ctxt)))
-                ctxt.restart()
-            
-        end = datetime.datetime.now()
-        print end - start
-    
-    
-    print ctxt.contexts
-    

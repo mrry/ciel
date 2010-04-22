@@ -5,7 +5,6 @@ Created on 15 Apr 2010
 '''
 from mrry.mercator.cloudscript.parser import \
     SWScriptParser
-from mrry.mercator.cloudscript.visitors import SkywritingException
 from mrry.mercator.runtime.task_executor import SWContinuation
 import simplejson
 import pickle
@@ -25,7 +24,8 @@ if __name__ == '__main__':
     script = parser.parse(open(script_name, 'r').read())
     
     if script is None:
-        raise SkywritingException("Script did not parse")
+        print "Script did not parse :("
+        exit()
     
     cont = SWContinuation(script)
     

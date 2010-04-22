@@ -14,6 +14,11 @@ from mrry.mercator.runtime.master.local_master_proxy import LocalMasterProxy
 from mrry.mercator.runtime.master.task_pool import TaskPool
 import mrry.mercator
 from mrry.mercator.runtime.master.scheduler import Scheduler
+import simplejson
+import logging
+import urllib2
+import urllib
+import httplib2
 import tempfile
 import socket
 import cherrypy
@@ -34,9 +39,6 @@ def master_main(options):
     block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
     master_proxy.block_store = block_store
 
-    task_executor = TaskExecutorPlugin(cherrypy.engine, block_store, master_proxy, 1)
-    task_executor.subscribe()
-    
     scheduler = Scheduler(cherrypy.engine, task_pool, worker_pool)
     scheduler.subscribe()
     
@@ -51,11 +53,21 @@ def master_main(options):
 
     cherrypy.engine.start()
     
+    
+    
     if options.workerlist is not None:
+        master_details = {'netloc': '%s:%d' % (local_hostname, local_port)}
+        master_details_as_json = simplejson.dumps(master_details)
         with (open(options.workerlist, "r")) as f:
             for worker_url in f.readlines():
-                worker_pool.add_worker(worker_url)
-
+                try:
+                    http = httplib2.Http()
+                    (response, content) = http.request(urllib2.urlparse.urljoin(worker_url, '/master/'), "POST", master_details_as_json)
+                    if response.status == 200:
+                        worker_pool.create_worker(simplejson.loads(content))                                                 
+                except:
+                    cherrypy.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)
+                    
     cherrypy.engine.block()
 
 #    sch = SchedulerProxy(cherrypy.engine)

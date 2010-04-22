@@ -8,17 +8,8 @@ from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     ListIndexRR, AssignmentRR, ReturnRR, PlusRR, LessThanOrEqualRR, EqualRR,\
     StarRR, ForceEvalRR
 from mrry.mercator.cloudscript.datatypes import map_leaf_values
-import traceback
 
 indent = 0
-
-class SkywritingException(Exception):
-    
-    def __init__(self, reason):
-        self.reason = reason
-        
-    def __str__(self):
-        return repr(self.reason)
 
 class Visitor:
     
@@ -288,11 +279,6 @@ class StatementExecutorVisitor(Visitor):
         func = UserDefinedFunction(self.context, node)
         self.context.update_value(node.name, func, stack, stack_base)
         return None
-
-class ExecutionInterruption(Exception):
-    
-    def __init__(self, resume_chain=[]):
-        self.resume_chain = resume_chain
 
 class ExpressionEvaluatorVisitor:
     

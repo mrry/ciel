@@ -25,8 +25,6 @@ test2_out = exec("java", {"inputs":inputs, "lib":[ref("file:///local/scratch/dgm
 master_jar = ref("file:///local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/tests/Master.jar");
 worker_jar = ref("file:///local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/tests/Worker.jar");
 
-test2_out = exec("java", {"inputs":inputs, "lib":[master_jar, worker_jar], "class":"Test3Master", "argv":["1", 234, 23]}, 2);
+test3_out = exec("java", {"inputs":inputs, "lib":[master_jar, worker_jar], "class":"Test3Master", "argv":["1", 234, 23]}, 2);
 
-
-
-return test2_out;
+return test3_out;
