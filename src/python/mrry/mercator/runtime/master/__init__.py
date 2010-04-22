@@ -62,7 +62,7 @@ def master_main(options):
             for worker_url in f.readlines():
                 try:
                     http = httplib2.Http()
-                    (response, content) = http.request(urllib2.urlparse.urljoin(worker_url, '/master/'), "POST", master_details_as_json)
+                    http.request(urllib2.urlparse.urljoin(worker_url, '/master/'), "POST", master_details_as_json)
                     # Worker will be created by a callback.
                 except:
                     cherrypy.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)

@@ -4,7 +4,6 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-import socket
 import pickle
 import simplejson
 import cherrypy

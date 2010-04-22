@@ -10,7 +10,6 @@ from mrry.mercator.cloudscript.datatypes import all_leaf_values, map_leaf_values
 from mrry.mercator.cloudscript.visitors import \
     StatementExecutorVisitor, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
-from mrry.mercator.runtime.executors import JavaExecutor
 from mrry.mercator.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption
 import cherrypy
