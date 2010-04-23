@@ -16,7 +16,8 @@ class ExecutionFeatures:
     
     def __init__(self):
         self.executors = {'stdinout': SWStdinoutExecutor,
-                          'java': JavaExecutor}
+                          'java': JavaExecutor,
+                          'dotnet': DotNetExecutor}
     
     def all_features(self):
         return self.executors.keys()
@@ -119,7 +120,7 @@ class JavaExecutor(SWExecutor):
             process_args.append("file://" + x)
         print 'Command-line:', " ".join(process_args)
         
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=java_stdout, stderr=java_stderr) # Shell=True to find Java in our path
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=java_stdout, stderr=java_stderr)
         
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
@@ -135,6 +136,70 @@ class JavaExecutor(SWExecutor):
             with open(java_stdout.name) as stdout_fp:
                 with open(java_stderr.name) as stderr_fp:
                     print "Java program failed, returning", rc, "with stdout:"
+                    for l in stdout_fp.readlines():
+                        print l
+                    print "...and stderr:"
+                    for l in stderr_fp.readlines():
+                        print l
+            raise OSError()
+        
+        urls = map(lambda filename: block_store.store_file(filename), file_outputs)
+        url_refs = map(lambda url: SWURLReference([url]), urls)
+        self.output_refs = map(lambda url_ref: self.continuation.create_tasklocal_reference(url_ref), url_refs)
+
+class DotNetExecutor(SWExecutor):
+    
+    def __init__(self, args, continuation, num_outputs):
+        SWExecutor.__init__(self, args, continuation, num_outputs)
+        self.continuation = continuation
+        try:
+            self.input_refs = args['inputs']
+            self.dll_refs = args['lib']
+            self.class_name = args['class']
+            self.argv = args['argv']
+        except KeyError:
+            print "Incorrect arguments for stdinout executor"
+            raise
+
+    def execute(self, block_store):
+        
+        file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
+        file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
+        
+        dll_filenames = map(lambda ref: self.get_filename(block_store, ref), self.dll_refs)
+        dotnet_stdout = tempfile.NamedTemporaryFile(delete=False)
+        dotnet_stderr = tempfile.NamedTemporaryFile(delete=False)
+
+        print "Input filenames:"
+        for fn in file_inputs:
+            print '\t', fn
+        print "Output filenames:"
+        for fn in file_outputs:
+            print '\t', fn
+        
+        print 'Stdout:', dotnet_stdout.name, 'Stderr:', dotnet_stderr.name
+        
+        process_args = ["mono", "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/csharp/loader/loader.exe", self.class_name]
+        for x in dll_filenames:
+            process_args.append(x)
+        print 'Command-line:', " ".join(process_args)
+        
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=dotnet_stdout, stderr=dotnet_stderr)
+        
+        proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
+        for x in file_inputs:
+            proc.stdin.write("%s\0" % x)
+        for x in file_outputs:
+            proc.stdin.write("%s\0" % x)
+        for x in self.argv:
+            proc.stdin.write("%s\0" % x)
+        proc.stdin.close()
+        rc = proc.wait()
+        print 'Return code', rc
+        if rc != 0:
+            with open(dotnet_stdout.name) as stdout_fp:
+                with open(dotnet_stderr.name) as stderr_fp:
+                    print ".NET program failed, returning", rc, "with stdout:"
                     for l in stdout_fp.readlines():
                         print l
                     print "...and stderr:"
