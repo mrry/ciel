@@ -17,7 +17,8 @@ class ExecutionFeatures:
     def __init__(self):
         self.executors = {'stdinout': SWStdinoutExecutor,
                           'java': JavaExecutor,
-                          'dotnet': DotNetExecutor}
+                          'dotnet': DotNetExecutor,
+                          'c': CExecutor}
     
     def all_features(self):
         return self.executors.keys()
