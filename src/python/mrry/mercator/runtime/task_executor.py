@@ -11,7 +11,8 @@ from mrry.mercator.cloudscript.visitors import \
     StatementExecutorVisitor, SWDereferenceWrapper
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.runtime.exceptions import ReferenceUnavailableException,\
-    FeatureUnavailableException, ExecutionInterruption, RuntimeSkywritingError
+    FeatureUnavailableException, ExecutionInterruption, RuntimeSkywritingError,\
+    SelectException
 import cherrypy
 import logging
 from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
@@ -183,6 +184,11 @@ class SWRuntimeInterpreterTask:
         self.expected_outputs = task_descriptor['expected_outputs']
         self.inputs = task_descriptor['inputs']
 
+        try:
+            self.select_result = task_descriptor['select_result']
+        except KeyError:
+            self.select_result = None
+
 
         self.block_store = block_store
         self.execution_features = execution_features
@@ -256,10 +262,31 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("is_future", LambdaFunction(lambda x: self.is_future(x[0])))
         task_context.bind_tasklocal_identifier("abort", LambdaFunction(lambda x: self.abort_production(x[0])))
         task_context.bind_tasklocal_identifier("task_details", LambdaFunction(lambda x: self.get_task_details(x[0])))
+        task_context.bind_tasklocal_identifier("select", LambdaFunction(lambda x: self.select_func(x[0]) if len(x) == 1 else self.select_func(x[0], x[1])))
         visitor = StatementExecutorVisitor(task_context)
         
         try:
             self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
+            
+        except SelectException as se:
+            
+            print "Got a SelectException!!!"
+            
+            local_select_group = se.select_group
+            timeout = se.timeout
+            
+            select_group = map(lambda ref: self.continuation.resolve_tasklocal_reference_with_ref(ref).as_tuple(), local_select_group)
+                        
+            cont_task_descriptor = {'handler': 'swi',
+                                    'inputs': {},
+                                    'select_group': select_group,
+                                    'select_timeout': timeout,
+                                    'expected_outputs': self.expected_outputs}
+
+            print "&&&&& SELECTING"
+            print cont_task_descriptor
+            
+            self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             
         except ExecutionInterruption as ei:
             # Need to add a continuation task to the spawn list.
@@ -278,6 +305,7 @@ class SWRuntimeInterpreterTask:
             self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             return
             
+
         except Exception:
             raise
 
@@ -322,12 +350,32 @@ class SWRuntimeInterpreterTask:
                         must_wait = True
                         break
                     else:
-                        rewritten_inputs[local_id] = SWGlobalFutureReference(self.spawn_task_result_global_ids[ref_tuple[1]]).as_tuple()
+                        rewritten_inputs[local_id] = SWGlobalFutureReference(self.spawn_task_result_global_ids[ref_tuple[1]][ref_tuple[2]]).as_tuple()
                 else:
                     rewritten_inputs[local_id] = ref_tuple
             
-            current_desc['inputs'] = rewritten_inputs
+            if not must_wait:
+                current_desc['inputs'] = rewritten_inputs
                 
+            try:
+                current_select_group = current_desc['select_group']
+                rewritten_select_group = []
+                for ref_tuple in current_select_group:
+                    print ref_tuple
+                    if ref_tuple[0] == 'lfut':
+                        if ref_tuple[1] >= len(self.spawn_task_result_global_ids):
+                            must_wait = True
+                            break
+                        else:
+                            print "Appending rewritten tuple!!!"
+                            rewritten_select_group.append(SWGlobalFutureReference(self.spawn_task_result_global_ids[ref_tuple[1]][ref_tuple[2]]).as_tuple())
+                    else:
+                        rewritten_select_group.append(ref_tuple)
+                
+                if not must_wait:        
+                    current_desc['select_group'] = rewritten_select_group
+            except KeyError:
+                pass
                 
             if must_wait:
                 
@@ -521,3 +569,12 @@ class SWRuntimeInterpreterTask:
             return self.master_proxy.get_task_details_for_future(ref)
         else:
             return {}
+
+    def select_func(self, select_group, timeout=None):
+        print "In select()!!!"
+        if self.select_result is not None:
+            return self.select_result
+        else:
+            print "Select group is", select_group
+            print "Timeout is", timeout
+            raise SelectException(select_group, timeout)

@@ -40,21 +40,55 @@ class Task:
                     except KeyError:
                         self.blocking_dict[global_id] = set([local_id])
         
+        # select()-handling code.
         try:
-            self.exec_args = task_descriptor['exec_args']
-        except:
-            self.exec_args = None
+            tuple_select_group = task_descriptor['select_group']
+            self.is_selecting = True
+            self.selecting_dict = {}
+            self.select_result = []
+            self.select_done = False
+            
+            if len(tuple_select_group) == 0:
+                self.select_done = True
+            
+            for i, ref_tuple in enumerate(tuple_select_group):
+                ref = build_reference_from_tuple(ref_tuple)
+                if isinstance(ref, SWGlobalFutureReference):
+                    global_id = ref.id
+                    urls = global_name_directory.get_urls_for_id(global_id)
+                    if len(urls) > 0:
+                        self.select_result.append(i)
+                        self.select_done = True
+                    else:
+                        self.selecting_dict[global_id] = i
+                else:
+                    self.select_result.append(i)
+                    self.select_done = True
+
+            print self.selecting_dict
+            print self.select_result
+            
+        except KeyError:
+            self.is_selecting = False
         
     def is_blocked(self):
-        return len(self.blocking_dict) > 0
+        if self.is_selecting:
+            return (not self.select_done) and len(self.select_result) > 0
+        else:
+            return len(self.blocking_dict) > 0
     
     def blocked_on(self):    
-        return self.blocking_dict.keys()
+        return self.blocking_dict.keys() if not self.is_selecting else self.selecting_dict.keys()
     
     def unblock_on(self, global_id, urls):
-        local_ids = self.blocking_dict.pop(global_id)
-        for local_id in local_ids:
-            self.inputs[local_id] = SWURLReference(urls)
+        if self.is_selecting:
+            i = self.selecting_dict[global_id]
+            self.select_result.append(i)
+            self.select_done = True
+        else:
+            local_ids = self.blocking_dict.pop(global_id)
+            for local_id in local_ids:
+                self.inputs[local_id] = SWURLReference(urls)
         
     def as_descriptor(self):        
         tuple_inputs = {}
@@ -66,8 +100,9 @@ class Task:
                       'expected_outputs': self.expected_outputs,
                       'inputs': tuple_inputs}
         
-        if self.exec_args is not None:
-            descriptor['exec_args'] = self.exec_args
+        if self.is_selecting:
+            print "Adding select_result to descriptor:", self.select_result
+            descriptor['select_result'] = self.select_result
         
         return descriptor
         

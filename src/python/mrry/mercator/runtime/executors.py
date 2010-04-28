@@ -76,7 +76,7 @@ class SWStdinoutExecutor(SWExecutor):
         filenames = self.get_filenames(block_store, self.input_refs)
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
-            proc = subprocess.Popen(self.command_line, stdin=PIPE, stdout=temp_output_fp)
+            proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp)
     
         for filename in filenames:
             with open(filename, 'r') as input_file:

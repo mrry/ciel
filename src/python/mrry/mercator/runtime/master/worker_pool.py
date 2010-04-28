@@ -77,6 +77,7 @@ class WorkerPool(plugins.SimplePlugin):
             task.worker_id = worker_id
             
         try:
+            print "Assigning task:", task.as_descriptor()
             httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor()), )
         except:
             print sys.exc_info()

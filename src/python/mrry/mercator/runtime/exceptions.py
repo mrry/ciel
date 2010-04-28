@@ -30,3 +30,8 @@ class ReferenceUnavailableException(ExecutionInterruption):
         
     def __repr__(self):
         return 'ReferenceUnavailableException(ref=%s)' % (repr(self.ref), )
+    
+class SelectException(ExecutionInterruption):
+    def __init__(self, select_group, timeout):
+        self.select_group = select_group
+        self.timeout = timeout
