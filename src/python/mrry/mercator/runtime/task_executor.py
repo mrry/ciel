@@ -216,6 +216,7 @@ class SWRuntimeInterpreterTask:
                 else:
                     assert isinstance(ref, SWURLReference)
                     url = block_store.choose_best_url(ref.urls)
+                    print "Retrieving URL!!!!"
                     value = block_store.retrieve_object_by_url(url, 'json')
                     self.continuation.rewrite_reference(local_id, SWDataValue(value))
             elif self.continuation.is_marked_as_execd(local_id):
@@ -303,6 +304,7 @@ class SWRuntimeInterpreterTask:
                         # if unavailable in the local lookup table (from previous spawn batches), must wait;
                         # else rewrite the reference.
                         spawn_list_index = ref_table_entry.reference.spawn_list_index
+                        result_index = ref_table_entry.reference.result_index
                         if self.spawn_list[spawn_list_index].ignore:
                             print "We have a continuation that depends on an aborted task. This will never be run."
                             raise RuntimeSkywritingError()
@@ -310,7 +312,8 @@ class SWRuntimeInterpreterTask:
                             must_wait = True
                             break
                         else:
-                            current_cont.rewrite_reference(local_id, SWGlobalFutureReference(self.spawn_task_result_global_ids[spawn_list_index]))
+                            global_id = self.spawn_task_result_global_ids[spawn_list_index][result_index]
+                            current_cont.rewrite_reference(local_id, SWGlobalFutureReference(global_id))
 
             rewritten_inputs = {}
             for local_id, ref_tuple in current_desc['inputs'].items():
@@ -389,7 +392,7 @@ class SWRuntimeInterpreterTask:
 
         print "*!*!*!*", real_result
         result_url = block_store.store_object(real_result, 'json')
-        commit_bindings[self.expected_outputs] = [result_url]        
+        commit_bindings[self.expected_outputs[0]] = [result_url]        
         
         master_proxy.commit_task(self.task_id, commit_bindings)
 
@@ -430,7 +433,8 @@ class SWRuntimeInterpreterTask:
         
         # Append the new task definition to the spawn list.
         task_descriptor = {'handler': 'swi',
-                           'inputs': {}, # _cont will be added later
+                           'inputs': {},
+                           'num_outputs': 1 # _cont will be added later
                           }
         
         # TODO: we could visit the spawn expression and try to guess what requirements

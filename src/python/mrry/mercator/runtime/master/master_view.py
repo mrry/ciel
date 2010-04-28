@@ -85,6 +85,9 @@ class MasterTaskRoot:
             if action == 'spawn':
                 if cherrypy.request.method == 'POST':
                     task_descriptors = simplejson.loads(cherrypy.request.body.read())
+                    
+                    print task_descriptors
+                    
                     spawn_result_ids = []
                     
                     # TODO: stage this in a task-local transaction buffer.
@@ -96,7 +99,7 @@ class MasterTaskRoot:
                                 num_outputs = task['num_outputs']
                                 expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
                             except:
-                                expected_outputs = self.global_name_directory.create_global_id()
+                                raise
                             
                             task['expected_outputs'] = expected_outputs
                         task_id = self.task_pool.add_task(task)
@@ -148,7 +151,7 @@ class MasterTaskRoot:
                         num_outputs = task_descriptor['num_outputs']
                         expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
                     except:
-                        expected_outputs = self.global_name_directory.create_global_id()
+                        expected_outputs = [self.global_name_directory.create_global_id()]
                     task_descriptor['expected_outputs'] = expected_outputs
                 
                 self.task_pool.add_task(task_descriptor)

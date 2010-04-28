@@ -90,8 +90,7 @@ class SWStdinoutExecutor(SWExecutor):
         
         url = block_store.store_file(temp_output.name)
         real_ref = SWURLReference([url])
-        tasklocal_ref = self.continuation.create_tasklocal_reference(real_ref)
-        self.output_refs[0] = tasklocal_ref
+        self.output_refs[0] = real_ref
 
 class JavaExecutor(SWExecutor):
     

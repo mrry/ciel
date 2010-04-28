@@ -648,6 +648,7 @@ class ExpressionEvaluatorVisitor:
             rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
+            print resume_record.left, rexpr
             return resume_record.left + rexpr
 
         except:
