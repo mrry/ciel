@@ -21,36 +21,48 @@ class ExecutionFeatures:
     def all_features(self):
         return self.executors.keys()
     
-    def get_executor(self, name, args, continuation, num_outputs):
+    def get_executor(self, name, args, continuation, num_outputs, fetch_limit=None):
         try:
             Executor = self.executors[name]
         except KeyError:
             raise FeatureUnavailableException(name)
-        return Executor(args, continuation, num_outputs)
+        return Executor(args, continuation, num_outputs, fetch_limit)
 
 class SWExecutor:
 
-    def __init__(self, args, continuation, num_outputs):
+    def __init__(self, args, continuation, num_outputs, fetch_limit=None):
         self.continuation = continuation
         self.output_refs = [None for i in range(num_outputs)]
+        self.fetch_limit = fetch_limit
 
     def get_filename(self, block_store, ref):
-        self.continuation.mark_as_execd(ref)
-        real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        if self.continuation is not None:
+            self.continuation.mark_as_execd(ref)
+            real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        else:
+            real_ref = ref
+            
         if isinstance(real_ref, SWLocalDataFile):
             return real_ref.filename
         elif isinstance(real_ref, SWURLReference):
-            return block_store.retrieve_filename_by_url(real_ref.urls[0])
+            return block_store.retrieve_filename_by_url(block_store.choose_best_url(real_ref.urls), self.fetch_limit)
         elif isinstance(real_ref, SWDataValue):
             return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json'))
         else:
             # Data is not yet available, so 
+            print real_ref
             raise ReferenceUnavailableException(ref, self.continuation)
 
+    def get_filenames(self, block_store, refs):
+        # Mark all as execd before we risk faulting.
+        if self.continuation is not None:
+            map(self.continuation.mark_as_execd, refs)
+        return map(lambda ref: self.get_filename(block_store, ref), refs)
+        
 class SWStdinoutExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, num_outputs):
-        SWExecutor.__init__(self, args, continuation, num_outputs)
+    def __init__(self, args, continuation, num_outputs, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, num_outputs, fetch_limit)
         assert num_outputs == 1
         try:
             self.input_refs = args['inputs']
@@ -61,14 +73,13 @@ class SWStdinoutExecutor(SWExecutor):
     
     def execute(self, block_store):
         temp_output = tempfile.NamedTemporaryFile(delete=False)
+        filenames = self.get_filenames(block_store, self.input_refs)
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
             proc = subprocess.Popen(self.command_line, stdin=PIPE, stdout=temp_output_fp)
     
-        for ref in self.input_refs:
-            filename = self.get_filename(block_store, ref)
-            print ref, '--->', filename
-            with open(filename) as input_file:
+        for filename in filenames:
+            with open(filename, 'r') as input_file:
                 shutil.copyfileobj(input_file, proc.stdin)
 
         proc.stdin.close()
@@ -84,8 +95,8 @@ class SWStdinoutExecutor(SWExecutor):
 
 class JavaExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, num_outputs):
-        SWExecutor.__init__(self, args, continuation, num_outputs)
+    def __init__(self, args, continuation, num_outputs, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, num_outputs, fetch_limit)
         self.continuation = continuation
         try:
             self.input_refs = args['inputs']
@@ -97,8 +108,7 @@ class JavaExecutor(SWExecutor):
             raise
 
     def execute(self, block_store):
-        
-        file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
+        file_inputs = self.get_filenames(block_store, self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
         
         jar_filenames = map(lambda ref: self.get_filename(block_store, ref), self.jar_refs)
@@ -144,4 +154,4 @@ class JavaExecutor(SWExecutor):
         
         urls = map(lambda filename: block_store.store_file(filename), file_outputs)
         url_refs = map(lambda url: SWURLReference([url]), urls)
-        self.output_refs = map(lambda url_ref: self.continuation.create_tasklocal_reference(url_ref), url_refs)
+        self.output_refs = url_refs

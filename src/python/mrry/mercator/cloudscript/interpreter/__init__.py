@@ -8,7 +8,7 @@ from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction,\
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.runtime.executors import SWStdinoutExecutor
-from mrry.mercator.runtime.references import SWLocalDataFile
+from mrry.mercator.runtime.references import SWLocalDataFile, SWURLReference
 from mrry.mercator.runtime.exceptions import ExecutionInterruption
 import threading
 import traceback
@@ -281,9 +281,10 @@ class SWInterpreterTask:
             print "Eagerly dereffing a file"
             value = simplejson.load(urllib2.urlopen(ref.urls[0]))
             return value
+        elif isinstance(ref, SWURLReference):
+            pass
         else:
-            print type(ref)
-            raise
+            raise ExecutionInterruption()
         
     def reference_resolved(self, ref_id):
         self.blocked_on.remove(ref_id)

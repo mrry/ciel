@@ -7,6 +7,7 @@ from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock
+import random
 import datetime
 import sys
 import simplejson
@@ -104,3 +105,7 @@ class WorkerPool(plugins.SimplePlugin):
     def get_all_workers(self):
         with self._lock:
             return map(lambda x: x.as_descriptor(), self.workers.values())
+
+    def get_random_worker(self):
+        with self._lock:
+            return random.choice(self.workers.values())

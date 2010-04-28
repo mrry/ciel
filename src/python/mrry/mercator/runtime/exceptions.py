@@ -19,6 +19,10 @@ class FeatureUnavailableException(ExecutionInterruption):
     def __repr__(self):
         return 'FeatureUnavailableException(feature_name="%s")' % (self.feature_name, )
         
+class DataTooBigException(ExecutionInterruption):
+    def __init__(self, size):
+        self.size = size
+        
 class ReferenceUnavailableException(ExecutionInterruption):
     def __init__(self, ref, continuation):
         self.ref = ref

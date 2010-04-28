@@ -4,7 +4,6 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-import pickle
 import simplejson
 import cherrypy
 
@@ -70,8 +69,7 @@ class DataRoot:
     def index(self):
         # TODO: alternative data serialization formats; direct passthrough.
         # TODO: obviate need for double-pickle.
-        data = pickle.load(cherrypy.request.body)
-        url = self.block_store.store_object(data, 'pickle')
+        url = self.block_store.store_raw_file(cherrypy.request.body)
         return simplejson.dumps(url)
 
     # TODO: have a way from outside the cluster to push some data to a node.

@@ -16,17 +16,17 @@ class Visitor:
     def visit(self, node):
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node)
 
-class SWFutureReference:
-    
-    def __init__(self, ref_id):
-        self.is_future = True
-        self.id = ref_id
+#class SWFutureReference:
+#    
+#    def __init__(self, ref_id):
+#        self.is_future = True
+#        self.id = ref_id
 
-class SWDataReference:
-    
-    def __init__(self, urls):
-        self.is_future = False
-        self.urls = urls
+#class SWDataReference:
+#    
+#    def __init__(self, urls):
+#        self.is_future = False
+#        self.urls = urls
 
 class SWDereferenceWrapper:
     

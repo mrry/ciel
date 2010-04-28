@@ -5,7 +5,9 @@ Created on 14 Apr 2010
 '''
 from __future__ import with_statement
 from threading import Lock
-import urllib
+from urllib2 import URLError
+from mrry.mercator.runtime.exceptions import ExecutionInterruption
+import random
 import urllib2
 import shutil
 import pickle
@@ -68,6 +70,13 @@ class BlockStore:
     def publish_global_object(self, global_id, url):
         self.master_proxy.publish_global_object(global_id, [url])
     
+    def store_raw_file(self, incoming_fobj):
+        with self._lock:
+            id = self.allocate_new_id()
+        with open(self.filename(id), "wb") as data_file:
+            shutil.copyfileobj(incoming_fobj, data_file)
+        return 'swbs://%s/%d' % (self.netloc, id)            
+    
     def store_object(self, object, encoder):
         """Stores the given object as a block, and returns a swbs URL to it."""
         with self._lock:
@@ -86,6 +95,7 @@ class BlockStore:
     
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
+        print "Retrieving URL: %s" % (url, )
         parsed_url = urlparse.urlparse(url)
         if parsed_url.scheme == 'swbs':
             id = int(parsed_url.path[1:])
@@ -100,16 +110,17 @@ class BlockStore:
                 # Retrieve remote in-system object.
                 # XXX: should extract this magic string constant.
                 fetch_url = 'http://%s/data/%d' % (parsed_url.netloc, id)
+
         else:
             # Retrieve remote ex-system object.
             fetch_url = url
-        
+
         object_file = urllib2.urlopen(fetch_url)
         ret = self.decoders[decoder](object_file)
         object_file.close()
         return ret
                 
-    def retrieve_filename_by_url(self, url):
+    def retrieve_filename_by_url(self, url, size_limit=None):
         """Returns the filename of a file containing the data at the given URL."""
         parsed_url = urlparse.urlparse(url)
         
@@ -126,11 +137,36 @@ class BlockStore:
             # Retrieve remote ex-system object.
             fetch_url = url
         
+        headers = {}
+        if size_limit is not None:
+            headers['If-Match'] = str(size_limit)
+        
+        request = urllib2.Request(fetch_url, headers=headers)
+        
+        try:
+            response = urllib2.urlopen(request)
+        except URLError as ue:
+            if ue.code == 412:
+                raise ExecutionInterruption()
+            else:
+                raise
+        
         with self._lock:
             id = self.allocate_new_id()
-            
+   
         filename = self.filename(id)
-        urllib.urlretrieve(fetch_url, filename)
+
+        with open(filename, 'wb') as data_file:
+            shutil.copyfileobj(response, data_file)
         
         return filename
     
+    def choose_best_url(self, urls):
+        if len(urls) == 1:
+            return urls[0]
+        else:
+            for url in enumerate(urls):
+                parsed_url = urlparse.urlparse(url)
+                if parsed_url.netloc == self.netloc:
+                    return url
+            return random.choice(urls)

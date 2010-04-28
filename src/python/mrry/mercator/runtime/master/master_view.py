@@ -14,7 +14,7 @@ class MasterRoot:
         self.worker = WorkersRoot(worker_pool)
         self.task = MasterTaskRoot(global_name_directory, task_pool)
         self.data = DataRoot(block_store)
-        self.global_data = GlobalDataRoot(global_name_directory)
+        self.global_data = GlobalDataRoot(global_name_directory, task_pool, worker_pool)
         #self.cluster = ClusterDetailsRoot()
 
     @cherrypy.expose
@@ -38,20 +38,25 @@ class WorkersRoot:
         else:
             raise HTTPError(405)
         
+    @cherrypy.expose
+    def random(self):
+        return simplejson.dumps('http://%s/' % (self.worker_pool.get_random_worker().netloc, ))
+        
+    @cherrypy.expose
     def default(self, worker_id, action=None):
         if cherrypy.request.method == 'POST':
             if action == 'ping':
                 ping_contents = simplejson.loads(cherrypy.request.body.read())
                 worker_status = ping_contents['status']
                 news_list = ping_contents['news']
-                cherrypy.engine.publish('worker_ping', worker_id, worker_status, news_list)
+                cherrypy.engine.publish('worker_ping', int(worker_id), worker_status, news_list)
             elif action == 'stopping':
-                cherrypy.engine.publish('worker_failed', worker_id)
+                cherrypy.engine.publish('worker_failed', int(worker_id))
             else:
                 raise HTTPError(404)
         else:
             if action is None:
-                return simplejson.dumps(self.worker_pool.get_worker_by_id().as_descriptor())
+                return simplejson.dumps(self.worker_pool.get_worker_by_id(int(worker_id)).as_descriptor())
 
 class MasterTaskRoot:
     
@@ -94,7 +99,11 @@ class MasterTaskRoot:
                                 expected_outputs = self.global_name_directory.create_global_id()
                             
                             task['expected_outputs'] = expected_outputs
-                        self.task_pool.add_task(task)
+                        task_id = self.task_pool.add_task(task)
+                        
+                        for global_id in expected_outputs:
+                            self.global_name_directory.set_task_for_id(global_id, task_id)
+                        
                         spawn_result_ids.append(expected_outputs) 
                     
                     return simplejson.dumps(spawn_result_ids)
@@ -150,9 +159,11 @@ class MasterTaskRoot:
             
 class GlobalDataRoot:
     
-    def __init__(self, global_name_directory):
+    def __init__(self, global_name_directory, task_pool, worker_pool):
         self.global_name_directory = global_name_directory
-
+        self.task_pool = task_pool
+        self.worker_pool = worker_pool
+                
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
@@ -162,28 +173,37 @@ class GlobalDataRoot:
             return simplejson.dumps(id)
         
     @cherrypy.expose
-    def default(self, id):
-        if cherrypy.request.method == 'POST':
-            # Add a new URL for the global ID.
-            urls = simplejson.loads(cherrypy.request.body.read())
-            assert urls is list
-            try:
-                self.global_name_directory.add_urls_for_id(int(id), urls)
-                return
-            except KeyError:
-                raise HTTPError(404)
-        elif cherrypy.request.method == 'GET':
-            # Return all URLs for the global ID.
-            try:
-                urls = self.global_name_directory.get_urls_for_id(int(id))
-                return simplejson.dumps(urls)
-            except KeyError:
-                raise HTTPError(404)
-        raise HTTPError(405)
-    
-#class ClusterDetailsRoot:
-#    
-#    def __init__(self):
-#        pass
-#    
-#    # This could provide a way to provide details about the cluster in the 
+    def default(self, id, attribute=None):
+        if attribute is None:
+            if cherrypy.request.method == 'POST':
+                # Add a new URL for the global ID.
+                urls = simplejson.loads(cherrypy.request.body.read())
+                assert urls is list
+                try:
+                    self.global_name_directory.add_urls_for_id(int(id), urls)
+                    return
+                except KeyError:
+                    raise HTTPError(404)
+            elif cherrypy.request.method == 'GET':
+                # Return all URLs for the global ID.
+                try:
+                    urls = self.global_name_directory.get_urls_for_id(int(id))
+                    if len(urls) == 0:
+                        cherrypy.response.status = 204
+                    return simplejson.dumps(urls)
+                except KeyError:
+                    raise HTTPError(404)
+            raise HTTPError(405)
+        elif attribute == 'task':
+            if cherrypy.request.method == 'GET':
+                task_id = self.global_name_directory.get_task_for_id()
+                task = self.task_pool.get_task_by_id(task_id)
+                task_descriptor = task.as_descriptor()
+                task_descriptor['is_running'] = task.worker_id is not None
+                if task.worker_id is not None:
+                    task_descriptor['worker'] = self.worker_pool.get_worker_by_id(task.worker_id).as_descriptor()
+                return simplejson.dumps(task_descriptor)
+            else:
+                raise HTTPError(405)
+        else:
+            raise HTTPError(404)

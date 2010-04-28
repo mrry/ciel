@@ -9,7 +9,10 @@ class SWRealReference:
     def as_tuple(self):
         pass
 
-class SWLocalFutureReference(SWRealReference):
+class SWFutureReference(SWRealReference):
+    pass
+
+class SWLocalFutureReference(SWFutureReference):
     """
     Used as a placeholder reference for the results of spawned tasks. Refers to the
     output of a particular task in the spawn list. If that task has multiple outputs,
@@ -46,7 +49,7 @@ class SWURLReference(SWRealReference):
     def __repr__(self):
         return 'SWURLReference(%s)' % (repr(self.urls))
 
-class SWGlobalFutureReference(SWRealReference):
+class SWGlobalFutureReference(SWFutureReference):
     """
     Used as a reference to a task that hasn't completed yet. The identifier is in a
     system-global namespace, and may be passed to other tasks or returned from

@@ -57,3 +57,8 @@ class MasterProxy:
         message_payload = simplejson.dumps({'worker': self.worker.netloc(), 'status': status, 'news': ping_news})
         message_url = urljoin(self.master_url, 'worker/%d/ping/' % (self.worker.id, ))
         httplib2.Http().request(message_url, "POST", message_payload)
+        
+    def get_task_descriptor_for_future(self, ref):
+        message_url = urljoin(self.master_url, 'global_data/%d/task' % (ref.id, ))
+        (_, result) = httplib2.Http().request(message_url, "GET")
+        return simplejson.loads(result)

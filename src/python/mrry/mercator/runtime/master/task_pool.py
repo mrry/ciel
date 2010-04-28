@@ -20,7 +20,6 @@ class Task:
         self.handler = task_descriptor['handler']
         self.inputs = {}
         self.current_attempt = 0
-        
         self.worker_id = None
         
         for local_id, input_tuple in task_descriptor['inputs'].items():
@@ -41,6 +40,11 @@ class Task:
                     except KeyError:
                         self.blocking_dict[global_id] = set([local_id])
         
+        try:
+            self.exec_args = task_descriptor['exec_args']
+        except:
+            self.exec_args = None
+        
     def is_blocked(self):
         return len(self.blocking_dict) > 0
     
@@ -56,10 +60,16 @@ class Task:
         tuple_inputs = {}
         for local_id, input in self.inputs.items():
             tuple_inputs[local_id] = input.as_tuple()
-        return {'task_id': self.task_id,
-                'handler': self.handler,
-                'expected_outputs': self.expected_outputs,
-                'inputs': tuple_inputs}
+            
+        descriptor = {'task_id': self.task_id,
+                      'handler': self.handler,
+                      'expected_outputs': self.expected_outputs,
+                      'inputs': tuple_inputs}
+        
+        if self.exec_args is not None:
+            descriptor['exec_args'] = self.exec_args
+        
+        return descriptor
         
 class TaskPool(plugins.SimplePlugin):
     
@@ -98,6 +108,7 @@ class TaskPool(plugins.SimplePlugin):
                 self.runnable_queue.put(task)
                 
         self.bus.publish('schedule')
+        return task_id
     
     def reference_available(self, id, urls):
         with self._lock:
@@ -110,6 +121,9 @@ class TaskPool(plugins.SimplePlugin):
                 task.unblock_on(id, urls)
                 if not task.is_blocked():
                     self.runnable_queue.put(task)
+    
+    def get_task_by_id(self, id):
+        return self.tasks[id]
     
     def task_completed(self, id):
         with self._lock:
