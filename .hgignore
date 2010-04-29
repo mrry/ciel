@@ -13,3 +13,4 @@ syntax: glob
 parser.out
 syntax: glob
 parsetab.py
+*.pyc
