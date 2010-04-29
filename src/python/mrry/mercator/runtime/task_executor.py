@@ -13,6 +13,7 @@ from mrry.mercator.cloudscript import ast
 from mrry.mercator.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption, RuntimeSkywritingError,\
     SelectException
+from threading import Lock
 import cherrypy
 import logging
 from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
@@ -27,81 +28,34 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.master_proxy = master_proxy
         self.execution_features = execution_features
     
+        self.current_task_id = None
+        self.current_task_execution_record = None
+    
+        self._lock = Lock()
+    
+    def abort_task(self, task_id):
+        with self._lock:
+            if self.current_task_id == task_id:
+                self.current_task_execution_record.abort()
+            self.current_task_id = None
+            self.current_task_execution_record = None
+    
     def handle_input(self, input):
         handler = input['handler']
-        if handler == 'swi':
-            return self.handle_swi_task(input)
-        else:
-            return self.handle_executor_task(input, handler)
-    
-    def fetch_executor_args(self, inputs):
-        args_ref = None
-        parsed_inputs = {}
-        
-        for local_id, ref_tuple in inputs.items():
-            ref = build_reference_from_tuple(ref_tuple)
-            if local_id == '_args':
-                args_ref = ref
+        with self._lock:
+            self.current_task_id = input['task_id']
+            if handler == 'swi':
+                self.current_task_execution_record = SWInterpreterTaskExecutionRecord(input, self)
             else:
-                parsed_inputs[int(local_id)] = ref
+                self.current_task_execution_record = SWExecutorTaskExecutionRecord(input, self)
         
-        assert isinstance(args_ref, SWURLReference)
-        exec_args = self.block_store.retrieve_object_by_url(args_ref.urls[0], 'pickle')
-        
-        def args_parsing_mapper(leaf):
-            if isinstance(leaf, SWLocalReference):
-                return parsed_inputs[leaf.index]
-            else:
-                return leaf
-        
-        parsed_args = map_leaf_values(args_parsing_mapper, exec_args)
-        
-        return parsed_args
-    
-    def handle_executor_task(self, task_descriptor, executor_name):
-        print '!!! Starting Executor task', task_descriptor['task_id']
-        try:
-            task_id = task_descriptor['task_id']
-        except KeyError:
-            cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
-            return
-        
-        try:
-            parsed_args = self.fetch_executor_args(task_descriptor['inputs'])
-            expected_outputs = task_descriptor['expected_outputs']
-            executor = self.execution_features.get_executor(executor_name, parsed_args, None, len(expected_outputs))
-            executor.execute(self.block_store)
-            
-            commit_bindings = {}
-            for (global_id, output_ref) in zip(expected_outputs, executor.output_refs):
-                commit_bindings[global_id] = output_ref.urls
-            self.master_proxy.commit_task(task_id, commit_bindings)
-            
-        except:
-            cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
-            self.master_proxy.failed_task(task_id)
-            
-        print "Done handling executor task!"
-        
-    def handle_swi_task(self, task_descriptor):
-        print '!!! Starting SWI task', task_descriptor['task_id']
-        print task_descriptor
-        try:     
-            task_id = task_descriptor['task_id']
-        except KeyError:
-            return
-                
-        try:
-            interpreter = SWRuntimeInterpreterTask(task_descriptor, self.block_store, self.execution_features, self.master_proxy)
-            # TODO: remove redundant arguments.
-            interpreter.fetch_inputs(self.block_store)
-            interpreter.interpret()
-            interpreter.spawn_all(self.block_store, self.master_proxy)
-            interpreter.commit_result(self.block_store, self.master_proxy)
-        except:
-            cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
-            self.master_proxy.failed_task(task_id)
+        self.current_task_execution_record.execute()
 
+        with self._lock:
+            self.current_task_id = None
+            self.current_task_execution_record = None
+            
+            
 class ReferenceTableEntry:
     
     def __init__(self, reference):
@@ -180,7 +134,108 @@ class SWLocalReference:
     def as_tuple(self):
         return ('local', self.index)
 
+class SWExecutorTaskExecutionRecord:
     
+    def __init__(self, task_descriptor, task_executor):
+        self.task_id = task_descriptor['task_id']
+        self.expected_outputs = task_descriptor['expected_outputs']
+        self.task_executor = task_executor
+        self.inputs = task_descriptor['inputs']
+        self.executor_name = task_descriptor['handler']
+        self.executor = None
+        self.is_running = True
+    
+    def abort(self):
+        self.is_running = False
+        if self.executor is not None:
+            self.executor.abort()
+    
+    def fetch_executor_args(self, inputs):
+        args_ref = None
+        parsed_inputs = {}
+        
+        for local_id, ref_tuple in inputs.items():
+            ref = build_reference_from_tuple(ref_tuple)
+            if local_id == '_args':
+                args_ref = ref
+            else:
+                parsed_inputs[int(local_id)] = ref
+        
+        assert isinstance(args_ref, SWURLReference)
+        exec_args = self.task_executor.block_store.retrieve_object_by_url(args_ref.urls[0], 'pickle')
+        
+        def args_parsing_mapper(leaf):
+            if isinstance(leaf, SWLocalReference):
+                return parsed_inputs[leaf.index]
+            else:
+                return leaf
+        
+        parsed_args = map_leaf_values(args_parsing_mapper, exec_args)
+        
+        return parsed_args
+    
+    def commit(self):
+        commit_bindings = {}
+        for (global_id, output_ref) in zip(self.expected_outputs, self.executor.output_refs):
+            commit_bindings[global_id] = output_ref.urls
+        self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
+    
+    def execute(self):        
+        try:
+            if self.is_running:
+                parsed_args = self.fetch_executor_args(self.inputs)
+            if self.is_running:
+                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, len(self.expected_outputs))
+            if self.is_running:
+                self.executor.execute(self.task_executor.block_store)
+            if self.is_running:
+                self.commit()
+            else:
+                self.task_executor.master_proxy.failed_task(self.task_id)
+        except:
+            cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id)
+            
+        print "Done handling executor task!"
+
+
+
+class SWInterpreterTaskExecutionRecord:
+    
+    def __init__(self, task_descriptor, task_executor):
+        self.task_id = task_descriptor['task_id']
+        self.task_executor = task_executor
+        
+        self.is_running = True
+        self.is_fetching = False
+        self.is_interpreting = False
+        
+        try:
+            self.interpreter = SWRuntimeInterpreterTask(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy)
+        except:
+            cherrypy.log.error('Error during SWI task creation', 'SWI', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id)            
+
+    def execute(self):
+        try:
+            if self.is_running:
+                self.interpreter.fetch_inputs(self.task_executor.block_store)
+            if self.is_running:
+                self.interpreter.interpret()
+            if self.is_running:
+                self.interpreter.spawn_all(self.task_executor.block_store, self.task_executor.master_proxy)
+            if self.is_running:
+                self.interpreter.commit_result(self.task_executor.block_store, self.task_executor.master_proxy)
+            else:
+                self.task_executor.master_proxy.failed_task(self.task_id)
+        except:
+            cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id)    
+
+    def abort(self):
+        self.is_running = False
+        self.interpreter.abort()
+        
 class SWRuntimeInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
@@ -205,6 +260,18 @@ class SWRuntimeInterpreterTask:
         
         self.master_proxy = master_proxy
         
+        self.is_running = True
+        
+        self.current_executor = None
+        
+    def abort(self):
+        self.is_running = False
+        if self.current_executor is not None:
+            try:
+                self.current_executor.abort()
+            except:
+                pass
+            
     def fetch_inputs(self, block_store):
         continuation_ref = None
         parsed_inputs = {}
@@ -220,6 +287,10 @@ class SWRuntimeInterpreterTask:
         self.continuation = block_store.retrieve_object_by_url(continuation_ref.urls[0], 'pickle')
         
         for local_id, ref in parsed_inputs.items():
+        
+            if not self.is_running:
+                return
+            
             if self.continuation.is_marked_as_dereferenced(local_id):
                 if isinstance(ref, SWDataValue):
                     self.continuation.rewrite_reference(local_id, ref)
@@ -390,6 +461,9 @@ class SWRuntimeInterpreterTask:
                 
             if must_wait:
                 
+                if not self.is_running:
+                    return
+                
                 # Fire off the current batch.
                 batch_result_ids = master_proxy.spawn_tasks(self.task_id, current_batch)
                 
@@ -413,6 +487,9 @@ class SWRuntimeInterpreterTask:
                 current_index += 1
             
         if len(current_batch) > 0:
+            
+            if not self.is_running:
+                return
             
             # Fire off the current batch.
             batch_result_ids = master_proxy.spawn_tasks(self.task_id, current_batch)
@@ -542,9 +619,11 @@ class SWRuntimeInterpreterTask:
         return ret
     
     def exec_func(self, executor_name, args, num_outputs):
-        executor = self.execution_features.get_executor(executor_name, args, self.continuation, num_outputs)
-        executor.execute(self.block_store)
-        return map(self.continuation.create_tasklocal_reference, executor.output_refs)
+        self.current_executor = self.execution_features.get_executor(executor_name, args, self.continuation, num_outputs)
+        self.current_executor.execute(self.block_store)
+        ret = map(self.continuation.create_tasklocal_reference, self.current_executor.output_refs)
+        self.current_executor = None
+        return ret
 
     def make_reference(self, urls):
         return self.continuation.create_tasklocal_reference(SWURLReference(urls))

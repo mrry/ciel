@@ -11,7 +11,7 @@ class WorkerRoot:
     
     def __init__(self, worker):
         self.master = RegisterMasterRoot(worker)
-        self.task = TaskRoot()
+        self.task = TaskRoot(worker.task_executor)
         self.data = DataRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
     
@@ -36,8 +36,8 @@ class RegisterMasterRoot:
     
 class TaskRoot:
     
-    def __init__(self):
-        pass
+    def __init__(self, task_executor):
+        self.task_executor = task_executor
     
     @cherrypy.expose
     def index(self):
@@ -51,7 +51,12 @@ class TaskRoot:
     @cherrypy.expose
     def default(self, task_id, action):
         if action == 'abort':
-            cherrypy.engine.publish('abort_task', task_id)
+            if cherrypy.request.method == 'POST':
+                self.task_executor.abort_task(task_id)
+            else:
+                raise cherrypy.HTTPError(405)
+        else:
+            raise cherrypy.HTTPError(404)
     
     # TODO: Add some way of checking up on the status of a running task.
     #       This should grow to include a way of getting the present activity of the task

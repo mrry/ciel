@@ -23,6 +23,8 @@ class Worker:
         self.features = worker_descriptor['features']
         self.current_task_id = None
         self.last_ping = datetime.datetime.now()
+        
+        self.local_queue = Queue()
 
     def as_descriptor(self):
         return {'worker_id': self.id,

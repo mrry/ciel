@@ -8,6 +8,10 @@ class RuntimeSkywritingError(Exception):
     def __init__(self):
         pass
 
+class AbortedExecutionException(RuntimeSkywritingError):
+    def __init__(self):
+        pass
+
 class ExecutionInterruption(Exception):
     def __init__(self):
         pass
@@ -35,3 +39,5 @@ class SelectException(ExecutionInterruption):
     def __init__(self, select_group, timeout):
         self.select_group = select_group
         self.timeout = timeout
+        
+        

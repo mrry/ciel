@@ -144,6 +144,8 @@ class MasterTaskRoot:
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)
+            elif action == 'abort':
+                self.task_pool.abort(task_id)
             elif action is None:
                 if cherrypy.request.method == 'GET':
                     return simplejson.dumps(self.task_pool.tasks[task_id].as_descriptor())

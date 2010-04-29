@@ -5,6 +5,7 @@ Created on 15 Apr 2010
 '''
 from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
 from Queue import Empty
+from mrry.mercator.runtime.master.task_pool import TASK_QUEUED
 
 class Scheduler(AsynchronousExecutePlugin):
     
@@ -20,8 +21,11 @@ class Scheduler(AsynchronousExecutePlugin):
         for worker_id in idle_workers:
             try:
                 task = self.task_pool.runnable_queue.get(block=False)
-                print task.task_id, '--->', worker_id
-                self.worker_pool.execute_task_on_worker_id(worker_id, task)
+                if task.state == TASK_QUEUED:
+                    print task.task_id, '--->', worker_id
+                    self.worker_pool.execute_task_on_worker_id(worker_id, task)
+                else:
+                    print "Discarding task:", task.task_id
             except Empty:
                 return
             

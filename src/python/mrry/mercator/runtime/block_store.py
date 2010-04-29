@@ -5,8 +5,9 @@ Created on 14 Apr 2010
 '''
 from __future__ import with_statement
 from threading import Lock
-from urllib2 import URLError
-from mrry.mercator.runtime.exceptions import ExecutionInterruption
+from urllib2 import URLError, HTTPError
+from mrry.mercator.runtime.exceptions import ExecutionInterruption,\
+    ReferenceUnavailableException
 import random
 import urllib2
 import shutil
@@ -145,11 +146,13 @@ class BlockStore:
         
         try:
             response = urllib2.urlopen(request)
-        except URLError as ue:
+        except HTTPError as ue:
             if ue.code == 412:
                 raise ExecutionInterruption()
             else:
                 raise
+        except URLError:
+            raise
         
         with self._lock:
             id = self.allocate_new_id()

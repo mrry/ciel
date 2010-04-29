@@ -165,3 +165,7 @@ class JavaExecutor(SWExecutor):
         urls = map(lambda filename: block_store.store_file(filename), file_outputs)
         url_refs = map(lambda url: SWURLReference([url]), urls)
         self.output_refs = url_refs
+
+    def abort(self):
+        if self.proc is not None:
+            self.proc.kill()

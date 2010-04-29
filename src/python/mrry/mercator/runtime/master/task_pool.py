@@ -183,18 +183,30 @@ class TaskPool(plugins.SimplePlugin):
                         self.references_blocking_tasks[global_id] = set([task_id])
             else:
                 print "/// TASK", task_id, "IS RUNNABLE"
+                task.state = TASK_QUEUED
                 self.runnable_queue.put(task)
                 
         self.bus.publish('schedule')
         return task
     
-    def mark_task_as_aborted(self, task_id):
+    def _mark_task_as_aborted(self, task_id):
+        task = self.tasks[task_id]
+        previous_state = task.state
+        task.state = TASK_ABORTED
+        return task, previous_state
+
+    def _abort(self, task_id):
+        print "!!! ABORTING", task_id
+        task, previous_state = self._mark_task_as_aborted(task_id)
+        if previous_state == TASK_ASSIGNED:
+            self.worker_pool.abort_task_on_worker(task)
+        for child in task.children:
+            self._abort(child)
+        
+    def abort(self, task_id):
         with self._lock:
-            task = self.tasks[task_id]
-            previous_state = task.state
-            task.state = TASK_ABORTED
-            return task, previous_state
-    
+            self._abort(task_id)
+            
     def reference_available(self, id, urls):
         with self._lock:
             try:
@@ -207,6 +219,7 @@ class TaskPool(plugins.SimplePlugin):
                 task.unblock_on(id, urls)
                 if was_blocked and not task.is_blocked():
                     print "/// TASK", task_id, "IS NOW RUNNABLE"
+                    task.state = TASK_QUEUED
                     self.runnable_queue.put(task)
     
     def get_task_by_id(self, id):
@@ -233,7 +246,7 @@ class TaskPool(plugins.SimplePlugin):
                     task.state = TASK_FAILED
                     # TODO: notify parents.
                 else:
-                    task.state = TASK_RUNNABLE
+                    task.state = TASK_QUEUED
                     self.runnable_queue.put(task)
         elif reason == 'MISSING_INPUT':
             # Problem fetching input, so we will have to recreate it.
