@@ -119,7 +119,7 @@ class Task:
             self.select_result.append(i)
             print "^^^!^^^ SELECT RESULT IS", self.select_result
             self.state = TASK_RUNNABLE
-        elif self.state in (TASK_BLOCKING):
+        elif self.state in (TASK_BLOCKING,):
             local_ids = self.blocking_dict.pop(global_id)
             for local_id in local_ids:
                 self.inputs[local_id] = SWURLReference(urls)
