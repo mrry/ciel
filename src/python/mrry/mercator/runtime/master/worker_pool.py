@@ -83,6 +83,25 @@ class WorkerPool(plugins.SimplePlugin):
             print sys.exc_info()
             print 'Worker failed:', worker_id
             self.worker_failed(worker_id)
+            
+    def abort_task_on_worker(self, task):
+        worker_id = task.worker_id
+        with self._lock:
+            worker = self.workers[worker_id]
+    
+        try:
+            print "Aborting task %d on worker %d" % (task.task_id, worker_id)
+            response, _ = httplib2.Http().request('http://%s/task/%d/abort' % (worker.netloc, task.task_id), 'POST')
+            if response.status == 200:
+                self.worker_idle(worker_id)
+            else:
+                print response
+                print 'Worker failed to abort a task:', worker_id 
+                self.worker_failed(worker_id)
+        except:
+            print sys.exc_info()
+            print 'Worker failed:', worker_id
+            self.worker_failed(worker_id)
     
     def worker_failed(self, id):
         with self._lock:

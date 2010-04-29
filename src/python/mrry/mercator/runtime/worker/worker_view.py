@@ -48,6 +48,11 @@ class TaskRoot:
                 return
         raise cherrypy.HTTPError(405)
     
+    @cherrypy.expose
+    def default(self, task_id, action):
+        if action == 'abort':
+            cherrypy.engine.publish('abort_task', task_id)
+    
     # TODO: Add some way of checking up on the status of a running task.
     #       This should grow to include a way of getting the present activity of the task
     #       and a way of setting breakpoints.

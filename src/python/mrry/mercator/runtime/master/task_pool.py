@@ -20,6 +20,7 @@ TASK_QUEUED = 3
 TASK_ASSIGNED = 4
 TASK_COMMITTED = 5
 TASK_FAILED = 6
+TASK_ABORTED = 7
 
 TASK_STATES = {'CREATED': TASK_CREATED,
                'BLOCKING': TASK_BLOCKING,
@@ -28,7 +29,8 @@ TASK_STATES = {'CREATED': TASK_CREATED,
                'QUEUED': TASK_QUEUED,
                'ASSIGNED': TASK_ASSIGNED,
                'COMMITTED': TASK_COMMITTED,
-               'FAILED': TASK_FAILED}
+               'FAILED': TASK_FAILED,
+               'ABORTED': TASK_ABORTED}
 
 TASK_STATE_NAMES = {}
 for (name, number) in TASK_STATES.items():
@@ -185,6 +187,13 @@ class TaskPool(plugins.SimplePlugin):
                 
         self.bus.publish('schedule')
         return task
+    
+    def mark_task_as_aborted(self, task_id):
+        with self._lock:
+            task = self.tasks[task_id]
+            previous_state = task.state
+            task.state = TASK_ABORTED
+            return task, previous_state
     
     def reference_available(self, id, urls):
         with self._lock:

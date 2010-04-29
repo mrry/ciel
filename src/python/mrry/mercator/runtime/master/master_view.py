@@ -4,6 +4,7 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy import HTTPError
+from mrry.mercator.runtime.master.task_pool import TASK_ASSIGNED
 import simplejson
 import cherrypy
 from mrry.mercator.runtime.worker.worker_view import DataRoot
@@ -84,13 +85,15 @@ class MasterTaskRoot:
             # semantics.
             if action == 'spawn':
                 if cherrypy.request.method == 'POST':
+                    
+                    parent_task = self.task_pool.get_task_by_id(task_id)
+                    if not parent_task.state = TASK_ASSIGNED
+                    
                     task_descriptors = simplejson.loads(cherrypy.request.body.read())
                     
                     print task_descriptors
                     
                     spawn_result_ids = []
-                    
-                    parent_task = self.task_pool.get_task_by_id(task_id)
                     
                     # TODO: stage this in a task-local transaction buffer.
                     for task_d in task_descriptors:

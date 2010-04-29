@@ -59,6 +59,9 @@ class SWExecutor:
             map(self.continuation.mark_as_execd, refs)
         return map(lambda ref: self.get_filename(block_store, ref), refs)
         
+    def abort(self):
+        pass
+        
 class SWStdinoutExecutor(SWExecutor):
     
     def __init__(self, args, continuation, num_outputs, fetch_limit=None):
@@ -70,6 +73,7 @@ class SWStdinoutExecutor(SWExecutor):
         except KeyError:
             print "Incorrect arguments for stdinout executor"
             raise
+        self.proc = None
     
     def execute(self, block_store):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
@@ -77,14 +81,14 @@ class SWStdinoutExecutor(SWExecutor):
         filenames = self.get_filenames(block_store, self.input_refs)
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
-            proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp)
+            self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp)
     
         for filename in filenames:
             with open(filename, 'r') as input_file:
-                shutil.copyfileobj(input_file, proc.stdin)
+                shutil.copyfileobj(input_file, self.proc.stdin)
 
-        proc.stdin.close()
-        rc = proc.wait()
+        self.proc.stdin.close()
+        rc = self.proc.wait()
         if rc != 0:
             print rc
             raise OSError()
@@ -92,6 +96,11 @@ class SWStdinoutExecutor(SWExecutor):
         url = block_store.store_file(temp_output.name)
         real_ref = SWURLReference([url])
         self.output_refs[0] = real_ref
+        
+    def abort(self):
+        if self.proc is not None:
+            self.proc.kill()
+            self.proc.wait()
 
 class JavaExecutor(SWExecutor):
     
