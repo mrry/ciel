@@ -90,22 +90,26 @@ class MasterTaskRoot:
                     
                     spawn_result_ids = []
                     
+                    parent_task = self.task_pool.get_task_by_id(task_id)
+                    
                     # TODO: stage this in a task-local transaction buffer.
-                    for task in task_descriptors:
+                    for task_d in task_descriptors:
                         try:
-                            expected_outputs = task['expected_outputs']
+                            expected_outputs = task_d['expected_outputs']
                         except KeyError:
                             try:
-                                num_outputs = task['num_outputs']
+                                num_outputs = task_d['num_outputs']
                                 expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
                             except:
                                 raise
                             
-                            task['expected_outputs'] = expected_outputs
-                        task_id = self.task_pool.add_task(task)
+                            task_d['expected_outputs'] = expected_outputs
+                        
+                        task = self.task_pool.add_task(task_d, task_id)
+                        parent_task.children.append(task.task_id)
                         
                         for global_id in expected_outputs:
-                            self.global_name_directory.set_task_for_id(global_id, task_id)
+                            self.global_name_directory.set_task_for_id(global_id, task.task_id)
                         
                         spawn_result_ids.append(expected_outputs) 
                     
@@ -158,8 +162,9 @@ class MasterTaskRoot:
                 return simplejson.dumps(expected_outputs)
                         
         else:
-            raise HTTPError(405)
-            
+            if cherrypy.request.method == 'GET':
+                return simplejson.dumps(map(lambda x: x.as_descriptor(), self.task_pool.tasks.values()))
+                
 class GlobalDataRoot:
     
     def __init__(self, global_name_directory, task_pool, worker_pool):

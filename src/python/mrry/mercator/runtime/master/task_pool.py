@@ -36,12 +36,15 @@ for (name, number) in TASK_STATES.items():
 
 class Task:
     
-    def __init__(self, task_id, task_descriptor, global_name_directory):
+    def __init__(self, task_id, task_descriptor, global_name_directory, parent_task_id=None):
         self.task_id = task_id
         self.handler = task_descriptor['handler']
         self.inputs = {}
         self.current_attempt = 0
         self.worker_id = None
+        
+        self.parent = parent_task_id
+        self.children = []
         
         for local_id, input_tuple in task_descriptor['inputs'].items():
             self.inputs[local_id] = build_reference_from_tuple(input_tuple)
@@ -64,7 +67,7 @@ class Task:
                         self.blocking_dict[global_id] = set([local_id])
 
         if len(self.blocking_dict) > 0:
-            self.state = TASK_BLOCKED
+            self.state = TASK_BLOCKING
             
         
         # select()-handling code.
@@ -130,7 +133,9 @@ class Task:
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
                       'inputs': tuple_inputs,
-                      'state': TASK_STATE_NAMES[self.state]}
+                      'state': TASK_STATE_NAMES[self.state],
+                      'parent': self.parent,
+                      'children': self.children}
         
         if hasattr(self, 'select_result'):
             print "Adding select_result to descriptor:", self.select_result
@@ -157,12 +162,12 @@ class TaskPool(plugins.SimplePlugin):
         self.bus.unsubscribe('global_name_available', self.reference_available)
         self.bus.unsubscribe('task_failed', self.task_failed)
     
-    def add_task(self, task_descriptor):
+    def add_task(self, task_descriptor, parent_task_id=None):
         with self._lock:
             task_id = self.current_task_id
             self.current_task_id += 1
             
-            task = Task(task_id, task_descriptor, self.global_name_directory)
+            task = Task(task_id, task_descriptor, self.global_name_directory, parent_task_id)
             self.tasks[task_id] = task
         
             print "/// CREATED TASK:", task_id
@@ -179,7 +184,7 @@ class TaskPool(plugins.SimplePlugin):
                 self.runnable_queue.put(task)
                 
         self.bus.publish('schedule')
-        return task_id
+        return task
     
     def reference_available(self, id, urls):
         with self._lock:
