@@ -23,9 +23,6 @@ class GlobalScope:
     
     def __init__(self):
         self.bindings = {}
-        self.bindings["len"] = LambdaFunction(lambda x: len(x[0]))
-        self.bindings["range"] = LambdaFunction(lambda x: range(x[0], x[1]))
-            
 
     def has_binding_for(self, base_identifier):
         return base_identifier in self.bindings.keys()
@@ -43,6 +40,9 @@ class SimpleContext:
         self.binding_bases = []
         self.enter_context()
     
+    def __repr__(self):
+        return repr(self.contexts)
+   
     def restart(self):
         self.context_base = 1
         self.binding_bases[self.context_base-1] = 1
