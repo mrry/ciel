@@ -11,6 +11,7 @@ from mrry.mercator.runtime.exceptions import FeatureUnavailableException,\
 import shutil
 import subprocess
 import tempfile
+import os
 
 class ExecutionFeatures:
     
@@ -113,7 +114,7 @@ class JavaExecutor(SWExecutor):
             self.class_name = args['class']
             self.argv = args['argv']
         except KeyError:
-            print "Incorrect arguments for stdinout executor"
+            print "Incorrect arguments for java executor"
             raise
 
     def execute(self, block_store):
@@ -132,8 +133,8 @@ class JavaExecutor(SWExecutor):
             print '\t', fn
         
         print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
-        
-        process_args = ["java", "-cp", "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar", "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
+        cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
+        process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
         for x in jar_filenames:
             process_args.append("file://" + x)
         print 'Command-line:', " ".join(process_args)
