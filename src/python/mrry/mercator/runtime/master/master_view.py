@@ -87,7 +87,7 @@ class MasterTaskRoot:
                 if cherrypy.request.method == 'POST':
                     
                     parent_task = self.task_pool.get_task_by_id(task_id)
-                    if not parent_task.state = TASK_ASSIGNED
+#                    if not parent_task.state == TASK_ASSIGNED
                     
                     task_descriptors = simplejson.loads(cherrypy.request.body.read())
                     
