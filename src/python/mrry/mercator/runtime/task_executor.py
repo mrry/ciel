@@ -128,7 +128,10 @@ class SWContinuation:
         self.stack = []
         self.context = context
         self.reference_table = {}
-        
+      
+    def __repr__(self):
+        return "SWContinuation(%s,%s,%s,%s,%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context), repr(self.reference_table))
+
     def create_tasklocal_reference(self, ref):
         id = self.current_local_id_index
         self.current_local_id_index += 1
@@ -147,6 +150,7 @@ class SWContinuation:
     def is_marked_as_dereferenced(self, id):
         return self.reference_table[id].is_dereferenced
     def mark_as_execd(self, ref):
+        print "mark_as_execd: %s" % str(ref)
         self.reference_table[ref.index].is_execd = True
     def is_marked_as_execd(self, id):
         return self.reference_table[id].is_execd
@@ -257,6 +261,7 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
         task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
+        task_context.bind_tasklocal_identifier("range", LambdaFunction(lambda x: range(x[0],x[1])))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: self.make_reference(x)))
         task_context.bind_tasklocal_identifier("is_future", LambdaFunction(lambda x: self.is_future(x[0])))
@@ -399,6 +404,7 @@ class SWRuntimeInterpreterTask:
                 
                 # Store the continuation and add it to the task descriptor.
                 if current_cont is not None:
+                    print "spawn_all: %s" % str(current_cont)
                     cont_url = block_store.store_object(current_cont, 'pickle')
                     self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = SWURLReference([cont_url]).as_tuple()
             
@@ -552,9 +558,9 @@ class SWRuntimeInterpreterTask:
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
         elif isinstance(real_ref, SWURLReference):
-            value = self.block_store.retrieve_object_by_url(real_ref.urls[0])
+            value = self.block_store.retrieve_object_by_url(real_ref.urls[0], 'json')
             dv_ref = SWDataValue(value)
-            self.continuation.rewrite_reference(ref.id, dv_ref)
+            self.continuation.rewrite_reference(ref.index, dv_ref)
             return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
         else:
             self.continuation.mark_as_dereferenced(ref)
