@@ -266,11 +266,13 @@ class SWRuntimeInterpreterTask:
         visitor = StatementExecutorVisitor(task_context)
         
         try:
+            print "%%% STARTING WITH STACK LENGTH", len(self.continuation.stack)
+            print "%%% STARTING WITH STACK CONTENTS", self.continuation.stack
             self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
             
         except SelectException as se:
             
-            print "Got a SelectException!!!"
+            print "!!! SELECT EXCEPTION"
             
             local_select_group = se.select_group
             timeout = se.timeout
@@ -285,10 +287,12 @@ class SWRuntimeInterpreterTask:
 
             print "&&&&& SELECTING"
             print cont_task_descriptor
-            
             self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             
         except ExecutionInterruption as ei:
+
+            print "!!! EXECUTION INTERRUPTION"
+            
             # Need to add a continuation task to the spawn list.
             cont_deps = {}
             for index in self.continuation.reference_table.keys():
@@ -307,6 +311,8 @@ class SWRuntimeInterpreterTask:
             
 
         except Exception:
+            print "!!! WEIRD EXCEPTION"
+            
             raise
 
     def spawn_all(self, block_store, master_proxy):
@@ -473,6 +479,9 @@ class SWRuntimeInterpreterTask:
         return cont
 
     def spawn_func(self, spawn_expr, args):
+        print "()()()() SPAWNING TASK"
+        
+        
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
         
@@ -573,6 +582,7 @@ class SWRuntimeInterpreterTask:
     def select_func(self, select_group, timeout=None):
         print "In select()!!!"
         if self.select_result is not None:
+            print "select() returned", self.select_result
             return self.select_result
         else:
             print "Select group is", select_group

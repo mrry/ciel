@@ -72,6 +72,7 @@ class SWStdinoutExecutor(SWExecutor):
             raise
     
     def execute(self, block_store):
+        print "Executing stdinout with:", " ".join(map(str, self.command_line))
         temp_output = tempfile.NamedTemporaryFile(delete=False)
         filenames = self.get_filenames(block_store, self.input_refs)
         with open(temp_output.name, "w") as temp_output_fp:

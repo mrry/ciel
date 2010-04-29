@@ -3,8 +3,8 @@ function sleeper (sleep_time) {
 	return sleep_time;
 }
 
-a = spawn(sleeper, [10]);
+a = spawn(sleeper, [1]);
 b = spawn(sleeper, [1]);
-c = spawn(sleeper, [2]);
+c = spawn(sleeper, [1]);
 
 return select([a, b, c]);
