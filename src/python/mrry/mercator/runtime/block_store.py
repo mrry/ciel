@@ -21,6 +21,9 @@ from mrry.mercator.runtime.references import SWRealReference,\
     build_reference_from_tuple
 urlparse.uses_netloc.append("swbs")
 
+def get_netloc_for_sw_url(url):
+    return urlparse.urlparse(url).netloc
+
 class SWReferenceJSONEncoder(simplejson.JSONEncoder):
 
     def default(self, obj):
@@ -89,11 +92,14 @@ class BlockStore:
             file_size = object_file.tell()
         return 'swbs://%s/%d' % (self.netloc, id), file_size
     
-    def store_file(self, filename):
+    def store_file(self, filename, can_move=False):
         """Stores the file with the given local filename as a block, and returns a swbs URL to it."""
         with self._lock:
             id = self.allocate_new_id()
-        shutil.copyfile(filename, self.filename(id))
+        if can_move:
+            shutil.move(filename, self.filename(id))
+        else:
+            shutil.copyfile(filename, self.filename(id))
         file_size = os.path.getsize(self.filename(id))
         return 'swbs://%s/%d' % (self.netloc, id), file_size
     

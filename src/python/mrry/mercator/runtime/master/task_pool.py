@@ -6,7 +6,9 @@ Created on 15 Apr 2010
 from __future__ import with_statement
 from cherrypy.process import plugins
 from threading import Lock
-from mrry.mercator.runtime.references import SWGlobalFutureReference
+from mrry.mercator.runtime.references import SWGlobalFutureReference,\
+    SWURLReference
+from mrry.mercator.runtime.block_store import get_netloc_for_sw_url
 import logging
 import cherrypy
 
@@ -92,6 +94,9 @@ class Task:
         except KeyError:
             pass
         
+    def __repr__(self):
+        return 'Task(%d)' % self.task_id
+        
     def is_blocked(self):
         return self.state in (TASK_BLOCKING, TASK_SELECTING)
             
@@ -148,10 +153,30 @@ class TaskPool(plugins.SimplePlugin):
         self.bus.unsubscribe('global_name_available', self.reference_available)
         self.bus.unsubscribe('task_failed', self.task_failed)
     
+    def compute_best_worker_for_task(self, task):
+        netlocs = {}
+        for input in task.inputs.values():
+            if isinstance(input, SWURLReference) and input.size_hint is not None:
+                for url in input.urls:
+                    netloc = get_netloc_for_sw_url(url)
+                    try:
+                        current_saving_for_netloc = netlocs[netloc]
+                    except KeyError:
+                        current_saving_for_netloc = 0
+                    netlocs[netloc] = current_saving_for_netloc + input.size_hint
+        ranked_netlocs = [(saving, netloc) for (netloc, saving) in netlocs.items()]
+        if len(ranked_netlocs) > 0:
+            return self.worker_pool.get_worker_at_netloc(min(ranked_netlocs)[1])
+        else:
+            return None
+    
     def add_task_to_queues(self, task):
         # TODO: Compute best worker(s) here.
-        handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
+        best_worker = self.compute_best_worker_for_task(task)
         task.state = TASK_QUEUED
+        if best_worker is not None:
+            best_worker.local_queue.put(task)
+        handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
         handler_queue.put(task)
     
     def add_task(self, task_descriptor, parent_task_id=None):
@@ -231,8 +256,8 @@ class TaskPool(plugins.SimplePlugin):
                     task.state = TASK_FAILED
                     # TODO: notify parents.
                 else:
-                    task.state = TASK_QUEUED
-                    self.runnable_queue.put(task)
+                    self.add_task_to_queues(task)
+                    self.bus.publish('schedule')
         elif reason == 'MISSING_INPUT':
             # Problem fetching input, so we will have to rete it.
             pass

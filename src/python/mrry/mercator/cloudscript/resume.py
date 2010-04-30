@@ -103,12 +103,16 @@ class ListIndexRR:
         return 'ListIndexRR(list=%s)' % (repr(self.list), )
        
 class AssignmentRR:
-    
     def __init__(self):
         self.rvalue = None
-    
     def __repr__(self):
         return 'AssignmentRR(rvalue=%s)' % (repr(self.rvalue), )
+
+class PlusAssignmentRR:
+    def __init__(self):
+        self.rvalue = None
+    def __repr__(self):
+        return 'PlusAssignmentRR(rvalue=%s)' % (repr(self.rvalue), )
         
 class ContextAssignRR:
     

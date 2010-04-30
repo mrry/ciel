@@ -8,6 +8,7 @@ from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock
 from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder
+from mrry.mercator.runtime.master.task_pool import TASK_ASSIGNED
 import random
 import datetime
 import sys
@@ -40,6 +41,9 @@ class Worker:
         for feature in self.features:
             self.queues.append(feature_queues.get_queue_for_feature(feature))
 
+    def __repr__(self):
+        return 'Worker(%d)' % self.id
+
     def as_descriptor(self):
         return {'worker_id': self.id,
                 'netloc': self.netloc,
@@ -55,6 +59,7 @@ class WorkerPool(plugins.SimplePlugin):
         self.idle_worker_queue = Queue()
         self.current_worker_id = 0
         self.workers = {}
+        self.netlocs = {}
         self.idle_set = set()
         self._lock = Lock()
         self.feature_queues = FeatureQueues()
@@ -75,6 +80,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.current_worker_id += 1
             worker = Worker(id, worker_descriptor, self.feature_queues)
             self.workers[id] = worker
+            self.netlocs[worker.netloc] = worker
             self.idle_set.add(id)
         self.bus.publish('schedule')
         return id
@@ -92,6 +98,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.remove(worker_id)
             worker = self.workers[worker_id]
             worker.current_task_id = task.task_id
+            task.state = TASK_ASSIGNED
             task.worker_id = worker_id
             
         try:
@@ -124,6 +131,7 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             self.idle_set.discard(id)
             failed_task = self.workers[id].current_task_id
+            del self.netlocs[self.workers[id].netloc]
 
         if failed_task is not None:
             self.bus.publish('task_failed', failed_task, 'WORKER_FAILED')
@@ -146,3 +154,9 @@ class WorkerPool(plugins.SimplePlugin):
     def get_random_worker(self):
         with self._lock:
             return random.choice(self.workers.values())
+        
+    def get_worker_at_netloc(self, netloc):
+        try:
+            return self.netlocs[netloc]
+        except KeyError:
+            return None

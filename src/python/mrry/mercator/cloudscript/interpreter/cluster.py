@@ -46,4 +46,12 @@ if __name__ == '__main__':
     (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
     out = simplejson.loads(content)
     
-    print urlparse.urljoin(master_uri, "/global_data/%d" % out[0])
+    gd_url = urlparse.urljoin(master_uri, "/global_data/%d" % out[0])
+    
+    notify_url = urlparse.urljoin(master_uri, "/global_data/%d/completion" % out[0])
+    
+    print "Blocking to get final result"
+    (response, content) = http.request(notify_url)
+    print "Got final result"
+    
+    http.request

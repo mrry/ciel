@@ -19,6 +19,7 @@ class Scheduler(AsynchronousExecutePlugin):
         idle_workers = self.worker_pool.get_idle_workers()
         
         attempt_count = 0
+        print idle_workers
         while len(idle_workers) > 0:
             retry_workers = []
             for worker in idle_workers:

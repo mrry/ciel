@@ -55,6 +55,7 @@ class SWExecutor:
             raise ReferenceUnavailableException(ref, self.continuation)
 
     def get_filenames(self, block_store, refs):
+        print "GET_FILENAMES:", refs
         # Mark all as execd before we risk faulting.
         if self.continuation is not None:
             map(self.continuation.mark_as_execd, refs)
@@ -93,7 +94,7 @@ class SWStdinoutExecutor(SWExecutor):
             print rc
             raise OSError()
         
-        url, size_hint = block_store.store_file(temp_output.name)
+        url, size_hint = block_store.store_file(temp_output.name, can_move=True)
         real_ref = SWURLReference([url], size_hint)
         self.output_refs[0] = real_ref
         
@@ -161,7 +162,7 @@ class JavaExecutor(SWExecutor):
             raise OSError()
         
         for i, filename in enumerate(file_outputs):
-            url, size_hint = block_store.store_file(filename)
+            url, size_hint = block_store.store_file(filename, can_move=True)
             url_ref = SWURLReference([url], size_hint)
             self.output_refs[i] = url_ref
 

@@ -6,7 +6,7 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR, ReturnRR, PlusRR, LessThanOrEqualRR, EqualRR,\
-    StarRR, ForceEvalRR
+    StarRR, ForceEvalRR, PlusAssignmentRR
 from mrry.mercator.cloudscript.datatypes import map_leaf_values
 
 indent = 0
@@ -97,6 +97,25 @@ class StatementExecutorVisitor(Visitor):
         except:
             raise
         
+        stack.pop()
+        return None
+    
+    def visit_PlusAssignment(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = PlusAssignmentRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+        try:
+            if resume_record.rvalue is None:
+                resume_record.rvalue = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.rvalue, stack, stack_base + 1)
+            prev = self.context.value_of(node.lvalue)
+            if isinstance(prev, list):
+                prev.append(resume_record.rvalue)
+            else:
+                self.context.update_value(node.lvalue, prev + resume_record.rvalue, stack, stack_base + 1)
+        except:
+            raise
         stack.pop()
         return None
 
