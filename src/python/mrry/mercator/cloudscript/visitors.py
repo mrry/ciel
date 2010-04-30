@@ -703,6 +703,7 @@ class UserDefinedFunction:
             elif function_ast.name is not None and identifier == function_ast.name.identifier:
                 self.captured_bindings[identifier] = self
                 #self.execution_context.bind_identifier(object, declaration_context.value_of(object))
+        print "UserDefinedFunction: captured_bindings: ", str(self.captured_bindings)
         
     def call(self, args_list, stack, stack_base, context):
         context.enter_context(self.captured_bindings)

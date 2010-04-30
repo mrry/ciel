@@ -100,8 +100,8 @@ class SWContinuation:
     # The following methods capture why we might have blocked on something,
     # for appropriate handling on task loading.
     def mark_as_dereferenced(self, ref):
-        print "Continuation:", self
-        print "Dereffing:", ref
+        #print "Continuation:", self
+        #print "Dereffing:", ref
         self.reference_table[ref.index].is_dereferenced = True
     def is_marked_as_dereferenced(self, id):
         return self.reference_table[id].is_dereferenced
@@ -171,7 +171,7 @@ class SWExecutorTaskExecutionRecord:
                 return leaf
         
         parsed_args = map_leaf_values(args_parsing_mapper, exec_args)
-        
+        print "SWExecutorTaskExecutionRecord, fetch_executor_args: " , str(parsed_args)
         return parsed_args
     
     def commit(self):
@@ -284,7 +284,7 @@ class SWRuntimeInterpreterTask:
         
         print "Parsed inputs:", parsed_inputs
 
-        print continuation_ref
+        #print continuation_ref
         assert isinstance(continuation_ref, SWURLReference)
         self.continuation = block_store.retrieve_object_by_url(block_store.choose_best_url(continuation_ref.urls), 'pickle')
         
@@ -388,7 +388,7 @@ class SWRuntimeInterpreterTask:
 
         except Exception:
             print "!!! WEIRD EXCEPTION"
-            
+            print self.continuation.stack
             raise
 
     def spawn_all(self, block_store, master_proxy):
@@ -504,7 +504,7 @@ class SWRuntimeInterpreterTask:
         
         for local_id, ref_table_entry in self.continuation.reference_table.items():
             if isinstance(ref_table_entry.reference, SWLocalFutureReference):
-                print "About to rewrite!!!"
+                #print "About to rewrite!!!"
                 
                 # if unavailable in the local lookup table (from previous spawn batches), must wait;
                 # else rewrite the reference.
@@ -512,7 +512,7 @@ class SWRuntimeInterpreterTask:
                 result_index = ref_table_entry.reference.result_index
 
                 # All subtasks have been spawned and we're completed so this assertion must hold.
-                print spawn_list_index, 
+                #print spawn_list_index, 
                 assert spawn_list_index < len(self.spawn_task_result_global_ids)
 
                 if result_index is None:
@@ -564,9 +564,10 @@ class SWRuntimeInterpreterTask:
         return cont
 
     def spawn_func(self, spawn_expr, args):
-        print "()()()() SPAWNING TASK"
+        print "()()()() SPAWNING TASK: ", spawn_expr
         
-        
+        args = map_leaf_values(self.check_no_thunk_mapper, args)        
+
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
         
@@ -588,7 +589,14 @@ class SWRuntimeInterpreterTask:
 
         # Return local reference to the interpreter.
         return ret
-    
+
+
+    def check_no_thunk_mapper(self, leaf):
+        if isinstance(leaf, SWDereferenceWrapper):
+            return self.eager_dereference(leaf.ref)
+        else:
+            return leaf
+   
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
         
         spawn_list_index = len(self.spawn_list)
@@ -596,6 +604,8 @@ class SWRuntimeInterpreterTask:
         i = 0
         inputs = {}
         
+        args = map_leaf_values(self.check_no_thunk_mapper, args)
+
         def args_check_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
                 real_ref = self.continuation.resolve_tasklocal_reference_with_ref(leaf)
@@ -621,7 +631,10 @@ class SWRuntimeInterpreterTask:
         return ret
     
     def exec_func(self, executor_name, args, num_outputs):
-        self.current_executor = self.execution_features.get_executor(executor_name, args, self.continuation, num_outputs)
+        
+        real_args = map_leaf_values(self.check_no_thunk_mapper, args)
+
+        self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, num_outputs)
         self.current_executor.execute(self.block_store)
         ret = map(self.continuation.create_tasklocal_reference, self.current_executor.output_refs)
         self.current_executor = None
@@ -667,7 +680,7 @@ class SWRuntimeInterpreterTask:
             return {}
 
     def select_func(self, select_group, timeout=None):
-        print "In select()!!!"
+        #print "In select()!!!"
         if self.select_result is not None:
             print "select() returned", self.select_result
             return self.select_result

@@ -130,6 +130,7 @@ class BlockStore:
                 
     def retrieve_filename_by_url(self, url, size_limit=None):
         """Returns the filename of a file containing the data at the given URL."""
+        print "retrieve_filename_by_url: ", str(url)
         parsed_url = urlparse.urlparse(url)
         
         if parsed_url.scheme == 'swbs':

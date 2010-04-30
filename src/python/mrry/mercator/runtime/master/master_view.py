@@ -169,7 +169,7 @@ class MasterTaskRoot:
                         
         else:
             if cherrypy.request.method == 'GET':
-                return simplejson.dumps(map(lambda x: x.as_descriptor(), self.task_pool.tasks.values()))
+                return simplejson.dumps(map(lambda x: x.as_descriptor(), self.task_pool.tasks.values()), cls=SWReferenceJSONEncoder)
                 
 class GlobalDataRoot:
     
