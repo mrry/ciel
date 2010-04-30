@@ -54,14 +54,7 @@ class StatementExecutorVisitor(Visitor):
         self.context = context
         
     def visit(self, node, stack, stack_base):
-        #if random.uniform(0, 1) < 0.01:
-        #    raise ExecutionInterruption(stack)
-#        global indent
-#        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
-#        indent += 1
-        ret = getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
-#        indent -= 1
-        return ret
+        return getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
         
     def visit_statement_list(self, statements, stack, stack_base):
         if stack_base == len(stack):
@@ -286,12 +279,7 @@ class ExpressionEvaluatorVisitor:
         self.context = context
     
     def visit(self, node, stack, stack_base):
-#        global indent
-#        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
-#        indent += 1
-        ret = getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
-#        indent -= 1
-        return ret
+        return getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
     
     def visit_and_force_eval(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -304,7 +292,6 @@ class ExpressionEvaluatorVisitor:
             resume_record.maybe_wrapped = self.visit(node, stack, stack_base + 1)
 
         try:
-#            print type(resume_record.left)
             if isinstance(resume_record.maybe_wrapped, SWDereferenceWrapper):
                 ret = self.context.eager_dereference(resume_record.maybe_wrapped.ref)
             elif isinstance(resume_record.maybe_wrapped, SWDynamicScopeWrapper):
@@ -313,7 +300,6 @@ class ExpressionEvaluatorVisitor:
                 ret = resume_record.maybe_wrapped
 
             stack.pop()
-#            print "VAFEd", node, ret
             return ret
 
         except:
@@ -648,7 +634,6 @@ class ExpressionEvaluatorVisitor:
             rexpr = self.visit_and_force_eval(node.rexpr, stack, stack_base + 1)
             
             stack.pop()
-            print resume_record.left, rexpr
             return resume_record.left + rexpr
 
         except:
@@ -699,11 +684,14 @@ class UserDefinedFunction:
         
         for identifier in body_bindings.rvalue_object_identifiers:
             if declaration_context.has_binding_for(identifier):
-                self.captured_bindings[identifier] = declaration_context.value_of(identifier)
+                if not declaration_context.is_dynamic(identifier):
+                    self.captured_bindings[identifier] = declaration_context.value_of(identifier)
             elif function_ast.name is not None and identifier == function_ast.name.identifier:
                 self.captured_bindings[identifier] = self
                 #self.execution_context.bind_identifier(object, declaration_context.value_of(object))
-        print "UserDefinedFunction: captured_bindings: ", str(self.captured_bindings)
+        
+    def __repr__(self):
+        return 'UserDefinedFunction(name=%s)' % self.function_ast.name 
         
     def call(self, args_list, stack, stack_base, context):
         context.enter_context(self.captured_bindings)
@@ -718,7 +706,6 @@ class UserDefinedFunction:
         context.exit_scope()
 
         context.exit_context()
-
         return ret
     
 # TODO: could do better than this by passing over the whole script at the start. But

@@ -35,7 +35,7 @@ class FunctionCallRR:
         self.args = [None for i in range(num_args)]
         
     def __repr__(self):
-        return 'FunctionCallRR(args=[%s])' % (repr(self.args), )
+        return 'FunctionCallRR(args=%s)' % (repr(self.args), )
         
 class ListRR:
     

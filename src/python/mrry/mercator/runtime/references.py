@@ -99,7 +99,6 @@ class SWDataValue(SWRealReference):
 
 def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
-    print "BRFT:", reference_tuple
     if ref_type == 'urls':
         return SWURLReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'lfut':

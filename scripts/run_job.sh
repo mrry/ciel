@@ -1,5 +1,5 @@
 #!/bin/bash
-export PYTHONPATH=../src/python
+export PYTHONPATH=$PYTHONPATH:../src/python
 PYTHON=${PYTHON:-python}
 
 MASTER_HOST=${MASTER_HOST:-http://click.local:9000}

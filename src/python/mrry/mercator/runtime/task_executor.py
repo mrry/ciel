@@ -12,7 +12,7 @@ from mrry.mercator.cloudscript.visitors import \
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption, RuntimeSkywritingError,\
-    SelectException
+    SelectException, BlameUserException
 from threading import Lock
 import cherrypy
 import logging
@@ -42,14 +42,22 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
     def handle_input(self, input):
         handler = input['handler']
+
+        if handler == 'swi':
+            execution_record = SWInterpreterTaskExecutionRecord(input, self)
+        else:
+            execution_record = SWExecutorTaskExecutionRecord(input, self)
+
         with self._lock:
             self.current_task_id = input['task_id']
-            if handler == 'swi':
-                self.current_task_execution_record = SWInterpreterTaskExecutionRecord(input, self)
-            else:
-                self.current_task_execution_record = SWExecutorTaskExecutionRecord(input, self)
+            self.current_task_execution_record = execution_record
         
-        self.current_task_execution_record.execute()
+        cherrypy.log.error("Starting task %d with handler %s" % (self.current_task_id, handler), 'TASK', logging.INFO, False)
+        try:
+            execution_record.execute()
+            cherrypy.log.error("Completed task %d with handler %s" % (self.current_task_id, handler), 'TASK', logging.INFO, False)
+        except:
+            cherrypy.log.error("Error in task %d with handler %s" % (self.current_task_id, handler), 'TASK', logging.ERROR, True)
 
         with self._lock:
             self.current_task_id = None
@@ -76,7 +84,7 @@ class SpawnListEntry:
     
 class SWContinuation:
     
-    def __init__(self, task_stmt, context=SimpleContext()):
+    def __init__(self, task_stmt, context):
         self.task_stmt = task_stmt
         self.current_local_id_index = 0
         self.stack = []
@@ -84,7 +92,7 @@ class SWContinuation:
         self.reference_table = {}
       
     def __repr__(self):
-        return "SWContinuation(%s,%s,%s,%s,%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context), repr(self.reference_table))
+        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s, reference_table=%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context), repr(self.reference_table))
 
     def create_tasklocal_reference(self, ref):
         id = self.current_local_id_index
@@ -100,8 +108,6 @@ class SWContinuation:
     # The following methods capture why we might have blocked on something,
     # for appropriate handling on task loading.
     def mark_as_dereferenced(self, ref):
-        #print "Continuation:", self
-        #print "Dereffing:", ref
         self.reference_table[ref.index].is_dereferenced = True
     def is_marked_as_dereferenced(self, id):
         return self.reference_table[id].is_dereferenced
@@ -134,6 +140,9 @@ class SWLocalReference:
         
     def as_tuple(self):
         return ('local', self.index)
+
+    def __repr__(self):
+        return 'SWLocalReference(%d)' % self.index
 
 class SWExecutorTaskExecutionRecord:
     
@@ -171,7 +180,6 @@ class SWExecutorTaskExecutionRecord:
                 return leaf
         
         parsed_args = map_leaf_values(args_parsing_mapper, exec_args)
-        print "SWExecutorTaskExecutionRecord, fetch_executor_args: " , str(parsed_args)
         return parsed_args
     
     def commit(self):
@@ -196,10 +204,6 @@ class SWExecutorTaskExecutionRecord:
             cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id)
             
-        print "Done handling executor task!"
-
-
-
 class SWInterpreterTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
@@ -282,9 +286,6 @@ class SWRuntimeInterpreterTask:
             else:
                 parsed_inputs[int(local_id)] = ref
         
-        print "Parsed inputs:", parsed_inputs
-
-        #print continuation_ref
         assert isinstance(continuation_ref, SWURLReference)
         self.continuation = block_store.retrieve_object_by_url(block_store.choose_best_url(continuation_ref.urls), 'pickle')
         
@@ -361,8 +362,6 @@ class SWRuntimeInterpreterTask:
                                     'select_timeout': timeout,
                                     'expected_outputs': self.expected_outputs}
 
-            print "&&&&& SELECTING"
-            print cont_task_descriptor
             self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             
         except ExecutionInterruption as ei:
@@ -416,7 +415,7 @@ class SWRuntimeInterpreterTask:
                         spawn_list_index = ref_table_entry.reference.spawn_list_index
                         result_index = ref_table_entry.reference.result_index
                         if self.spawn_list[spawn_list_index].ignore:
-                            print "We have a continuation that depends on an aborted task. This will never be run."
+                            raise BlameUserException("We have a continuation that depends on an aborted task. This will never be run.")
                             raise RuntimeSkywritingError()
                         elif spawn_list_index >= len(self.spawn_task_result_global_ids):
                             must_wait = True
@@ -493,18 +492,14 @@ class SWRuntimeInterpreterTask:
             
             self.spawn_task_result_global_ids.extend(batch_result_ids)
 
-        print "Spawn lengths:", len(self.spawn_list), len(self.spawn_task_result_global_ids)
-        
     def commit_result(self, block_store, master_proxy):
         if self.result is None:
             master_proxy.commit_task(self.task_id, {})
-            print '### Successfully yielded in task', self.task_id, self.expected_outputs
             return
         
         
         for local_id, ref_table_entry in self.continuation.reference_table.items():
             if isinstance(ref_table_entry.reference, SWLocalFutureReference):
-                #print "About to rewrite!!!"
                 
                 # if unavailable in the local lookup table (from previous spawn batches), must wait;
                 # else rewrite the reference.
@@ -512,7 +507,6 @@ class SWRuntimeInterpreterTask:
                 result_index = ref_table_entry.reference.result_index
 
                 # All subtasks have been spawned and we're completed so this assertion must hold.
-                #print spawn_list_index, 
                 assert spawn_list_index < len(self.spawn_task_result_global_ids)
 
                 if result_index is None:
@@ -523,10 +517,8 @@ class SWRuntimeInterpreterTask:
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
         commit_bindings = {}
 
-        print "*!*!*!*", serializable_result
         result_url, size_hint = block_store.store_object(serializable_result, 'json')
-        if size_hint < 512:
-            print "Building an SWDataValue", serializable_result
+        if size_hint < 128:
             result_ref = SWDataValue(serializable_result)
         else:
             result_ref = SWURLReference([result_url], size_hint)
@@ -535,11 +527,10 @@ class SWRuntimeInterpreterTask:
         
         master_proxy.commit_task(self.task_id, commit_bindings)
 
-        print '### Successfully completed task', self.task_id, self.expected_outputs
-
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
-        cont = SWContinuation(spawned_task_stmt)
+        cont = SWContinuation(spawned_task_stmt, SimpleContext())
+        
         
         # Now need to build the reference table for the spawned task.
         local_reference_indices = set()
@@ -564,8 +555,6 @@ class SWRuntimeInterpreterTask:
         return cont
 
     def spawn_func(self, spawn_expr, args):
-        print "()()()() SPAWNING TASK: ", spawn_expr
-        
         args = map_leaf_values(self.check_no_thunk_mapper, args)        
 
         # Create new continuation for the spawned function.
@@ -680,11 +669,7 @@ class SWRuntimeInterpreterTask:
             return {}
 
     def select_func(self, select_group, timeout=None):
-        #print "In select()!!!"
         if self.select_result is not None:
-            print "select() returned", self.select_result
             return self.select_result
         else:
-            print "Select group is", select_group
-            print "Timeout is", timeout
             raise SelectException(select_group, timeout)

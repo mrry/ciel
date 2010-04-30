@@ -91,9 +91,6 @@ class MasterTaskRoot:
 #                    if not parent_task.state == TASK_ASSIGNED
                     
                     task_descriptors = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    
-                    print task_descriptors
-                    
                     spawn_result_ids = []
                     
                     # TODO: stage this in a task-local transaction buffer.

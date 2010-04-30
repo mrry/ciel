@@ -25,14 +25,12 @@ class SWReferenceJSONEncoder(simplejson.JSONEncoder):
 
     def default(self, obj):
         if isinstance(obj, SWRealReference):
-            print 'JSON encoding reference:', obj
             return {'__ref__': obj.as_tuple()}
         else:
             return simplejson.JSONEncoder.default(self, obj)
 
 def json_decode_object_hook(dict_):
         if '__ref__' in dict_:
-            print 'JSON decoding reference:', build_reference_from_tuple(dict_['__ref__'])
             return build_reference_from_tuple(dict_['__ref__'])
         else:
             return dict_
@@ -48,8 +46,6 @@ class BlockStore:
         
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle}
-        
-
     
     def encode_noop(self, obj, file):
         return file.write(obj)
@@ -103,7 +99,6 @@ class BlockStore:
     
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
-        print "Retrieving URL: %s" % (url, )
         parsed_url = urlparse.urlparse(url)
         if parsed_url.scheme == 'swbs':
             id = int(parsed_url.path[1:])
@@ -130,7 +125,6 @@ class BlockStore:
                 
     def retrieve_filename_by_url(self, url, size_limit=None):
         """Returns the filename of a file containing the data at the given URL."""
-        print "retrieve_filename_by_url: ", str(url)
         parsed_url = urlparse.urlparse(url)
         
         if parsed_url.scheme == 'swbs':

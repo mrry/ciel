@@ -36,7 +36,6 @@ class GlobalNameDirectory:
         with self._lock:
             ref_set = self.name_bindings[id]
             for ref in refs:
-                print "Adding ref:", ref
                 ref_set.add(ref)
             ref_list = list(ref_set)
         cherrypy.engine.publish('global_name_available', id, ref_list)

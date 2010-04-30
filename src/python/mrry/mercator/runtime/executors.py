@@ -7,7 +7,7 @@ from subprocess import PIPE
 from mrry.mercator.runtime.references import SWLocalDataFile, SWURLReference,\
     SWDataValue
 from mrry.mercator.runtime.exceptions import FeatureUnavailableException,\
-    ReferenceUnavailableException
+    ReferenceUnavailableException, BlameUserException
 import shutil
 import subprocess
 import tempfile
@@ -49,10 +49,9 @@ class SWExecutor:
         elif isinstance(real_ref, SWURLReference):
             return block_store.retrieve_filename_by_url(block_store.choose_best_url(real_ref.urls), self.fetch_limit)
         elif isinstance(real_ref, SWDataValue):
-            return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json'))
+            return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json')[0])
         else:
             # Data is not yet available, so 
-            print real_ref
             raise ReferenceUnavailableException(ref, self.continuation)
 
     def get_filenames(self, block_store, refs):
@@ -73,8 +72,7 @@ class SWStdinoutExecutor(SWExecutor):
             self.input_refs = args['inputs']
             self.command_line = args['command_line']
         except KeyError:
-            print "Incorrect arguments for stdinout executor"
-            raise
+            raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
         self.proc = None
     
     def execute(self, block_store):
@@ -115,8 +113,7 @@ class JavaExecutor(SWExecutor):
             self.class_name = args['class']
             self.argv = args['argv']
         except KeyError:
-            print "Incorrect arguments for java executor"
-            raise
+            raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
 
     def execute(self, block_store):
         file_inputs = self.get_filenames(block_store, self.input_refs)
@@ -126,19 +123,19 @@ class JavaExecutor(SWExecutor):
         java_stdout = tempfile.NamedTemporaryFile(delete=False)
         java_stderr = tempfile.NamedTemporaryFile(delete=False)
 
-        print "Input filenames:"
-        for fn in file_inputs:
-            print '\t', fn
-        print "Output filenames:"
-        for fn in file_outputs:
-            print '\t', fn
-        
-        print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
+#        print "Input filenames:"
+#        for fn in file_inputs:
+#            print '\t', fn
+#        print "Output filenames:"
+#        for fn in file_outputs:
+#            print '\t', fn
+#        
+#        print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
         cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
         process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
         for x in jar_filenames:
             process_args.append("file://" + x)
-        print 'Command-line:', " ".join(process_args)
+#        print 'Command-line:', " ".join(process_args)
         
         proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=java_stdout, stderr=java_stderr) # Shell=True to find Java in our path
         
@@ -151,7 +148,7 @@ class JavaExecutor(SWExecutor):
             proc.stdin.write("%s\0" % x)
         proc.stdin.close()
         rc = proc.wait()
-        print 'Return code', rc
+#        print 'Return code', rc
         if rc != 0:
             with open(java_stdout.name) as stdout_fp:
                 with open(java_stderr.name) as stderr_fp:

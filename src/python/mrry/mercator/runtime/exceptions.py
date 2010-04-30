@@ -11,6 +11,13 @@ class RuntimeSkywritingError(Exception):
 class AbortedExecutionException(RuntimeSkywritingError):
     def __init__(self):
         pass
+    
+class BlameUserException(RuntimeSkywritingError):
+    def __init__(self, description):
+        self.description = description
+        
+    def __repr__(self):
+        return self.description
 
 class ExecutionInterruption(Exception):
     def __init__(self):

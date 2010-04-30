@@ -160,6 +160,9 @@ class TaskContext:
         self.task = task
         self.tasklocal_bindings = {}
         
+    def __repr__(self):
+        return "TaskContext(local=..., wrapping=%s)" % (repr(self.wrapped_context))
+        
     def abort(self):
         self.wrapped_context.abort()
         self.wrapped_context = None

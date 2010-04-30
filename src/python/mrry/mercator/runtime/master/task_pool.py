@@ -76,7 +76,6 @@ class Task:
             self.select_result = []
             
             for i, ref in enumerate(select_group):
-                print "Selecting on ref:", ref
                 if isinstance(ref, SWGlobalFutureReference):
                     global_id = ref.id
                     refs = global_name_directory.get_refs_for_id(global_id)
@@ -89,14 +88,9 @@ class Task:
 
             if len(select_group) > 0 and len(self.select_result) == 0:
                 self.state = TASK_SELECTING
-
-            print "^^^!^^^ SELECT DICT IS", self.selecting_dict
-            print "^^^!^^^ SELECT RESULT IS", self.select_result
             
         except KeyError:
             pass
-
-        print "@@@ CREATED TASK %d in state %s" % (self.task_id, TASK_STATE_NAMES[self.state])
         
     def is_blocked(self):
         return self.state in (TASK_BLOCKING, TASK_SELECTING)
@@ -113,7 +107,6 @@ class Task:
         if self.state in (TASK_RUNNABLE, TASK_SELECTING):
             i = self.selecting_dict.pop(global_id)
             self.select_result.append(i)
-            print "^^^!^^^ SELECT RESULT IS", self.select_result
             self.state = TASK_RUNNABLE
         elif self.state in (TASK_BLOCKING,):
             local_ids = self.blocking_dict.pop(global_id)
@@ -132,7 +125,6 @@ class Task:
                       'children': self.children}
         
         if hasattr(self, 'select_result'):
-            print "Adding select_result to descriptor:", self.select_result
             descriptor['select_result'] = self.select_result
         
         return descriptor
@@ -161,7 +153,6 @@ class TaskPool(plugins.SimplePlugin):
         handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
         task.state = TASK_QUEUED
         handler_queue.put(task)
-        print "Added task to queue:", handler_queue
     
     def add_task(self, task_descriptor, parent_task_id=None):
         with self._lock:
@@ -171,17 +162,13 @@ class TaskPool(plugins.SimplePlugin):
             task = Task(task_id, task_descriptor, self.global_name_directory, parent_task_id)
             self.tasks[task_id] = task
         
-            print "/// CREATED TASK:", task_id
-        
             if task.is_blocked():
-                print "/// TASK", task_id, "IS BLOCKED"
                 for global_id in task.blocked_on():
                     try:
                         self.references_blocking_tasks[global_id].add(task_id)
                     except KeyError:
                         self.references_blocking_tasks[global_id] = set([task_id])
             else:
-                print "/// TASK", task_id, "IS RUNNABLE"
                 task.state = TASK_RUNNABLE
                 self.add_task_to_queues(task)
                 
@@ -195,7 +182,6 @@ class TaskPool(plugins.SimplePlugin):
         return task, previous_state
 
     def _abort(self, task_id):
-        print "!!! ABORTING", task_id
         task, previous_state = self._mark_task_as_aborted(task_id)
         if previous_state == TASK_ASSIGNED:
             self.worker_pool.abort_task_on_worker(task)
@@ -217,7 +203,6 @@ class TaskPool(plugins.SimplePlugin):
                 was_blocked = task.is_blocked()
                 task.unblock_on(id, urls)
                 if was_blocked and not task.is_blocked():
-                    print "/// TASK", task_id, "IS NOW RUNNABLE"
                     task.state = TASK_RUNNABLE
                     self.add_task_to_queues(task)
                     self.bus.publish('schedule')
@@ -249,7 +234,7 @@ class TaskPool(plugins.SimplePlugin):
                     task.state = TASK_QUEUED
                     self.runnable_queue.put(task)
         elif reason == 'MISSING_INPUT':
-            # Problem fetching input, so we will have to recreate it.
+            # Problem fetching input, so we will have to rete it.
             pass
         elif reason == 'RUNTIME_EXCEPTION':
             # Kill the entire job, citing the problem.

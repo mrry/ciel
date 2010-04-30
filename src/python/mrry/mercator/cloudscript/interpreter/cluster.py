@@ -8,6 +8,7 @@ from mrry.mercator.cloudscript.parser import \
 from mrry.mercator.runtime.task_executor import SWContinuation
 from mrry.mercator.runtime.references import SWURLReference
 from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder
+from mrry.mercator.cloudscript.context import SimpleContext
 import simplejson
 import pickle
 import urlparse
@@ -29,7 +30,7 @@ if __name__ == '__main__':
         print "Script did not parse :("
         exit()
     
-    cont = SWContinuation(script)
+    cont = SWContinuation(script, SimpleContext())
     
     http = httplib2.Http()
     
@@ -45,4 +46,4 @@ if __name__ == '__main__':
     (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
     out = simplejson.loads(content)
     
-    print out
+    print urlparse.urljoin(master_uri, "/global_data/%d" % out[0])

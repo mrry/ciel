@@ -17,14 +17,12 @@ class Scheduler(AsynchronousExecutePlugin):
     def handle_input(self, input):
         print 'Running the scheduler!'
         idle_workers = self.worker_pool.get_idle_workers()
-        print idle_workers
         
         attempt_count = 0
         while len(idle_workers) > 0:
             retry_workers = []
             for worker in idle_workers:
                 try:
-                    print "Trying to find a task for worker", worker.id, "in queue:", worker.queues[attempt_count]
                     task = worker.queues[attempt_count].get(block=False)
                     # Skip over tasks that have been aborted or otherwise scheduled.
                     while task.state != TASK_QUEUED:
@@ -36,8 +34,7 @@ class Scheduler(AsynchronousExecutePlugin):
                     retry_workers.append(worker)
                 except IndexError:
                     # No more queues for worker: now truly idle.
-                    print "No work for worker %d" % worker.id
+                    pass
             idle_workers = retry_workers
             attempt_count += 1
-            print len(idle_workers)
             
