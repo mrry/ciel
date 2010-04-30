@@ -27,11 +27,12 @@ def master_main(options):
 
     global_name_directory = GlobalNameDirectory()
 
-    task_pool = TaskPool(cherrypy.engine, global_name_directory)
-    task_pool.subscribe()
-    
     worker_pool = WorkerPool(cherrypy.engine)
     worker_pool.subscribe()
+
+    task_pool = TaskPool(cherrypy.engine, global_name_directory, worker_pool)
+    task_pool.subscribe()
+    
 
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')

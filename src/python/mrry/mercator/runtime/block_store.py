@@ -25,9 +25,17 @@ class SWReferenceJSONEncoder(simplejson.JSONEncoder):
 
     def default(self, obj):
         if isinstance(obj, SWRealReference):
+            print 'JSON encoding reference:', obj
             return {'__ref__': obj.as_tuple()}
         else:
             return simplejson.JSONEncoder.default(self, obj)
+
+def json_decode_object_hook(dict_):
+        if '__ref__' in dict_:
+            print 'JSON decoding reference:', build_reference_from_tuple(dict_['__ref__'])
+            return build_reference_from_tuple(dict_['__ref__'])
+        else:
+            return dict_
 
 class BlockStore:
     
@@ -41,11 +49,7 @@ class BlockStore:
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle}
         
-    def json_decode_object_hook(self, dict_):
-        if '__ref__' in dict_:
-            return build_reference_from_tuple(dict_['__ref__'])
-        else:
-            return dict_
+
     
     def encode_noop(self, obj, file):
         return file.write(obj)
@@ -54,7 +58,7 @@ class BlockStore:
     def encode_json(self, obj, file):
         return simplejson.dump(obj, file, cls=SWReferenceJSONEncoder)
     def decode_json(self, file):
-        return simplejson.load(file, object_hook=self.json_decode_object_hook)
+        return simplejson.load(file, object_hook=json_decode_object_hook)
     def encode_pickle(self, obj, file):
         return pickle.dump(obj, file)
     def decode_pickle(self, file):
@@ -68,15 +72,16 @@ class BlockStore:
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
     
-    def publish_global_object(self, global_id, url):
-        self.master_proxy.publish_global_object(global_id, [url])
+    def publish_global_refs(self, global_id, refs, size_hint=None):
+        self.master_proxy.publish_global_refs(global_id, refs)
     
     def store_raw_file(self, incoming_fobj):
         with self._lock:
             id = self.allocate_new_id()
         with open(self.filename(id), "wb") as data_file:
             shutil.copyfileobj(incoming_fobj, data_file)
-        return 'swbs://%s/%d' % (self.netloc, id)            
+            file_size = data_file.tell()
+        return 'swbs://%s/%d' % (self.netloc, id), file_size            
     
     def store_object(self, object, encoder):
         """Stores the given object as a block, and returns a swbs URL to it."""
@@ -85,14 +90,16 @@ class BlockStore:
             self.object_cache[id] = object
         with open(self.filename(id), "wb") as object_file:
             self.encoders[encoder](object, object_file)
-        return 'swbs://%s/%d' % (self.netloc, id)
+            file_size = object_file.tell()
+        return 'swbs://%s/%d' % (self.netloc, id), file_size
     
     def store_file(self, filename):
         """Stores the file with the given local filename as a block, and returns a swbs URL to it."""
         with self._lock:
             id = self.allocate_new_id()
         shutil.copyfile(filename, self.filename(id))
-        return 'swbs://%s/%d' % (self.netloc, id)
+        file_size = os.path.getsize(self.filename(id))
+        return 'swbs://%s/%d' % (self.netloc, id), file_size
     
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""

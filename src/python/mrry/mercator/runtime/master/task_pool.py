@@ -4,11 +4,9 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 from __future__ import with_statement
-from Queue import Queue
 from cherrypy.process import plugins
 from threading import Lock
-from mrry.mercator.runtime.references import build_reference_from_tuple,\
-    SWGlobalFutureReference, SWURLReference
+from mrry.mercator.runtime.references import SWGlobalFutureReference
 import logging
 import cherrypy
 
@@ -48,9 +46,8 @@ class Task:
         self.parent = parent_task_id
         self.children = []
         
-        for local_id, input_tuple in task_descriptor['inputs'].items():
-            self.inputs[local_id] = build_reference_from_tuple(input_tuple)
-        
+        self.inputs = task_descriptor['inputs']
+                
         self.expected_outputs = task_descriptor['expected_outputs']
     
         self.state = TASK_RUNNABLE    
@@ -59,9 +56,9 @@ class Task:
         for local_id, input in self.inputs.items():
             if isinstance(input, SWGlobalFutureReference):
                 global_id = input.id
-                urls = global_name_directory.get_urls_for_id(global_id)
-                if len(urls) > 0:
-                    self.inputs[local_id] = SWURLReference(urls)
+                refs = global_name_directory.get_refs_for_id(global_id)
+                if len(refs) > 0:
+                    self.inputs[local_id] = refs[0]
                 else:
                     try:
                         self.blocking_dict[global_id].add(local_id)
@@ -74,24 +71,23 @@ class Task:
         
         # select()-handling code.
         try:
-            tuple_select_group = task_descriptor['select_group']
+            select_group = task_descriptor['select_group']
             self.selecting_dict = {}
             self.select_result = []
             
-            for i, ref_tuple in enumerate(tuple_select_group):
-                ref = build_reference_from_tuple(ref_tuple)
+            for i, ref in enumerate(select_group):
                 print "Selecting on ref:", ref
                 if isinstance(ref, SWGlobalFutureReference):
                     global_id = ref.id
-                    urls = global_name_directory.get_urls_for_id(global_id)
-                    if len(urls) > 0:
+                    refs = global_name_directory.get_refs_for_id(global_id)
+                    if len(refs) > 0:
                         self.select_result.append(i)
                     else:
                         self.selecting_dict[global_id] = i
                 else:
                     self.select_result.append(i)
 
-            if len(tuple_select_group) > 0 and len(self.select_result) == 0:
+            if len(select_group) > 0 and len(self.select_result) == 0:
                 self.state = TASK_SELECTING
 
             print "^^^!^^^ SELECT DICT IS", self.selecting_dict
@@ -113,7 +109,7 @@ class Task:
         else:
             return []
     
-    def unblock_on(self, global_id, urls):
+    def unblock_on(self, global_id, refs):
         if self.state in (TASK_RUNNABLE, TASK_SELECTING):
             i = self.selecting_dict.pop(global_id)
             self.select_result.append(i)
@@ -122,19 +118,15 @@ class Task:
         elif self.state in (TASK_BLOCKING,):
             local_ids = self.blocking_dict.pop(global_id)
             for local_id in local_ids:
-                self.inputs[local_id] = SWURLReference(urls)
+                self.inputs[local_id] = refs[0]
             if len(self.blocking_dict) == 0:
                 self.state = TASK_RUNNABLE
         
     def as_descriptor(self):        
-        tuple_inputs = {}
-        for local_id, input in self.inputs.items():
-            tuple_inputs[local_id] = input.as_tuple()
-            
         descriptor = {'task_id': self.task_id,
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
-                      'inputs': tuple_inputs,
+                      'inputs': self.inputs,
                       'state': TASK_STATE_NAMES[self.state],
                       'parent': self.parent,
                       'children': self.children}
@@ -147,12 +139,12 @@ class Task:
         
 class TaskPool(plugins.SimplePlugin):
     
-    def __init__(self, bus, global_name_directory):
+    def __init__(self, bus, global_name_directory, worker_pool):
         plugins.SimplePlugin.__init__(self, bus)
         self.global_name_directory = global_name_directory
+        self.worker_pool = worker_pool
         self.current_task_id = 0
         self.tasks = {}
-        self.runnable_queue = Queue()
         self.references_blocking_tasks = {}
         self._lock = Lock()
     
@@ -163,6 +155,13 @@ class TaskPool(plugins.SimplePlugin):
     def unsubscribe(self):
         self.bus.unsubscribe('global_name_available', self.reference_available)
         self.bus.unsubscribe('task_failed', self.task_failed)
+    
+    def add_task_to_queues(self, task):
+        # TODO: Compute best worker(s) here.
+        handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
+        task.state = TASK_QUEUED
+        handler_queue.put(task)
+        print "Added task to queue:", handler_queue
     
     def add_task(self, task_descriptor, parent_task_id=None):
         with self._lock:
@@ -183,8 +182,8 @@ class TaskPool(plugins.SimplePlugin):
                         self.references_blocking_tasks[global_id] = set([task_id])
             else:
                 print "/// TASK", task_id, "IS RUNNABLE"
-                task.state = TASK_QUEUED
-                self.runnable_queue.put(task)
+                task.state = TASK_RUNNABLE
+                self.add_task_to_queues(task)
                 
         self.bus.publish('schedule')
         return task
@@ -219,8 +218,9 @@ class TaskPool(plugins.SimplePlugin):
                 task.unblock_on(id, urls)
                 if was_blocked and not task.is_blocked():
                     print "/// TASK", task_id, "IS NOW RUNNABLE"
-                    task.state = TASK_QUEUED
-                    self.runnable_queue.put(task)
+                    task.state = TASK_RUNNABLE
+                    self.add_task_to_queues(task)
+                    self.bus.publish('schedule')
     
     def get_task_by_id(self, id):
         return self.tasks[id]

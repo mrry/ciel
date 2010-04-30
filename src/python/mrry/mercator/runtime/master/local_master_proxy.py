@@ -12,8 +12,8 @@ class LocalMasterProxy:
         self.global_name_directory = global_name_directory
         self.worker_pool = worker_pool
     
-    def publish_global_object(self, global_id, urls):
-        self.global_name_directory.add_urls_for_id(global_id, urls)
+    def publish_global_refs(self, global_id, refs):
+        self.global_name_directory.add_refs_for_id(global_id, refs)
         
     def spawn_tasks(self, parent_task_id, task_descriptors):
         spawn_result_ids = []

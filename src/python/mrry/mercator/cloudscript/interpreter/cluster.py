@@ -6,6 +6,8 @@ Created on 15 Apr 2010
 from mrry.mercator.cloudscript.parser import \
     SWScriptParser
 from mrry.mercator.runtime.task_executor import SWContinuation
+from mrry.mercator.runtime.references import SWURLReference
+from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder
 import simplejson
 import pickle
 import urlparse
@@ -33,14 +35,14 @@ if __name__ == '__main__':
     
     master_data_uri = urlparse.urljoin(master_uri, "/data/")
     (response, content) = http.request(master_data_uri, "POST", pickle.dumps(cont))
-    continuation_uri = simplejson.loads(content)
+    continuation_uri, size_hint = simplejson.loads(content)
     
     print continuation_uri
     
-    task_descriptor = {'inputs': {'_cont' : ('urls', [continuation_uri])}, 'handler': 'swi'}
+    task_descriptor = {'inputs': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi'}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/task/")
-    (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor))
+    (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
     out = simplejson.loads(content)
     
     print out

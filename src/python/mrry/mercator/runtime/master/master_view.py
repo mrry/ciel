@@ -4,7 +4,8 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy import HTTPError
-from mrry.mercator.runtime.master.task_pool import TASK_ASSIGNED
+from mrry.mercator.runtime.block_store import json_decode_object_hook,\
+    SWReferenceJSONEncoder
 import simplejson
 import cherrypy
 from mrry.mercator.runtime.worker.worker_view import DataRoot
@@ -89,7 +90,7 @@ class MasterTaskRoot:
                     parent_task = self.task_pool.get_task_by_id(task_id)
 #                    if not parent_task.state == TASK_ASSIGNED
                     
-                    task_descriptors = simplejson.loads(cherrypy.request.body.read())
+                    task_descriptors = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
                     
                     print task_descriptors
                     
@@ -123,11 +124,11 @@ class MasterTaskRoot:
                 pass
             elif action == 'commit':
                 if cherrypy.request.method == 'POST':
-                    commit_bindings = simplejson.loads(cherrypy.request.body.read())
+                    commit_bindings = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
                     
                     # Apply commit bindings (if any), i.e. publish results.
-                    for global_id, urls in commit_bindings.items():
-                        self.global_name_directory.add_urls_for_id(int(global_id), urls)
+                    for global_id, refs in commit_bindings.items():
+                        self.global_name_directory.add_refs_for_id(int(global_id), refs)
                     
                     self.task_pool.task_completed(task_id)
                     
@@ -148,7 +149,7 @@ class MasterTaskRoot:
                 self.task_pool.abort(task_id)
             elif action is None:
                 if cherrypy.request.method == 'GET':
-                    return simplejson.dumps(self.task_pool.tasks[task_id].as_descriptor())
+                    return simplejson.dumps(self.task_pool.tasks[task_id].as_descriptor(), cls=SWReferenceJSONEncoder)
         elif cherrypy.request.method == 'POST':
             # New task spawning in here.
             task_descriptor = simplejson.loads(cherrypy.request.body.read())
@@ -181,8 +182,8 @@ class GlobalDataRoot:
     def index(self):
         if cherrypy.request.method == 'POST':
             # Create a new global ID, and add the POSTed URLs if any.
-            urls = simplejson.loads(cherrypy.request.body.read())
-            id = self.global_name_directory.create_global_id(urls)
+            refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+            id = self.global_name_directory.create_global_id(refs)
             return simplejson.dumps(id)
         
     @cherrypy.expose
@@ -190,20 +191,20 @@ class GlobalDataRoot:
         if attribute is None:
             if cherrypy.request.method == 'POST':
                 # Add a new URL for the global ID.
-                urls = simplejson.loads(cherrypy.request.body.read())
-                assert urls is list
+                real_refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                assert real_refs is list
                 try:
-                    self.global_name_directory.add_urls_for_id(int(id), urls)
+                    self.global_name_directory.add_refs_for_id(int(id), real_refs)
                     return
                 except KeyError:
                     raise HTTPError(404)
             elif cherrypy.request.method == 'GET':
                 # Return all URLs for the global ID.
                 try:
-                    urls = self.global_name_directory.get_urls_for_id(int(id))
-                    if len(urls) == 0:
+                    refs = self.global_name_directory.get_refs_for_id(int(id))
+                    if len(refs) == 0:
                         cherrypy.response.status = 204
-                    return simplejson.dumps(urls)
+                    return simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
                 except KeyError:
                     raise HTTPError(404)
             raise HTTPError(405)
@@ -215,7 +216,7 @@ class GlobalDataRoot:
                 task_descriptor['is_running'] = task.worker_id is not None
                 if task.worker_id is not None:
                     task_descriptor['worker'] = self.worker_pool.get_worker_by_id(task.worker_id).as_descriptor()
-                return simplejson.dumps(task_descriptor)
+                return simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder)
             else:
                 raise HTTPError(405)
         else:

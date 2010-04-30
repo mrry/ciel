@@ -17,7 +17,7 @@ from threading import Lock
 import cherrypy
 import logging
 from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
-    SWLocalDataFile, build_reference_from_tuple, SWRealReference,\
+    SWLocalDataFile, SWRealReference,\
     SWLocalFutureReference, SWGlobalFutureReference, SWFutureReference
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
@@ -100,11 +100,12 @@ class SWContinuation:
     # The following methods capture why we might have blocked on something,
     # for appropriate handling on task loading.
     def mark_as_dereferenced(self, ref):
+        print "Continuation:", self
+        print "Dereffing:", ref
         self.reference_table[ref.index].is_dereferenced = True
     def is_marked_as_dereferenced(self, id):
         return self.reference_table[id].is_dereferenced
     def mark_as_execd(self, ref):
-        print "mark_as_execd: %s" % str(ref)
         self.reference_table[ref.index].is_execd = True
     def is_marked_as_execd(self, id):
         return self.reference_table[id].is_execd
@@ -154,15 +155,14 @@ class SWExecutorTaskExecutionRecord:
         args_ref = None
         parsed_inputs = {}
         
-        for local_id, ref_tuple in inputs.items():
-            ref = build_reference_from_tuple(ref_tuple)
+        for local_id, ref in inputs.items():
             if local_id == '_args':
                 args_ref = ref
             else:
                 parsed_inputs[int(local_id)] = ref
         
         assert isinstance(args_ref, SWURLReference)
-        exec_args = self.task_executor.block_store.retrieve_object_by_url(args_ref.urls[0], 'pickle')
+        exec_args = self.task_executor.block_store.retrieve_object_by_url(self.task_executor.block_store.choose_best_url(args_ref.urls), 'pickle')
         
         def args_parsing_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
@@ -177,7 +177,7 @@ class SWExecutorTaskExecutionRecord:
     def commit(self):
         commit_bindings = {}
         for (global_id, output_ref) in zip(self.expected_outputs, self.executor.output_refs):
-            commit_bindings[global_id] = output_ref.urls
+            commit_bindings[global_id] = [output_ref]
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
     def execute(self):        
@@ -276,15 +276,17 @@ class SWRuntimeInterpreterTask:
         continuation_ref = None
         parsed_inputs = {}
         
-        for local_id, ref_tuple in self.inputs.items():
-            ref = build_reference_from_tuple(ref_tuple)
+        for local_id, ref in self.inputs.items():
             if local_id == '_cont':
                 continuation_ref = ref
             else:
                 parsed_inputs[int(local_id)] = ref
         
+        print "Parsed inputs:", parsed_inputs
+
+        print continuation_ref
         assert isinstance(continuation_ref, SWURLReference)
-        self.continuation = block_store.retrieve_object_by_url(continuation_ref.urls[0], 'pickle')
+        self.continuation = block_store.retrieve_object_by_url(block_store.choose_best_url(continuation_ref.urls), 'pickle')
         
         for local_id, ref in parsed_inputs.items():
         
@@ -297,12 +299,11 @@ class SWRuntimeInterpreterTask:
                 else:
                     assert isinstance(ref, SWURLReference)
                     url = block_store.choose_best_url(ref.urls)
-                    print "Retrieving URL!!!!"
                     value = block_store.retrieve_object_by_url(url, 'json')
                     self.continuation.rewrite_reference(local_id, SWDataValue(value))
             elif self.continuation.is_marked_as_execd(local_id):
                 if isinstance(ref, SWDataValue):
-                    url = block_store.store_object(ref.value, 'json')
+                    url, _ = block_store.store_object(ref.value, 'json')
                     filename = block_store.retrieve_filename_by_url(url)
                 elif isinstance(ref, SWURLReference):
                     url = block_store.choose_best_url(ref.urls)
@@ -333,6 +334,7 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
         task_context.bind_tasklocal_identifier("range", LambdaFunction(lambda x: range(x[0],x[1])))
+        task_context.bind_tasklocal_identifier("len", LambdaFunction(lambda x: len(x[0])))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: self.make_reference(x)))
         task_context.bind_tasklocal_identifier("is_future", LambdaFunction(lambda x: self.is_future(x[0])))
@@ -342,8 +344,6 @@ class SWRuntimeInterpreterTask:
         visitor = StatementExecutorVisitor(task_context)
         
         try:
-            print "%%% STARTING WITH STACK LENGTH", len(self.continuation.stack)
-            print "%%% STARTING WITH STACK CONTENTS", self.continuation.stack
             self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
             
         except SelectException as se:
@@ -353,7 +353,7 @@ class SWRuntimeInterpreterTask:
             local_select_group = se.select_group
             timeout = se.timeout
             
-            select_group = map(lambda ref: self.continuation.resolve_tasklocal_reference_with_ref(ref).as_tuple(), local_select_group)
+            select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
                         
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': {},
@@ -374,7 +374,7 @@ class SWRuntimeInterpreterTask:
             for index in self.continuation.reference_table.keys():
                 if (not isinstance(self.continuation.resolve_tasklocal_reference_with_index(index), SWDataValue)) and \
                    (self.continuation.is_marked_as_dereferenced(index) or self.continuation.is_marked_as_execd(index)):
-                    cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index).as_tuple()
+                    cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index)
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': self.expected_outputs}
@@ -426,15 +426,15 @@ class SWRuntimeInterpreterTask:
                             current_cont.rewrite_reference(local_id, SWGlobalFutureReference(global_id))
 
             rewritten_inputs = {}
-            for local_id, ref_tuple in current_desc['inputs'].items():
-                if ref_tuple[0] == 'lfut':
-                    if ref_tuple[1] >= len(self.spawn_task_result_global_ids):
+            for local_id, ref in current_desc['inputs'].items():
+                if isinstance(ref, SWLocalFutureReference):
+                    if ref.spawn_list_index >= len(self.spawn_task_result_global_ids):
                         must_wait = True
                         break
                     else:
-                        rewritten_inputs[local_id] = SWGlobalFutureReference(self.spawn_task_result_global_ids[ref_tuple[1]][ref_tuple[2]]).as_tuple()
+                        rewritten_inputs[local_id] = SWGlobalFutureReference(self.spawn_task_result_global_ids[ref.spawn_list_index][ref.result_index])
                 else:
-                    rewritten_inputs[local_id] = ref_tuple
+                    rewritten_inputs[local_id] = ref
             
             if not must_wait:
                 current_desc['inputs'] = rewritten_inputs
@@ -442,17 +442,15 @@ class SWRuntimeInterpreterTask:
             try:
                 current_select_group = current_desc['select_group']
                 rewritten_select_group = []
-                for ref_tuple in current_select_group:
-                    print ref_tuple
-                    if ref_tuple[0] == 'lfut':
-                        if ref_tuple[1] >= len(self.spawn_task_result_global_ids):
+                for ref in current_select_group:
+                    if isinstance(ref, SWLocalFutureReference):
+                        if ref.spawn_list_index >= len(self.spawn_task_result_global_ids):
                             must_wait = True
                             break
                         else:
-                            print "Appending rewritten tuple!!!"
-                            rewritten_select_group.append(SWGlobalFutureReference(self.spawn_task_result_global_ids[ref_tuple[1]][ref_tuple[2]]).as_tuple())
+                            rewritten_select_group.append(SWGlobalFutureReference(self.spawn_task_result_global_ids[ref.spawn_list_index][ref.result_index]))
                     else:
-                        rewritten_select_group.append(ref_tuple)
+                        rewritten_select_group.append(ref)
                 
                 if not must_wait:        
                     current_desc['select_group'] = rewritten_select_group
@@ -478,9 +476,8 @@ class SWRuntimeInterpreterTask:
                 
                 # Store the continuation and add it to the task descriptor.
                 if current_cont is not None:
-                    print "spawn_all: %s" % str(current_cont)
-                    cont_url = block_store.store_object(current_cont, 'pickle')
-                    self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = SWURLReference([cont_url]).as_tuple()
+                    cont_url, size_hint = block_store.store_object(current_cont, 'pickle')
+                    self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = SWURLReference([cont_url], size_hint)
             
                 # Current task is now ready to be spawned.
                 current_batch.append(self.spawn_list[current_index].task_descriptor)
@@ -523,13 +520,18 @@ class SWRuntimeInterpreterTask:
                 else:
                     self.continuation.rewrite_reference(local_id, SWGlobalFutureReference(self.spawn_task_result_global_ids[spawn_list_index][result_index]))
         
-        real_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
-        
+        serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
         commit_bindings = {}
 
-        print "*!*!*!*", real_result
-        result_url = block_store.store_object(real_result, 'json')
-        commit_bindings[self.expected_outputs[0]] = [result_url]        
+        print "*!*!*!*", serializable_result
+        result_url, size_hint = block_store.store_object(serializable_result, 'json')
+        if size_hint < 512:
+            print "Building an SWDataValue", serializable_result
+            result_ref = SWDataValue(serializable_result)
+        else:
+            result_ref = SWURLReference([result_url], size_hint)
+            
+        commit_bindings[self.expected_outputs[0]] = [result_ref]        
         
         master_proxy.commit_task(self.task_id, commit_bindings)
 
@@ -598,7 +600,7 @@ class SWRuntimeInterpreterTask:
             if isinstance(leaf, SWLocalReference):
                 real_ref = self.continuation.resolve_tasklocal_reference_with_ref(leaf)
                 if isinstance(real_ref, SWFutureReference):
-                    inputs[i] = real_ref.as_tuple()
+                    inputs[i] = real_ref
                     ret = SWLocalReference(i)
                     i += 1
                     return ret
@@ -607,8 +609,8 @@ class SWRuntimeInterpreterTask:
             return leaf
         
         transformed_args = map_leaf_values(args_check_mapper, exec_args)
-        args_url = self.block_store.store_object(transformed_args, 'pickle')
-        inputs['_args'] = SWURLReference([args_url]).as_tuple()
+        args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle')
+        inputs['_args'] = SWURLReference([args_url], size_hint)
         
         task_descriptor = {'handler': executor_name, 
                            'inputs': inputs,

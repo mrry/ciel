@@ -40,14 +40,15 @@ class SWURLReference(SWRealReference):
     A reference to one or more URLs representing the same data.
     """
     
-    def __init__(self, urls):
+    def __init__(self, urls, size_hint=None):
         self.urls = urls
+        self.size_hint = size_hint
         
     def as_tuple(self):
-        return ('urls', self.urls)
+        return ('urls', self.urls, self.size_hint)
     
     def __repr__(self):
-        return 'SWURLReference(%s)' % (repr(self.urls))
+        return 'SWURLReference(%s, %s)' % (repr(self.urls), repr(self.size_hint))
 
 class SWGlobalFutureReference(SWFutureReference):
     """
@@ -98,8 +99,9 @@ class SWDataValue(SWRealReference):
 
 def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
+    print "BRFT:", reference_tuple
     if ref_type == 'urls':
-        return SWURLReference(reference_tuple[1])
+        return SWURLReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'lfut':
         if len(reference_tuple) == 3:
             result_index = reference_tuple[2]

@@ -92,7 +92,7 @@ class ForRR:
         self.i = 0
 
     def __repr__(self):
-        return 'ForRR(iterator=%s, i=%)' % (repr(self.iterator), repr(self.i))
+        return 'ForRR(iterator=%s, i=%s)' % (repr(self.iterator), repr(self.i))
     
 class ListIndexRR:
     

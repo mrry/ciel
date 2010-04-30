@@ -4,6 +4,7 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
+from mrry.mercator.runtime.block_store import json_decode_object_hook
 import simplejson
 import cherrypy
 
@@ -42,7 +43,7 @@ class TaskRoot:
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
-            task_descriptor = simplejson.loads(cherrypy.request.body.read())
+            task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
                 cherrypy.engine.publish('execute_task', task_descriptor)
                 return

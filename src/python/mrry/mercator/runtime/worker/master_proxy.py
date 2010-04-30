@@ -4,6 +4,9 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 from urlparse import urljoin
+from mrry.mercator.runtime.references import SWDataValue
+from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder,\
+    json_decode_object_hook
 import cherrypy
 import socket
 import httplib2
@@ -31,20 +34,20 @@ class MasterProxy:
         (_, result) = httplib2.Http().request(message_url, 'POST', message_payload)
         self.worker.id = simplejson.loads(result)
     
-    def publish_global_object(self, global_id, urls):
-        message_payload = simplejson.dumps({global_id: urls})
+    def publish_global_refs(self, global_id, refs):
+        message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'global_data/%d' % (global_id, ))
         httplib2.Http().request(message_url, "POST", message_payload)
         
     def spawn_tasks(self, parent_task_id, tasks):
         print "Spawning %d tasks" % (len(tasks), )
-        message_payload = simplejson.dumps(tasks)
+        message_payload = simplejson.dumps(tasks, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%d/spawn' % (parent_task_id, ))
         (_, result) = httplib2.Http().request(message_url, "POST", message_payload)
         return simplejson.loads(result)
     
     def commit_task(self, task_id, bindings):
-        message_payload = simplejson.dumps(bindings)
+        message_payload = simplejson.dumps(bindings, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%d/commit' % (task_id, ))
         httplib2.Http().request(message_url, "POST", message_payload)
         
@@ -61,4 +64,4 @@ class MasterProxy:
     def get_task_descriptor_for_future(self, ref):
         message_url = urljoin(self.master_url, 'global_data/%d/task' % (ref.id, ))
         (_, result) = httplib2.Http().request(message_url, "GET")
-        return simplejson.loads(result)
+        return simplejson.loads(result, object_hook=json_decode_object_hook)

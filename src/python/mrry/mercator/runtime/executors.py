@@ -16,7 +16,8 @@ import os
 class ExecutionFeatures:
     
     def __init__(self):
-        self.executors = {'stdinout': SWStdinoutExecutor,
+        self.executors = {'swi': None, # Could make a special SWI interpreter....
+                          'stdinout': SWStdinoutExecutor,
                           'java': JavaExecutor}
     
     def all_features(self):
@@ -94,8 +95,8 @@ class SWStdinoutExecutor(SWExecutor):
             print rc
             raise OSError()
         
-        url = block_store.store_file(temp_output.name)
-        real_ref = SWURLReference([url])
+        url, size_hint = block_store.store_file(temp_output.name)
+        real_ref = SWURLReference([url], size_hint)
         self.output_refs[0] = real_ref
         
     def abort(self):
@@ -162,9 +163,10 @@ class JavaExecutor(SWExecutor):
                         print l
             raise OSError()
         
-        urls = map(lambda filename: block_store.store_file(filename), file_outputs)
-        url_refs = map(lambda url: SWURLReference([url]), urls)
-        self.output_refs = url_refs
+        for i, filename in enumerate(file_outputs):
+            url, size_hint = block_store.store_file(filename)
+            url_ref = SWURLReference([url], size_hint)
+            self.output_refs[i] = url_ref
 
     def abort(self):
         if self.proc is not None:

@@ -7,17 +7,28 @@ from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock
+from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder
 import random
 import datetime
 import sys
 import simplejson
 import httplib2
 
-
+class FeatureQueues:
+    def __init__(self):
+        self.queues = {}
+        
+    def get_queue_for_feature(self, feature):
+        try:
+            return self.queues[feature]
+        except KeyError:
+            queue = Queue()
+            self.queues[feature] = queue
+            return queue
 
 class Worker:
     
-    def __init__(self, worker_id, worker_descriptor):
+    def __init__(self, worker_id, worker_descriptor, feature_queues):
         self.id = worker_id
         self.netloc = worker_descriptor['netloc']
         self.features = worker_descriptor['features']
@@ -25,6 +36,9 @@ class Worker:
         self.last_ping = datetime.datetime.now()
         
         self.local_queue = Queue()
+        self.queues = [self.local_queue]
+        for feature in self.features:
+            self.queues.append(feature_queues.get_queue_for_feature(feature))
 
     def as_descriptor(self):
         return {'worker_id': self.id,
@@ -32,6 +46,7 @@ class Worker:
                 'features': self.features,
                 'current_task_id': self.current_task_id,
                 'last_ping': self.last_ping.ctime()}
+        
 
 class WorkerPool(plugins.SimplePlugin):
     
@@ -42,6 +57,7 @@ class WorkerPool(plugins.SimplePlugin):
         self.workers = {}
         self.idle_set = set()
         self._lock = Lock()
+        self.feature_queues = FeatureQueues()
         
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
@@ -57,7 +73,7 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             id = self.current_worker_id
             self.current_worker_id += 1
-            worker = Worker(id, worker_descriptor)
+            worker = Worker(id, worker_descriptor, self.feature_queues)
             self.workers[id] = worker
             self.idle_set.add(id)
         self.bus.publish('schedule')
@@ -67,9 +83,9 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             return self.workers[id]
         
-    def get_idle_worker_ids(self):
+    def get_idle_workers(self):
         with self._lock:
-            return list(self.idle_set)
+            return map(lambda x: self.workers[x], self.idle_set)
     
     def execute_task_on_worker_id(self, worker_id, task):
         with self._lock:
@@ -80,7 +96,7 @@ class WorkerPool(plugins.SimplePlugin):
             
         try:
             print "Assigning task:", task.as_descriptor()
-            httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor()), )
+            httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
             print sys.exc_info()
             print 'Worker failed:', worker_id
