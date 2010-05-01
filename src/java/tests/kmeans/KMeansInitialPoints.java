@@ -28,14 +28,20 @@ public class KMeansInitialPoints implements Task {
 					}
 				}
 			} else if (mode == 'g') {
-				clusterCentroids
-				for (int i = 0; i < k; ++i) {
+				int numSyntheticCentroids = Integer.parseInt(args[3]);
+				double[][] clusterCentroids = new double[numSyntheticCentroids][dimension];
+				for (int i = 0; i < numSyntheticCentroids; ++i) {
 					for (int j = 0; j < dimension; ++j) {
-						pointsOutput.writeDouble((rand.))
+						pointsOutput.writeDouble((rand.nextDouble() * 100.0) - 50.0);
 					}
 				}
 				
-				
+				for (int i = 0; i < k; ++i) {
+					int cluster = rand.nextInt(numSyntheticCentroids);
+					for (int j = 0; j < dimension; ++j) {
+						pointsOutput.writeDouble(clusterCentroids[cluster][j] + 20.0 * rand.nextGaussian());
+					}
+				}
 			} else {
 				throw new RuntimeException("Invalid mode specified");
 			}
