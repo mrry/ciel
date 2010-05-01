@@ -590,24 +590,23 @@ class SWRuntimeInterpreterTask:
         
         spawn_list_index = len(self.spawn_list)
         ret = [self.continuation.create_tasklocal_reference(SWLocalFutureReference(spawn_list_index, i)) for i in range(num_outputs)]
-        i = 0
         inputs = {}
         
-        args = map_leaf_values(self.check_no_thunk_mapper, args)
+        args = map_leaf_values(self.check_no_thunk_mapper, exec_args)
 
         def args_check_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
                 real_ref = self.continuation.resolve_tasklocal_reference_with_ref(leaf)
                 if isinstance(real_ref, SWFutureReference):
+                    i = len(inputs)
                     inputs[i] = real_ref
                     ret = SWLocalReference(i)
-                    i += 1
                     return ret
                 else:
                     return real_ref
             return leaf
         
-        transformed_args = map_leaf_values(args_check_mapper, exec_args)
+        transformed_args = map_leaf_values(args_check_mapper, args)
         args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle')
         inputs['_args'] = SWURLReference([args_url], size_hint)
         

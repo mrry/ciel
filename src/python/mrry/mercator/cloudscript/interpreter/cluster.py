@@ -54,4 +54,4 @@ if __name__ == '__main__':
     (response, content) = http.request(notify_url)
     print "Got final result"
     
-    http.request
+    print content

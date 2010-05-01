@@ -50,7 +50,10 @@ class SWExecutor:
             return block_store.retrieve_filename_by_url(block_store.choose_best_url(real_ref.urls), self.fetch_limit)
         elif isinstance(real_ref, SWDataValue):
             return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json')[0])
+        elif isinstance(real_ref, list):
+            raise BlameUserException("Attempted to exec with invalid argument: %s", repr(real_ref))
         else:
+            print "Blocking because reference is", real_ref
             # Data is not yet available, so 
             raise ReferenceUnavailableException(ref, self.continuation)
 
