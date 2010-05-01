@@ -1,7 +1,7 @@
 package uk.co.mrry.mercator.task;
 
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 
 /**
  * A task takes zero or more named data items, performs some computation on them, and yields one or more concrete data items
@@ -14,6 +14,6 @@ import java.io.OutputStream;
  */
 public interface Task {
 
-    public void invoke(InputStream[] fis, OutputStream[] fos, String[] args);
+    public void invoke(FileInputStream[] fis, FileOutputStream[] fos, String[] args);
 	
 }

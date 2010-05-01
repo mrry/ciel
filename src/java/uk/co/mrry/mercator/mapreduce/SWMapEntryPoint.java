@@ -68,8 +68,8 @@ public class SWMapEntryPoint implements Task {
             SWInputSplit.class});
 
       // get an output object
-      SWOutputCollector output = null;
-      output = new SWOutputCollector(partitioner, fos);
+      SWMapperOutputCollector output = null;
+      output = new SWMapperOutputCollector(partitioner, fos);
 
       // Create a mapper (task) context
       mapperContext = contextConstructor.newInstance(mapper, null, null,

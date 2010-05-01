@@ -1,5 +1,6 @@
 package uk.co.mrry.mercator.mapreduce;
 
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,16 +14,14 @@ import org.apache.hadoop.io.WritableComparator;
 
 public class SWReduceInputMerger<K extends WritableComparable, V extends Writable> {
   
-  public class SWReduceIterator<K extends WritableComparable, V extends Writable> implements Iterator<V> {
+  public class SWReduceIterator implements Iterator<V>, Iterable<V> {
 
-    private SWReduceInputMerger<K, V> merger;
     private K key;
     
-    public SWReduceIterator(SWReduceInputMerger<K, V> inputMerger, K key) {
+    public SWReduceIterator(K key) {
       /* uses an SWReduceInputMerger that takes care of fetching elements from the input streams
-       * and deserializes them 
+       * and deserializes them.
        */
-      merger = inputMerger;
       this.key = key;
     }
     
@@ -39,13 +38,19 @@ public class SWReduceInputMerger<K extends WritableComparable, V extends Writabl
     @Override
     public V next() {
       // Fetch the next element - can be null if there is none for the active key
-      return merger.getNextElement();
+      return getNextElement();
     }
 
     @Override
     public void remove() {
       // fails
       throw new RuntimeException("method not implemented");
+    }
+
+    @Override
+    public Iterator<V> iterator() {
+      // Return a reference to ourself
+      return this;
     }
     
     
@@ -80,6 +85,9 @@ public class SWReduceInputMerger<K extends WritableComparable, V extends Writabl
     for (int i = 0; i < fis.length; ++i) {
       try {
         fetchFromStream(i);
+      } catch (EOFException eofe) {
+        nextStreamID = -1;
+        currentKey = null;
       } catch (IOException ioe) {
         throw new RuntimeException(ioe);
       }
@@ -104,6 +112,9 @@ public class SWReduceInputMerger<K extends WritableComparable, V extends Writabl
         // replace key and value in head arrays
         try {
           fetchFromStream(i);
+        } catch (EOFException eofe) {
+          nextStreamID = -1;
+          currentKey = null;
         } catch (IOException ioe) {
           throw new RuntimeException(ioe);
         }
@@ -157,5 +168,17 @@ public class SWReduceInputMerger<K extends WritableComparable, V extends Writabl
     currentKey = key;
   }
   
+  public K getKey() {
+    return currentKey;
+  }
+  
+  public boolean hasMoreKeys() {
+    return (currentKey != null);
+  }
+  
+  public Iterable<V> getIterator() {
+    if (currentKey == null) throw new NullPointerException();
+    return new SWReduceIterator(currentKey);
+  }
   
 }
