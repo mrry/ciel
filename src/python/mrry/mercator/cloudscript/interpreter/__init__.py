@@ -219,7 +219,7 @@ class SWInterpreterTask:
             print "Blocking on", self.blocked_on
             self.scheduler.block_on_references(self, self.blocked_on)
             return
-        except Exception as e:
+        except Exception, e:
             # TODO: could handle this better....
             traceback.print_exc()
             self.result = e
