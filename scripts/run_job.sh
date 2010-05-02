@@ -2,6 +2,8 @@
 export PYTHONPATH=$PYTHONPATH:../src/python
 PYTHON=${PYTHON:-python}
 
-MASTER_HOST=${MASTER_HOST:-http://click.local:9000}
+HOST=`hostname -f`
+
+MASTER_HOST=${MASTER_HOST:-http://$HOST:9000}
 
 ${PYTHON} ../src/python/mrry/mercator/cloudscript/interpreter/cluster.py $1 ${MASTER_HOST}
