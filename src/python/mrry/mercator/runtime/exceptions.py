@@ -22,6 +22,10 @@ class BlameUserException(RuntimeSkywritingError):
     def __str__(self):
         return self.description
 
+class MasterNotRespondingException(RuntimeSkywritingError):
+    def __init__(self):
+        pass
+
 class ExecutionInterruption(Exception):
     def __init__(self):
         pass
