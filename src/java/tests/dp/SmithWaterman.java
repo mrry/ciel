@@ -42,8 +42,6 @@ public class SmithWaterman implements Task {
 			 *         "tl"-> horizontal input chunk, vertical input chunk.
 			 */
 			
-			
-			
 			// Read input chunks.
 			int c;
 			
@@ -62,43 +60,63 @@ public class SmithWaterman implements Task {
 			System.err.printf("Vertical chunk is length: %d\n", verticalChunk.length);
 			
 			// Read input halos (where appropriate).
-			int [][] hMatrix = new int[verticalChunk.length + 1][horizontalChunk.length + 1];
-							
+			int[] leftHalo = new int[verticalChunk.length + 1];
+			int[] previousRow = new int[horizontalChunk.length + 1];
+			
 			if (mode.equals("i")) {
+				System.out.println("Processing an internal block");
 				
-				DataInputStream topLeftHaloInputStream = new DataInputStream(fis[1]);
-				hMatrix[0][0] = topLeftHaloInputStream.readInt();
+				System.out.print("Top-left halo: ");
+				DataInputStream topLeftHaloInputStream = new DataInputStream(fis[2]);
+				previousRow[0] = topLeftHaloInputStream.readInt();
+				leftHalo[0] = previousRow[0];
+				System.out.println(leftHalo[0]);
 				topLeftHaloInputStream.close();
 				
-				DataInputStream topHaloInputStream = new DataInputStream(fis[2]);
+				DataInputStream topHaloInputStream = new DataInputStream(fis[3]);
+				System.out.print("Top halo     : ");
 				for (int j = 1; j <= horizontalChunk.length; ++j) {
-					hMatrix[0][j] = topHaloInputStream.readInt();
+					previousRow[j] = topHaloInputStream.readInt();
+					System.out.printf("%d\t", previousRow[j]);
 				}
+				System.out.println();
 				topHaloInputStream.close();
 
-				DataInputStream leftHaloInputStream = new DataInputStream(fis[2]);
+				System.out.print("Left halo    : ");
+				DataInputStream leftHaloInputStream = new DataInputStream(fis[4]);
 				for (int i = 1; i <= verticalChunk.length; ++i) {
-					hMatrix[i][0] = leftHaloInputStream.readInt();
+					leftHalo[i] = leftHaloInputStream.readInt();
+					System.out.printf("%d\t", leftHalo[i]);
 				}
+				System.out.println();
 				leftHaloInputStream.close();
 				
 			} else if (mode.equals("l")) {
+				System.out.println("Processing a left block");
 				
-				DataInputStream topHaloInputStream = new DataInputStream(fis[1]);
+				DataInputStream topHaloInputStream = new DataInputStream(fis[2]);
+				System.out.print("Top halo     : ");
 				for (int j = 1; j <= horizontalChunk.length; ++j) {
-					hMatrix[0][j] = topHaloInputStream.readInt();
+					previousRow[j] = topHaloInputStream.readInt();
+					System.out.printf("%d\t", previousRow[j]);
 				}
+				System.out.println();
 				topHaloInputStream.close();
 				
 			} else if (mode.equals("t")) {
+				System.out.println("Processing a top block");
 				
-				DataInputStream leftHaloInputStream = new DataInputStream(fis[1]);
+				System.out.print("Left halo    : ");
+				DataInputStream leftHaloInputStream = new DataInputStream(fis[2]);
 				for (int i = 1; i <= verticalChunk.length; ++i) {
-					hMatrix[i][0] = leftHaloInputStream.readInt();
+					leftHalo[i] = leftHaloInputStream.readInt();
+					System.out.printf("%d\t", leftHalo[i]);
 				}
+				System.out.println();
 				leftHaloInputStream.close();
 				
 			} else if (mode.equals("tl")) {
+				System.out.println("Processing the top-left block");
 				
 				// Arrays are zero-initialized by default.
 				
@@ -106,60 +124,74 @@ public class SmithWaterman implements Task {
 				throw new IllegalArgumentException("Illegal mode specified: " + mode);
 			}
 
-			// Array containing scores for each possible action (insert/delete/do nothing).
-			int[] currentScores = new int[4];
+			int[] currentRow = new int[previousRow.length];
+			int[] rightHalo = new int[verticalChunk.length];
 			
-			// Special left-column.
 			for (int i = 1; i <= verticalChunk.length; ++i) {
+				previousRow[0] = leftHalo[i-1];
+				currentRow[0] = leftHalo[i];
 				for (int j = 1; j <= horizontalChunk.length; ++j) {
 					if (verticalChunk[i-1] == horizontalChunk[j-1]) {
 						// Characters match at this position.
-						hMatrix[i][j] = hMatrix[i-1][j-1] + matchScore;
+						currentRow[j] = previousRow[j-1] + matchScore;
 					} else {
 						// Characters don't match at this position.
 						int bestOption = 0;
-						if (bestOption < hMatrix[i-1][j-1] + mismatchScore) {
-							bestOption = hMatrix[i-1][j-1] + mismatchScore;
+						if (bestOption < previousRow[j-1] + mismatchScore) {
+							bestOption = previousRow[j-1] + mismatchScore;
 						}
-						if (bestOption < hMatrix[i][j-1] + insertionScore) {
-							bestOption = hMatrix[i][j-1] + insertionScore;
+						if (bestOption < currentRow[j-1] + insertionScore) {
+							bestOption = currentRow[j-1] + insertionScore;
 						}
-						if (bestOption < hMatrix[i-1][j] + deletionScore) {
-							bestOption = hMatrix[i-1][j] + deletionScore;
+						if (bestOption < previousRow[j] + deletionScore) {
+							bestOption = previousRow[j] + deletionScore;
 						}
-						hMatrix[i][j] = bestOption;
+						currentRow[j] = bestOption;
 					}
-				}
-			}
-
-			for (int i = 0; i < hMatrix.length; ++i) {
-				for (int j = 0; j < hMatrix[i].length; ++j) {
-					System.out.printf("%d\t", hMatrix[i][j]);
+					System.out.printf("%d\t", currentRow[j]);
 				}
 				System.out.println();
+				
+				rightHalo[i-1] = currentRow[horizontalChunk.length];
+				int[] temp;
+				temp = currentRow;
+				currentRow = previousRow;
+				previousRow = temp;
 			}
+
+//			for (int i = 0; i < hMatrix.length; ++i) {
+//				for (int j = 0; j < hMatrix[i].length; ++j) {
+//					System.out.printf("%d\t", hMatrix[i][j]);
+//				}
+//				System.out.println();
+//			}
 			
 			/**
 			 * outputs: bottom-right halo, bottom halo, right halo.
 			 */
 			
 			// Write output halos.
-			DataOutputStream bottomRightHaloOutputStream = new DataOutputStream(fos[0]);
-			bottomRightHaloOutputStream.writeInt(hMatrix[verticalChunk.length][horizontalChunk.length]);
-			bottomRightHaloOutputStream.close();
-			
-			DataOutputStream bottomHaloOutputStream = new DataOutputStream(fos[1]);
-			for (int j = 1; j <= horizontalChunk.length; ++j) {
-				bottomHaloOutputStream.writeInt(hMatrix[verticalChunk.length][j]);
+			{
+				DataOutputStream bottomRightHaloOutputStream = new DataOutputStream(fos[0]);
+				bottomRightHaloOutputStream.writeInt(previousRow[horizontalChunk.length]);
+				bottomRightHaloOutputStream.close();
 			}
-			bottomHaloOutputStream.close();
-
-			DataOutputStream rightHaloOutputStream = new DataOutputStream(fos[2]);
-			for (int i = 1; i <= verticalChunk.length; ++i) {
-				rightHaloOutputStream.writeInt(hMatrix[i][horizontalChunk.length]);
-			}
-			rightHaloOutputStream.close();
 			
+			{
+				DataOutputStream bottomHaloOutputStream = new DataOutputStream(fos[1]);
+				for (int j = 1; j <= horizontalChunk.length; ++j) {
+					bottomHaloOutputStream.writeInt(previousRow[j]);
+				}
+				bottomHaloOutputStream.close();
+			}
+			
+			{
+				DataOutputStream rightHaloOutputStream = new DataOutputStream(fos[2]);
+				for (int i = 0; i < rightHalo.length; ++i) {
+					rightHaloOutputStream.writeInt(rightHalo[i]);
+				}
+				rightHaloOutputStream.close();
+			}
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
@@ -178,7 +210,6 @@ public class SmithWaterman implements Task {
 					new InputStream[] { horizontalStringInput, verticalStringInput },
 					new OutputStream[] { bottomRightHaloOutput, bottomHaloOutput, rightHaloOutput },
 					new String[] { "tl", "-1", "-1", "-1", "2" });
-					
 			
 			int result = new DataInputStream(new ByteArrayInputStream(bottomRightHaloOutput.toByteArray())).readInt();
 			
