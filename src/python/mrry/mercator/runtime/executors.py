@@ -82,7 +82,7 @@ class SWStdinoutExecutor(SWExecutor):
     
     def execute(self, block_store):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
-        temp_output = tempfile.NamedTemporaryFile(delete=False)
+        temp_output = tempfile.NamedTemporaryFile()
         filenames = self.get_filenames(block_store, self.input_refs)
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
@@ -122,7 +122,7 @@ class JavaExecutor(SWExecutor):
 
     def execute(self, block_store):
         file_inputs = self.get_filenames(block_store, self.input_refs)
-        file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
+        file_outputs = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
         
         jar_filenames = map(lambda ref: self.get_filename(block_store, ref), self.jar_refs)
 
