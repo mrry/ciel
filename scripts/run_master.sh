@@ -1,5 +1,6 @@
 #!/bin/sh
-export PYTHONPATH=$PYTHONPATH:../src/python
+BASE=$(dirname $(readlink -f $0))/..
+export PYTHONPATH=$PYTHONPATH:$BASE/src/python
 PYTHON=python
 
-${PYTHON} ../src/python/mrry/mercator/__init__.py --role master --port 9000
+${PYTHON} $BASE/src/python/mrry/mercator/__init__.py --role master --port 9000
