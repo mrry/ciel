@@ -117,7 +117,7 @@ class JavaExecutor(SWExecutor):
             self.class_name = args['class']
             self.argv = args['argv']
         except KeyError:
-            raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
+            raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
     def execute(self, block_store):
         file_inputs = self.get_filenames(block_store, self.input_refs)
@@ -131,8 +131,8 @@ class JavaExecutor(SWExecutor):
 #        print "Output filenames:"
 #        for fn in file_outputs:
 #            print '\t', fn
-#        
-#        print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
+        
+        #print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
         cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
         process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
         for x in jar_filenames:
