@@ -18,6 +18,13 @@ class BlameUserException(RuntimeSkywritingError):
         
     def __repr__(self):
         return self.description
+    
+    def __str__(self):
+        return self.description
+
+class MasterNotRespondingException(RuntimeSkywritingError):
+    def __init__(self):
+        pass
 
 class ExecutionInterruption(Exception):
     def __init__(self):

@@ -636,6 +636,7 @@ class SWRuntimeInterpreterTask:
         return SWDereferenceWrapper(ref)
         
     def eager_dereference(self, ref):
+        print "EAGERLY DEREFERENCING:", ref
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)

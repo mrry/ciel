@@ -198,7 +198,8 @@ class StatementExecutorVisitor(Visitor):
             if resume_record.iterator is None:
                 resume_record.iterator = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.iterator, stack, stack_base + 1)
 
-            indexer_lvalue = node.indexer                
+            indexer_lvalue = node.indexer       
+            ret = None         
             for i in range(resume_record.i, len(resume_record.iterator)):
                 resume_record.i = i
                 self.context.update_value(indexer_lvalue, resume_record.iterator[i], stack, stack_base + 1)
