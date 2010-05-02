@@ -3,6 +3,7 @@ Created on 13 Apr 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
 from mrry.mercator.cloudscript.context import SimpleContext, TaskContext,\
     LambdaFunction
@@ -347,7 +348,7 @@ class SWRuntimeInterpreterTask:
         try:
             self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
             
-        except SelectException as se:
+        except SelectException, se:
             
             print "!!! SELECT EXCEPTION"
             
@@ -364,7 +365,7 @@ class SWRuntimeInterpreterTask:
 
             self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             
-        except ExecutionInterruption as ei:
+        except ExecutionInterruption, ei:
 
             print "!!! EXECUTION INTERRUPTION"
             

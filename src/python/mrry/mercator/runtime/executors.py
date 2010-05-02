@@ -3,6 +3,7 @@ Created on 19 Apr 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 from subprocess import PIPE
 from mrry.mercator.runtime.references import SWLocalDataFile, SWURLReference,\
     SWDataValue

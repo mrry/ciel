@@ -191,7 +191,7 @@ class BlockStore:
             
             try:
                 response = urllib2.urlopen(request)
-            except HTTPError as ue:
+            except HTTPError, ue:
                 if ue.code == 412:
                     raise ExecutionInterruption()
                 else:
