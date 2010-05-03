@@ -9,11 +9,16 @@ from mrry.mercator.runtime.task_executor import SWContinuation
 from mrry.mercator.runtime.references import SWURLReference
 from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder
 from mrry.mercator.cloudscript.context import SimpleContext
+import time
+import datetime
 import simplejson
 import pickle
 import urlparse
 import httplib2
 import sys
+
+def now_as_timestamp():
+    return (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())
 
 if __name__ == '__main__':
     
@@ -21,10 +26,16 @@ if __name__ == '__main__':
     
     script_name = sys.argv[1]
     master_uri = sys.argv[2]
+    id = sys.argv[3]
+    
+    print id, "STARTED", now_as_timestamp()
+
     
     parser = SWScriptParser()
     
     script = parser.parse(open(script_name, 'r').read())
+
+    print id, "FINISHED_PARSING", now_as_timestamp()
     
     if script is None:
         print "Script did not parse :("
@@ -38,20 +49,24 @@ if __name__ == '__main__':
     (response, content) = http.request(master_data_uri, "POST", pickle.dumps(cont))
     continuation_uri, size_hint = simplejson.loads(content)
     
-    print continuation_uri
+    print id, "SUBMITTED_CONT", now_as_timestamp()
+    
+    #print continuation_uri
     
     task_descriptor = {'inputs': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi'}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/task/")
     (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
+    
+    print id, "SUBMITTED_JOB", now_as_timestamp() 
+    
+    
     out = simplejson.loads(content)
-    
     gd_url = urlparse.urljoin(master_uri, "/global_data/%d" % out[0])
-    
     notify_url = urlparse.urljoin(master_uri, "/global_data/%d/completion" % out[0])
     
-    print "Blocking to get final result"
+    #print "Blocking to get final result"
     (response, content) = http.request(notify_url)
-    print "Got final result"
+    print id, "GOT_RESULT", now_as_timestamp()
     
-    print content
+    #print content
