@@ -9,6 +9,8 @@ from threading import Lock
 from mrry.mercator.runtime.references import SWGlobalFutureReference,\
     SWURLReference
 from mrry.mercator.runtime.block_store import get_netloc_for_sw_url
+import time
+import datetime
 import logging
 import cherrypy
 
@@ -45,17 +47,21 @@ class Task:
         self.current_attempt = 0
         self.worker_id = None
         
+        self.history = []
+       
         self.parent = parent_task_id
         self.children = []
         
-        self.inputs = task_descriptor['inputs']
+        self.dependencies = task_descriptor['inputs']
+        
+        self.inputs = {}
                 
         self.expected_outputs = task_descriptor['expected_outputs']
     
         self.state = TASK_RUNNABLE    
     
         self.blocking_dict = {}
-        for local_id, input in self.inputs.items():
+        for local_id, input in self.dependencies.items():
             if isinstance(input, SWGlobalFutureReference):
                 global_id = input.id
                 refs = global_name_directory.get_refs_for_id(global_id)
@@ -66,6 +72,8 @@ class Task:
                         self.blocking_dict[global_id].add(local_id)
                     except KeyError:
                         self.blocking_dict[global_id] = set([local_id])
+            else:
+                self.inputs[local_id] = input
 
         if len(self.blocking_dict) > 0:
             self.state = TASK_BLOCKING
@@ -94,8 +102,13 @@ class Task:
         except KeyError:
             pass
         
+        self.record_event("CREATED")
+        
     def __repr__(self):
         return 'Task(%d)' % self.task_id
+       
+    def record_event(self, description):
+        self.history.append((datetime.datetime.now(), description))
         
     def is_blocked(self):
         return self.state in (TASK_BLOCKING, TASK_SELECTING)
@@ -113,21 +126,27 @@ class Task:
             i = self.selecting_dict.pop(global_id)
             self.select_result.append(i)
             self.state = TASK_RUNNABLE
+            self.record_event("RUNNABLE")
         elif self.state in (TASK_BLOCKING,):
             local_ids = self.blocking_dict.pop(global_id)
             for local_id in local_ids:
                 self.inputs[local_id] = refs[0]
             if len(self.blocking_dict) == 0:
                 self.state = TASK_RUNNABLE
+                self.record_event("RUNNABLE")
         
-    def as_descriptor(self):        
+    def as_descriptor(self, long=False):        
         descriptor = {'task_id': self.task_id,
+                      'dependencies': self.dependencies,
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
                       'inputs': self.inputs,
                       'state': TASK_STATE_NAMES[self.state],
                       'parent': self.parent,
                       'children': self.children}
+        
+        if long:
+            descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
         
         if hasattr(self, 'select_result'):
             descriptor['select_result'] = self.select_result
@@ -195,6 +214,7 @@ class TaskPool(plugins.SimplePlugin):
                         self.references_blocking_tasks[global_id] = set([task_id])
             else:
                 task.state = TASK_RUNNABLE
+                task.record_event("RUNNABLE")
                 self.add_task_to_queues(task)
                 
         self.bus.publish('schedule')
@@ -209,6 +229,7 @@ class TaskPool(plugins.SimplePlugin):
     def _abort(self, task_id):
         task, previous_state = self._mark_task_as_aborted(task_id)
         if previous_state == TASK_ASSIGNED:
+            task.record_event("ABORTED")
             self.worker_pool.abort_task_on_worker(task)
         for child in task.children:
             self._abort(child)
@@ -229,6 +250,7 @@ class TaskPool(plugins.SimplePlugin):
                 task.unblock_on(id, urls)
                 if was_blocked and not task.is_blocked():
                     task.state = TASK_RUNNABLE
+                    task.record_event("RUNNABLE")
                     self.add_task_to_queues(task)
                     self.bus.publish('schedule')
     
@@ -241,6 +263,7 @@ class TaskPool(plugins.SimplePlugin):
             worker_id = task.worker_id
             task.worker_id = None
             task.state = TASK_COMMITTED
+            task.record_event("COMMITTED")
             
         self.bus.publish('worker_idle', worker_id)
     
@@ -252,14 +275,17 @@ class TaskPool(plugins.SimplePlugin):
                 task = self.tasks[id]
                 task.current_attempt += 1
                 task.worker_id = None
+                task.record_event("WORKER_FAILURE")
                 if task.current_attempt > 3:
                     task.state = TASK_FAILED
+                    task.record_event("TASK_FAILURE")
                     # TODO: notify parents.
                 else:
                     self.add_task_to_queues(task)
                     self.bus.publish('schedule')
         elif reason == 'MISSING_INPUT':
             # Problem fetching input, so we will have to rete it.
+            task.record_event("MISSING_INPUT_FAILURE")
             pass
         elif reason == 'RUNTIME_EXCEPTION':
             # Kill the entire job, citing the problem.
@@ -267,6 +293,7 @@ class TaskPool(plugins.SimplePlugin):
                 task = self.tasks[id]
                 worker_id = task.worker_id
                 task.worker_id = None
+                task.record_event("RUNTIME_EXCEPTION_FAILURE")
                 task.state = TASK_FAILED
                 # TODO: notify parents. 
             self.bus.publish('worker_idle', worker_id)

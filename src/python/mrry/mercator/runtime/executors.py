@@ -59,7 +59,7 @@ class SWExecutor:
             raise ReferenceUnavailableException(ref, self.continuation)
 
     def get_filenames(self, block_store, refs):
-        print "GET_FILENAMES:", refs
+        #print "GET_FILENAMES:", refs
         # Mark all as execd before we risk faulting.
         if self.continuation is not None:
             map(self.continuation.mark_as_execd, refs)
