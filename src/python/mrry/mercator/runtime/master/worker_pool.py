@@ -99,6 +99,7 @@ class WorkerPool(plugins.SimplePlugin):
             worker = self.workers[worker_id]
             worker.current_task_id = task.task_id
             task.state = TASK_ASSIGNED
+            task.record_event("ASSIGNED")
             task.worker_id = worker_id
             
         try:
