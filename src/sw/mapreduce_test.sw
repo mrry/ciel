@@ -23,30 +23,30 @@ function mapreduce(inputs, mapper, reducer, r) {
   return reduce_outputs;
 }
 
-inputs = [ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part9"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part4"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part1"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part0"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part3"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part2"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part7"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part6"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part8"),
-ref("file:///local/scratch/ms705/skywriting/hadoop-0.20-svn/bin/PiEstimator_TMP_3_141592654/in/part5")];
+inputs = [ref(""),
+ref(""),
+ref(""),
+ref(""),
+ref(""),
+ref(""),
+ref(""),
+ref(""),
+ref(""),
+ref("")];
 
 function make_hadoop_map_task(conf, num_reducers) {
   return function(i) {
-    spawn_exec("java", {"inputs": [conf], "lib":["/usr/lib/hadoop/skywriting_bridge/"], "args":[i], "class":"SWMapEntryPoint"}, num_reducers);
+    spawn_exec("java", {"inputs": [conf], "lib":["/local/scratch/ms705/skywriting/mercator.hg/src/java"], "args":[i], "class":"SWMapEntryPoint"}, num_reducers);
   };
 }
 
 function make_hadoop_reduce_task(conf) {
   return function(i) {
-    spawn_exec("java", {"inputs": [conf], "lib":["/usr/lib/hadoop/skywriting_bridge/"], "args":[i], "class":"SWReduceEntryPoint"}, 1);
+    spawn_exec("java", {"inputs": [conf], "lib":["/local/scratch/ms705/skywriting/mercator.hg/src/java"], "args":[i], "class":"SWReduceEntryPoint"}, 1);
   };
 }
 
-conf = ref(""swbs://skiing-0.xeno.cl.cam.ac.uk:9000/3"");
+conf = ref("swbs://localhost:9000/");
 
 return map_reduce(range(0, 10), make_hadoop_map_task(conf, 1), make_hadoop_reduce_task(conf), 1);
 

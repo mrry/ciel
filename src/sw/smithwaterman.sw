@@ -17,6 +17,9 @@ for (j in range(1, num_cols)) {
     blocks[0][j] = spawn_exec("java", {"argv":["t", 0-1, 0-1, 0-1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[j], vert_chunks[0], blocks[0][j-1][2]]}, 3);
 }
 
+i = 0;
+j = 0;
+
 for (i in range(1, num_rows)) {
     
     blocks[i] = [];
