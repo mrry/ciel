@@ -147,6 +147,7 @@ class Task:
         
         if long:
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
+            descriptor['worker_id'] = self.worker_id
         
         if hasattr(self, 'select_result'):
             descriptor['select_result'] = self.select_result
@@ -261,7 +262,6 @@ class TaskPool(plugins.SimplePlugin):
         with self._lock:
             task = self.tasks[id]
             worker_id = task.worker_id
-            task.worker_id = None
             task.state = TASK_COMMITTED
             task.record_event("COMMITTED")
             
@@ -274,7 +274,6 @@ class TaskPool(plugins.SimplePlugin):
             with self._lock:
                 task = self.tasks[id]
                 task.current_attempt += 1
-                task.worker_id = None
                 task.record_event("WORKER_FAILURE")
                 if task.current_attempt > 3:
                     task.state = TASK_FAILED
@@ -292,9 +291,13 @@ class TaskPool(plugins.SimplePlugin):
             with self._lock:
                 task = self.tasks[id]
                 worker_id = task.worker_id
-                task.worker_id = None
                 task.record_event("RUNTIME_EXCEPTION_FAILURE")
                 task.state = TASK_FAILED
                 # TODO: notify parents. 
             self.bus.publish('worker_idle', worker_id)
             pass
+
+    def flush_task_dict(self):
+        cherrypy.log.error("Flushing tasks dict. In-progress jobs will fail.", "TASK", logging.WARN, False)
+        self.tasks = {}
+        self.references_blocking_tasks = {}

@@ -15,11 +15,9 @@ class Scheduler(AsynchronousExecutePlugin):
         self.task_pool = task_pool
         
     def handle_input(self, input):
-        print 'Running the scheduler!'
         idle_workers = self.worker_pool.get_idle_workers()
         
         attempt_count = 0
-        print idle_workers
         while len(idle_workers) > 0:
             retry_workers = []
             for worker in idle_workers:
@@ -28,7 +26,6 @@ class Scheduler(AsynchronousExecutePlugin):
                     # Skip over tasks that have been aborted or otherwise scheduled.
                     while task.state != TASK_QUEUED:
                         task = worker.queues[attempt_count].get(block=False)
-                    print '%d -%d-> %d' % (task.task_id, attempt_count, worker.id)
                     self.worker_pool.execute_task_on_worker_id(worker.id, task)
                 except Empty:
                     # Try again on next round of attempts.

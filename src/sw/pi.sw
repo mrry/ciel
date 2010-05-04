@@ -1,4 +1,4 @@
-num_mappers = 1000;
+num_mappers = 99;
 num_samples = 1;
 jar_lib = [ref("http://www.cl.cam.ac.uk/~dgm36/pi.jar")];
 

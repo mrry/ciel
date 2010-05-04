@@ -1,8 +1,8 @@
-num_rows = 8;
-num_cols = 8;
+num_rows = 10;
+num_cols = 10;
 
-horiz_source = ref("http://www.cl.cam.ac.uk/~dgm36/horizontal_string");
-vert_source = ref("http://www.cl.cam.ac.uk/~dgm36/vertical_string");
+horiz_source = ref("http://www.cl.cam.ac.uk/~dgm36/horizontal_string_random");
+vert_source = ref("http://www.cl.cam.ac.uk/~dgm36/vertical_string_random");
 java_lib = [ref("http://www.cl.cam.ac.uk/~dgm36/dp.jar")];
 
 horiz_chunks = spawn_exec("java", {"inputs":[horiz_source], "lib":java_lib, "class":"tests.dp.PartitionInputString", "argv":[]}, num_cols);
@@ -29,4 +29,6 @@ for (i in range(1, num_rows)) {
 
 }
 
-return blocks;
+ignore = exec("stdinout", {"inputs":[blocks[i][j][0]], "command_line":["cat"]}, 1);
+
+return ignore;

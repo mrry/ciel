@@ -79,8 +79,15 @@ class MasterTaskRoot:
     @cherrypy.expose 
     def default(self, id=None, action=None):
         if id is not None:
-            
-            task_id = int(id)
+        
+            try:
+                task_id = int(id)
+            except:
+                if id == 'flush':
+                    self.task_pool.flush_task_dict()
+                    return
+                else:
+                    raise HTTPError(404)
             
             # Spawn and commit actions should probably happen on a buffer object for transactional
             # semantics.
