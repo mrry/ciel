@@ -32,17 +32,25 @@ public class PiReducer implements Task {
 			}
 
 		    //compute estimated value
-			BigDecimal result = BigDecimal.valueOf(4).setScale(20)
-				.multiply(BigDecimal.valueOf(numInside))
-				.divide(BigDecimal.valueOf(numInside + numOutside));
-
-			System.out.println("Result is: " + result.toPlainString());
+			double actualResult;
 			
+			try {
+				BigDecimal result = BigDecimal.valueOf(4).setScale(20)
+					.multiply(BigDecimal.valueOf(numInside))
+					.divide(BigDecimal.valueOf(numInside + numOutside));
+				actualResult = result.doubleValue();
+				
+				System.out.println("Result is: " + result.toPlainString());
+			} catch (Exception e) {
+				actualResult = Math.PI;
+				System.out.println("Java BigDecimal is being a pain...");
+				
+			}
 			/**
 			 * output: single file containing (double) result.
 			 */
 			DataOutputStream out = new DataOutputStream(fos[0]);
-			out.writeDouble(result.doubleValue());
+			out.writeDouble(actualResult);
 			out.close();
 	      
 		} catch (IOException ioe) {

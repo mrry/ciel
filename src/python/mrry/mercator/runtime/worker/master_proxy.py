@@ -32,9 +32,8 @@ class MasterProxy:
     def get_master_details(self):
         return {'netloc': self.master_netloc}
     
-    def backoff_request(self, url, method, payload=None):
+    def backoff_request(self, url, method, payload=None, num_attempts=3, initial_wait=5):
         initial_wait = 5
-        num_attempts = 3
         for i in range(0, num_attempts):
             try:
                 response, content = httplib2.Http().request(url, method, payload)
@@ -80,7 +79,10 @@ class MasterProxy:
     def ping(self, status, ping_news):
         message_payload = simplejson.dumps({'worker': self.worker.netloc(), 'status': status, 'news': ping_news})
         message_url = urljoin(self.master_url, 'worker/%d/ping/' % (self.worker.id, ))
-        self.backoff_request(message_url, "POST", message_payload)
+        try:
+            self.backoff_request(message_url, "POST", message_payload, 1, 0)
+        except MasterNotRespondingException:
+            pass
         
     def get_task_descriptor_for_future(self, ref):
         message_url = urljoin(self.master_url, 'global_data/%d/task' % (ref.id, ))
