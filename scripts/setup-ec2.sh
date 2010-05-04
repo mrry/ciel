@@ -14,10 +14,11 @@ I=0
 while read line
 do
     echo -n "Setting up instance $I "
-    scp -q -i $KEY setup-local.sh $USER@$line:
+    scp -o StrictHostKeyChecking=no -q -i $KEY setup-local.sh $USER@$line:
     scp -q -i $KEY launch-master.sh $USER@$line:
     scp -q -i $KEY launch-worker.sh $USER@$line:
     scp -q -i $KEY sw-distrib.tar.gz $USER@$line:
+    scp -q -i $KEY pkill.sh $USER@$line:
     if [ "$I" -eq "0" ]; then
 	echo "... as a master."
 	ssh -f -i $KEY $USER@$line "/root/setup-local.sh master /root"
