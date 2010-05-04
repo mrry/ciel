@@ -84,6 +84,13 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.add(id)
         self.bus.publish('schedule')
         return id
+    
+    def shutdown(self):
+        for worker in self.workers.values():
+            try:
+                httplib2.Http().request('http://%s/kill/' % worker.netloc)
+            except:
+                pass
         
     def get_worker_by_id(self, id):
         with self._lock:

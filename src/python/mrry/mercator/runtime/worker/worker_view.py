@@ -5,6 +5,8 @@ Created on 8 Feb 2010
 '''
 from cherrypy.lib.static import serve_file
 from mrry.mercator.runtime.block_store import json_decode_object_hook
+import sys
+import os
 import simplejson
 import cherrypy
 
@@ -15,10 +17,20 @@ class WorkerRoot:
         self.task = TaskRoot(worker.task_executor)
         self.data = DataRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
+        self.kill = KillRoot()
     
     @cherrypy.expose
     def index(self):
         return "Hello from the job manager server...."
+
+class KillRoot:
+    
+    def __init__(self):
+        pass
+    
+    @cherrypy.expose
+    def index(self):
+        sys.exit(0)
 
 class RegisterMasterRoot:
     

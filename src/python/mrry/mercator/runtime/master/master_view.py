@@ -8,6 +8,7 @@ from cherrypy import HTTPError
 from mrry.mercator.runtime.block_store import json_decode_object_hook,\
     SWReferenceJSONEncoder
 from cherrypy.lib.static import serve_file
+import sys
 import os
 import tempfile
 import simplejson
@@ -22,10 +23,21 @@ class MasterRoot:
         self.data = DataRoot(block_store)
         self.global_data = GlobalDataRoot(global_name_directory, task_pool, worker_pool)
         #self.cluster = ClusterDetailsRoot()
+        self.shutdown = ShutdownRoot(worker_pool)
 
     @cherrypy.expose
     def index(self):
         return "Hello from the master!"
+
+class ShutdownRoot:
+    
+    def __init__(self, worker_pool):
+        self.worker_pool = worker_pool
+    
+    @cherrypy.expose
+    def index(self):
+        self.worker_pool.shutdown()
+        sys.exit(-1)
 
 class WorkersRoot:
     
