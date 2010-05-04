@@ -3,9 +3,13 @@ Created on 8 Feb 2010
 
 @author: dgm36
 '''
+from __future__ import with_statement
 from cherrypy import HTTPError
 from mrry.mercator.runtime.block_store import json_decode_object_hook,\
     SWReferenceJSONEncoder
+from cherrypy.lib.static import serve_file
+import os
+import tempfile
 import simplejson
 import cherrypy
 from mrry.mercator.runtime.worker.worker_view import DataRoot
@@ -173,7 +177,11 @@ class MasterTaskRoot:
                         
         else:
             if cherrypy.request.method == 'GET':
-                return simplejson.dumps(map(lambda x: x.as_descriptor(long=True), self.task_pool.tasks.values()), cls=SWReferenceJSONEncoder)
+                task_fd, filename = tempfile.mkstemp()
+                task_file = os.fdopen(task_fd, 'w')
+                simplejson.dump(map(lambda x: x.as_descriptor(long=True), self.task_pool.tasks.values()), fp=task_file, cls=SWReferenceJSONEncoder)
+                task_file.close()
+                return serve_file(filename)
                 
 class GlobalDataRoot:
     
