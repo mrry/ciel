@@ -19,6 +19,8 @@ do
     scp -q -i $KEY launch-worker.sh $USER@$line:
     scp -q -i $KEY sw-distrib.tar.gz $USER@$line:
     scp -q -i $KEY pkill.sh $USER@$line:
+    scp -q -i $KEY $KEY $USER@$line:key.pem
+    scp -q -i $KEY $2 $USER@$line:instances
     if [ "$I" -eq "0" ]; then
 	echo "... as a master."
 	ssh -f -i $KEY $USER@$line "/root/setup-local.sh master /root"
