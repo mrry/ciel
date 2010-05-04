@@ -998,7 +998,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
    * @param url the URL to POST it to
    * @throws IOException
    */
-  private void httpPostFile(File f, String url) throws IOException {
+  private String httpPostFile(File f, String url) throws IOException {
 
     HttpClient client = new HttpClient();
     
@@ -1007,13 +1007,17 @@ public class JobClient extends Configured implements MRConstants, Tool  {
     httppost.setRequestEntity(new InputStreamRequestEntity(
         new FileInputStream(f), f.length()));
     
+    String result = null;
+    
     try {
       client.executeMethod(httppost);
       
       if (httppost.getStatusCode() == HttpStatus.SC_OK) {
         System.out.println("[Skywriting] HTTP POST req: " + httppost.getResponseBodyAsString());
+        result = httppost.getResponseBodyAsString();
       } else {
         System.out.println("[Skywriting] HTTP POST req: Unexpected failure: " + httppost.getStatusLine().toString());
+        result = httppost.getStatusLine().toString();
       }
     } catch (FileNotFoundException fnfe) {
       throw new IOException("file not found", fnfe);
@@ -1021,12 +1025,14 @@ public class JobClient extends Configured implements MRConstants, Tool  {
       httppost.releaseConnection();
     }
     
+    return result;
     
   }
   
   
   private <T extends org.apache.hadoop.mapreduce.InputSplit> void generateMRSkywritingCode(
-      List<org.apache.hadoop.mapreduce.InputSplit> splits, Path jobDir, JobConf conf) throws IOException {
+      List<org.apache.hadoop.mapreduce.InputSplit> splits, Path jobDir, JobConf conf, 
+      String confXMLRef) throws IOException {
     
     /* This is a quick-and-dirty hack to generate the Skywriting source code to support MR
      * At some point, this should use a template file and just substitute in the inputs, rather
@@ -1072,45 +1078,46 @@ public class JobClient extends Configured implements MRConstants, Tool  {
         if (filesys instanceof LocalFileSystem) {
           // TODO POST stuff - do we still want to do this?
           // get Skywriting URI in result
+          sw.write(fs.getPath().toUri().toASCIIString());
         } else {
           sw.write(fs.getPath().toUri().toASCIIString()); 
         }
-        sw.write("\")" + ((i != array.length-1) ? ",\n" : "];"));
+        sw.write("\")" + ((i != array.length-1) ? ",\n" : "];\n\n"));
       }
+      
+      /* Write out the Hadoop interface functions
+       */
+      String hadoopSupportPath = "/usr/lib/hadoop/skywriting_bridge/";
+      String jobConfigXMLFile =confXMLRef;
+      //int numMappers = conf.getNumMapTasks();
+      int numReducers = conf.getNumReduceTasks();
+      int numInputs = array.length;
+      
+      // Map task interface
+      sw.write("function make_hadoop_map_task(conf, num_reducers) {\n");
+      sw.write("  return function(i) {\n");
+      sw.write("    spawn_exec(\"java\", {\"inputs\": [conf], \"lib\":[\"" + hadoopSupportPath + "\"], " + 
+          "\"args\":[i], \"class\":\"SWMapEntryPoint\"}, num_reducers);\n");
+      sw.write("  };\n");
+      sw.write("}\n\n");
+      
+      // Reduce task interface
+      sw.write("function make_hadoop_reduce_task(conf) {\n");
+      sw.write("  return function(i) {\n");
+      sw.write("    spawn_exec(\"java\", {\"inputs\": [conf], \"lib\":[\"" + hadoopSupportPath + "\"], " + 
+          "\"args\":[i], \"class\":\"SWReduceEntryPoint\"}, " + numReducers + ");\n");
+      sw.write("  };\n");
+      sw.write("}\n\n");
+      
+      // Reference to job config XML file
+      sw.write("conf = ref(" + jobConfigXMLFile + ");\n\n");
+      
+      // Invocation
+      sw.write("return map_reduce(range(0, " + numInputs + "), make_hadoop_map_task(conf, " + numReducers + "), make_hadoop_reduce_task(conf), " + numReducers + ");\n");
+    
     } finally {
       sw.close();
     }
-    
-    /* Write out the Hadoop interface functions
-     */
-    String hadoopSupportPath = "/usr/lib/hadoop/skywriting_bridge/";
-    String jobConfigXMLFile = ""; // Fix this
-    //int numMappers = conf.getNumMapTasks();
-    int numReducers = conf.getNumReduceTasks();
-    int numInputs = array.length;
-    
-    // Map task interface
-    sw.write("function make_hadoop_map_task(conf, num_reducers) {\n");
-    sw.write("  return function(i) {\n");
-    sw.write("    spawn_exec(\"java\", {\"inputs\": [conf], \"lib\":[" + hadoopSupportPath + "], " + 
-        "\"args\":[i], \"class\":\"SWMapEntryPoint\"}, " + numReducers + ");\n");
-    sw.write("  };\n");
-    sw.write("}\n\n");
-    
-    // Reduce task interface
-    sw.write("function make_hadoop_reduce_task(conf) {\n");
-    sw.write("  return function(i) {\n");
-    sw.write("    spawn_exec(\"java\", {\"inputs\": [conf], \"lib\":[" + hadoopSupportPath + "], " + 
-        "\"args\":[i], \"class\":\"SWReduceEntryPoint\"}, " + numReducers + ");\n");
-    sw.write("  };\n");
-    sw.write("}\n\n");
-    
-    // Reference to job config XML file
-    sw.write("conf = ref(\"" + jobConfigXMLFile + "\");\n\n");
-    
-    // Invocation
-    sw.write("return map_reduce(range(0, " + numInputs + "), make_hadoop_map_task(conf, " + numReducers + "), make_hadoop_reduce_task(conf), " + numReducers + ");\n");
-    
     
   }
   
@@ -1181,15 +1188,15 @@ public class JobClient extends Configured implements MRConstants, Tool  {
     File jobXML = new File(submitJobFile.toUri());
     // + splits
     
-    httpPostFile(jobJar, "http://skiing-0.xeno:8080/data/");
-    httpPostFile(jobXML, "http://skiing-0.xeno:8080/data/");
+    httpPostFile(jobJar, "http://skiing-0.xeno:9000/data/");
+    String swConfRef = httpPostFile(jobXML, "http://skiing-0.xeno:9000/data/");
     
     org.apache.hadoop.mapreduce.InputFormat<?,?> input =
       ReflectionUtils.newInstance(context.getInputFormatClass(), job);
     
     List<org.apache.hadoop.mapreduce.InputSplit> splits = input.getSplits(context);
     
-    generateMRSkywritingCode(splits, submitJobDir, job);
+    generateMRSkywritingCode(splits, submitJobDir, job, swConfRef);
     
     //
     // Now, actually submit the job (using the submit name)
