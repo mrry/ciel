@@ -28,7 +28,9 @@ class Worker(plugins.SimplePlugin):
         self.port = port
         self.master_url = master_url
         self.master_proxy = MasterProxy(self, master_url)
-        self.block_store = BlockStore(self.hostname, self.port, tempfile.mkdtemp(), self.master_proxy)
+        temp_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP'))
+        print os.getenv('TEMP')
+        self.block_store = BlockStore(self.hostname, self.port, temp_dir, self.master_proxy)
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
