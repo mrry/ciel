@@ -2,6 +2,8 @@
 BASE=$1
 MASTER=$2
 
+rm -rf /tmp/tmp*
+
 mkdir -p $BASE/logs
 
 ERROR_LOG=$BASE/logs/error.log
