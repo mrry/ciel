@@ -19,7 +19,7 @@ public class SWTeraPreBucketer implements Task {
 	String[] bucketerArgs = new String[1];
 	bucketerArgs[0] = ((Integer)1).toString();
 
-	return (new SWTeraBucketer()).invoke(bucketerInputs, outputs, bucketerArgs);
+	(new SWTeraBucketer()).invoke(bucketerInputs, outputs, bucketerArgs);
 
     }
 

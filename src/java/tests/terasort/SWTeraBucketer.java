@@ -87,7 +87,7 @@ public class SWTeraBucketer implements Task {
 		 */
 		
 		int nPartitions = Integer.parseInt(args[0]);
-		DataInputStream dis;
+		DataInputStream dis = null;
 		if(nPartitions > 1) {
 		    dis = new DataInputStream(inputs[0]);
 		}
