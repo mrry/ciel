@@ -12,7 +12,7 @@ while read line
 do
     if [ "$I" -eq "0" ]; then
 	echo "($I) Launching master."
-	ssh -f -o StringHostKeyChecking=no -i $KEY $USER@$line "/root/launch-master.sh /root"
+	ssh -f -o StrictHostKeyChecking=no -i $KEY $USER@$line "/root/launch-master.sh /root"
 	MASTER=$line
     else
 	echo "($I) Launching worker for $MASTER"
