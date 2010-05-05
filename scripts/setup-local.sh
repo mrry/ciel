@@ -23,6 +23,10 @@ tar -xzf sw-distrib.tar.gz 2>&1 1>/dev/null
 # kill hadoop
 #killall java
 
+# get eval scripts
+wget -q http://www.cl.cam.ac.uk/~ms705/runeval-micro.sh
+wget -q http://www.cl.cam.ac.uk/~ms705/runeval-macro.sh
+
 # spawn the appropriate kind of skywriting node
 # N.B. $3 is the master hostname in the case of a worker
 # and empty otherwise
