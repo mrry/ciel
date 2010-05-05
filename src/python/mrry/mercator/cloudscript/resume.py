@@ -35,7 +35,7 @@ class FunctionCallRR:
         self.args = [None for i in range(num_args)]
         
     def __repr__(self):
-        return 'FunctionCallRR(args=[%s])' % (repr(self.args), )
+        return 'FunctionCallRR(args=%s)' % (repr(self.args), )
         
 class ListRR:
     
@@ -92,7 +92,7 @@ class ForRR:
         self.i = 0
 
     def __repr__(self):
-        return 'ForRR(iterator=%s, i=%)' % (repr(self.iterator), repr(self.i))
+        return 'ForRR(iterator=%s, i=%s)' % (repr(self.iterator), repr(self.i))
     
 class ListIndexRR:
     
@@ -103,12 +103,16 @@ class ListIndexRR:
         return 'ListIndexRR(list=%s)' % (repr(self.list), )
        
 class AssignmentRR:
-    
     def __init__(self):
         self.rvalue = None
-    
     def __repr__(self):
         return 'AssignmentRR(rvalue=%s)' % (repr(self.rvalue), )
+
+class PlusAssignmentRR:
+    def __init__(self):
+        self.rvalue = None
+    def __repr__(self):
+        return 'PlusAssignmentRR(rvalue=%s)' % (repr(self.rvalue), )
         
 class ContextAssignRR:
     

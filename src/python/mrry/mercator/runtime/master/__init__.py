@@ -27,15 +27,16 @@ def master_main(options):
 
     global_name_directory = GlobalNameDirectory()
 
-    task_pool = TaskPool(cherrypy.engine, global_name_directory)
-    task_pool.subscribe()
-    
     worker_pool = WorkerPool(cherrypy.engine)
     worker_pool.subscribe()
 
+    task_pool = TaskPool(cherrypy.engine, global_name_directory, worker_pool)
+    task_pool.subscribe()
+    
+
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
-    master_proxy = LocalMasterProxy(task_pool, None, global_name_directory)
+    master_proxy = LocalMasterProxy(task_pool, None, global_name_directory, worker_pool)
     block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
     master_proxy.block_store = block_store
 

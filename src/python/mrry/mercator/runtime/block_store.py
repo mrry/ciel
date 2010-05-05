@@ -5,7 +5,10 @@ Created on 14 Apr 2010
 '''
 from __future__ import with_statement
 from threading import Lock
-import urllib
+from urllib2 import URLError, HTTPError
+from mrry.mercator.runtime.exceptions import ExecutionInterruption,\
+    ReferenceUnavailableException
+import random
 import urllib2
 import shutil
 import pickle
@@ -18,6 +21,9 @@ from mrry.mercator.runtime.references import SWRealReference,\
     build_reference_from_tuple
 urlparse.uses_netloc.append("swbs")
 
+def get_netloc_for_sw_url(url):
+    return urlparse.urlparse(url).netloc
+
 class SWReferenceJSONEncoder(simplejson.JSONEncoder):
 
     def default(self, obj):
@@ -25,6 +31,12 @@ class SWReferenceJSONEncoder(simplejson.JSONEncoder):
             return {'__ref__': obj.as_tuple()}
         else:
             return simplejson.JSONEncoder.default(self, obj)
+
+def json_decode_object_hook(dict_):
+        if '__ref__' in dict_:
+            return build_reference_from_tuple(dict_['__ref__'])
+        else:
+            return dict_
 
 class BlockStore:
     
@@ -34,15 +46,13 @@ class BlockStore:
         self.base_dir = base_dir
         self.current_id = 0
         self.object_cache = {}
+    
+        self.current_cache_access_id = 0
+        self.url_cache_filenames = {}
+        self.url_cache_access_times = {}
         
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle}
-        
-    def json_decode_object_hook(self, dict_):
-        if '__ref__' in dict_:
-            return build_reference_from_tuple(dict_['__ref__'])
-        else:
-            return dict_
     
     def encode_noop(self, obj, file):
         return file.write(obj)
@@ -51,7 +61,7 @@ class BlockStore:
     def encode_json(self, obj, file):
         return simplejson.dump(obj, file, cls=SWReferenceJSONEncoder)
     def decode_json(self, file):
-        return simplejson.load(file, object_hook=self.json_decode_object_hook)
+        return simplejson.load(file, object_hook=json_decode_object_hook)
     def encode_pickle(self, obj, file):
         return pickle.dump(obj, file)
     def decode_pickle(self, file):
@@ -62,11 +72,45 @@ class BlockStore:
         self.current_id += 1
         return ret
     
+    def mark_url_as_accessed(self, url):
+        self.url_cache_access_times[url] = self.current_cache_access_id
+        self.current_cache_access_id += 1
+        
+    def find_url_in_cache(self, url):
+        with self._lock:
+            try:
+                ret = self.url_cache_filenames[url]
+            except KeyError:
+                return None
+            self.mark_url_as_accessed(url)
+            return ret
+    
+    def evict_lru_from_url_cache(self):
+        lru_url = min([(access_time, url) for (url, access_time) in self.url_cache_access_times.items()])[1]
+        del self.url_cache_filenames[lru_url]
+        del self.url_cache_access_times[lru_url] 
+    
+    CACHE_SIZE_LIMIT=1024
+    def store_url_in_cache(self, url, filename):
+        with self._lock:
+            if len(self.url_cache_filenames) == BlockStore.CACHE_SIZE_LIMIT:
+                self.evict_lru_from_url_cache()
+            self.url_cache_filenames[url] = filename
+            self.mark_url_as_accessed(url)
+    
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
     
-    def publish_global_object(self, global_id, url):
-        self.master_proxy.publish_global_object(global_id, [url])
+    def publish_global_refs(self, global_id, refs, size_hint=None):
+        self.master_proxy.publish_global_refs(global_id, refs)
+    
+    def store_raw_file(self, incoming_fobj):
+        with self._lock:
+            id = self.allocate_new_id()
+        with open(self.filename(id), "wb") as data_file:
+            shutil.copyfileobj(incoming_fobj, data_file)
+            file_size = data_file.tell()
+        return 'swbs://%s/%d' % (self.netloc, id), file_size            
     
     def store_object(self, object, encoder):
         """Stores the given object as a block, and returns a swbs URL to it."""
@@ -75,62 +119,104 @@ class BlockStore:
             self.object_cache[id] = object
         with open(self.filename(id), "wb") as object_file:
             self.encoders[encoder](object, object_file)
-        return 'swbs://%s/%d' % (self.netloc, id)
+            file_size = object_file.tell()
+        return 'swbs://%s/%d' % (self.netloc, id), file_size
     
-    def store_file(self, filename):
+    def store_file(self, filename, can_move=False):
         """Stores the file with the given local filename as a block, and returns a swbs URL to it."""
         with self._lock:
             id = self.allocate_new_id()
-        shutil.copyfile(filename, self.filename(id))
-        return 'swbs://%s/%d' % (self.netloc, id)
+        if can_move:
+            shutil.move(filename, self.filename(id))
+        else:
+            shutil.copyfile(filename, self.filename(id))
+        file_size = os.path.getsize(self.filename(id))
+        return 'swbs://%s/%d' % (self.netloc, id), file_size
     
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
-        parsed_url = urlparse.urlparse(url)
-        if parsed_url.scheme == 'swbs':
-            id = int(parsed_url.path[1:])
-            if parsed_url.netloc == self.netloc:
-                # Retrieve local object.
-                try:
-                    return self.object_cache[id]
-                except KeyError:
-                    with open(self.filename(id)) as object_file:
-                        return self.decoders[decoder](object_file)
+        filename = self.find_url_in_cache(url)
+        if filename is None:
+            parsed_url = urlparse.urlparse(url)
+            if parsed_url.scheme == 'swbs':
+                id = int(parsed_url.path[1:])
+                if parsed_url.netloc == self.netloc:
+                    # Retrieve local object.
+                    try:
+                        return self.object_cache[id]
+                    except KeyError:
+                        with open(self.filename(id)) as object_file:
+                            return self.decoders[decoder](object_file)
+                else:
+                    # Retrieve remote in-system object.
+                    # XXX: should extract this magic string constant.
+                    fetch_url = 'http://%s/data/%d' % (parsed_url.netloc, id)
+    
             else:
-                # Retrieve remote in-system object.
-                # XXX: should extract this magic string constant.
-                fetch_url = 'http://%s/data/%d' % (parsed_url.netloc, id)
+                # Retrieve remote ex-system object.
+                fetch_url = url
+
+            object_file = urllib2.urlopen(fetch_url)
         else:
-            # Retrieve remote ex-system object.
-            fetch_url = url
-        
-        object_file = urllib2.urlopen(fetch_url)
+            object_file = open(filename, "r")
+
         ret = self.decoders[decoder](object_file)
         object_file.close()
         return ret
                 
-    def retrieve_filename_by_url(self, url):
+    def retrieve_filename_by_url(self, url, size_limit=None):
         """Returns the filename of a file containing the data at the given URL."""
-        parsed_url = urlparse.urlparse(url)
-        
-        if parsed_url.scheme == 'swbs':
-            id = int(parsed_url.path[1:])
-            if parsed_url.netloc == self.netloc:
-                # Retrieve local object.
-                return self.filename(id)
-            else:
-                # Retrieve remote in-system object.
-                # XXX: should extract this magic string constant.
-                fetch_url = 'http://%s/data/%d' % (parsed_url.netloc, id)
-        else:
-            # Retrieve remote ex-system object.
-            fetch_url = url
-        
-        with self._lock:
-            id = self.allocate_new_id()
+        filename = self.find_url_in_cache(url)
+        if filename is None:
+            parsed_url = urlparse.urlparse(url)
             
-        filename = self.filename(id)
-        urllib.urlretrieve(fetch_url, filename)
+            if parsed_url.scheme == 'swbs':
+                id = int(parsed_url.path[1:])
+                if parsed_url.netloc == self.netloc:
+                    # Retrieve local object.
+                    return self.filename(id)
+                else:
+                    # Retrieve remote in-system object.
+                    # XXX: should extract this magic string constant.
+                    fetch_url = 'http://%s/data/%d' % (parsed_url.netloc, id)
+            else:
+                # Retrieve remote ex-system object.
+                fetch_url = url
+            
+            headers = {}
+            if size_limit is not None:
+                headers['If-Match'] = str(size_limit)
+            
+            request = urllib2.Request(fetch_url, headers=headers)
+            
+            try:
+                response = urllib2.urlopen(request)
+            except HTTPError, ue:
+                if ue.code == 412:
+                    raise ExecutionInterruption()
+                else:
+                    raise
+            except URLError:
+                raise
+            
+            with self._lock:
+                id = self.allocate_new_id()
+       
+            filename = self.filename(id)
+    
+            with open(filename, 'wb') as data_file:
+                shutil.copyfileobj(response, data_file)
+ 
+            self.store_url_in_cache(url, filename)
         
         return filename
     
+    def choose_best_url(self, urls):
+        if len(urls) == 1:
+            return urls[0]
+        else:
+            for url in enumerate(urls):
+                parsed_url = urlparse.urlparse(url)
+                if parsed_url.netloc == self.netloc:
+                    return url
+            return random.choice(urls)

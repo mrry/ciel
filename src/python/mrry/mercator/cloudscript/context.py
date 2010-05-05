@@ -23,9 +23,6 @@ class GlobalScope:
     
     def __init__(self):
         self.bindings = {}
-        self.bindings["len"] = LambdaFunction(lambda x: len(x[0]))
-        self.bindings["range"] = LambdaFunction(lambda x: range(x[0], x[1]))
-            
 
     def has_binding_for(self, base_identifier):
         return base_identifier in self.bindings.keys()
@@ -43,6 +40,14 @@ class SimpleContext:
         self.binding_bases = []
         self.enter_context()
     
+    def abort(self):
+        # TODO: Make this cleaner :-).
+        self.contexts = None
+        self.binding_bases = None
+    
+    def __repr__(self):
+        return repr(self.contexts)
+   
     def restart(self):
         self.context_base = 1
         self.binding_bases[self.context_base-1] = 1
@@ -154,6 +159,13 @@ class TaskContext:
         self.wrapped_context = wrapped_context
         self.task = task
         self.tasklocal_bindings = {}
+        
+    def __repr__(self):
+        return "TaskContext(local=..., wrapping=%s)" % (repr(self.wrapped_context))
+        
+    def abort(self):
+        self.wrapped_context.abort()
+        self.wrapped_context = None
    
     def restart(self):
         return self.wrapped_context.restart()
@@ -204,8 +216,10 @@ class TaskContext:
             pass
         
         try:
-            value = self.tasklocal_bindings[base_identifier]
-            return SWDynamicScopeWrapper(base_identifier)
+            if base_identifier in self.tasklocal_bindings.keys():
+                return SWDynamicScopeWrapper(base_identifier)
+            else:
+                raise
         except:
             print "Error context[%d][%d]:" % (self.wrapped_context.context_base - 1, self.wrapped_context.binding_bases[self.wrapped_context.context_base-1] - 1), self.wrapped_context.contexts
             raise

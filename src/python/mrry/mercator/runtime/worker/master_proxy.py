@@ -4,6 +4,13 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 from urlparse import urljoin
+from mrry.mercator.runtime.references import SWDataValue
+from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder,\
+    json_decode_object_hook
+from mrry.mercator.runtime.exceptions import MasterNotRespondingException
+import logging
+import time
+import random
 import cherrypy
 import socket
 import httplib2
@@ -25,35 +32,59 @@ class MasterProxy:
     def get_master_details(self):
         return {'netloc': self.master_netloc}
     
+    def backoff_request(self, url, method, payload=None, num_attempts=3, initial_wait=5):
+        initial_wait = 5
+        for i in range(0, num_attempts):
+            try:
+                response, content = httplib2.Http().request(url, method, payload)
+                if response.status == 200:
+                    return response, content
+                else:
+                    cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
+                    cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, True)
+            except:
+                cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
+            time.sleep(initial_wait)
+            initial_wait += initial_wait * random.uniform(0.5, 1.5)
+        cherrypy.log.error("Given up trying to contact master", "MSTRPRXY", logging.ERROR, True)
+        raise MasterNotRespondingException()
+    
     def register_as_worker(self):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
         message_url = urljoin(self.master_url, 'worker/')
-        (_, result) = httplib2.Http().request(message_url, 'POST', message_payload)
+        _, result = self.backoff_request(message_url, 'POST', message_payload)
         self.worker.id = simplejson.loads(result)
     
-    def publish_global_object(self, global_id, urls):
-        message_payload = simplejson.dumps({global_id: urls})
+    def publish_global_refs(self, global_id, refs):
+        message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'global_data/%d' % (global_id, ))
-        httplib2.Http().request(message_url, "POST", message_payload)
+        self.backoff_request(message_url, "POST", message_payload)
         
     def spawn_tasks(self, parent_task_id, tasks):
-        print "Spawning %d tasks" % (len(tasks), )
-        message_payload = simplejson.dumps(tasks)
+        message_payload = simplejson.dumps(tasks, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%d/spawn' % (parent_task_id, ))
-        (_, result) = httplib2.Http().request(message_url, "POST", message_payload)
+        (_, result) = self.backoff_request(message_url, "POST", message_payload)
         return simplejson.loads(result)
     
     def commit_task(self, task_id, bindings):
-        message_payload = simplejson.dumps(bindings)
+        message_payload = simplejson.dumps(bindings, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%d/commit' % (task_id, ))
-        httplib2.Http().request(message_url, "POST", message_payload)
+        self.backoff_request(message_url, "POST", message_payload)
         
     def failed_task(self, task_id):
         message_payload = simplejson.dumps(task_id)
         message_url = urljoin(self.master_url, 'task/%d/failed' % (task_id, ))
-        httplib2.Http().request(message_url, "POST", message_payload)
+        self.backoff_request(message_url, "POST", message_payload)
 
     def ping(self, status, ping_news):
         message_payload = simplejson.dumps({'worker': self.worker.netloc(), 'status': status, 'news': ping_news})
         message_url = urljoin(self.master_url, 'worker/%d/ping/' % (self.worker.id, ))
-        httplib2.Http().request(message_url, "POST", message_payload)
+        try:
+            self.backoff_request(message_url, "POST", message_payload, 1, 0)
+        except MasterNotRespondingException:
+            pass
+        
+    def get_task_descriptor_for_future(self, ref):
+        message_url = urljoin(self.master_url, 'global_data/%d/task' % (ref.id, ))
+        (_, result) = self.backoff_request(message_url, "GET")
+        return simplejson.loads(result, object_hook=json_decode_object_hook)

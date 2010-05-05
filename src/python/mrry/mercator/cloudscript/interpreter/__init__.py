@@ -2,13 +2,13 @@ from Queue import Queue
 from threading import Lock, Condition, Thread
 from mrry.mercator.cloudscript.visitors import ExpressionEvaluatorVisitor,\
     StatementExecutorVisitor, SWDereferenceWrapper,\
-    SWFutureReference, SWDataReference
+    SWDataReference
 from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction,\
     TaskContext
 from mrry.mercator.cloudscript.parser import CloudScriptParser
 from mrry.mercator.cloudscript import ast
 from mrry.mercator.runtime.executors import SWStdinoutExecutor
-from mrry.mercator.runtime.references import SWLocalDataFile
+from mrry.mercator.runtime.references import SWLocalDataFile, SWURLReference
 from mrry.mercator.runtime.exceptions import ExecutionInterruption
 import threading
 import traceback
@@ -219,7 +219,7 @@ class SWInterpreterTask:
             print "Blocking on", self.blocked_on
             self.scheduler.block_on_references(self, self.blocked_on)
             return
-        except Exception as e:
+        except Exception, e:
             # TODO: could handle this better....
             traceback.print_exc()
             self.result = e
@@ -281,9 +281,10 @@ class SWInterpreterTask:
             print "Eagerly dereffing a file"
             value = simplejson.load(urllib2.urlopen(ref.urls[0]))
             return value
+        elif isinstance(ref, SWURLReference):
+            pass
         else:
-            print type(ref)
-            raise
+            raise ExecutionInterruption()
         
     def reference_resolved(self, ref_id):
         self.blocked_on.remove(ref_id)

@@ -4,7 +4,9 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-import pickle
+from mrry.mercator.runtime.block_store import json_decode_object_hook
+import sys
+import os
 import simplejson
 import cherrypy
 
@@ -12,13 +14,23 @@ class WorkerRoot:
     
     def __init__(self, worker):
         self.master = RegisterMasterRoot(worker)
-        self.task = TaskRoot()
+        self.task = TaskRoot(worker.task_executor)
         self.data = DataRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
+        self.kill = KillRoot()
     
     @cherrypy.expose
     def index(self):
         return "Hello from the job manager server...."
+
+class KillRoot:
+    
+    def __init__(self):
+        pass
+    
+    @cherrypy.expose
+    def index(self):
+        sys.exit(0)
 
 class RegisterMasterRoot:
     
@@ -37,17 +49,27 @@ class RegisterMasterRoot:
     
 class TaskRoot:
     
-    def __init__(self):
-        pass
+    def __init__(self, task_executor):
+        self.task_executor = task_executor
     
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
-            task_descriptor = simplejson.loads(cherrypy.request.body.read())
+            task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
                 cherrypy.engine.publish('execute_task', task_descriptor)
                 return
         raise cherrypy.HTTPError(405)
+    
+    @cherrypy.expose
+    def default(self, task_id, action):
+        if action == 'abort':
+            if cherrypy.request.method == 'POST':
+                self.task_executor.abort_task(task_id)
+            else:
+                raise cherrypy.HTTPError(405)
+        else:
+            raise cherrypy.HTTPError(404)
     
     # TODO: Add some way of checking up on the status of a running task.
     #       This should grow to include a way of getting the present activity of the task
@@ -70,8 +92,7 @@ class DataRoot:
     def index(self):
         # TODO: alternative data serialization formats; direct passthrough.
         # TODO: obviate need for double-pickle.
-        data = pickle.load(cherrypy.request.body)
-        url = self.block_store.store_object(data, 'pickle')
+        url = self.block_store.store_raw_file(cherrypy.request.body)
         return simplejson.dumps(url)
 
     # TODO: have a way from outside the cluster to push some data to a node.

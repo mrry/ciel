@@ -6,7 +6,7 @@ Created on 23 Feb 2010
 from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR, ReturnRR, PlusRR, LessThanOrEqualRR, EqualRR,\
-    StarRR, ForceEvalRR
+    StarRR, ForceEvalRR, PlusAssignmentRR
 from mrry.mercator.cloudscript.datatypes import map_leaf_values
 
 indent = 0
@@ -16,17 +16,17 @@ class Visitor:
     def visit(self, node):
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node)
 
-class SWFutureReference:
-    
-    def __init__(self, ref_id):
-        self.is_future = True
-        self.id = ref_id
+#class SWFutureReference:
+#    
+#    def __init__(self, ref_id):
+#        self.is_future = True
+#        self.id = ref_id
 
-class SWDataReference:
-    
-    def __init__(self, urls):
-        self.is_future = False
-        self.urls = urls
+#class SWDataReference:
+#    
+#    def __init__(self, urls):
+#        self.is_future = False
+#        self.urls = urls
 
 class SWDereferenceWrapper:
     
@@ -54,14 +54,7 @@ class StatementExecutorVisitor(Visitor):
         self.context = context
         
     def visit(self, node, stack, stack_base):
-        #if random.uniform(0, 1) < 0.01:
-        #    raise ExecutionInterruption(stack)
-#        global indent
-#        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
-#        indent += 1
-        ret = getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
-#        indent -= 1
-        return ret
+        return getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
         
     def visit_statement_list(self, statements, stack, stack_base):
         if stack_base == len(stack):
@@ -104,6 +97,25 @@ class StatementExecutorVisitor(Visitor):
         except:
             raise
         
+        stack.pop()
+        return None
+    
+    def visit_PlusAssignment(self, node, stack, stack_base):
+        if stack_base == len(stack):
+            resume_record = PlusAssignmentRR()
+            stack.append(resume_record)
+        else:
+            resume_record = stack[stack_base]
+        try:
+            if resume_record.rvalue is None:
+                resume_record.rvalue = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.rvalue, stack, stack_base + 1)
+            prev = self.context.value_of(node.lvalue)
+            if isinstance(prev, list):
+                prev.append(resume_record.rvalue)
+            else:
+                self.context.update_value(node.lvalue, prev + resume_record.rvalue, stack, stack_base + 1)
+        except:
+            raise
         stack.pop()
         return None
 
@@ -186,7 +198,8 @@ class StatementExecutorVisitor(Visitor):
             if resume_record.iterator is None:
                 resume_record.iterator = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.iterator, stack, stack_base + 1)
 
-            indexer_lvalue = node.indexer                
+            indexer_lvalue = node.indexer       
+            ret = None         
             for i in range(resume_record.i, len(resume_record.iterator)):
                 resume_record.i = i
                 self.context.update_value(indexer_lvalue, resume_record.iterator[i], stack, stack_base + 1)
@@ -286,12 +299,7 @@ class ExpressionEvaluatorVisitor:
         self.context = context
     
     def visit(self, node, stack, stack_base):
-#        global indent
-#        print "".join([' ' for _ in range(0, indent)]), str(node.__class__)
-#        indent += 1
-        ret = getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
-#        indent -= 1
-        return ret
+        return getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
     
     def visit_and_force_eval(self, node, stack, stack_base):
         if stack_base == len(stack):
@@ -304,7 +312,6 @@ class ExpressionEvaluatorVisitor:
             resume_record.maybe_wrapped = self.visit(node, stack, stack_base + 1)
 
         try:
-#            print type(resume_record.left)
             if isinstance(resume_record.maybe_wrapped, SWDereferenceWrapper):
                 ret = self.context.eager_dereference(resume_record.maybe_wrapped.ref)
             elif isinstance(resume_record.maybe_wrapped, SWDynamicScopeWrapper):
@@ -313,7 +320,6 @@ class ExpressionEvaluatorVisitor:
                 ret = resume_record.maybe_wrapped
 
             stack.pop()
-#            print "VAFEd", node, ret
             return ret
 
         except:
@@ -698,10 +704,14 @@ class UserDefinedFunction:
         
         for identifier in body_bindings.rvalue_object_identifiers:
             if declaration_context.has_binding_for(identifier):
-                self.captured_bindings[identifier] = declaration_context.value_of(identifier)
+                if not declaration_context.is_dynamic(identifier):
+                    self.captured_bindings[identifier] = declaration_context.value_of(identifier)
             elif function_ast.name is not None and identifier == function_ast.name.identifier:
                 self.captured_bindings[identifier] = self
                 #self.execution_context.bind_identifier(object, declaration_context.value_of(object))
+        
+    def __repr__(self):
+        return 'UserDefinedFunction(name=%s)' % self.function_ast.name 
         
     def call(self, args_list, stack, stack_base, context):
         context.enter_context(self.captured_bindings)
@@ -716,7 +726,6 @@ class UserDefinedFunction:
         context.exit_scope()
 
         context.exit_context()
-
         return ret
     
 # TODO: could do better than this by passing over the whole script at the start. But
