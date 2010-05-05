@@ -52,8 +52,10 @@ class BlockStore:
         self.url_cache_access_times = {}
         
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
-        self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle}
+        self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle}
     
+    def decode_handle(self, file):
+        return file
     def encode_noop(self, obj, file):
         return file.write(obj)
     def decode_noop(self, file):
@@ -132,7 +134,7 @@ class BlockStore:
             shutil.copyfile(filename, self.filename(id))
         file_size = os.path.getsize(self.filename(id))
         return 'swbs://%s/%d' % (self.netloc, id), file_size
-    
+
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
         filename = self.find_url_in_cache(url)
@@ -161,7 +163,8 @@ class BlockStore:
             object_file = open(filename, "r")
 
         ret = self.decoders[decoder](object_file)
-        object_file.close()
+        if(decoder != "handle"):
+            object_file.close()
         return ret
                 
     def retrieve_filename_by_url(self, url, size_limit=None):
