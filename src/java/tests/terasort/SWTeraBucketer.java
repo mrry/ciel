@@ -87,7 +87,10 @@ public class SWTeraBucketer implements Task {
 		 */
 		
 		int nPartitions = Integer.parseInt(args[0]);
-		DataInputStream dis = new DataInputStream(inputs[0]);
+		DataInputStream dis;
+		if(nPartitions > 1) {
+		    dis = new DataInputStream(inputs[0]);
+		}
 		Text[] boundaries = new Text[nPartitions - 1];
 		
 		for(int i = 0; i < (nPartitions - 1); i++) {
@@ -105,8 +108,11 @@ public class SWTeraBucketer implements Task {
 			
 		}
 		
-		TotalOrderPartitioner part = new TotalOrderPartitioner();
-		part.configure(boundaries);
+		TotalOrderPartitioner part = null;
+		if(nPartitions > 1) {
+		    part = new TotalOrderPartitioner();
+		    part.configure(boundaries);
+		}
 		
 		ArrayList<TextPair>[] outBuffers = new ArrayList[nPartitions];
 		for(int i = 0; i < nPartitions; i++) {
@@ -125,13 +131,19 @@ public class SWTeraBucketer implements Task {
 		Text value = new Text();		
 		try {
 			while(reader.next(key, value)) {
-				int thisPart = part.getPartition(key, value, nPartitions);
-				TextPair entry = new TextPair();
-				entry.key = key;
-				entry.value = value;
-				outBuffers[thisPart].add(entry);
-				key = new Text();
-				value = new Text();
+			    int thisPart;
+			    if(nPartitions > 1) {
+				thisPart = part.getPartition(key, value, nPartitions);
+			    }
+			    else {
+				thisPart = 0;
+			    }
+			    TextPair entry = new TextPair();
+			    entry.key = key;
+			    entry.value = value;
+			    outBuffers[thisPart].add(entry);
+			    key = new Text();
+			    value = new Text();
 			}
 		}
 		catch(IOException e) {

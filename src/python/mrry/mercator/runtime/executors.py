@@ -143,7 +143,7 @@ class JavaExecutor(SWExecutor):
             process_args.append("file://" + x)
 #        print 'Command-line:', " ".join(process_args)
         
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=java_stdout, stderr=java_stderr)
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=None, stderr=None)
         
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:

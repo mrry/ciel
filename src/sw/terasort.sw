@@ -1,11 +1,17 @@
-num_bucketers = 2
-num_mergers = 2
-input_size = 200000000
+num_bucketers = 2;
+num_mergers = 2;
+sample_records = 100000; // Sizes of sample_input_0...n must add to this
 jar_lib = [ref("http://www.cl.cam.ac.uk/~cs448/swterasort.jar")];
-whole_input_ref = [ref("http://www.cl.cam.ac.uk/~cs448/input_all")];
+sample_input_refs = [ref("http://www.cl.cam.ac.uk/~cs448/sample_input_0"), ref("http://www.cl.cam.ac.uk/~cs448/sample_input_1")];
+// Until Skywriting gets input-slicing as a primitive
 input_refs = [ref("http://www.cl.cam.ac.uk/~cs448/input_0"), ref("http://www.cl.cam.ac.uk/~cs448/input_1")];
 
-partition_outputs = spawn_exec("java", {"inputs":[whole_input_ref], "argv":[input_size, num_mergers], "class":"SWTeraSampler", "lib":jar_lib}, 1);
+prebucket_outputs = [];
+for (i in range(0, num_bucketers)) {
+    prebucket_outputs[i] = spawn_exec("java", {"inputs": [sample_input_refs[i]], "argv":[], "class":"SWTeraPreBucketer", "lib":jar_lib}, 1);
+}
+
+partition_outputs = spawn_exec("java", {"inputs":prebucket_outputs, "argv":[num_bucketers, num_mergers, sample_records], "class":"SWTeraSampler", "lib":jar_lib}, 1);
 
 bucket_outputs = [];
 for (i in range(0, num_bucketers)) {
@@ -22,7 +28,7 @@ for(i in range(0, num_mergers)) {
 
 merge_outputs = [];
 for(i in range(0, num_mergers)) {
-      merge_outputs[i] = spawn_exec("java", {"inputs": [merge_inputs[i]], "argv":[num_bucketers], "class":"SWTeraMerger", "lib":jar_lib}, 1);
+      merge_outputs[i] = spawn_exec("java", {"inputs": merge_inputs[i], "argv":[num_bucketers], "class":"SWTeraMerger", "lib":jar_lib}, 1);
 }
 
 return merge_outputs;
