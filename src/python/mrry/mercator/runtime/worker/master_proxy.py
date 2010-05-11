@@ -102,3 +102,7 @@ class MasterProxy:
         message_url = urljoin(self.master_url, 'global_data/%d/task' % (ref.id, ))
         (_, result) = self.backoff_request(message_url, "GET")
         return simplejson.loads(result, object_hook=json_decode_object_hook)
+    
+    def abort_production_of_output(self, ref):
+        message_url = urljoin(self.master_url, 'global_data/%d' % (ref.id, ))
+        self.backoff_request(message_url, "DELETE")

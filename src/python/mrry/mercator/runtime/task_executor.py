@@ -679,7 +679,7 @@ class SWRuntimeInterpreterTask:
         if isinstance(real_ref, SWLocalFutureReference):
             self.spawn_list[real_ref.spawn_list_index].ignore = True
         elif isinstance(real_ref, SWGlobalFutureReference):
-            pass
+            self.master_proxy.abort_production_of_output(real_ref)
         return True
     
     def get_task_details(self, ref):
