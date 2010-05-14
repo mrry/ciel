@@ -7,7 +7,9 @@ setup(
     author = "Derek Murray",
     author_email = "derek.murray@cl.cam.ac.uk",
     url = "http://www.cl.cam.ac.uk/research/srg/netos/skywriting/",
-    packages = [ 'mrry.mercator', 'mrry.mercator.cloudscript', 'mrry.mercator.runtime' ],
-    package_dir = { '' : 'src/python' }
+    packages = [ 'mrry', 'mrry.mercator', 'mrry.mercator.cloudscript', 'mrry.mercator.runtime',
+                 'mrry.mercator.runtime.master', 'mrry.mercator.runtime.worker' ],
+    package_dir = { '' : 'src/python' },
+    scripts = [ 'scripts/sw-master', 'scripts/sw-worker' ]
 )
 
