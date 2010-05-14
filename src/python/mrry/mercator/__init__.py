@@ -17,7 +17,7 @@ from __future__ import with_statement
 from optparse import OptionParser
 import socket
 import cherrypy
-
+import sys
 
 def set_port(port):
     cherrypy.config.update({'server.socket_port': port})
@@ -36,12 +36,16 @@ def main(default_role=None):
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="URI", default=None)
     parser.add_option("-w", "--workerlist", action="store", dest="workerlist", help="List of workers", metavar = "FILE", default=None)
     (options, _) = parser.parse_args()
-
+   
     if options.role == 'master':
         from mrry.mercator.runtime.master import master_main
         master_main(options)
     elif options.role == 'worker':
         from mrry.mercator.runtime.worker import worker_main
+        if not cherrypy.config.get('server.socket_port'):
+            parser.print_help()
+            print >> sys.stderr, "Must specify port for worker with --port\n"
+            sys.exit(1)
         worker_main(options)
     else:
         raise
