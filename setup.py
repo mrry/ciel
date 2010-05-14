@@ -10,6 +10,16 @@ setup(
     packages = [ 'mrry', 'mrry.mercator', 'mrry.mercator.cloudscript', 'mrry.mercator.runtime',
                  'mrry.mercator.runtime.master', 'mrry.mercator.runtime.worker' ],
     package_dir = { '' : 'src/python' },
-    scripts = [ 'scripts/sw-master', 'scripts/sw-worker' ]
+    scripts = [ 'scripts/sw-master', 'scripts/sw-worker' ],
+    classifiers = [
+            'Development Status :: 3 - Alpha',
+            'Intended Audience :: Developers',
+            'Intended Audience :: Science/Research',
+            'License :: OSI Approved :: ISC License (ISCL)',
+            'Operating System :: POSIX',
+            'Topic :: Software Development :: Interpreters',
+            'Topic :: System :: Distributed Computing',
+        ],
+    requires=['simplejson', 'CherryPy (>=3.1.0)' ]
 )
 
