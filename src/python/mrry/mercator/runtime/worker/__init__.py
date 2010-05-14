@@ -90,6 +90,8 @@ class Worker(plugins.SimplePlugin):
 def worker_main(options):
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
+    assert(local_port)
+    
     w = Worker(cherrypy.engine, local_hostname, local_port, options.master)
     w.start_running()
 
