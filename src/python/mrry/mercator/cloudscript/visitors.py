@@ -616,6 +616,9 @@ class ExpressionEvaluatorVisitor:
     def visit_Not(self, node, stack, stack_base):
         return not self.visit_and_force_eval(node.expr, stack, stack_base)
     
+    def visit_UnaryMinus(self, node, stack, stack_base):
+        return -self.visit_and_force_eval(node.expr, stack, stack_base)
+
     def visit_NotEqual(self, node, stack, stack_base):
         if stack_base == len(stack):
             resume_record = BinaryExpressionRR()
@@ -840,6 +843,9 @@ class FunctionDeclarationBindingVisitor(Visitor):
         self.visit(node.index)
         
     def visit_Not(self, node):
+        self.visit(node.expr)
+
+    def visit_UnaryMinus(self, node):
         self.visit(node.expr)
         
     def visit_BinaryExpression(self, node):

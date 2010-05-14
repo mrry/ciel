@@ -297,6 +297,14 @@ class Not(Expression):
     def __repr__(self):
         return 'Not(%s)' % repr(self.expr)
         
+class UnaryMinus(Expression):
+
+    def __init__(self, expr):
+        self.expr = expr
+
+    def __repr__(self):
+        return 'UnaryMinus(%s)' % repr(self.expr)
+
 class BinaryExpression(Expression):
     
     def __init__(self, lexpr, rexpr):

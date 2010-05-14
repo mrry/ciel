@@ -152,6 +152,16 @@ class CloudScriptParser:
         """
         p[0] = p[1]
 
+
+    precedence = (
+        ('left', 'OR'),
+        ('left', 'AND'),
+        ('left', 'EQ', 'NE'),
+        ('left', 'GT', 'GEQ', 'LT', 'LEQ'),
+        ('left', 'PLUS', 'MINUS'),
+    )
+
+
     def p_binary_expression_2(self, p):
         """ binary_expression : binary_expression PLUS binary_expression
         """
@@ -216,6 +226,11 @@ class CloudScriptParser:
         """ unary_expression : NOT binary_expression
         """
         p[0] = ast.Not(p[2])
+
+    def p_unary_expression_4(self, p):
+        """ unary_expression : MINUS binary_expression
+        """
+        p[0] = ast.UnaryMinus(p[2])
 
     def p_postfix_expression_1(self, p):
         """ postfix_expression : primary_expression

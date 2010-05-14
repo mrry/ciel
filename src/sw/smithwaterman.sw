@@ -12,9 +12,9 @@ blocks = [];
 
 blocks[0] = [];
 
-blocks[0][0] = spawn_exec("java", {"argv":["tl", 0-1, 0-1, 0-1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[0], vert_chunks[0]]}, 3);
+blocks[0][0] = spawn_exec("java", {"argv":["tl", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[0], vert_chunks[0]]}, 3);
 for (j in range(1, num_cols)) {
-    blocks[0][j] = spawn_exec("java", {"argv":["t", 0-1, 0-1, 0-1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[j], vert_chunks[0], blocks[0][j-1][2]]}, 3);
+    blocks[0][j] = spawn_exec("java", {"argv":["t", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[j], vert_chunks[0], blocks[0][j-1][2]]}, 3);
 }
 
 i = 0;
@@ -24,10 +24,10 @@ for (i in range(1, num_rows)) {
     
     blocks[i] = [];
 
-    blocks[i][0] = spawn_exec("java", {"argv":["l", 0-1, 0-1, 0-1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[0], vert_chunks[i], blocks[i-1][0][1]]}, 3);
+    blocks[i][0] = spawn_exec("java", {"argv":["l", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[0], vert_chunks[i], blocks[i-1][0][1]]}, 3);
     
     for (j in range(1, num_cols)) {
-	blocks[i][j] = spawn_exec("java", {"argv":["i", 0-1, 0-1, 0-1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[j], vert_chunks[i], blocks[i-1][j-1][0], blocks[i-1][j][1], blocks[i][j-1][2]]}, 3);
+	blocks[i][j] = spawn_exec("java", {"argv":["i", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[j], vert_chunks[i], blocks[i-1][j-1][0], blocks[i-1][j][1], blocks[i][j-1][2]]}, 3);
     }
 
 }
