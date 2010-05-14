@@ -1,4 +1,5 @@
 # Copyright (c) 2010 Derek Murray <derek.murray@cl.cam.ac.uk>
+# Copyright (c) 2010 Anil Madhavapeddy <anil@recoil.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
