@@ -21,7 +21,7 @@ from __future__ import with_statement
 from cherrypy.process import plugins
 from threading import Lock
 from mrry.mercator.runtime.references import SWGlobalFutureReference,\
-    SWURLReference
+    SWURLReference, SWErrorReference
 from mrry.mercator.runtime.block_store import get_netloc_for_sw_url
 import time
 import datetime
@@ -307,7 +307,9 @@ class TaskPool(plugins.SimplePlugin):
                 worker_id = task.worker_id
                 task.record_event("RUNTIME_EXCEPTION_FAILURE")
                 task.state = TASK_FAILED
-                # TODO: notify parents. 
+                # TODO: notify parents.
+                for output in task.expected_outputs:
+                    self.global_name_directory.add_refs_for_id(int(output), SWErrorReference(reason, details)) 
             self.bus.publish('worker_idle', worker_id)
             pass
 

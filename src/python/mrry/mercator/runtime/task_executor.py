@@ -33,7 +33,8 @@ import cherrypy
 import logging
 from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
     SWLocalDataFile, SWRealReference,\
-    SWLocalFutureReference, SWGlobalFutureReference, SWFutureReference
+    SWLocalFutureReference, SWGlobalFutureReference, SWFutureReference,\
+    SWErrorReference
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -354,6 +355,7 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: self.make_reference(x)))
         task_context.bind_tasklocal_identifier("is_future", LambdaFunction(lambda x: self.is_future(x[0])))
+        task_context.bind_tasklocal_identifier("is_error", LambdaFunction(lambda x: self.is_error(x[0])))
         task_context.bind_tasklocal_identifier("abort", LambdaFunction(lambda x: self.abort_production(x[0])))
         task_context.bind_tasklocal_identifier("task_details", LambdaFunction(lambda x: self.get_task_details(x[0])))
         task_context.bind_tasklocal_identifier("select", LambdaFunction(lambda x: self.select_func(x[0]) if len(x) == 1 else self.select_func(x[0], x[1])))
@@ -668,12 +670,16 @@ class SWRuntimeInterpreterTask:
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         return isinstance(real_ref, SWGlobalFutureReference) or isinstance(real_ref, SWLocalFutureReference)
 
+    def is_error(self, ref):
+        real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        return isinstance(real_ref, SWErrorReference)
+
     def abort_production(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWLocalFutureReference):
             self.spawn_list[real_ref.spawn_list_index].ignore = True
         elif isinstance(real_ref, SWGlobalFutureReference):
-            pass
+            self.master_proxy.abort_production_of_output(real_ref)
         return True
     
     def get_task_details(self, ref):

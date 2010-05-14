@@ -23,6 +23,15 @@ class SWRealReference:
     def as_tuple(self):
         pass
 
+class SWErrorReference:
+    
+    def __init__(self, reason, details):
+        self.reason = reason
+        self.details = details
+
+    def as_tuple(self):
+        return ('err', self.reason, self.details)
+
 class SWFutureReference(SWRealReference):
     pass
 

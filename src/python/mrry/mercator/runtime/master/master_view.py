@@ -245,6 +245,13 @@ class GlobalDataRoot:
                     return simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
                 except KeyError:
                     raise HTTPError(404)
+            elif cherrypy.request.method == 'DELETE':
+                # Abort task producing the given global ID.
+                try:
+                    task_id = self.global_name_directory.get_task_for_id(int(id))
+                    self.task_pool.abort(task_id)
+                except KeyError:
+                    raise HTTPError(404)
             raise HTTPError(405)
         elif attribute == 'task':
             if cherrypy.request.method == 'GET':
