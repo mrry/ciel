@@ -21,6 +21,13 @@ from mrry.mercator.cloudscript.lexer import CloudScriptLexer
 import ply.yacc
 from mrry.mercator.cloudscript import ast
 
+class SyntaxException:
+    def __init__(self, token):
+        self.token = token
+
+    def __repr__(self):
+        return 'SyntaxException(%s)' % repr(self.token)
+
 class CloudScriptParser:
     
     def __init__(self):
@@ -30,10 +37,22 @@ class CloudScriptParser:
         self.tokens = self.lexer.tokens
         
         self.parser = ply.yacc.yacc(module=self, start='script_file')
+
+    precedence = (
+        ('left', 'OR'),
+        ('left', 'AND'),
+        ('left', 'EQ', 'NE'),
+        ('left', 'GT', 'GEQ', 'LT', 'LEQ'),
+        ('left', 'PLUS', 'MINUS'),
+    )
  
     def parse(self, text):
         return self.parser.parse(text)
     
+    def p_error(self, p):
+        print "Syntax error on line %d: %s" % (p.lineno, repr(p.value))
+        raise SyntaxException(p)
+
     def p_script_file(self, p):
         """ script_file : statement_list
         """
@@ -151,16 +170,6 @@ class CloudScriptParser:
         """ binary_expression : unary_expression
         """
         p[0] = p[1]
-
-
-    precedence = (
-        ('left', 'OR'),
-        ('left', 'AND'),
-        ('left', 'EQ', 'NE'),
-        ('left', 'GT', 'GEQ', 'LT', 'LEQ'),
-        ('left', 'PLUS', 'MINUS'),
-    )
-
 
     def p_binary_expression_2(self, p):
         """ binary_expression : binary_expression PLUS binary_expression
