@@ -30,21 +30,34 @@ import pickle
 import urlparse
 import httplib2
 import sys
+import os
+from optparse import OptionParser
 
 def now_as_timestamp():
     return (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())
 
-if __name__ == '__main__':
-    
-    print sys.argv
-    
-    script_name = sys.argv[1]
-    master_uri = sys.argv[2]
-    id = sys.argv[3]
+def main():
+    parser = OptionParser()
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
+    parser.add_option("-i", "--id", action="store", dest="id", help="Job ID", metavar="ID", default="default")
+    (options, args) = parser.parse_args()
+   
+    if not options.master:
+        parser.print_help()
+        print >> sys.stderr, "Must specify master URI with --master"
+        sys.exit(1)
+
+    if len(args) != 1:
+        parser.print_help()
+        print >> sys.stderr, "Must specify one script file to execute, as argument"
+        sys.exit(1)
+
+    script_name = args[0]
+    master_uri = options.master
+    id = options.id
     
     print id, "STARTED", now_as_timestamp()
 
-    
     parser = SWScriptParser()
     
     script = parser.parse(open(script_name, 'r').read())
@@ -84,5 +97,7 @@ if __name__ == '__main__':
     #print "Blocking to get final result"
     (response, content) = http.request(notify_url)
     print id, "GOT_RESULT", now_as_timestamp()
-    
     #print content
+
+if __name__ == '__main__':
+    main()

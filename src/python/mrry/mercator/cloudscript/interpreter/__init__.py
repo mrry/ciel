@@ -15,8 +15,7 @@
 from Queue import Queue
 from threading import Lock, Condition, Thread
 from mrry.mercator.cloudscript.visitors import ExpressionEvaluatorVisitor,\
-    StatementExecutorVisitor, SWDereferenceWrapper,\
-    SWDataReference
+    StatementExecutorVisitor, SWDereferenceWrapper
 from mrry.mercator.cloudscript.context import SimpleContext, LambdaFunction,\
     TaskContext
 from mrry.mercator.cloudscript.parser import CloudScriptParser
