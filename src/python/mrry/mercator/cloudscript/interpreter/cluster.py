@@ -21,7 +21,7 @@ from mrry.mercator.cloudscript.parser import \
     SWScriptParser
 from mrry.mercator.runtime.task_executor import SWContinuation
 from mrry.mercator.runtime.references import SWURLReference
-from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder
+from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
 from mrry.mercator.cloudscript.context import SimpleContext
 import time
 import datetime
@@ -98,6 +98,7 @@ def main():
     (response, content) = http.request(notify_url)
     print id, "GOT_RESULT", now_as_timestamp()
     #print content
+    return simplejson.loads(content, object_hook=json_decode_object_hook)[0]
 
 if __name__ == '__main__':
     main()

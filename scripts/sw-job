@@ -1,4 +1,22 @@
 #!/usr/bin/python
 
 import mrry.mercator.cloudscript.interpreter.cluster
-mrry.mercator.cloudscript.interpreter.cluster.main()
+from mrry.mercator.runtime.references import SWErrorReference,SWDataValue,SWURLReference
+import sys
+
+result = mrry.mercator.cloudscript.interpreter.cluster.main()
+
+if isinstance(result, SWErrorReference):
+    retcode=1
+    print >> sys.stderr, result
+elif isinstance(result,SWURLReference):
+    retcode=0
+    for u in result.urls: print u
+elif isinstance(result, SWDataValue):
+    retcode=0
+    print result.value
+else:
+    retcode=2
+    print >> sys.stderr, result
+
+exit(retcode)
