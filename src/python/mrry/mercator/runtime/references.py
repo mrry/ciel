@@ -32,6 +32,14 @@ class SWErrorReference(SWRealReference):
     def as_tuple(self):
         return ('err', self.reason, self.details)
 
+class SWNullReference(SWRealReference):
+    
+    def __init__(self):
+        pass
+    
+    def as_tuple(self):
+        return ('null',)
+    
 class SWFutureReference(SWRealReference):
     pass
 
@@ -136,3 +144,9 @@ def build_reference_from_tuple(reference_tuple):
         return SWLocalDataFile(reference_tuple[1])
     elif ref_type == 'val':
         return SWDataValue(reference_tuple[1])
+    elif ref_type == 'err':
+        return SWErrorReference(reference_tuple[1], reference_tuple[2])
+    elif ref_type == 'null':
+        return SWNullReference()
+    else:
+        raise KeyError(ref_type)

@@ -80,8 +80,11 @@ class MasterProxy:
         (_, result) = self.backoff_request(message_url, "POST", message_payload)
         return simplejson.loads(result)
     
-    def commit_task(self, task_id, bindings):
-        message_payload = simplejson.dumps(bindings, cls=SWReferenceJSONEncoder)
+    def commit_task(self, task_id, bindings, saved_continuation_uri=None):
+        payload_dict = {'bindings' : bindings}
+        if saved_continuation_uri is not None:
+            payload_dict['saved_continuation_uri'] = saved_continuation_uri
+        message_payload = simplejson.dumps(payload_dict, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%d/commit' % (task_id, ))
         self.backoff_request(message_url, "POST", message_payload)
         

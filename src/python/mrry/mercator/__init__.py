@@ -47,6 +47,9 @@ def main(default_role=None):
             print >> sys.stderr, "Must specify port for worker with --port\n"
             sys.exit(1)
         worker_main(options)
+    elif options.role == 'interactive':
+        from mrry.mercator.runtime.interactive import interactive_main
+        interactive_main(options)
     else:
         raise
     

@@ -72,6 +72,12 @@ class Task:
                 
         self.expected_outputs = task_descriptor['expected_outputs']
     
+        try:
+            self.save_continuation = task_descriptor['save_continuation']
+        except KeyError:
+            self.save_continuation = False
+        self.saved_continuation_uri = None
+    
         self.state = TASK_RUNNABLE    
     
         self.blocking_dict = {}
@@ -154,17 +160,21 @@ class Task:
                       'dependencies': self.dependencies,
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
-                      'inputs': self.inputs,
-                      'state': TASK_STATE_NAMES[self.state],
-                      'parent': self.parent,
-                      'children': self.children}
+                      'inputs': self.inputs}
         
         if long:
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
             descriptor['worker_id'] = self.worker_id
-        
+            descriptor['saved_continuation_uri'] = self.saved_continuation_uri
+            descriptor['state'] = TASK_STATE_NAMES[self.state]
+            descriptor['parent'] = self.parent
+            descriptor['children'] = self.children
+                    
         if hasattr(self, 'select_result'):
             descriptor['select_result'] = self.select_result
+        
+        if self.save_continuation:
+            descriptor['save_continuation'] = True
         
         return descriptor
         

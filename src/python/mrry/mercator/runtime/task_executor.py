@@ -34,7 +34,7 @@ import logging
 from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
     SWLocalDataFile, SWRealReference,\
     SWLocalFutureReference, SWGlobalFutureReference, SWFutureReference,\
-    SWErrorReference
+    SWErrorReference, SWNullReference
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -267,7 +267,11 @@ class SWRuntimeInterpreterTask:
             self.select_result = task_descriptor['select_result']
         except KeyError:
             self.select_result = None
-
+            
+        try:
+            self.save_continuation = task_descriptor['save_continuation']
+        except KeyError:
+            self.save_continuation = False
 
         self.block_store = block_store
         self.execution_features = execution_features
@@ -364,6 +368,11 @@ class SWRuntimeInterpreterTask:
         try:
             self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
             
+            # XXX: This is for the unusual case that we have a task fragment that runs to completion without returning anything.
+            #      Could maybe use an ErrorRef here, but this might not be erroneous if, e.g. the interactive shell is used.
+            if self.result is None:
+                self.result = SWNullReference()
+            
         except SelectException, se:
             
             print "!!! SELECT EXCEPTION"
@@ -373,12 +382,14 @@ class SWRuntimeInterpreterTask:
             
             select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
                         
+                        
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': {},
                                     'select_group': select_group,
                                     'select_timeout': timeout,
-                                    'expected_outputs': self.expected_outputs}
-
+                                    'expected_outputs': self.expected_outputs,
+                                    'save_continuation': self.save_continuation}
+            self.save_continuation = False
             self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
             
         except ExecutionInterruption, ei:
@@ -393,8 +404,9 @@ class SWRuntimeInterpreterTask:
                     cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index)
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
-                                    'expected_outputs': self.expected_outputs}
-            
+                                    'expected_outputs': self.expected_outputs,
+                                    'save_continuation': self.save_continuation}
+            self.save_continuation = False
             if isinstance(ei, FeatureUnavailableException):
                 cont_task_descriptor['require_features'] = [ei.feature_name]
             
@@ -405,6 +417,7 @@ class SWRuntimeInterpreterTask:
         except Exception:
             print "!!! WEIRD EXCEPTION"
             print self.continuation.stack
+            self.save_continuation = True
             raise
 
     def spawn_all(self, block_store, master_proxy):
@@ -510,8 +523,13 @@ class SWRuntimeInterpreterTask:
             self.spawn_task_result_global_ids.extend(batch_result_ids)
 
     def commit_result(self, block_store, master_proxy):
+        if self.save_continuation:
+            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle')
+        else:
+            save_cont_uri = None
+        
         if self.result is None:
-            master_proxy.commit_task(self.task_id, {})
+            master_proxy.commit_task(self.task_id, {}, save_cont_uri)
             return
         
         
@@ -542,7 +560,7 @@ class SWRuntimeInterpreterTask:
             
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
         
-        master_proxy.commit_task(self.task_id, commit_bindings)
+        master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri)
 
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))

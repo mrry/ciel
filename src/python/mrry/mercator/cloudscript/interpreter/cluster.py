@@ -89,8 +89,8 @@ def main():
     
     
     out = simplejson.loads(content)
-    gd_url = urlparse.urljoin(master_uri, "/global_data/%d" % out[0])
-    notify_url = urlparse.urljoin(master_uri, "/global_data/%d/completion" % out[0])
+    gd_url = urlparse.urljoin(master_uri, "/global_data/%d" % out['outputs'][0])
+    notify_url = urlparse.urljoin(master_uri, "/global_data/%d/completion" % out['outputs'][0])
 
     print id, "GLOBAL_DATA_URL", gd_url
     

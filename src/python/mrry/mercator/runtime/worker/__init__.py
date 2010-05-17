@@ -88,7 +88,7 @@ class Worker(plugins.SimplePlugin):
         pass
 
 def worker_main(options):
-    local_hostname = socket.getfqdn()
+    local_hostname = cherrypy.config.get('server.socket_host')
     local_port = cherrypy.config.get('server.socket_port')
     assert(local_port)
     

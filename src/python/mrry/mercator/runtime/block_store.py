@@ -52,6 +52,14 @@ def json_decode_object_hook(dict_):
         else:
             return dict_
 
+def sw_to_external_url(url):
+    parsed_url = urlparse.urlparse(url)
+    if parsed_url.scheme == 'swbs':
+        id = int(parsed_url.path[1:])
+        return 'http://%s/data/%d' % (parsed_url.netloc, id)
+    else:
+        return url
+
 class BlockStore:
     
     def __init__(self, hostname, port, base_dir, master_proxy):
