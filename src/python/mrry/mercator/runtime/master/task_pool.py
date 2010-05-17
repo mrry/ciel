@@ -309,7 +309,7 @@ class TaskPool(plugins.SimplePlugin):
                 task.state = TASK_FAILED
                 # TODO: notify parents.
                 for output in task.expected_outputs:
-                    self.global_name_directory.add_refs_for_id(int(output), SWErrorReference(reason, details)) 
+                    self.global_name_directory.add_refs_for_id(int(output), [SWErrorReference(reason, details)]) 
             self.bus.publish('worker_idle', worker_id)
             pass
 

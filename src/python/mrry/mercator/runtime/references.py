@@ -23,7 +23,7 @@ class SWRealReference:
     def as_tuple(self):
         pass
 
-class SWErrorReference:
+class SWErrorReference(SWRealReference):
     
     def __init__(self, reason, details):
         self.reason = reason
