@@ -9,6 +9,7 @@ setup(
     url = "http://www.cl.cam.ac.uk/research/srg/netos/skywriting/",
     packages = [ 'mrry', 'mrry.mercator', 'mrry.mercator.cloudscript', 'mrry.mercator.runtime',
                  'mrry.mercator.runtime.master', 'mrry.mercator.runtime.worker',
+                 'mrry.mercator.runtime.interactive',
                  'mrry.mercator.cloudscript.interpreter' ],
     package_dir = { '' : 'src/python' },
     scripts = [ 'scripts/sw-master', 'scripts/sw-worker', 'scripts/sw-job' ],

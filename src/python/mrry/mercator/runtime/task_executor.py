@@ -523,15 +523,14 @@ class SWRuntimeInterpreterTask:
             self.spawn_task_result_global_ids.extend(batch_result_ids)
 
     def commit_result(self, block_store, master_proxy):
-        if self.save_continuation:
-            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle')
-        else:
-            save_cont_uri = None
         
         if self.result is None:
+            if self.save_continuation:
+                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle')
+            else:
+                save_cont_uri = None
             master_proxy.commit_task(self.task_id, {}, save_cont_uri)
             return
-        
         
         for local_id, ref_table_entry in self.continuation.reference_table.items():
             if isinstance(ref_table_entry.reference, SWLocalFutureReference):
@@ -559,6 +558,11 @@ class SWRuntimeInterpreterTask:
             result_ref = SWURLReference([result_url], size_hint)
             
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
+        
+        if self.save_continuation:
+            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle')
+        else:
+            save_cont_uri = None
         
         master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri)
 
