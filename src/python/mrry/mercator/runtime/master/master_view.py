@@ -207,6 +207,8 @@ class MasterTaskRoot:
                     task_descriptor['expected_outputs'] = expected_outputs
                 
                 task = self.task_pool.add_task(task_descriptor)
+                for output in expected_outputs:
+                    self.global_name_directory.set_task_for_id(output, task.task_id)
                 return simplejson.dumps({'outputs': expected_outputs, 'task_id': task.task_id})
                         
         else:
@@ -265,7 +267,7 @@ class GlobalDataRoot:
             if cherrypy.request.method == 'GET':
                 task_id = self.global_name_directory.get_task_for_id(int(id))
                 task = self.task_pool.get_task_by_id(task_id)
-                task_descriptor = task.as_descriptor()
+                task_descriptor = task.as_descriptor(long=True)
                 task_descriptor['is_running'] = task.worker_id is not None
                 if task.worker_id is not None:
                     task_descriptor['worker'] = self.worker_pool.get_worker_by_id(task.worker_id).as_descriptor()
