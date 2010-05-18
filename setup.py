@@ -12,7 +12,7 @@ setup(
                  'mrry.mercator.runtime.interactive',
                  'mrry.mercator.cloudscript.interpreter' ],
     package_dir = { '' : 'src/python' },
-    scripts = [ 'scripts/sw-master', 'scripts/sw-worker', 'scripts/sw-job' ],
+    scripts = [ 'scripts/sw-master', 'scripts/sw-worker', 'scripts/sw-job', 'scripts/sw-console' ],
     classifiers = [
             'Development Status :: 3 - Alpha',
             'Intended Audience :: Developers',
