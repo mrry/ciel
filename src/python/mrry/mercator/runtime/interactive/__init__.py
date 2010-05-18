@@ -99,6 +99,16 @@ class SWInteractiveShell(cmd.Cmd):
         
         return False
     
+    def do_exit(self, arg):
+        return True
+    
+    def do_quit(self, arg):
+        return True
+    
+    def do_EOF(self, arg):
+        print
+        return True
+    
     def default(self, line):
         task_stmt = self.stmt_parser.parse(line)
         if task_stmt is None:
