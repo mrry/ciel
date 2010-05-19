@@ -27,7 +27,7 @@ def set_config(filename):
 
 def main(default_role=None):
 
-    cherrypy.config.update({'server.socket_host': socket.getfqdn()})
+    cherrypy.config.update({'server.socket_host': '0.0.0.0'})
     
     parser = OptionParser()
     parser.add_option("-r", "--role", action="store", dest="role", help="Server role", metavar="ROLE", default=default_role)
