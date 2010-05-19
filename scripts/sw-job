@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import mrry.mercator.cloudscript.interpreter.cluster
+import mrry.mercator.cloudscript.cluster
 from mrry.mercator.runtime.references import SWErrorReference,SWDataValue,SWURLReference
 import sys
 
