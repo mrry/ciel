@@ -18,7 +18,7 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-from mrry.mercator.runtime.block_store import json_decode_object_hook
+from skywriting.runtime.block_store import json_decode_object_hook
 import sys
 import os
 import simplejson

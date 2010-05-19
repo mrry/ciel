@@ -21,8 +21,8 @@ from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock
-from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder
-from mrry.mercator.runtime.master.task_pool import TASK_ASSIGNED
+from skywriting.runtime.block_store import SWReferenceJSONEncoder
+from skywriting.runtime.master.task_pool import TASK_ASSIGNED
 import random
 import datetime
 import sys

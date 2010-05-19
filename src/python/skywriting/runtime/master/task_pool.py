@@ -20,9 +20,9 @@ Created on 15 Apr 2010
 from __future__ import with_statement
 from cherrypy.process import plugins
 from threading import Lock
-from mrry.mercator.runtime.references import SWGlobalFutureReference,\
+from skywriting.runtime.references import SWGlobalFutureReference,\
     SWURLReference, SWErrorReference
-from mrry.mercator.runtime.block_store import get_netloc_for_sw_url
+from skywriting.runtime.block_store import get_netloc_for_sw_url
 import time
 import datetime
 import logging

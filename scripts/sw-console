@@ -1,4 +1,4 @@
 #!/usr/bin/python
 
-import mrry.mercator
-mrry.mercator.main(default_role="interactive")
+import skywriting
+skywriting.main(default_role="interactive")

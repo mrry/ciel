@@ -38,17 +38,17 @@ def main(default_role=None):
     (options, _) = parser.parse_args()
    
     if options.role == 'master':
-        from mrry.mercator.runtime.master import master_main
+        from skywriting.runtime.master import master_main
         master_main(options)
     elif options.role == 'worker':
-        from mrry.mercator.runtime.worker import worker_main
+        from skywriting.runtime.worker import worker_main
         if not cherrypy.config.get('server.socket_port'):
             parser.print_help()
             print >> sys.stderr, "Must specify port for worker with --port\n"
             sys.exit(1)
         worker_main(options)
     elif options.role == 'interactive':
-        from mrry.mercator.runtime.interactive import interactive_main
+        from skywriting.runtime.interactive import interactive_main
         interactive_main(options)
     else:
         raise

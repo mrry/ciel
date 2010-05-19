@@ -19,7 +19,7 @@ Created on 8 Feb 2010
 '''
 from __future__ import with_statement
 from cherrypy import HTTPError
-from mrry.mercator.runtime.block_store import json_decode_object_hook,\
+from skywriting.runtime.block_store import json_decode_object_hook,\
     SWReferenceJSONEncoder
 from cherrypy.lib.static import serve_file
 import sys
@@ -27,7 +27,7 @@ import os
 import tempfile
 import simplejson
 import cherrypy
-from mrry.mercator.runtime.worker.worker_view import DataRoot
+from skywriting.runtime.worker.worker_view import DataRoot
 
 class MasterRoot:
     

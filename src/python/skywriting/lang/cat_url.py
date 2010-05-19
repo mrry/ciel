@@ -15,7 +15,7 @@
 #!/usr/bin/python
 
 import sys
-from mrry.mercator.runtime.block_store import BlockStore
+from skywriting.runtime.block_store import BlockStore
 
 if len(sys.argv) < 3:
     print "Usage: cat_url.py url master_host:master_port"

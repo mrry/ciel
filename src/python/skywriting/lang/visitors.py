@@ -17,11 +17,11 @@ Created on 23 Feb 2010
 
 @author: dgm36
 '''
-from mrry.mercator.cloudscript.resume import BinaryExpressionRR,\
+from skywriting.lang.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR, ReturnRR, PlusRR, LessThanOrEqualRR, EqualRR,\
     StarRR, ForceEvalRR, PlusAssignmentRR
-from mrry.mercator.cloudscript.datatypes import map_leaf_values
+from skywriting.lang.datatypes import map_leaf_values
 
 indent = 0
 

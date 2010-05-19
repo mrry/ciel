@@ -17,9 +17,9 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
+from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from Queue import Empty
-from mrry.mercator.runtime.master.task_pool import TASK_QUEUED
+from skywriting.runtime.master.task_pool import TASK_QUEUED
 
 class Scheduler(AsynchronousExecutePlugin):
     

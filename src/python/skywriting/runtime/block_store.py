@@ -20,7 +20,7 @@ Created on 14 Apr 2010
 from __future__ import with_statement
 from threading import Lock
 from urllib2 import URLError, HTTPError
-from mrry.mercator.runtime.exceptions import ExecutionInterruption,\
+from skywriting.runtime.exceptions import ExecutionInterruption,\
     ReferenceUnavailableException
 import random
 import urllib2
@@ -31,7 +31,7 @@ import os
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
 import simplejson
-from mrry.mercator.runtime.references import SWRealReference,\
+from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple
 urlparse.uses_netloc.append("swbs")
 

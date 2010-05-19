@@ -20,7 +20,7 @@ Created on 4 Feb 2010
 
 from cherrypy.process import plugins
 from Queue import Queue, Empty
-from mrry.mercator.runtime.plugins import THREAD_TERMINATOR
+from skywriting.runtime.plugins import THREAD_TERMINATOR
 import threading
     
 class Pinger(plugins.SimplePlugin):

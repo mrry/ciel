@@ -17,12 +17,12 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from mrry.mercator.cloudscript.parser import \
+from skywriting.lang.parser import \
     SWScriptParser
-from mrry.mercator.runtime.task_executor import SWContinuation
-from mrry.mercator.runtime.references import SWURLReference
-from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
-from mrry.mercator.cloudscript.context import SimpleContext
+from skywriting.runtime.task_executor import SWContinuation
+from skywriting.runtime.references import SWURLReference
+from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
+from skywriting.lang.context import SimpleContext
 import time
 import datetime
 import simplejson

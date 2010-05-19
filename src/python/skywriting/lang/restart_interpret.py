@@ -17,10 +17,10 @@ Created on 31 Mar 2010
 
 @author: dgm36
 '''
-from mrry.mercator.cloudscript.visitors import StatementExecutorVisitor,\
+from skywriting.lang.visitors import StatementExecutorVisitor,\
     ExecutionInterruption
-from mrry.mercator.cloudscript.parser import CloudScriptParser
-from mrry.mercator.cloudscript.context import SimpleContext
+from skywriting.lang.parser import CloudScriptParser
+from skywriting.lang.context import SimpleContext
 import sys
 import cPickle
 

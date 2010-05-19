@@ -18,10 +18,10 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 from urlparse import urljoin
-from mrry.mercator.runtime.references import SWDataValue
-from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder,\
+from skywriting.runtime.references import SWDataValue
+from skywriting.runtime.block_store import SWReferenceJSONEncoder,\
     json_decode_object_hook
-from mrry.mercator.runtime.exceptions import MasterNotRespondingException
+from skywriting.runtime.exceptions import MasterNotRespondingException
 import logging
 import time
 import random

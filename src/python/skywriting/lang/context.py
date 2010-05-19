@@ -17,12 +17,12 @@ Created on 23 Feb 2010
 
 @author: dgm36
 '''
-from mrry.mercator.cloudscript import ast
-from mrry.mercator.cloudscript.visitors import ExpressionEvaluatorVisitor,\
+from skywriting.lang import ast
+from skywriting.lang.visitors import ExpressionEvaluatorVisitor,\
     SWDynamicScopeWrapper
-from mrry.mercator.cloudscript.resume import ContextAssignRR,\
+from skywriting.lang.resume import ContextAssignRR,\
     IndexedLValueRR
-from mrry.mercator.cloudscript.datatypes import all_leaf_values
+from skywriting.lang.datatypes import all_leaf_values
 
 class LambdaFunction:
     

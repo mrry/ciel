@@ -17,17 +17,17 @@ Created on 4 Feb 2010
 
 @author: dgm36
 '''
-from mrry.mercator.runtime.worker.master_proxy import MasterProxy
-from mrry.mercator.runtime.task_executor import TaskExecutorPlugin
-from mrry.mercator.runtime.block_store import BlockStore
-from mrry.mercator.runtime.worker.worker_view import WorkerRoot
-from mrry.mercator.runtime.executors import ExecutionFeatures
-from mrry.mercator.runtime.worker.pinger import Pinger
+from skywriting.runtime.worker.master_proxy import MasterProxy
+from skywriting.runtime.task_executor import TaskExecutorPlugin
+from skywriting.runtime.block_store import BlockStore
+from skywriting.runtime.worker.worker_view import WorkerRoot
+from skywriting.runtime.executors import ExecutionFeatures
+from skywriting.runtime.worker.pinger import Pinger
 from cherrypy.process import plugins
 import logging
 import tempfile
 import cherrypy
-import mrry.mercator
+import skywriting
 import httplib2
 import os
 import socket
@@ -96,4 +96,4 @@ def worker_main(options):
     w.start_running()
 
 if __name__ == '__main__':
-    mrry.mercator.main("worker")
+    skywriting.main("worker")

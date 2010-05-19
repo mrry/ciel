@@ -18,20 +18,20 @@ Created on 13 Apr 2010
 @author: dgm36
 '''
 from __future__ import with_statement
-from mrry.mercator.runtime.plugins import AsynchronousExecutePlugin
-from mrry.mercator.cloudscript.context import SimpleContext, TaskContext,\
+from skywriting.runtime.plugins import AsynchronousExecutePlugin
+from skywriting.lang.context import SimpleContext, TaskContext,\
     LambdaFunction
-from mrry.mercator.cloudscript.datatypes import all_leaf_values, map_leaf_values
-from mrry.mercator.cloudscript.visitors import \
+from skywriting.lang.datatypes import all_leaf_values, map_leaf_values
+from skywriting.lang.visitors import \
     StatementExecutorVisitor, SWDereferenceWrapper
-from mrry.mercator.cloudscript import ast
-from mrry.mercator.runtime.exceptions import ReferenceUnavailableException,\
+from skywriting.lang import ast
+from skywriting.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption, RuntimeSkywritingError,\
     SelectException, BlameUserException
 from threading import Lock
 import cherrypy
 import logging
-from mrry.mercator.runtime.references import SWDataValue, SWURLReference,\
+from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWLocalDataFile, SWRealReference,\
     SWLocalFutureReference, SWGlobalFutureReference, SWFutureReference,\
     SWErrorReference, SWNullReference

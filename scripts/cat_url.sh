@@ -6,4 +6,4 @@ HOST=`hostname -f`
 
 MASTER_HOST=${MASTER_HOST:-$HOST:9000}
 
-${PYTHON} ../src/python/mrry/mercator/cloudscript/cat_url.py $1 ${MASTER_HOST}
+${PYTHON} ../src/python/skywriting/lang/cat_url.py $1 ${MASTER_HOST}

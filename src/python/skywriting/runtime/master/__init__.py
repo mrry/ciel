@@ -18,16 +18,16 @@ Created on 11 Feb 2010
 @author: dgm36
 '''
 from __future__ import with_statement
-#from mrry.mercator.master.datamodel import JobManagerPool
-from mrry.mercator.runtime.master.master_view import MasterRoot
-from mrry.mercator.runtime.master.data_store import GlobalNameDirectory
-from mrry.mercator.runtime.master.worker_pool import WorkerPool
-from mrry.mercator.runtime.block_store import BlockStore
-from mrry.mercator.runtime.task_executor import TaskExecutorPlugin
-from mrry.mercator.runtime.master.local_master_proxy import LocalMasterProxy
-from mrry.mercator.runtime.master.task_pool import TaskPool
-import mrry.mercator
-from mrry.mercator.runtime.master.scheduler import Scheduler
+#from skywriting.master.datamodel import JobManagerPool
+from skywriting.runtime.master.master_view import MasterRoot
+from skywriting.runtime.master.data_store import GlobalNameDirectory
+from skywriting.runtime.master.worker_pool import WorkerPool
+from skywriting.runtime.block_store import BlockStore
+from skywriting.runtime.task_executor import TaskExecutorPlugin
+from skywriting.runtime.master.local_master_proxy import LocalMasterProxy
+from skywriting.runtime.master.task_pool import TaskPool
+import skywriting
+from skywriting.runtime.master.scheduler import Scheduler
 import simplejson
 import logging
 import urllib2
@@ -100,4 +100,4 @@ def master_main(options):
 #    ph.subscribe()
 
 if __name__ == '__main__':
-    mrry.mercator.main("master")
+    skywriting.main("master")

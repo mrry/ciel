@@ -1,10 +1,10 @@
 #!/usr/bin/python
 
-import mrry.mercator.cloudscript.cluster
-from mrry.mercator.runtime.references import SWErrorReference,SWDataValue,SWURLReference
+import skywriting.lang.cluster
+from skywriting.runtime.references import SWErrorReference,SWDataValue,SWURLReference
 import sys
 
-result = mrry.mercator.cloudscript.interpreter.cluster.main()
+result = skywriting.lang.cluster.main()
 
 if isinstance(result, SWErrorReference):
     retcode=1

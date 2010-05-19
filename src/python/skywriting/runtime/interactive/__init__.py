@@ -12,15 +12,15 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from mrry.mercator.runtime.task_executor import SWContinuation,\
+from skywriting.runtime.task_executor import SWContinuation,\
     SWRuntimeInterpreterTask
 import httplib2
 import urlparse
 import pickle
 import simplejson
-from mrry.mercator.runtime.block_store import SWReferenceJSONEncoder,\
+from skywriting.runtime.block_store import SWReferenceJSONEncoder,\
     json_decode_object_hook, sw_to_external_url
-from mrry.mercator.runtime.references import SWDataValue, SWURLReference
+from skywriting.runtime.references import SWDataValue, SWURLReference
 
 '''
 Created on 17 May 2010
@@ -28,13 +28,8 @@ Created on 17 May 2010
 @author: dgm36
 '''
 
-from mrry.mercator.cloudscript.interpreter import SWScheduler,\
-    SW_THREAD_TERMINATOR, SWInterpreterTask
-from mrry.mercator.cloudscript.context import SimpleContext
-from mrry.mercator.cloudscript.parser import \
-    SWStatementParser, SWExpressionParser
-from threading import Condition, Thread
-import traceback
+from skywriting.lang.context import SimpleContext
+from skywriting.lang.parser import SWStatementParser
 import cmd
 
 class SWInteractiveShell(cmd.Cmd):
