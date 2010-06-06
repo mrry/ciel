@@ -34,6 +34,7 @@ class MasterRoot:
     def __init__(self, task_pool, worker_pool, block_store, global_name_directory):
         self.worker = WorkersRoot(worker_pool)
         self.task = MasterTaskRoot(global_name_directory, task_pool)
+        self.streamtask = MasterStreamTaskRoot(global_name_directory, task_pool)
         self.data = DataRoot(block_store)
         self.global_data = GlobalDataRoot(global_name_directory, task_pool, worker_pool)
         #self.cluster = ClusterDetailsRoot()
@@ -89,6 +90,33 @@ class WorkersRoot:
         else:
             if action is None:
                 return simplejson.dumps(self.worker_pool.get_worker_by_id(int(worker_id)).as_descriptor())
+
+class MasterStreamTaskRoot:
+    
+    def __init__(self, global_name_directory, task_pool):
+        self.global_name_directory = global_name_directory
+        self.task_pool = task_pool
+
+    @cherrypy.expose
+    def index(self):
+        if cherrypy.request.method == 'GET':
+
+            def index_gen():
+                enc = SWReferenceJSONEncoder()
+                yield "["
+                for x in self.task_pool.tasks.values():
+                    yield (enc.encode(x.as_descriptor(long=True)) + ",")
+                yield "]"
+                           
+            # Produces a JSON generator which itself feeds off a descriptor-generator
+            # return enc.iterencode([x.as_descriptor(long=True) for x in self.task_pool.tasks.values()])
+            # (Too slow)
+            return index_gen()
+
+        else:
+            raise HTTPError(405)
+    index._cp_config = {'response.stream': True}
+
 
 class MasterTaskRoot:
     
