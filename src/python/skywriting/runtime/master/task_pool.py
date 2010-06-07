@@ -54,13 +54,14 @@ for (name, number) in TASK_STATES.items():
 
 class Task:
     
-    def __init__(self, task_id, task_descriptor, global_name_directory, parent_task_id=None):
+    def __init__(self, task_id, task_descriptor, global_name_directory, task_pool, parent_task_id=None):
         self.task_id = task_id
         self.handler = task_descriptor['handler']
         self.inputs = {}
         self.current_attempt = 0
         self.worker_id = None
         self.event_index = 0
+        self.task_pool = task_pool
         
         self.history = []
        
@@ -124,6 +125,13 @@ class Task:
             pass
         
         self.record_event("CREATED")
+
+    # Warning: called under worker_pool._lock
+    def set_assigned_to_worker(self, worker_id):
+        self.worker_id = worker_id
+        self.state = TASK_ASSIGNED
+        self.record_event("ASSIGNED")
+        self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
         
     def __repr__(self):
         return 'Task(%d)' % self.task_id
@@ -253,7 +261,7 @@ class TaskPool(plugins.SimplePlugin):
             task_id = self.current_task_id
             self.current_task_id += 1
             
-            task = Task(task_id, task_descriptor, self.global_name_directory, parent_task_id)
+            task = Task(task_id, task_descriptor, self.global_name_directory, self, parent_task_id)
             self.tasks[task_id] = task
             add_event = self.new_event(task)
             add_event["task_descriptor"] = task_descriptor
@@ -275,7 +283,15 @@ class TaskPool(plugins.SimplePlugin):
                 
         self.bus.publish('schedule')
         return task
-    
+
+    # Warning: called under worker_pool._lock
+    def notify_task_assigned_to_worker_id(self, task, worker_id):
+        with self._lock:
+            assigned_event = self.new_event(task)
+            assigned_event["action"] = "ASSIGNED"
+            assigned_event["worker_id"] = worker_id
+            self.events.append(assigned_event)
+
     def _mark_task_as_aborted(self, task_id):
         task = self.tasks[task_id]
         previous_state = task.state

@@ -6,6 +6,4 @@ HOST=`hostname -f`
 
 MASTER_HOST=${MASTER_HOST:-http://$HOST:9000}
 
-ID=${2:-foo}
-
-${PYTHON} ../src/python/skywriting/lang/cluster.py $1 ${MASTER_HOST} $ID
+${PYTHON} ../src/python/skywriting/lang/cluster.py --master=${MASTER_HOST} $1

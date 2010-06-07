@@ -119,6 +119,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.remove(worker_id)
             worker = self.workers[worker_id]
             worker.current_task_id = task.task_id
+            task.set_assigned_to_worker(worker_id)
             task.state = TASK_ASSIGNED
             task.record_event("ASSIGNED")
             task.worker_id = worker_id

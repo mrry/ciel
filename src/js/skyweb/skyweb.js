@@ -11,7 +11,7 @@ Skyweb = function(json) {
     var padding = radius;
     var with_lines = (radius > 5);
     var last_index = 0;
-    var circles_per_line = Math.floor(total_grid_size / (radius * 2 + padding))
+    var circles_per_line = Math.floor(total_grid_size / (radius * 2 + padding)) - 1
     var colmap = {
         'BLOCKING': '#FF0000',
         'RUNNABLE': '#FFA500',
