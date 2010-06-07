@@ -13,7 +13,7 @@ Skyweb = function(json) {
     var last_index = 0;
     var circles_per_line = Math.floor(total_grid_size / (radius * 2 + padding))
     var colmap = {
-        'CREATED': '#FF0000',
+        'BLOCKING': '#FF0000',
         'RUNNABLE': '#FFA500',
         'ASSIGNED': '#44A500',
 	'COMMITTED': '#0000FF'
@@ -45,7 +45,7 @@ Skyweb = function(json) {
 	t.display_coords = display_index_to_coords(t.display_index);
 	t.circle = paper.circle(t.display_coords.x, t.display_coords.y, radius);
 	t.circle.attr({
-		'fill': 'red',
+		'fill': colmap[t.state],
 		'stroke-width': 1
 		    });       
 
@@ -103,7 +103,9 @@ Skyweb = function(json) {
 		    }
 		}
 		else {
-		    ev.task_descriptor.task_id = ev.task_id
+		    ev.task_descriptor.task_id = ev.task_id;
+		    ev.task_descriptor.state = ev.initial_state;
+		    ev.task_descriptor.event_index = ev.index;
 		    create_task(ev.task_descriptor);
 		}
 	    }

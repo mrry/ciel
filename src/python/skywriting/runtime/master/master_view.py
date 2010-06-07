@@ -103,14 +103,15 @@ class MasterStreamTaskRoot:
 
             def index_gen():
                 enc = SWReferenceJSONEncoder()
-                vals = self.task_pool.tasks.values()
                 evtcount = self.task_pool.event_index
+                vals = self.task_pool.tasks.values()
                 if len(vals) == 0:
                     yield "{\"taskmap\": [], \"evtcount\": " + str(evtcount) + "}"
                 else:
                     yield ("{\"taskmap\": [" + enc.encode(vals[0].as_descriptor(long=True)))
                     for x in vals[1:]:
-                        yield ("," + enc.encode(x.as_descriptor(long=True)))
+                        next_desc = x.as_descriptor(long=True)
+                        yield ("," + enc.encode(next_desc))
                     yield "], \"evtcount\": " + str(evtcount) + "}"
                            
             # Produces a JSON generator which itself feeds off a descriptor-generator
@@ -162,11 +163,11 @@ class MasterTaskRoot:
                     else:
                         finish_event_index = report_event_index
                     events_to_send = self.task_pool.events[start_event_index:finish_event_index]
-                    sys.stderr.write("Events: %s. Sending %d-%d == %s\n" % (repr(self.task_pool.events), start_event_index, finish_event_index, repr(events_to_send)))
+                    #sys.stderr.write("Events: %s. Sending %d-%d == %s\n" % (repr(self.task_pool.events), start_event_index, finish_event_index, repr(events_to_send)))
                     events_reply = {"events": events_to_send, 
                                     "next_event_to_fetch": finish_event_index, 
                                     "first_unavailable_event": report_event_index}
-                    return simplejson.dumps(events_reply)
+                    return simplejson.dumps(events_reply, cls=SWReferenceJSONEncoder)
                 else:
                     raise HTTPError(404)
             

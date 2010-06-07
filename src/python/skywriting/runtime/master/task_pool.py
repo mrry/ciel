@@ -161,7 +161,8 @@ class Task:
                       'dependencies': self.dependencies,
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
-                      'inputs': self.inputs}
+                      'inputs': self.inputs,
+                      'event_index': self.event_index}
         
         if long:
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
@@ -259,7 +260,7 @@ class TaskPool(plugins.SimplePlugin):
             add_event["action"] = "CREATED"
         
             if task.is_blocked():
-                add_event["initial_state"] = "BLOCKED"
+                add_event["initial_state"] = "BLOCKING"
                 for global_id in task.blocked_on():
                     try:
                         self.references_blocking_tasks[global_id].add(task_id)
