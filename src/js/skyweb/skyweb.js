@@ -83,7 +83,7 @@ Skyweb = function(json) {
 	}
 	else {
 
-	    $.getJSON("http://localhost:9000/task/events/" + json.latest_event_index, process_events_callback);
+	    $.getJSON("../task/events/" + json.latest_event_index, process_events_callback);
 
 	}
 
@@ -125,17 +125,17 @@ Skyweb = function(json) {
 
 	if(json.last_event_count_sent < json.current_event_count) {
 
-	    $.getJSON("http://localhost:9000/task/events/" + json.last_event_count_sent, process_events_callback);
+	    $.getJSON("../task/events/" + json.last_event_count_sent, process_events_callback);
 	    
 	}
 	else {
 
-	    $.getJSON("http://localhost:9000/task/wait_event_count/" + json.last_event_count_sent, notify_events_callback);
+	    $.getJSON("../task/wait_event_count/" + json.last_event_count_sent, notify_events_callback);
 
 	}
 
     };
 
-    $.getJSON("http://localhost:9000/task/wait_event_count/" + latest_event_index, notify_events_callback);
+    $.getJSON("../task/wait_event_count/" + latest_event_index, notify_events_callback);
 
 };
