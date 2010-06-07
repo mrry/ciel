@@ -60,6 +60,7 @@ class Task:
         self.inputs = {}
         self.current_attempt = 0
         self.worker_id = None
+        self.event_index = 0
         
         self.history = []
        
@@ -176,8 +177,8 @@ class Task:
         if self.save_continuation:
             descriptor['save_continuation'] = True
         
-        return descriptor
-        
+        return descriptor        
+
 class TaskPool(plugins.SimplePlugin):
     
     def __init__(self, bus, global_name_directory, worker_pool):
@@ -188,7 +189,29 @@ class TaskPool(plugins.SimplePlugin):
         self.tasks = {}
         self.references_blocking_tasks = {}
         self._lock = Lock()
+        self.event_index = 0
+        self.events = []
+        self.event_waiters = []
     
+    # Call under _lock (and don't release _lock until you've put an event in event_waiters!)
+    def new_event(self, t):
+        ret = dict()
+        self.event_index += 1
+        ret["index"] = self.event_index
+        ret["task_id"] = t.task_id
+        t.event_index = self.event_index
+        for waiter in self.event_waiters:
+            waiter.notify()
+        return ret
+
+    def wait_event_after(idx):
+        with self._lock:
+            cond = Condition(self._lock)
+            self.event_waiters.append(cond)
+            while idx == self.event_index:
+                cond.wait()
+            self.event_waiters.remove(cond)
+
     def subscribe(self):
         self.bus.subscribe('global_name_available', self.reference_available)
         self.bus.subscribe('task_failed', self.task_failed)
@@ -227,20 +250,26 @@ class TaskPool(plugins.SimplePlugin):
         with self._lock:
             task_id = self.current_task_id
             self.current_task_id += 1
+            self.event_index += 1
             
             task = Task(task_id, task_descriptor, self.global_name_directory, parent_task_id)
             self.tasks[task_id] = task
+            add_event = self.new_event(task)
+            add_event["task_descriptor"] = task_descriptor
         
             if task.is_blocked():
+                add_event["initial_state"] = "BLOCKED"
                 for global_id in task.blocked_on():
                     try:
                         self.references_blocking_tasks[global_id].add(task_id)
                     except KeyError:
                         self.references_blocking_tasks[global_id] = set([task_id])
             else:
+                add_event["initial_state"] = "RUNNABLE"
                 task.state = TASK_RUNNABLE
-                task.record_event("RUNNABLE")
                 self.add_task_to_queues(task)
+
+            self.events.append(add_event)
                 
         self.bus.publish('schedule')
         return task
@@ -249,6 +278,10 @@ class TaskPool(plugins.SimplePlugin):
         task = self.tasks[task_id]
         previous_state = task.state
         task.state = TASK_ABORTED
+        with self._lock:
+            abort_event = self.new_event(task)
+            abort_event["action"] = "ABORTED"
+            self.events.append(abort_event)
         return task, previous_state
 
     def _abort(self, task_id):
@@ -274,6 +307,10 @@ class TaskPool(plugins.SimplePlugin):
                 was_blocked = task.is_blocked()
                 task.unblock_on(id, urls)
                 if was_blocked and not task.is_blocked():
+                    
+                    runnable_event = self.new_event(task)
+                    runnable_event["action"] = "RUNNABLE"
+                    self.events.append(runnable_event)
                     task.state = TASK_RUNNABLE
                     task.record_event("RUNNABLE")
                     self.add_task_to_queues(task)
@@ -286,6 +323,9 @@ class TaskPool(plugins.SimplePlugin):
         with self._lock:
             task = self.tasks[id]
             worker_id = task.worker_id
+            committed_event = self.new_event(task)
+            committed_event["action"] = "COMMITTED"
+            self.events.append(committed_event)
             task.state = TASK_COMMITTED
             task.record_event("COMMITTED")
             
@@ -293,35 +333,39 @@ class TaskPool(plugins.SimplePlugin):
     
     def task_failed(self, id, reason, details=None):
         cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
-        if reason == 'WORKER_FAILED':
-            # Try to reschedule task.
-            with self._lock:
-                task = self.tasks[id]
+        with self._lock:
+            task = self.tasks[id]
+            failure_event = self.new_event(task)
+            if reason == 'WORKER_FAILED':
+                # Try to reschedule task.
                 task.current_attempt += 1
                 task.record_event("WORKER_FAILURE")
                 if task.current_attempt > 3:
                     task.state = TASK_FAILED
                     task.record_event("TASK_FAILURE")
+                    failure_event["action"] = "WORKER_FAIL"
                     # TODO: notify parents.
                 else:
                     self.add_task_to_queues(task)
                     self.bus.publish('schedule')
-        elif reason == 'MISSING_INPUT':
-            # Problem fetching input, so we will have to rete it.
-            task.record_event("MISSING_INPUT_FAILURE")
-            pass
-        elif reason == 'RUNTIME_EXCEPTION':
-            # Kill the entire job, citing the problem.
-            with self._lock:
-                task = self.tasks[id]
+                    failure_event["action"] = "WORKER_FAIL_RETRY"
+            elif reason == 'MISSING_INPUT':
+                # Problem fetching input, so we will have to rete it.
+                task.record_event("MISSING_INPUT_FAILURE")
+                failure_event["action"] = "MISSING_INPUT_FAIL"
+            elif reason == 'RUNTIME_EXCEPTION':
+                # Kill the entire job, citing the problem.
                 worker_id = task.worker_id
                 task.record_event("RUNTIME_EXCEPTION_FAILURE")
                 task.state = TASK_FAILED
+                failure_event["action"] = "RUNTIME_EXCEPTION_FAIL"
                 # TODO: notify parents.
                 for output in task.expected_outputs:
                     self.global_name_directory.add_refs_for_id(int(output), [SWErrorReference(reason, details)]) 
-            self.bus.publish('worker_idle', worker_id)
-            pass
+            
+            events.append(failure_event)
+
+        self.bus.publish('worker_idle', worker_id)
 
     def flush_task_dict(self):
         cherrypy.log.error("Flushing tasks dict. In-progress jobs will fail.", "TASK", logging.WARN, False)

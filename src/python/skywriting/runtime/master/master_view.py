@@ -103,10 +103,15 @@ class MasterStreamTaskRoot:
 
             def index_gen():
                 enc = SWReferenceJSONEncoder()
-                yield "["
-                for x in self.task_pool.tasks.values():
-                    yield (enc.encode(x.as_descriptor(long=True)) + ",")
-                yield "]"
+                vals = self.task_pool.tasks.values()
+                evtcount = self.task_pool.event_index
+                if len(vals) == 0:
+                    yield "{\"taskmap\": [], \"evtcount\": " + str(evtcount) + "}"
+                else:
+                    yield ("{\"taskmap\": [" + enc.encode(vals[0].as_descriptor(long=True)))
+                    for x in vals[1:]:
+                        yield ("," + enc.encode(x.as_descriptor(long=True)))
+                    yield "], \"evtcount\": " + str(evtcount) + "}"
                            
             # Produces a JSON generator which itself feeds off a descriptor-generator
             # return enc.iterencode([x.as_descriptor(long=True) for x in self.task_pool.tasks.values()])
@@ -144,6 +149,17 @@ class MasterTaskRoot:
                 if id == 'flush':
                     self.task_pool.flush_task_dict()
                     return
+                elif id == "wait_event_count":
+                    self.task_pool.wait_event_after(int(action))
+                    return simplejson.dumps({ "exited": False, "latest_event_index": task_pool.event_index })
+                elif id == "events":
+                    report_event_index = task_pool.event_index
+                    start_event_index = int(action)
+                    events_to_send = report_event_index - start_event_index
+                    if (events_to_send > 1000):
+                        # Maximum report size; should make client-configurable
+                        events_to_send = 1000
+                    return simplejson.dumps({"events": self.task_pool.events[(start_event_index - 1):(start_event_index + events_to_send - 1)], "last_event_count_sent": (start_event_index + events_to-send), "current_event_count": report_event_index})
                 else:
                     raise HTTPError(404)
             

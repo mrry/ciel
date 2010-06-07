@@ -1,18 +1,20 @@
 <html>
 
 <body bgcolor="#EEEEFF"> 
+    <script type="text/javascript" src="raphael-min.js"></script>
     <script type="text/javascript" src="jquery-1.4.2.js"></script>
     <script type="text/javascript" src="jquery.query-2.1.7.js"></script>
-    <script type="text/javascript" src="raphael-min.js"></script>
-    <script type="text/javascript" src="skylight.js"></script>
+    <script type="text/javascript" src="skyweb.js"></script>
     <script type="text/javascript"> 
 
     $(document).ready(function() {
-       $.getJSON("http://localhost:9000/streamtask", Skylight);
+         $.getJSON("test.json", Skyweb);
+//       $.getJSON("http://localhost:9000/task/", Skyweb);
+    
     });
 
     </script>
 
-<canvas id="skylight"></canvas>
+<canvas id="skyweb"></canvas>
 </body>
 </html>

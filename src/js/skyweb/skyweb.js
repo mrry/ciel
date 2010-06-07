@@ -5,7 +5,6 @@
 
 Skyweb = function(json) {
 
-    var paper = Raphael(10, 1, total_grid_size, total_grid_size);
     var radius = 7;
     var total_grid_size=800;
     var taskmap = {};
@@ -25,6 +24,8 @@ Skyweb = function(json) {
 	'ASSIGNED': { opacity: 0.9, stroke: '#335522', 'stroke-width': 4 },
 	'COMMITTED': { opacity: 0.2, stroke: '#000000',	'stroke-width': 1 }
     };
+
+    var paper = Raphael(10, 1, total_grid_size, total_grid_size);
 
     display_index_to_coords = function(id) {
         var tx = id % circles_per_line;
@@ -66,7 +67,7 @@ Skyweb = function(json) {
 
     for (var t in json.taskmap) {
 
-	create_task(t);
+	create_task(json.taskmap[t]);
 
     }
 
@@ -82,7 +83,7 @@ Skyweb = function(json) {
 	}
 	else {
 
-	    $.getJSON("http://localhost:9000/task/events/" + latest_event_index, process_events_callback);
+	    $.getJSON("http://localhost:9000/task/events/" + json.latest_event_index, process_events_callback);
 
 	}
 
