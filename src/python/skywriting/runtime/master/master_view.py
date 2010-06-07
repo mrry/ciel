@@ -151,15 +151,22 @@ class MasterTaskRoot:
                     return
                 elif id == "wait_event_count":
                     self.task_pool.wait_event_after(int(action))
-                    return simplejson.dumps({ "exited": False, "latest_event_index": task_pool.event_index })
+                    return simplejson.dumps({ "exited": False, "latest_event_index": self.task_pool.event_index })
                 elif id == "events":
-                    report_event_index = task_pool.event_index
+                    report_event_index = self.task_pool.event_index
                     start_event_index = int(action)
-                    events_to_send = report_event_index - start_event_index
-                    if (events_to_send > 1000):
+                    finish_event_index = None
+                    if ((report_event_index - start_event_index) > 1000):
                         # Maximum report size; should make client-configurable
-                        events_to_send = 1000
-                    return simplejson.dumps({"events": self.task_pool.events[(start_event_index - 1):(start_event_index + events_to_send - 1)], "last_event_count_sent": (start_event_index + events_to-send), "current_event_count": report_event_index})
+                        finish_event_index = start_event_index + 1000
+                    else:
+                        finish_event_index = report_event_index
+                    events_to_send = self.task_pool.events[start_event_index:finish_event_index]
+                    sys.stderr.write("Events: %s. Sending %d-%d == %s\n" % (repr(self.task_pool.events), start_event_index, finish_event_index, repr(events_to_send)))
+                    events_reply = {"events": events_to_send, 
+                                    "next_event_to_fetch": finish_event_index, 
+                                    "first_unavailable_event": report_event_index}
+                    return simplejson.dumps(events_reply)
                 else:
                     raise HTTPError(404)
             

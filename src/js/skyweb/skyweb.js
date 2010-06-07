@@ -71,7 +71,7 @@ Skyweb = function(json) {
 
     }
 
-    var latest_event_index = json.evtcount;
+    var next_event_index = json.evtcount;
     // Actually some of the taskmap might reflect later state; each task ships with an evtcount letting us know of that.
 
     notify_events_callback = function(json) {
@@ -83,7 +83,7 @@ Skyweb = function(json) {
 	}
 	else {
 
-	    $.getJSON("../task/events/" + json.latest_event_index, process_events_callback);
+	    $.getJSON("../task/events/" + next_event_index, process_events_callback);
 
 	}
 
@@ -91,17 +91,19 @@ Skyweb = function(json) {
 
     process_events_callback = function(json) {
 	
-	for(var ev in json.events) {
+	for(var i in json.events) {
 
+	    var ev = json.events[i]
 	    var act = ev.action;
 
 	    if(!taskmap[ev.task_id]) {
 		if(act != 'CREATED') {
 		    if(window.console) {
-			console.log('Unexpected act ' + act + ': ' + coords.idx);
+			console.log('Unexpected act ' + act + ' for task ' + ev.task_id);
 		    }
 		}
 		else {
+		    ev.task_descriptor.task_id = ev.task_id
 		    create_task(ev.task_descriptor);
 		}
 	    }
@@ -121,21 +123,21 @@ Skyweb = function(json) {
 
 	}
 
-	latest_event_count = json.last_event_count_sent;
+	next_event_index = json.next_event_to_fetch;
 
-	if(json.last_event_count_sent < json.current_event_count) {
+	if(json.next_event_to_fetch < json.first_unavailable_event) {
 
-	    $.getJSON("../task/events/" + json.last_event_count_sent, process_events_callback);
+	    $.getJSON("../task/events/" + json.next_event_to_fetch, process_events_callback);
 	    
 	}
 	else {
 
-	    $.getJSON("../task/wait_event_count/" + json.last_event_count_sent, notify_events_callback);
+	    $.getJSON("../task/wait_event_count/" + json.next_event_to_fetch, notify_events_callback);
 
 	}
 
     };
 
-    $.getJSON("../task/wait_event_count/" + latest_event_index, notify_events_callback);
+    $.getJSON("../task/wait_event_count/" + next_event_index, notify_events_callback);
 
 };

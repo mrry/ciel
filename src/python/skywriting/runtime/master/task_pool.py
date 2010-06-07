@@ -19,7 +19,7 @@ Created on 15 Apr 2010
 '''
 from __future__ import with_statement
 from cherrypy.process import plugins
-from threading import Lock
+from threading import Lock, Condition
 from skywriting.runtime.references import SWGlobalFutureReference,\
     SWURLReference, SWErrorReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
@@ -190,21 +190,22 @@ class TaskPool(plugins.SimplePlugin):
         self.references_blocking_tasks = {}
         self._lock = Lock()
         self.event_index = 0
+        # event_index: The index which will be given to the *next* event
         self.events = []
         self.event_waiters = []
     
     # Call under _lock (and don't release _lock until you've put an event in event_waiters!)
     def new_event(self, t):
         ret = dict()
-        self.event_index += 1
         ret["index"] = self.event_index
         ret["task_id"] = t.task_id
         t.event_index = self.event_index
         for waiter in self.event_waiters:
             waiter.notify()
+        self.event_index += 1
         return ret
 
-    def wait_event_after(idx):
+    def wait_event_after(self, idx):
         with self._lock:
             cond = Condition(self._lock)
             self.event_waiters.append(cond)
@@ -250,12 +251,12 @@ class TaskPool(plugins.SimplePlugin):
         with self._lock:
             task_id = self.current_task_id
             self.current_task_id += 1
-            self.event_index += 1
             
             task = Task(task_id, task_descriptor, self.global_name_directory, parent_task_id)
             self.tasks[task_id] = task
             add_event = self.new_event(task)
             add_event["task_descriptor"] = task_descriptor
+            add_event["action"] = "CREATED"
         
             if task.is_blocked():
                 add_event["initial_state"] = "BLOCKED"
@@ -363,7 +364,7 @@ class TaskPool(plugins.SimplePlugin):
                 for output in task.expected_outputs:
                     self.global_name_directory.add_refs_for_id(int(output), [SWErrorReference(reason, details)]) 
             
-            events.append(failure_event)
+            self.events.append(failure_event)
 
         self.bus.publish('worker_idle', worker_id)
 
