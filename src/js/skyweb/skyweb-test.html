@@ -1,0 +1,18 @@
+<html>
+
+<body bgcolor="#EEEEFF"> 
+    <script type="text/javascript" src="jquery-1.4.2.js"></script>
+    <script type="text/javascript" src="jquery.query-2.1.7.js"></script>
+    <script type="text/javascript" src="raphael-min.js"></script>
+    <script type="text/javascript" src="skylight.js"></script>
+    <script type="text/javascript"> 
+
+    $(document).ready(function() {
+       $.getJSON("http://localhost:9000/streamtask", Skylight);
+    });
+
+    </script>
+
+<canvas id="skylight"></canvas>
+</body>
+</html>
