@@ -35,6 +35,7 @@ def main(default_role=None):
     parser.add_option("-c", "--config", action="callback", callback=lambda w, x, y, z: set_config(y), help="Configuration file", metavar="FILE")
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="URI", default=None)
     parser.add_option("-w", "--workerlist", action="store", dest="workerlist", help="List of workers", metavar = "FILE", default=None)
+    parser.add_option("-s", "--staticbase", action="store", dest="staticbase", help="Path to base for static content (for masters)", metavar="PATH", default=None)
     (options, _) = parser.parse_args()
    
     if options.role == 'master':

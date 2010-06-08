@@ -1,7 +1,7 @@
 #!/bin/bash
 BASE=$(dirname $(readlink -f $0))/..
 export PYTHONPATH=$PYTHONPATH:$BASE/src/python
-PYTHON=${PYTHON:-python2.5}
+PYTHON=${PYTHON:-python}
 
 if [[ $1 == "" ]]; then
     HOST=`hostname -f`

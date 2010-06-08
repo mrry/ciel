@@ -59,8 +59,10 @@ def master_main(options):
     
     root = MasterRoot(task_pool, worker_pool, block_store, global_name_directory)
 
-    # TODO: Figure out the right way to determine that location
-    cherrypy_conf = { "/skyweb" : { "tools.staticdir.on": True, "tools.staticdir.dir": "/home/chris/skywriting/src/js/skyweb" } }
+    cherrypy_conf = None
+    
+    if options.staticbase is not None:
+        cherrypy_conf = { "/skyweb" : { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase } }
 
     cherrypy.tree.mount(root, "", cherrypy_conf)
     
