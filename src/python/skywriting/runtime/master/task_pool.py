@@ -338,6 +338,7 @@ class TaskPool(plugins.SimplePlugin):
         return self.tasks[id]
     
     def task_completed(self, id):
+        
         with self._lock:
             task = self.tasks[id]
             worker_id = task.worker_id
@@ -351,6 +352,7 @@ class TaskPool(plugins.SimplePlugin):
     
     def task_failed(self, id, reason, details=None):
         cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
+        worker_id = None
         with self._lock:
             task = self.tasks[id]
             failure_event = self.new_event(task)
@@ -383,7 +385,8 @@ class TaskPool(plugins.SimplePlugin):
             
             self.events.append(failure_event)
 
-        self.bus.publish('worker_idle', worker_id)
+        if worker_id is not None:
+            self.bus.publish('worker_idle', worker_id)
 
     def flush_task_dict(self):
         cherrypy.log.error("Flushing tasks dict. In-progress jobs will fail.", "TASK", logging.WARN, False)
