@@ -202,6 +202,7 @@ class TaskPool(plugins.SimplePlugin):
         # event_index: The index which will be given to the *next* event
         self.events = []
         self.event_waiters = []
+        self.is_stopping = False
     
     # Call under _lock (and don't release _lock until you've put an event in event_waiters!)
     def new_event(self, t):
@@ -218,17 +219,28 @@ class TaskPool(plugins.SimplePlugin):
         with self._lock:
             cond = Condition(self._lock)
             self.event_waiters.append(cond)
-            while idx == self.event_index:
+            while (not self.is_stopping) and (idx == self.event_index):
                 cond.wait()
             self.event_waiters.remove(cond)
+            return not self.is_stopping
+
+    def server_stopping(self):
+
+        with self._lock:
+            self.is_stopping = True
+            for waiter in self.event_waiters:
+                waiter.notify()
 
     def subscribe(self):
         self.bus.subscribe('global_name_available', self.reference_available)
         self.bus.subscribe('task_failed', self.task_failed)
+        self.bus.subscribe('stop', self.server_stopping, 10) 
+        # Stop method gets run before the HTTP server
     
     def unsubscribe(self):
         self.bus.unsubscribe('global_name_available', self.reference_available)
         self.bus.unsubscribe('task_failed', self.task_failed)
+        self.bus.unsubscribe('stop', self.server_stopping)
     
     def compute_best_worker_for_task(self, task):
         netlocs = {}

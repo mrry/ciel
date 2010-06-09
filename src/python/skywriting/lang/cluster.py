@@ -96,9 +96,14 @@ def main():
     
     #print "Blocking to get final result"
     (response, content) = http.request(notify_url)
-    print id, "GOT_RESULT", now_as_timestamp()
-    #print content
-    return simplejson.loads(content, object_hook=json_decode_object_hook)[0]
+    completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
+    if completion_result["exited"]:
+        print id, "SERVER_EXITED"
+        return None
+    else:
+        print id, "GOT_RESULT", now_as_timestamp()
+        #print content
+        return completion_result.refs[0]
 
 if __name__ == '__main__':
     main()

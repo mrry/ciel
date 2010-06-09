@@ -69,6 +69,9 @@ class SWInteractiveShell(cmd.Cmd):
         expected_output_id = submit_result['outputs'][0]
         notify_url = urlparse.urljoin(self.master_uri, "/global_data/%d/completion" % expected_output_id)
         (response, result_content) = http.request(notify_url)
+        completion_result = simplejson.loads(result_content, object_hook=json_decode_object_hook)
+        if completion_result["exited"]:
+            raise Exception("Server exited")
 
         # 5. Get updated local continuation. N.B. The originally-spawned task may have delegated, so we need to find the task from the actual producer of the expected output.
         task_for_output_url = urlparse.urljoin(self.master_uri, "/global_data/%d/task" % expected_output_id)
@@ -79,7 +82,7 @@ class SWInteractiveShell(cmd.Cmd):
         self.local_continuation = pickle.loads(content)
         
         # 6. Dereference result.
-        return self.dereference_task_result(simplejson.loads(result_content, object_hook=json_decode_object_hook)[0])
+        return self.dereference_task_result(completion_result.refs[0])
         
     def do_print(self, arg):
         task_stmt = self.stmt_parser.parse("return %s;" % arg)

@@ -39,7 +39,8 @@ import cherrypy
 
 def master_main(options):
 
-    global_name_directory = GlobalNameDirectory()
+    global_name_directory = GlobalNameDirectory(cherrypy.engine)
+    global_name_directory.subscribe()
 
     worker_pool = WorkerPool(cherrypy.engine)
     worker_pool.subscribe()

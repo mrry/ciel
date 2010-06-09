@@ -20,6 +20,7 @@ Created on Apr 15, 2010
 from __future__ import with_statement
 from threading import Lock, Condition
 import cherrypy
+from cherrypy.process import plugins
 
 class GlobalNameDirectoryEntry:
     def __init__(self, task_id, refs):
@@ -27,12 +28,15 @@ class GlobalNameDirectoryEntry:
         self.task_id = task_id
         self.waiters = []
         
-class GlobalNameDirectory:
+class GlobalNameDirectory(plugins.SimplePlugin):
     
-    def __init__(self):
+    def __init__(self, bus):
+        plugins.SimplePlugin.__init__(self, bus)
         self._lock = Lock()
         self.current_id = 0
         self.directory = {}
+        self.bus = bus
+        self.is_stopping = False
     
     def create_global_id(self, task_id=None):
         entry = GlobalNameDirectoryEntry(task_id, [])
@@ -41,6 +45,13 @@ class GlobalNameDirectory:
             self.current_id += 1
             self.directory[id] = entry
         return id
+
+    def subscribe(self):
+        self.bus.subscribe("stop", self.server_stopping, 10)
+        # Higher priority than the HTTP server
+    
+    def unsubscribe(self):
+        self.bus.unsubscribe("stop", self.server_stopping)
     
     def get_task_for_id(self, id):
         return self.directory[id].task_id
@@ -60,12 +71,23 @@ class GlobalNameDirectory:
     def get_refs_for_id(self, id):
         with self._lock:
             return self.directory[id].refs
-        
+
+    def server_stopping(self):
+        with self._lock:
+            self.is_stopping = True
+            for entry in self.directory.values():
+                for waiter in entry.waiters:
+                    waiter.notify()
+
     def wait_for_completion(self, id):
         with self._lock:
             entry = self.directory[id]
-            if len(entry.refs) == 0:
-                cond = Condition(self._lock)
-                entry.waiters.append(cond)
+            cond = Condition(self._lock)
+            entry.waiters.append(cond)
+            while (not self.is_stopping) and (len(entry.refs) == 0):
                 cond.wait()
-        return entry.refs
+            entry.waiters.remove(cond)
+        if self.is_stopping:
+            return None
+        else:
+            return entry.refs
