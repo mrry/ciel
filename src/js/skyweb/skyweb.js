@@ -8,6 +8,7 @@ Skyweb = function(json) {
     var radius = 7;
     var total_grid_size=800;
     var taskmap = {};
+    var gfut_to_task = {};
     var padding = radius;
     var with_lines = (radius > 5);
     var last_index = 0;
@@ -74,6 +75,13 @@ Skyweb = function(json) {
     create_task = function(t) {
 
 	taskmap[t.task_id] = t;
+
+	for(var o in t.expected_outputs) {
+
+	    gfut_to_task[t.expected_outputs[o]] = t;
+
+	}
+
 	t.display_index = last_index++;
 	t.display_coords = display_index_to_coords(t.display_index);
 	t.circle = paper.circle(t.display_coords.x, t.display_coords.y, radius);
@@ -84,18 +92,32 @@ Skyweb = function(json) {
 
 	t.outgoing_lines = [];
 	if (with_lines) {
-	    for (var x in t.deps) {
-		var tcoords = taskmap[t.deps[x]].display_coords;
-		var l = paper.path("M" + t.display_coords.x + " " + t.display_coords.y + "L" + tcoords.x + " " + tcoords.y);
-		t.outgoing_lines.push({
-			to: t.deps[x],
-			line: l
-			    });
-		l.attr('opacity', '0.1');
-		l.toBack();
+	    for (var i in t["inputs"]) {
+		var input_spec = t["inputs"][i];
+		if(input_spec.__ref__) {
+		    var input_ref = input_spec.__ref__;
+		    if(input_ref[0] == "gfut") {
+			var gfut_id = input_ref[1];
+			var gfut_task = gfut_to_task[gfut_id];
+			if(!gfut_task) {
+			    if(window.console) {
+				console.log("Warning: ignored unknown gfut " + gfut_id);
+			    }
+			}
+			else {
+			    var tcoords = gfut_task.display_coords;
+			    var l = paper.path("M" + t.display_coords.x + " " + t.display_coords.y + "L" + tcoords.x + " " + tcoords.y);
+			    t.outgoing_lines.push({
+				    to: gfut_id,
+				    line: l
+					});
+			    l.attr('opacity', '0.1');
+			    l.toBack();
+			}
+		    }
+		}
 	    }
 	}
-
     }
 
     for (var t in json.taskmap) {
@@ -149,7 +171,8 @@ Skyweb = function(json) {
 		if(taskd.event_index < ev.index) {
 		    taskd.circle.animate({'fill': getcolour(ev.action)}, 200);
 		    for (x in taskd.outgoing_lines) {
-			taskd.outgoing_lines[x].animate(getline[ev.action], 200);
+			var lin = taskd.outgoing_lines[x].line;
+			lin.animate(getline(ev.action), 200);
 		    }
 		    taskd.event_index = ev.index;
 		}
