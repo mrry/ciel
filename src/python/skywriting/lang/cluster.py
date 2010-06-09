@@ -103,7 +103,7 @@ def main():
     else:
         print id, "GOT_RESULT", now_as_timestamp()
         #print content
-        return completion_result.refs[0]
+        return completion_result["refs"][0]
 
 if __name__ == '__main__':
     main()
