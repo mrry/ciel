@@ -14,16 +14,49 @@ Skyweb = function(json) {
     var circles_per_line = Math.floor(total_grid_size / (radius * 2 + padding)) - 1
     var colmap = {
         'BLOCKING': '#FF0000',
+	'QUEUED': '#FFA500',
         'RUNNABLE': '#FFA500',
         'ASSIGNED': '#44A500',
-	'COMMITTED': '#0000FF'
+	'COMMITTED': '#0000FF',
+	'FAILED': '#000000',
+	'RUNTIME_EXCEPTION_FAIL': '#000000',
+	'MISSING_INPUT_FAIL': '#000000',
+	'WORKER_FAIL': '#222222'
     };
+
+    getcolour = function(col) {
+
+	if (!colmap[col]) {
+	    if(window.console) {
+		console.log("Couldn't find a colour for " + col);
+	    }
+	    return '#DDDDDD'
+	}
+	else {
+	    return colmap[col];
+	}
+
+    }
 
     var linemap = {
 	'RUNNABLE': { opacity: 0.4, stroke: '#009922', 'stroke-width': 3 },
 	'ASSIGNED': { opacity: 0.9, stroke: '#335522', 'stroke-width': 4 },
 	'COMMITTED': { opacity: 0.2, stroke: '#000000',	'stroke-width': 1 }
     };
+
+    getline = function(lin) {
+
+	if(!linemap[lin]) {
+	    if(window.console) {
+		console.log("Couldn't find a linestyle for " + lin);
+	    }
+	    return {};
+	}
+	else {
+	    return linemap[lin];
+	}
+
+    }
 
     var paper = Raphael(10, 1, total_grid_size, total_grid_size);
 
@@ -45,7 +78,7 @@ Skyweb = function(json) {
 	t.display_coords = display_index_to_coords(t.display_index);
 	t.circle = paper.circle(t.display_coords.x, t.display_coords.y, radius);
 	t.circle.attr({
-		'fill': colmap[t.state],
+		'fill': getcolour(t.state),
 		'stroke-width': 1
 		    });       
 
@@ -114,9 +147,9 @@ Skyweb = function(json) {
 		var taskd = taskmap[ev.task_id];
 		
 		if(taskd.event_index < ev.index) {
-		    taskd.circle.animate({'fill': colmap[ev.action]}, 200);
+		    taskd.circle.animate({'fill': getcolour(ev.action)}, 200);
 		    for (x in taskd.outgoing_lines) {
-			taskd.outgoing_lines[x].animate(linemap[ev.action], 200);
+			taskd.outgoing_lines[x].animate(getline[ev.action], 200);
 		    }
 		    taskd.event_index = ev.index;
 		}
