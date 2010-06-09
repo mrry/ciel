@@ -327,7 +327,9 @@ class TaskPool(plugins.SimplePlugin):
             self._abort(task_id)
             
     def reference_available(self, id, urls):
+
         with self._lock:
+
             try:
                 blocked_tasks_set = self.references_blocking_tasks.pop(id)
             except KeyError:
@@ -337,7 +339,7 @@ class TaskPool(plugins.SimplePlugin):
                 was_blocked = task.is_blocked()
                 task.unblock_on(id, urls)
                 if was_blocked and not task.is_blocked():
-                    
+
                     runnable_event = self.new_event(task)
                     runnable_event["action"] = "RUNNABLE"
                     self.events.append(runnable_event)
@@ -345,7 +347,7 @@ class TaskPool(plugins.SimplePlugin):
                     task.record_event("RUNNABLE")
                     self.add_task_to_queues(task)
                     self.bus.publish('schedule')
-    
+                    
     def get_task_by_id(self, id):
         return self.tasks[id]
     
@@ -365,6 +367,9 @@ class TaskPool(plugins.SimplePlugin):
     def task_failed(self, id, reason, details=None):
         cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
         worker_id = None
+        should_notify_outputs = False
+        task = None
+
         with self._lock:
             task = self.tasks[id]
             failure_event = self.new_event(task)
@@ -392,10 +397,16 @@ class TaskPool(plugins.SimplePlugin):
                 task.state = TASK_FAILED
                 failure_event["action"] = "RUNTIME_EXCEPTION_FAIL"
                 # TODO: notify parents.
-                for output in task.expected_outputs:
-                    self.global_name_directory.add_refs_for_id(int(output), [SWErrorReference(reason, details)]) 
+                should_notify_outputs = True
             
             self.events.append(failure_event)
+
+        # Doing this outside the lock because this leads via add_refs_to_id
+        # --> self::reference_available, creating a circular wait. We noted the task as FAILED inside the lock,
+        # which ought to be enough.
+        if should_notify_outputs:
+            for output in task.expected_outputs:
+                self.global_name_directory.add_refs_for_id(int(output), [SWErrorReference(reason, details)]) 
 
         if worker_id is not None:
             self.bus.publish('worker_idle', worker_id)

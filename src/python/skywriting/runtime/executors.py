@@ -152,7 +152,7 @@ class JavaExecutor(SWExecutor):
         
         #print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
         cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
-        process_args = ["java", "-cp", cp, "uk.co.skywriting.task.JarTaskLoader", self.class_name]
+        process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
         for x in jar_filenames:
             process_args.append("file://" + x)
 #        print 'Command-line:', " ".join(process_args)
