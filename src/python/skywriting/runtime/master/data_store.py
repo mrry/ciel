@@ -23,10 +23,10 @@ import cherrypy
 from cherrypy.process import plugins
 
 class GlobalNameDirectoryEntry:
-    def __init__(self, task_id, refs):
+    def __init__(self, task_id, refs, lock):
         self.refs = refs
         self.task_id = task_id
-        self.waiters = []
+        self.cond = Condition(lock)
         
 class GlobalNameDirectory(plugins.SimplePlugin):
     
@@ -39,7 +39,7 @@ class GlobalNameDirectory(plugins.SimplePlugin):
         self.is_stopping = False
     
     def create_global_id(self, task_id=None):
-        entry = GlobalNameDirectoryEntry(task_id, [])
+        entry = GlobalNameDirectoryEntry(task_id, [], self._lock)
         with self._lock:
             id = self.current_id
             self.current_id += 1
@@ -64,8 +64,7 @@ class GlobalNameDirectory(plugins.SimplePlugin):
             entry = self.directory[id]
             for ref in refs:
                 entry.refs.append(ref)
-            for waiter in entry.waiters:
-                waiter.notify()
+            entry.cond.notify_all()
         cherrypy.engine.publish('global_name_available', id, entry.refs)
     
     def get_refs_for_id(self, id):
@@ -76,17 +75,13 @@ class GlobalNameDirectory(plugins.SimplePlugin):
         with self._lock:
             self.is_stopping = True
             for entry in self.directory.values():
-                for waiter in entry.waiters:
-                    waiter.notify()
+                entry.cond.notify_all()
 
     def wait_for_completion(self, id):
         with self._lock:
             entry = self.directory[id]
-            cond = Condition(self._lock)
-            entry.waiters.append(cond)
             while (not self.is_stopping) and (len(entry.refs) == 0):
-                cond.wait()
-            entry.waiters.remove(cond)
+                entry.cond.wait()
         if self.is_stopping:
             return None
         else:
