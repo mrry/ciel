@@ -71,8 +71,36 @@ Skyweb = function(json) {
             y: y
         };
     };
+    
+    add_task_ref = function(t, r) {
 
-    create_task = function(t) {
+	if(r.__ref__) {
+	    var input_ref = r.__ref__;
+	    if(input_ref[0] == "gfut") {
+		var gfut_id = input_ref[1];
+		var gfut_task = gfut_to_task[gfut_id];
+		if(!gfut_task) {
+		    if(window.console) {
+			console.log("Warning: ignored unknown gfut " + gfut_id);
+		    }
+		}
+		else {
+		    var tcoords = gfut_task.display_coords;
+		    var l = paper.path("M" + t.display_coords.x + " " + t.display_coords.y + "L" + tcoords.x + " " + tcoords.y);
+		    t.outgoing_lines.push({
+			    to: gfut_id,
+			    line: l
+				});
+		    l.attr('opacity', '0.1');
+		    l.toBack();
+		}
+	    }
+	}
+	
+
+    }
+
+    create_task = function(t, is_onload) {
 
 	taskmap[t.task_id] = t;
 
@@ -94,35 +122,18 @@ Skyweb = function(json) {
 	if (with_lines) {
 	    for (var i in t["inputs"]) {
 		var input_spec = t["inputs"][i];
-		if(input_spec.__ref__) {
-		    var input_ref = input_spec.__ref__;
-		    if(input_ref[0] == "gfut") {
-			var gfut_id = input_ref[1];
-			var gfut_task = gfut_to_task[gfut_id];
-			if(!gfut_task) {
-			    if(window.console) {
-				console.log("Warning: ignored unknown gfut " + gfut_id);
-			    }
-			}
-			else {
-			    var tcoords = gfut_task.display_coords;
-			    var l = paper.path("M" + t.display_coords.x + " " + t.display_coords.y + "L" + tcoords.x + " " + tcoords.y);
-			    t.outgoing_lines.push({
-				    to: gfut_id,
-				    line: l
-					});
-			    l.attr('opacity', '0.1');
-			    l.toBack();
-			}
-		    }
-		}
+		add_task_ref(t, input_spec);
+	    }
+	    for (var i in t["dependencies"]) {
+		var input_spec = t["dependencies"][i];
+		add_task_ref(t, input_spec);
 	    }
 	}
     }
 
     for (var t in json.taskmap) {
 
-	create_task(json.taskmap[t]);
+	create_task(json.taskmap[t], true);
 
     }
 
@@ -161,7 +172,7 @@ Skyweb = function(json) {
 		    ev.task_descriptor.task_id = ev.task_id;
 		    ev.task_descriptor.state = ev.initial_state;
 		    ev.task_descriptor.event_index = ev.index;
-		    create_task(ev.task_descriptor);
+		    create_task(ev.task_descriptor, false);
 		}
 	    }
 	    else {
