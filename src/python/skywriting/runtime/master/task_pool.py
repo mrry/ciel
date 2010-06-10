@@ -278,18 +278,16 @@ class TaskPool(plugins.SimplePlugin):
             task = Task(task_id, task_descriptor, self.global_name_directory, self, parent_task_id)
             self.tasks[task_id] = task
             add_event = self.new_event(task)
-            add_event["task_descriptor"] = task_descriptor
+            add_event["task_descriptor"] = task.as_descriptor(long=True)
             add_event["action"] = "CREATED"
         
             if task.is_blocked():
-                add_event["initial_state"] = "BLOCKING"
                 for global_id in task.blocked_on():
                     try:
                         self.references_blocking_tasks[global_id].add(task_id)
                     except KeyError:
                         self.references_blocking_tasks[global_id] = set([task_id])
             else:
-                add_event["initial_state"] = "RUNNABLE"
                 task.state = TASK_RUNNABLE
                 self.add_task_to_queues(task)
 

@@ -178,12 +178,6 @@ Skyweb = function(json) {
 	}
 
 	if (with_lines) {
-	    /* FIXME: Need to either check these two namespaces never clash, or fix this description
-	       at the server end */
-	    for (var i in t["inputs"]) {
-		var input_spec = t["inputs"][i];
-		add_task_ref(t, i, input_spec);
-	    }
 	    for (var i in t["dependencies"]) {
 		var input_spec = t["dependencies"][i];
 		add_task_ref(t, i, input_spec);
@@ -230,7 +224,6 @@ Skyweb = function(json) {
 		}
 		else {
 		    ev.task_descriptor.task_id = ev.task_id;
-		    ev.task_descriptor.state = ev.initial_state;
 		    ev.task_descriptor.event_index = ev.index;
 		    create_task(ev.task_descriptor, false);
 		}
