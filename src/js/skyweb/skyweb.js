@@ -71,8 +71,16 @@ Skyweb = function(json) {
             y: y
         };
     };
-    
-    add_task_ref = function(t, r) {
+
+    create_line = function(from_task, to_task) {
+
+	var from_coords = from_task.display_coords;
+	var to_coords = to_task.display_coords;
+	var l = paper.path("M" + to_coords.x + " " + to_coords.y + "L" + from_coords.x + " " + from_coords.y);
+
+    }
+
+    add_task_ref = function(t, refname, r) {
 
 	if(r.__ref__) {
 	    var input_ref = r.__ref__;
@@ -85,19 +93,20 @@ Skyweb = function(json) {
 		    }
 		}
 		else {
-		    var tcoords = gfut_task.display_coords;
-		    var l = paper.path("M" + t.display_coords.x + " " + t.display_coords.y + "L" + tcoords.x + " " + tcoords.y);
-		    t.outgoing_lines.push({
-			    to: gfut_id,
-			    line: l
-				});
+		    var new_line = create_line(gfut_task, t);
+		    var new_input_line = { from_gfut: gfut_id, from_task: gfut_task, line: new_line };
+		    t.input_lines[refname] = new_input_line;
+		    var new_output_line = { to_task: t, to_input: refname, line: new_line };
+		    if(!gfut_task.output_lines[gfut_id]) {
+			gfut_task.output_lines[gfut_id] = [];
+		    }
+		    gfut_task.output_lines[gfut_id].push(new_output_line);
+
 		    l.attr('opacity', '0.1');
 		    l.toBack();
 		}
 	    }
 	}
-	
-
     }
 
     create_task = function(t, is_onload) {
@@ -105,6 +114,33 @@ Skyweb = function(json) {
 	taskmap[t.task_id] = t;
 
 	for(var o in t.expected_outputs) {
+
+	    var this_output = t.expected_outputs[o];
+	    if(gfut_to_task[this_output]) {
+	        var old_task = gfut_to_task[this_output];
+		if(!old_task.output_lines[this_output]) {
+		    console.log("Deferring GFUT " + this_output + 
+				" from task " + old_task.task_id + 
+				" to " + t.task_id + " failed");
+		}
+		else {
+		    var lines_to_replace = old_task.output_lines[this_output];
+		    for(var i in lines_to_replace) {
+			var this_line = lines_to_replace[i];
+			// Nobble the old line
+			this_line.line.remove();
+			// Make a new one
+			this_line.line = create_line(t, this_line.to_task);
+			if(!t.output_lines[this_output]) {
+			    t.output_lines[this_output] = [];
+			}
+			t.output_lines[this_output].push(this_line);
+			// Fix metadata at the other end
+			this_line.to_task.input_lines[this_line.to_input].from_task = t;
+		    }
+		    delete old_task.output_lines[this_output];
+		}
+	    }
 
 	    gfut_to_task[t.expected_outputs[o]] = t;
 
@@ -118,15 +154,18 @@ Skyweb = function(json) {
 		'stroke-width': 1
 		    });       
 
-	t.outgoing_lines = [];
+	t.input_lines = {};
+	t.output_lines = {};
 	if (with_lines) {
+	    /* FIXME: Need to either check these two namespaces never clash, or fix this description
+	       at the server end */
 	    for (var i in t["inputs"]) {
 		var input_spec = t["inputs"][i];
-		add_task_ref(t, input_spec);
+		add_task_ref(t, i, input_spec);
 	    }
 	    for (var i in t["dependencies"]) {
 		var input_spec = t["dependencies"][i];
-		add_task_ref(t, input_spec);
+		add_task_ref(t, i, input_spec);
 	    }
 	}
     }
@@ -181,8 +220,8 @@ Skyweb = function(json) {
 		
 		if(taskd.event_index < ev.index) {
 		    taskd.circle.animate({'fill': getcolour(ev.action)}, 200);
-		    for (x in taskd.outgoing_lines) {
-			var lin = taskd.outgoing_lines[x].line;
+		    for (x in taskd.input_lines) {
+			var lin = taskd.input_lines[x].line;
 			lin.animate(getline(ev.action), 200);
 		    }
 		    taskd.event_index = ev.index;
