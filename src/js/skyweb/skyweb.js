@@ -77,6 +77,10 @@ Skyweb = function(json) {
 	var from_coords = from_task.display_coords;
 	var to_coords = to_task.display_coords;
 	var l = paper.path("M" + to_coords.x + " " + to_coords.y + "L" + from_coords.x + " " + from_coords.y);
+	// Set initial attributes (should probably be state-dependent)
+	l.attr('opacity', '0.1');
+	l.toBack();
+	return l;
 
     }
 
@@ -97,13 +101,8 @@ Skyweb = function(json) {
 		    var new_input_line = { from_gfut: gfut_id, from_task: gfut_task, line: new_line };
 		    t.input_lines[refname] = new_input_line;
 		    var new_output_line = { to_task: t, to_input: refname, line: new_line };
-		    if(!gfut_task.output_lines[gfut_id]) {
-			gfut_task.output_lines[gfut_id] = [];
-		    }
 		    gfut_task.output_lines[gfut_id].push(new_output_line);
 
-		    l.attr('opacity', '0.1');
-		    l.toBack();
 		}
 	    }
 	}
@@ -113,10 +112,27 @@ Skyweb = function(json) {
 
 	taskmap[t.task_id] = t;
 
+	t.display_index = last_index++;
+	t.display_coords = display_index_to_coords(t.display_index);
+	t.circle = paper.circle(t.display_coords.x, t.display_coords.y, radius);
+	t.circle.attr({
+		'fill': getcolour(t.state),
+		'stroke-width': 1
+		    });       
+
+	t.input_lines = {};
+	t.output_lines = {};
+
 	for(var o in t.expected_outputs) {
+
+	    t.output_lines[t.expected_outputs[o]] = [];
 
 	    var this_output = t.expected_outputs[o];
 	    if(gfut_to_task[this_output]) {
+
+		/* We're "usurping" this output from some previous task which promised to provide it */
+		/* Or to phrase that more pleasantly, we're providing that output on its behalf. */
+
 	        var old_task = gfut_to_task[this_output];
 		if(!old_task.output_lines[this_output]) {
 		    console.log("Deferring GFUT " + this_output + 
@@ -128,6 +144,7 @@ Skyweb = function(json) {
 		    for(var i in lines_to_replace) {
 			var this_line = lines_to_replace[i];
 			// Nobble the old line
+			this_line.line.hide();
 			this_line.line.remove();
 			// Make a new one
 			this_line.line = create_line(t, this_line.to_task);
@@ -146,16 +163,6 @@ Skyweb = function(json) {
 
 	}
 
-	t.display_index = last_index++;
-	t.display_coords = display_index_to_coords(t.display_index);
-	t.circle = paper.circle(t.display_coords.x, t.display_coords.y, radius);
-	t.circle.attr({
-		'fill': getcolour(t.state),
-		'stroke-width': 1
-		    });       
-
-	t.input_lines = {};
-	t.output_lines = {};
 	if (with_lines) {
 	    /* FIXME: Need to either check these two namespaces never clash, or fix this description
 	       at the server end */
