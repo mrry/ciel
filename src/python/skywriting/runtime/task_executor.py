@@ -405,7 +405,8 @@ class SWRuntimeInterpreterTask:
             cont_task_descriptor = {'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': self.expected_outputs,
-                                    'save_continuation': self.save_continuation}
+                                    'save_continuation': self.save_continuation,
+                                    'continues_task': self.task_id}
             self.save_continuation = False
             if isinstance(ei, FeatureUnavailableException):
                 cont_task_descriptor['require_features'] = [ei.feature_name]

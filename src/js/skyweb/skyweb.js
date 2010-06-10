@@ -61,21 +61,25 @@ Skyweb = function(json) {
 
     var paper = Raphael(10, 1, total_grid_size, total_grid_size);
 
-    display_index_to_coords = function(id) {
-        var tx = id % circles_per_line;
-        var ty = Math.floor(id / circles_per_line);
-        var x = (tx + 1) * (radius * 2 + padding);
-        var y = (ty + 1) * (radius * 2 + padding);
-        return {
-            x: x,
-            y: y
-        };
+    circle_coords_to_pixels = function(tx, ty) {
+
+	return {x: (tx + 1) * (radius * 2 + padding), y: (ty + 1) * (radius * 2 + padding) };
+
+    }
+    
+    display_index_to_circle_coords = function(id) {
+	return {tx: id % circles_per_line, ty: (Math.floor(id / circles_per_line) * 2)};
+    }
+
+    display_index_to_pixels = function(id) {
+	var circle_coords = display_index_to_circle_coords(id);
+	return circle_coords_to_pixels(circle_coords.tx, circle_coords.ty);
     };
 
     create_line = function(from_task, to_task) {
 
-	var from_coords = from_task.display_coords;
-	var to_coords = to_task.display_coords;
+	var from_coords = from_task.display_pixels;
+	var to_coords = to_task.display_pixels;
 	var l = paper.path("M" + to_coords.x + " " + to_coords.y + "L" + from_coords.x + " " + from_coords.y);
 	// Set initial attributes (should probably be state-dependent)
 	l.attr('opacity', '0.1');
@@ -112,9 +116,19 @@ Skyweb = function(json) {
 
 	taskmap[t.task_id] = t;
 
-	t.display_index = last_index++;
-	t.display_coords = display_index_to_coords(t.display_index);
-	t.circle = paper.circle(t.display_coords.x, t.display_coords.y, radius);
+	if(t["continues_task"]) {
+	    var other_task = taskmap[t["continues_task"]];
+	    t.display_index = other_task.display_index;
+	    t.display_coords = {tx: other_task.display_coords.tx, ty: other_task.display_coords.ty + 1};
+	    t.display_pixels = circle_coords_to_pixels(t.display_coords.tx, t.display_coords.ty);
+	}
+	else {
+	    t.display_index = last_index++;
+	    t.display_coords = display_index_to_circle_coords(t.display_index);
+	    t.display_pixels = circle_coords_to_pixels(t.display_coords.tx, t.display_coords.ty);
+	}
+	
+	t.circle = paper.circle(t.display_pixels.x, t.display_pixels.y, radius);
 	t.circle.attr({
 		'fill': getcolour(t.state),
 		'stroke-width': 1
@@ -226,10 +240,10 @@ Skyweb = function(json) {
 		var taskd = taskmap[ev.task_id];
 		
 		if(taskd.event_index < ev.index) {
-		    taskd.circle.animate({'fill': getcolour(ev.action)}, 200);
+		    taskd.circle.attr({'fill': getcolour(ev.action)});
 		    for (x in taskd.input_lines) {
 			var lin = taskd.input_lines[x].line;
-			lin.animate(getline(ev.action), 200);
+			lin.attr(getline(ev.action));
 		    }
 		    taskd.event_index = ev.index;
 		}

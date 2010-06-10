@@ -78,6 +78,12 @@ class Task:
             self.save_continuation = task_descriptor['save_continuation']
         except KeyError:
             self.save_continuation = False
+
+        try:
+            self.continues_task = task_descriptor['continues_task']
+        except KeyError:
+            self.continues_task = None
+
         self.saved_continuation_uri = None
     
         self.state = TASK_RUNNABLE    
@@ -185,6 +191,8 @@ class Task:
         
         if self.save_continuation:
             descriptor['save_continuation'] = True
+        if self.continues_task:
+            descriptor['continues_task'] = self.continues_task
         
         return descriptor        
 
