@@ -40,6 +40,10 @@ class MasterNotRespondingException(RuntimeSkywritingError):
     def __init__(self):
         pass
 
+class WorkerShutdownException(RuntimeSkywritingError):
+    def __init__(self):
+        pass
+
 class ExecutionInterruption(Exception):
     def __init__(self):
         pass

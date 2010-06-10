@@ -21,35 +21,54 @@ from urlparse import urljoin
 from skywriting.runtime.references import SWDataValue
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,\
     json_decode_object_hook
-from skywriting.runtime.exceptions import MasterNotRespondingException
+from skywriting.runtime.exceptions import MasterNotRespondingException,\
+    WorkerShutdownException
 import logging
 import time
 import random
 import cherrypy
 import socket
 import httplib2
+from cherrypy.process.plugins import SimplePlugin
+from threading import Event
 
 import simplejson
 
 def get_worker_netloc():
     return '%s:%d' % (socket.getfqdn(), cherrypy.config.get('server.socket_port'))
 
-class MasterProxy:
+class MasterProxy(SimplePlugin):
     
-    def __init__(self, worker, master_url=None):
+    def __init__(self, worker, bus, master_url=None):
+        SimplePlugin.__init__(self, bus)
         self.worker = worker
         self.master_url = master_url
-    
+        self.stop_event = Event()
+
+    def subscribe(self):
+        self.bus.subscribe("stop", self.handle_shutdown, 10)
+        # High priority
+
+    def unsubscribe(self):
+        self.bus.unsubscribe("stop", self.handle_shutdown)
+
     def change_master(self, master_url):
         self.master_url = master_url
         
     def get_master_details(self):
         return {'netloc': self.master_netloc}
+
+    def handle_shutdown(self):
+        self.stop_event.set()
     
     def backoff_request(self, url, method, payload=None, num_attempts=3, initial_wait=5):
         initial_wait = 5
         for i in range(0, num_attempts):
+            if self.stop_event.is_set():
+                break
             try:
+                # This sucks: httplib2 doesn't have any sort of cancellation method, so if the worker
+                # is shutting down we must wait for this request to fail or time out.
                 response, content = httplib2.Http().request(url, method, payload)
                 if response.status == 200:
                     return response, content
@@ -58,10 +77,13 @@ class MasterProxy:
                     cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, True)
             except:
                 cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
-            time.sleep(initial_wait)
+            self.stop_event.wait(initial_wait)
             initial_wait += initial_wait * random.uniform(0.5, 1.5)
         cherrypy.log.error("Given up trying to contact master", "MSTRPRXY", logging.ERROR, True)
-        raise MasterNotRespondingException()
+        if self.stop_event.is_set():
+            raise WorkerShutdownException()
+        else:
+            raise MasterNotRespondingException()
     
     def register_as_worker(self):
         message_payload = simplejson.dumps(self.worker.as_descriptor())

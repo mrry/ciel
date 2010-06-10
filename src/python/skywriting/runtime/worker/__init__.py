@@ -41,7 +41,8 @@ class Worker(plugins.SimplePlugin):
         self.hostname = hostname
         self.port = port
         self.master_url = master_url
-        self.master_proxy = MasterProxy(self, master_url)
+        self.master_proxy = MasterProxy(self, bus, master_url)
+        self.master_proxy.subscribe()
         temp_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         self.block_store = BlockStore(self.hostname, self.port, temp_dir, self.master_proxy)
         self.execution_features = ExecutionFeatures()
