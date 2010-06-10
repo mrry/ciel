@@ -198,38 +198,32 @@ class TaskPool(plugins.SimplePlugin):
         self.tasks = {}
         self.references_blocking_tasks = {}
         self._lock = Lock()
+        self._cond = Condition(self._lock)
         self.event_index = 0
         # event_index: The index which will be given to the *next* event
         self.events = []
-        self.event_waiters = []
         self.is_stopping = False
     
-    # Call under _lock (and don't release _lock until you've put an event in event_waiters!)
+    # Call under _lock (and don't release _lock until you've put an event in the queue!)
     def new_event(self, t):
         ret = dict()
         ret["index"] = self.event_index
         ret["task_id"] = t.task_id
         t.event_index = self.event_index
-        for waiter in self.event_waiters:
-            waiter.notify()
         self.event_index += 1
+        self._cond.notify_all()
         return ret
 
     def wait_event_after(self, idx):
         with self._lock:
-            cond = Condition(self._lock)
-            self.event_waiters.append(cond)
             while (not self.is_stopping) and (idx == self.event_index):
-                cond.wait()
-            self.event_waiters.remove(cond)
+                self._cond.wait()
             return not self.is_stopping
 
     def server_stopping(self):
-
         with self._lock:
             self.is_stopping = True
-            for waiter in self.event_waiters:
-                waiter.notify()
+            self._cond.notify_all()
 
     def subscribe(self):
         self.bus.subscribe('global_name_available', self.reference_available)
