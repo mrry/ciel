@@ -76,7 +76,7 @@ class MasterProxy:
         
     def spawn_tasks(self, parent_task_id, tasks):
         message_payload = simplejson.dumps(tasks, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'task/%d/spawn' % (parent_task_id, ))
+        message_url = urljoin(self.master_url, 'task/%s/spawn' % (str(parent_task_id), ))
         (_, result) = self.backoff_request(message_url, "POST", message_payload)
         return simplejson.loads(result)
     
@@ -85,12 +85,12 @@ class MasterProxy:
         if saved_continuation_uri is not None:
             payload_dict['saved_continuation_uri'] = saved_continuation_uri
         message_payload = simplejson.dumps(payload_dict, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'task/%d/commit' % (task_id, ))
+        message_url = urljoin(self.master_url, 'task/%s/commit' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
         
     def failed_task(self, task_id):
-        message_payload = simplejson.dumps(task_id)
-        message_url = urljoin(self.master_url, 'task/%d/failed' % (task_id, ))
+        message_payload = simplejson.dumps(str(task_id))
+        message_url = urljoin(self.master_url, 'task/%s/failed' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
 
     def ping(self, status, ping_news):

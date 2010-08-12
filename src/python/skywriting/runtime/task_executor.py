@@ -31,6 +31,7 @@ from skywriting.runtime.exceptions import ReferenceUnavailableException,\
 from threading import Lock
 import cherrypy
 import logging
+import uuid
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWLocalDataFile, SWRealReference,\
     SWLocalFutureReference, SWGlobalFutureReference, SWFutureReference,\
@@ -65,15 +66,15 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             execution_record = SWExecutorTaskExecutionRecord(input, self)
 
         with self._lock:
-            self.current_task_id = input['task_id']
+            self.current_task_id = uuid.UUID(hex=input['task_id'])
             self.current_task_execution_record = execution_record
         
-        cherrypy.log.error("Starting task %d with handler %s" % (self.current_task_id, handler), 'TASK', logging.INFO, False)
+        cherrypy.log.error("Starting task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         try:
             execution_record.execute()
-            cherrypy.log.error("Completed task %d with handler %s" % (self.current_task_id, handler), 'TASK', logging.INFO, False)
+            cherrypy.log.error("Completed task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         except:
-            cherrypy.log.error("Error in task %d with handler %s" % (self.current_task_id, handler), 'TASK', logging.ERROR, True)
+            cherrypy.log.error("Error in task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.ERROR, True)
 
         with self._lock:
             self.current_task_id = None
@@ -163,7 +164,7 @@ class SWLocalReference:
 class SWExecutorTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
-        self.task_id = task_descriptor['task_id']
+        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
         self.expected_outputs = task_descriptor['expected_outputs']
         self.task_executor = task_executor
         self.inputs = task_descriptor['inputs']
@@ -223,7 +224,7 @@ class SWExecutorTaskExecutionRecord:
 class SWInterpreterTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
-        self.task_id = task_descriptor['task_id']
+        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
         self.task_executor = task_executor
         
         self.is_running = True
@@ -259,7 +260,7 @@ class SWInterpreterTaskExecutionRecord:
 class SWRuntimeInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
-        self.task_id = task_descriptor['task_id']
+        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
         self.expected_outputs = task_descriptor['expected_outputs']
         self.inputs = task_descriptor['inputs']
 
@@ -307,7 +308,12 @@ class SWRuntimeInterpreterTask:
                 parsed_inputs[int(local_id)] = ref
         
         assert isinstance(continuation_ref, SWURLReference)
+        
+        cherrypy.log.error('Fetching continuation!!!')
+        
         self.continuation = block_store.retrieve_object_by_url(block_store.choose_best_url(continuation_ref.urls), 'pickle')
+        
+        cherrypy.log.error('Fetched continuation!!!')
         
         for local_id, ref in parsed_inputs.items():
         

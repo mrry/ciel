@@ -11,7 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
 '''
 Created on 15 Apr 2010
 
@@ -26,6 +25,7 @@ from skywriting.runtime.block_store import get_netloc_for_sw_url
 import time
 import datetime
 import logging
+import uuid
 import cherrypy
 
 TASK_CREATED = -1
@@ -156,7 +156,7 @@ class Task:
                 self.record_event("RUNNABLE")
         
     def as_descriptor(self, long=False):        
-        descriptor = {'task_id': self.task_id,
+        descriptor = {'task_id': str(self.task_id),
                       'dependencies': self.dependencies,
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
@@ -223,10 +223,15 @@ class TaskPool(plugins.SimplePlugin):
         handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
         handler_queue.put(task)
     
+    def generate_task_id(self):
+        return uuid.uuid4()
+    
     def add_task(self, task_descriptor, parent_task_id=None):
         with self._lock:
-            task_id = self.current_task_id
-            self.current_task_id += 1
+            try:
+                task_id = uuid.UUID(hex=task_descriptor['task_id']) 
+            except:
+                task_id = self.generate_task_id()
             
             task = Task(task_id, task_descriptor, self.global_name_directory, parent_task_id)
             self.tasks[task_id] = task

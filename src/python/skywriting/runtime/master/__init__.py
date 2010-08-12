@@ -50,6 +50,7 @@ def master_main(options):
 
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
+    print 'Local port is', local_port
     master_proxy = LocalMasterProxy(task_pool, None, global_name_directory, worker_pool)
     block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
     master_proxy.block_store = block_store

@@ -11,7 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
 '''
 Created on 8 Feb 2010
 
@@ -27,6 +26,7 @@ import os
 import tempfile
 import simplejson
 import cherrypy
+import uuid
 from skywriting.runtime.worker.worker_view import DataRoot
 
 class MasterRoot:
@@ -111,7 +111,7 @@ class MasterTaskRoot:
         if id is not None:
         
             try:
-                task_id = int(id)
+                task_id = uuid.UUID(hex=id)
             except:
                 if id == 'flush':
                     self.task_pool.flush_task_dict()
@@ -209,7 +209,7 @@ class MasterTaskRoot:
                 task = self.task_pool.add_task(task_descriptor)
                 for output in expected_outputs:
                     self.global_name_directory.set_task_for_id(output, task.task_id)
-                return simplejson.dumps({'outputs': expected_outputs, 'task_id': task.task_id})
+                return simplejson.dumps({'outputs': expected_outputs, 'task_id': str(task.task_id)})
                         
         else:
             if cherrypy.request.method == 'GET':
