@@ -94,7 +94,8 @@ class ReferenceTableEntry:
         
 class SpawnListEntry:
     
-    def __init__(self, task_descriptor, continuation=None):
+    def __init__(self, id, task_descriptor, continuation=None):
+        self.id = id
         self.task_descriptor = task_descriptor
         self.continuation = continuation
         self.ignore = False
@@ -388,15 +389,17 @@ class SWRuntimeInterpreterTask:
             
             select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
                         
+            cont_task_id = uuid.uuid1()
                         
-            cont_task_descriptor = {'handler': 'swi',
+            cont_task_descriptor = {'task_id': str(cont_task_id),
+                                    'handler': 'swi',
                                     'inputs': {},
                                     'select_group': select_group,
                                     'select_timeout': timeout,
                                     'expected_outputs': self.expected_outputs,
                                     'save_continuation': self.save_continuation}
             self.save_continuation = False
-            self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
+            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
             
         except ExecutionInterruption, ei:
 
@@ -408,7 +411,9 @@ class SWRuntimeInterpreterTask:
                 if (not isinstance(self.continuation.resolve_tasklocal_reference_with_index(index), SWDataValue)) and \
                    (self.continuation.is_marked_as_dereferenced(index) or self.continuation.is_marked_as_execd(index)):
                     cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index)
-            cont_task_descriptor = {'handler': 'swi',
+            cont_task_id = uuid.uuid1()
+            cont_task_descriptor = {'task_id': str(cont_task_id),
+                                    'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': self.expected_outputs,
                                     'save_continuation': self.save_continuation}
@@ -416,7 +421,7 @@ class SWRuntimeInterpreterTask:
             if isinstance(ei, FeatureUnavailableException):
                 cont_task_descriptor['require_features'] = [ei.feature_name]
             
-            self.spawn_list.append(SpawnListEntry(cont_task_descriptor, self.continuation))
+            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
             return
             
 
@@ -609,7 +614,10 @@ class SWRuntimeInterpreterTask:
         ret = self.continuation.create_tasklocal_reference(SWLocalFutureReference(len(self.spawn_list)))
         
         # Append the new task definition to the spawn list.
-        task_descriptor = {'handler': 'swi',
+        new_task_id = uuid.uuid1()
+        
+        task_descriptor = {'task_id': str(new_task_id),
+                           'handler': 'swi',
                            'inputs': {},
                            'num_outputs': 1 # _cont will be added later
                           }
@@ -619,7 +627,7 @@ class SWRuntimeInterpreterTask:
         # TODO: should probably look at dereference wrapper objects in the spawn context
         #       and ship them as inputs.
         
-        self.spawn_list.append(SpawnListEntry(task_descriptor, spawned_continuation))
+        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor, spawned_continuation))
 
         # Return local reference to the interpreter.
         return ret
@@ -655,11 +663,14 @@ class SWRuntimeInterpreterTask:
         args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle')
         inputs['_args'] = SWURLReference([args_url], size_hint)
         
-        task_descriptor = {'handler': executor_name, 
+        new_task_id = uuid.uuid1()
+        
+        task_descriptor = {'task_id': str(new_task_id),
+                           'handler': executor_name, 
                            'inputs': inputs,
                            'num_outputs': num_outputs}
         
-        self.spawn_list.append(SpawnListEntry(task_descriptor))
+        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
         
         return ret
     
