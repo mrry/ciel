@@ -35,7 +35,7 @@ import urlparse
 import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
-    SWErrorReference, SWNullReference, SWURLReference
+    SWErrorReference, SWNullReference, SWURLReference, ACCESS_SWBS
 urlparse.uses_netloc.append("swbs")
 
 def get_netloc_for_sw_url(url):
@@ -231,10 +231,16 @@ class BlockStore:
         
         return filename
     
+    def retrieve_filename_for_concrete_ref(self, ref):
+        netloc = self.choose_best_netloc(ref.location_hints.keys())
+        access_method = self.choose_best_access_method(ref.location_hints[netloc])
+        return self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
+        
     def retrieve_filename_for_ref(self, ref):
         assert isinstance(ref, SWRealReference)
         if isinstance(ref, SW2_ConcreteReference):
-            raise
+            print ref
+            return self.retrieve_filename_for_concrete_ref(ref)
         elif isinstance(ref, SWURLReference):
             for url in ref.urls:
                 filename = self.find_url_in_cache(url)
@@ -254,16 +260,22 @@ class BlockStore:
         else:
             raise
         
+    def retrieve_object_for_concrete_ref(self, ref, decoder):
+        netloc = self.choose_best_netloc(ref.location_hints.keys())
+        access_method = self.choose_best_access_method(ref.location_hints[netloc])
+        return self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
+        
     def retrieve_object_for_ref(self, ref, decoder):
         assert isinstance(ref, SWRealReference)
         if isinstance(ref, SW2_ConcreteReference):
-            raise
+            print ref
+            return self.retrieve_object_for_concrete_ref(ref, decoder)
         elif isinstance(ref, SWURLReference):
             for url in ref.urls:
                 filename = self.find_url_in_cache(url)
                 if filename is not None:
                     with open(filename) as f:
-                        ret = self.decoders[decoder](filename)
+                        ret = self.decoders[decoder](f)
                     return ret
             chosen_url = self.choose_best_url(ref.urls)
             return self.retrieve_object_by_url(chosen_url, decoder)
@@ -278,6 +290,18 @@ class BlockStore:
             print ref
             raise        
         
+    def choose_best_netloc(self, netlocs):
+        if len(netlocs) == 1:
+            return netlocs[0]
+        else:
+            for netloc in netlocs:
+                if netloc == self.netloc:
+                    return netloc
+            return random.choice(netlocs)
+        
+    def choose_best_access_method(self, methods):
+        assert ACCESS_SWBS in methods
+        return ACCESS_SWBS
         
     def choose_best_url(self, urls):
         if len(urls) == 1:

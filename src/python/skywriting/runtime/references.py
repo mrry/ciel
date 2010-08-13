@@ -96,19 +96,33 @@ class SW2_FutureReference(SWFutureReference):
 
     def __repr__(self):
         return 'SW2_FutureReference(%s, %s)' % (repr(self.id), repr(self.provenance))
-                
+        
+ACCESS_SWBS = 'swbs'
+
 class SW2_ConcreteReference(SWRealReference):
         
-    def __init__(self, id, provenance, location_hints):
+    def __init__(self, id, provenance, size_hint=None, location_hints=None):
         self.id = id
         self.provenance = provenance
-        self.location_hints = location_hints
+        self.size_hint = size_hint
+        if location_hints is not None:
+            self.location_hints = location_hints
+        else:
+            self.location_hints = {}
+        
+    def add_location_hint(self, netloc, access_method):
+        try:
+            hints_for_netloc = self.location_hints[netloc]
+        except KeyError:
+            hints_for_netloc = []
+            self.location_hints[netloc] = hints_for_netloc
+        hints_for_netloc.append(access_method)
         
     def as_tuple(self):
-        return('c2', str(self.id), self.provenance.as_tuple(), self.location_hints)
+        return('c2', str(self.id), self.provenance.as_tuple(), self.size_hint, self.location_hints)
         
     def __repr__(self):
-        return 'SW2_ConcreteReference(%s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
+        return 'SW2_ConcreteReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.size_hint), repr(self.location_hints))
         
 class SWURLReference(SWRealReference):
     """
@@ -165,6 +179,6 @@ def build_reference_from_tuple(reference_tuple):
     elif ref_type == 'f2':
         return SW2_FutureReference(uuid.UUID(hex=reference_tuple[1]), build_provenance_from_tuple(reference_tuple[2]))
     elif ref_type == 'c2':
-        return SW2_ConcreteReference(uuid.UUID(hex=reference_tuple[1]), build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3])
+        return SW2_ConcreteReference(uuid.UUID(hex=reference_tuple[1]), build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3], reference_tuple[4])
     else:
         raise KeyError(ref_type)

@@ -36,7 +36,8 @@ from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
-    SWTaskOutputProvenance
+    SWTaskOutputProvenance, SW2_ConcreteReference, ACCESS_SWBS,\
+    SWSpawnedTaskProvenance
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -309,8 +310,6 @@ class SWRuntimeInterpreterTask:
             else:
                 parsed_inputs[int(local_id)] = ref
         
-        assert isinstance(continuation_ref, SWURLReference)
-        
         self.continuation = block_store.retrieve_object_for_ref(continuation_ref, 'pickle')
         
         for local_id, ref in parsed_inputs.items():
@@ -400,7 +399,7 @@ class SWRuntimeInterpreterTask:
                                     'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': map(str, self.expected_outputs),
                                     'save_continuation': self.save_continuation,
-                                    'continues_task': self.task_id}
+                                    'continues_task': str(self.task_id)}
             self.save_continuation = False
             if isinstance(ei, FeatureUnavailableException):
                 cont_task_descriptor['require_features'] = [ei.feature_name]
@@ -450,8 +449,11 @@ class SWRuntimeInterpreterTask:
                 
                 # Store the continuation and add it to the task descriptor.
                 if current_cont is not None:
-                    cont_url, size_hint = block_store.store_object(current_cont, 'pickle', self.get_spawn_continuation_object_id())
-                    self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = SWURLReference([cont_url], size_hint)
+                    spawned_cont_id = self.get_spawn_continuation_object_id()
+                    cont_url, size_hint = block_store.store_object(current_cont, 'pickle', spawned_cont_id)
+                    spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, SWSpawnedTaskProvenance(self.task_id, current_index), size_hint)
+                    spawned_cont_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+                    self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = spawned_cont_ref
             
                 # Current task is now ready to be spawned.
                 current_batch.append(self.spawn_list[current_index].task_descriptor)
