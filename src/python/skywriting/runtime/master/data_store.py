@@ -20,6 +20,7 @@ Created on Apr 15, 2010
 from __future__ import with_statement
 from threading import Lock, Condition
 import cherrypy
+import uuid
 
 class GlobalNameDirectoryEntry:
     def __init__(self, task_id, refs):
@@ -31,16 +32,18 @@ class GlobalNameDirectory:
     
     def __init__(self):
         self._lock = Lock()
-        self.current_id = 0
         self.directory = {}
     
-    def create_global_id(self, task_id=None):
-        entry = GlobalNameDirectoryEntry(task_id, [])
-        with self._lock:
-            id = self.current_id
-            self.current_id += 1
-            self.directory[id] = entry
-        return id
+    def create_global_id(self, task_id=None, data_id=None):
+        try:
+            entry = self.directory[data_id]
+            entry.task_id = task_id
+        except:
+            entry = GlobalNameDirectoryEntry(task_id, [])
+            if data_id is None:
+                data_id = uuid.uuid1()
+            self.directory[data_id] = entry
+        return data_id
     
     def get_task_for_id(self, id):
         return self.directory[id].task_id

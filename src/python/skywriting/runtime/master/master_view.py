@@ -133,23 +133,24 @@ class MasterTaskRoot:
                     # TODO: stage this in a task-local transaction buffer.
                     for task_d in task_descriptors:
                         try:
-                            expected_outputs = task_d['expected_outputs']
+                            spawned_task_id = uuid.UUID(hex=task_d['task_id'])
+                            expected_outputs = [uuid.UUID(hex=x) for x in task_d['expected_outputs']]
+                            for global_id in expected_outputs:
+                                self.global_name_directory.create_global_id(spawned_task_id, global_id)
                         except KeyError:
-                            try:
-                                num_outputs = task_d['num_outputs']
-                                expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
-                            except:
-                                raise
-                            
-                            task_d['expected_outputs'] = expected_outputs
+                            raise
+                            #try:
+                            #    num_outputs = task_d['num_outputs']
+                            #    expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
+                            #except:
+                            #    raise
+                            #
+                            #task_d['expected_outputs'] = map(str, expected_outputs)
                         
                         task = self.task_pool.add_task(task_d, task_id)
                         parent_task.children.append(task.task_id)
                         
-                        for global_id in expected_outputs:
-                            self.global_name_directory.set_task_for_id(global_id, task.task_id)
-                        
-                        spawn_result_ids.append(expected_outputs) 
+                        spawn_result_ids.append(map(str, expected_outputs)) 
                     
                     return simplejson.dumps(spawn_result_ids)
                     
@@ -163,7 +164,7 @@ class MasterTaskRoot:
                     
                     # Apply commit bindings (if any), i.e. publish results.
                     for global_id, refs in commit_bindings.items():
-                        self.global_name_directory.add_refs_for_id(int(global_id), refs)
+                        self.global_name_directory.add_refs_for_id(uuid.UUID(global_id), refs)
                     
                     self.task_pool.task_completed(task_id)
                     
@@ -195,21 +196,29 @@ class MasterTaskRoot:
         elif cherrypy.request.method == 'POST':
             # New task spawning in here.
             task_descriptor = simplejson.loads(cherrypy.request.body.read())
+            try:
+                spawned_task_id = uuid.UUID(hex=task_descriptor['task_id'])
+            except KeyError:
+                spawned_task_id = uuid.uuid1()
+                task_descriptor['task_id'] = str(spawned_task_id)
+                
             if task_descriptor is not None:
                 try:
-                    expected_outputs = task_descriptor['expected_outputs']
+                    expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
                 except KeyError:
                     try:
                         num_outputs = task_descriptor['num_outputs']
-                        expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
+                        expected_outputs = map(lambda x: self.global_name_directory.create_global_id(spawned_task_id), range(0, num_outputs))
                     except:
                         expected_outputs = [self.global_name_directory.create_global_id()]
                     task_descriptor['expected_outputs'] = expected_outputs
+                else:
+
+                    for output in expected_outputs:
+                        self.global_name_directory.create_global_id(spawned_task_id, output)
                 
                 task = self.task_pool.add_task(task_descriptor)
-                for output in expected_outputs:
-                    self.global_name_directory.set_task_for_id(output, task.task_id)
-                return simplejson.dumps({'outputs': expected_outputs, 'task_id': str(task.task_id)})
+                return simplejson.dumps({'outputs': map(str, expected_outputs), 'task_id': str(task.task_id)})
                         
         else:
             if cherrypy.request.method == 'GET':
@@ -232,24 +241,30 @@ class GlobalDataRoot:
             # Create a new global ID, and add the POSTed URLs if any.
             refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             id = self.global_name_directory.create_global_id(refs)
-            return simplejson.dumps(id)
+            return simplejson.dumps(str(id))
         
     @cherrypy.expose
     def default(self, id, attribute=None):
+        
+        try:
+            real_id = uuid.UUID(hex=id)
+        except:
+            raise HTTPError(404)
+        
         if attribute is None:
             if cherrypy.request.method == 'POST':
                 # Add a new URL for the global ID.
                 real_refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
                 assert real_refs is list
                 try:
-                    self.global_name_directory.add_refs_for_id(int(id), real_refs)
+                    self.global_name_directory.add_refs_for_id(real_id, real_refs)
                     return
                 except KeyError:
                     raise HTTPError(404)
             elif cherrypy.request.method == 'GET':
                 # Return all URLs for the global ID.
                 try:
-                    refs = self.global_name_directory.get_refs_for_id(int(id))
+                    refs = self.global_name_directory.get_refs_for_id(real_id)
                     if len(refs) == 0:
                         cherrypy.response.status = 204
                     return simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
@@ -258,14 +273,14 @@ class GlobalDataRoot:
             elif cherrypy.request.method == 'DELETE':
                 # Abort task producing the given global ID.
                 try:
-                    task_id = self.global_name_directory.get_task_for_id(int(id))
+                    task_id = self.global_name_directory.get_task_for_id(real_id)
                     self.task_pool.abort(task_id)
                 except KeyError:
                     raise HTTPError(404)
             raise HTTPError(405)
         elif attribute == 'task':
             if cherrypy.request.method == 'GET':
-                task_id = self.global_name_directory.get_task_for_id(int(id))
+                task_id = self.global_name_directory.get_task_for_id(real_id)
                 task = self.task_pool.get_task_by_id(task_id)
                 task_descriptor = task.as_descriptor(long=True)
                 task_descriptor['is_running'] = task.worker_id is not None
@@ -276,7 +291,6 @@ class GlobalDataRoot:
                 raise HTTPError(405)
         elif attribute == 'completion':
             if cherrypy.request.method == 'GET':
-                real_id = int(id)
                 return simplejson.dumps(self.global_name_directory.wait_for_completion(real_id), cls=SWReferenceJSONEncoder)
             else:
                 raise HTTPError(405)

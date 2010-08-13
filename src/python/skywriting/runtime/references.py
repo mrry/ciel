@@ -87,8 +87,11 @@ class SW2_FutureReference(SWFutureReference):
         self.provenance = provenance
     
     def as_tuple(self):
-        return ('f2', self.id, self.provenance.as_tuple())
-        
+        return ('f2', str(self.id), self.provenance.as_tuple())
+
+    def __repr__(self):
+        return 'SW2_FutureReference(%s, %s)' % (repr(self.id), repr(self.provenance))
+                
 class SW2_ConcreteReference(SWRealReference):
         
     def __init__(self, id, provenance, location_hints):
@@ -97,7 +100,10 @@ class SW2_ConcreteReference(SWRealReference):
         self.location_hints = location_hints
         
     def as_tuple(self):
-        return('c2', self.id, self.provenance.as_tuple(), self.location_hints)
+        return('c2', str(self.id), self.provenance.as_tuple(), self.location_hints)
+        
+    def __repr__(self):
+        return 'SW2_ConcreteReference(%s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
         
 class SWLocalFutureReference(SWFutureReference):
     """
@@ -144,10 +150,12 @@ class SWGlobalFutureReference(SWFutureReference):
     tasks.
     
     SWLocalFutureReferences must be rewritten to be SWGlobalFutureReference objects.
+
+    Deprecated.
     """
 
     def __init__(self, id):
-        self.id = id
+        raise
         
     def as_tuple(self):
         return ('gfut', self.id)

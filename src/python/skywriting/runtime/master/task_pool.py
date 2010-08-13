@@ -19,8 +19,8 @@ Created on 15 Apr 2010
 from __future__ import with_statement
 from cherrypy.process import plugins
 from threading import Lock
-from skywriting.runtime.references import SWGlobalFutureReference,\
-    SWURLReference, SWErrorReference
+from skywriting.runtime.references import \
+    SWURLReference, SWErrorReference, SW2_FutureReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
 import time
 import datetime
@@ -82,7 +82,7 @@ class Task:
     
         self.blocking_dict = {}
         for local_id, input in self.dependencies.items():
-            if isinstance(input, SWGlobalFutureReference):
+            if isinstance(input, SW2_FutureReference):
                 global_id = input.id
                 refs = global_name_directory.get_refs_for_id(global_id)
                 if len(refs) > 0:
@@ -106,7 +106,7 @@ class Task:
             self.select_result = []
             
             for i, ref in enumerate(select_group):
-                if isinstance(ref, SWGlobalFutureReference):
+                if isinstance(ref, SW2_FutureReference):
                     global_id = ref.id
                     refs = global_name_directory.get_refs_for_id(global_id)
                     if len(refs) > 0:
@@ -159,7 +159,7 @@ class Task:
         descriptor = {'task_id': str(self.task_id),
                       'dependencies': self.dependencies,
                       'handler': self.handler,
-                      'expected_outputs': self.expected_outputs,
+                      'expected_outputs': map(str, self.expected_outputs),
                       'inputs': self.inputs}
         
         if long:
@@ -324,7 +324,7 @@ class TaskPool(plugins.SimplePlugin):
                 task.state = TASK_FAILED
                 # TODO: notify parents.
                 for output in task.expected_outputs:
-                    self.global_name_directory.add_refs_for_id(int(output), [SWErrorReference(reason, details)]) 
+                    self.global_name_directory.add_refs_for_id(output, [SWErrorReference(reason, details)]) 
             self.bus.publish('worker_idle', worker_id)
             pass
 

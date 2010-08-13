@@ -34,8 +34,9 @@ import logging
 import uuid
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWLocalDataFile, SWRealReference,\
-    SWLocalFutureReference, SWGlobalFutureReference, SWFutureReference,\
-    SWErrorReference, SWNullReference
+    SWLocalFutureReference, SWFutureReference,\
+    SWErrorReference, SWNullReference, SW2_FutureReference,\
+    SWTaskOutputProvenance, SWGlobalFutureReference
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -382,8 +383,6 @@ class SWRuntimeInterpreterTask:
             
         except SelectException, se:
             
-            print "!!! SELECT EXCEPTION"
-            
             local_select_group = se.select_group
             timeout = se.timeout
             
@@ -403,8 +402,6 @@ class SWRuntimeInterpreterTask:
             
         except ExecutionInterruption, ei:
 
-            print "!!! EXECUTION INTERRUPTION"
-            
             # Need to add a continuation task to the spawn list.
             cont_deps = {}
             for index in self.continuation.reference_table.keys():
@@ -610,16 +607,19 @@ class SWRuntimeInterpreterTask:
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
         
-        # Match up the output with a new tasklocal reference.
-        ret = self.continuation.create_tasklocal_reference(SWLocalFutureReference(len(self.spawn_list)))
+        
         
         # Append the new task definition to the spawn list.
         new_task_id = uuid.uuid1()
+        expected_output_id = uuid.uuid1()
+        
+        # Match up the output with a new tasklocal reference.
+        ret = self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_id, SWTaskOutputProvenance(new_task_id, 0)))
         
         task_descriptor = {'task_id': str(new_task_id),
                            'handler': 'swi',
                            'inputs': {},
-                           'num_outputs': 1 # _cont will be added later
+                           'expected_outputs': [str(expected_output_id)] # _cont will be added later
                           }
         
         # TODO: we could visit the spawn expression and try to guess what requirements
@@ -641,8 +641,9 @@ class SWRuntimeInterpreterTask:
    
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
         
-        spawn_list_index = len(self.spawn_list)
-        ret = [self.continuation.create_tasklocal_reference(SWLocalFutureReference(spawn_list_index, i)) for i in range(num_outputs)]
+        new_task_id = uuid.uuid1()
+        expected_output_ids = [uuid.uuid1() for i in range(num_outputs)]
+        ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
         inputs = {}
         
         args = map_leaf_values(self.check_no_thunk_mapper, exec_args)
@@ -663,12 +664,10 @@ class SWRuntimeInterpreterTask:
         args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle')
         inputs['_args'] = SWURLReference([args_url], size_hint)
         
-        new_task_id = uuid.uuid1()
-        
         task_descriptor = {'task_id': str(new_task_id),
                            'handler': executor_name, 
                            'inputs': inputs,
-                           'num_outputs': num_outputs}
+                           'expected_outputs': map(str, expected_output_ids)}
         
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
         
@@ -692,7 +691,6 @@ class SWRuntimeInterpreterTask:
         return SWDereferenceWrapper(ref)
         
     def eager_dereference(self, ref):
-        print "EAGERLY DEREFERENCING:", ref
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
@@ -707,7 +705,7 @@ class SWRuntimeInterpreterTask:
 
     def is_future(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        return isinstance(real_ref, SWGlobalFutureReference) or isinstance(real_ref, SWLocalFutureReference)
+        return isinstance(real_ref, SWFutureReference)
 
     def is_error(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
