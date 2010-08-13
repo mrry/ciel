@@ -20,7 +20,7 @@ from __future__ import with_statement
 from cherrypy.process import plugins
 from threading import Lock, Condition
 from skywriting.runtime.references import \
-    SWURLReference, SWErrorReference, SW2_FutureReference
+    SWURLReference, SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
 import time
 import datetime
@@ -262,6 +262,13 @@ class TaskPool(plugins.SimplePlugin):
             if isinstance(input, SWURLReference) and input.size_hint is not None:
                 for url in input.urls:
                     netloc = get_netloc_for_sw_url(url)
+                    try:
+                        current_saving_for_netloc = netlocs[netloc]
+                    except KeyError:
+                        current_saving_for_netloc = 0
+                    netlocs[netloc] = current_saving_for_netloc + input.size_hint
+            elif isinstance(input, SW2_ConcreteReference) and input.size_hint is not None:
+                for netloc in input.location_hints.keys():
                     try:
                         current_saving_for_netloc = netlocs[netloc]
                     except KeyError:
