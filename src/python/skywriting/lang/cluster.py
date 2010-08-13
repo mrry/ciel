@@ -97,8 +97,8 @@ def main():
     #print "Blocking to get final result"
     (response, content) = http.request(notify_url)
     completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
-    if completion_result["exited"]:
-        print id, "SERVER_EXITED"
+    if "error" in completion_result.keys():
+        print id, "ERROR", completion_result["error"]
         return None
     else:
         print id, "GOT_RESULT", now_as_timestamp()
