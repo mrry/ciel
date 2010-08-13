@@ -239,7 +239,6 @@ class BlockStore:
     def retrieve_filename_for_ref(self, ref):
         assert isinstance(ref, SWRealReference)
         if isinstance(ref, SW2_ConcreteReference):
-            print ref
             return self.retrieve_filename_for_concrete_ref(ref)
         elif isinstance(ref, SWURLReference):
             for url in ref.urls:
@@ -268,7 +267,6 @@ class BlockStore:
     def retrieve_object_for_ref(self, ref, decoder):
         assert isinstance(ref, SWRealReference)
         if isinstance(ref, SW2_ConcreteReference):
-            print ref
             return self.retrieve_object_for_concrete_ref(ref, decoder)
         elif isinstance(ref, SWURLReference):
             for url in ref.urls:
