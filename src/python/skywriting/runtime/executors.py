@@ -20,7 +20,7 @@ Created on 19 Apr 2010
 from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import SWLocalDataFile, SWURLReference,\
-    SWDataValue
+    SWDataValue, SWRealReference, SW2_FutureReference
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException
 import shutil
@@ -62,19 +62,15 @@ class SWExecutor:
             real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         else:
             real_ref = ref
-            
-        if isinstance(real_ref, SWLocalDataFile):
-            return real_ref.filename
-        elif isinstance(real_ref, SWURLReference):
-            return block_store.retrieve_filename_by_url(block_store.choose_best_url(real_ref.urls), self.fetch_limit)
-        elif isinstance(real_ref, SWDataValue):
-            return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json', block_store.allocate_new_id())[0])
-        elif isinstance(real_ref, list):
-            raise BlameUserException("Attempted to exec with invalid argument: %s" % repr(real_ref))
-        else:
+
+        assert isinstance(real_ref, SWRealReference)
+        if isinstance(real_ref, SW2_FutureReference):
             print "Blocking because reference is", real_ref
             # Data is not yet available, so 
             raise ReferenceUnavailableException(ref, self.continuation)
+        else:
+            return block_store.retrieve_filename_for_ref(real_ref)
+
 
     def get_filenames(self, block_store, refs):
         #print "GET_FILENAMES:", refs
@@ -107,6 +103,7 @@ class SWStdinoutExecutor(SWExecutor):
             self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp)
     
         for filename in filenames:
+            print 'Catting in', filename
             with open(filename, 'r') as input_file:
                 shutil.copyfileobj(input_file, self.proc.stdin)
 
