@@ -79,16 +79,21 @@ class WorkerPool(plugins.SimplePlugin):
         self.feature_queues = FeatureQueues()
         self.event_count = 0
         self.event_condvar = Condition(self._lock)
+        self.max_concurrent_waiters = 5
+        self.current_waiters = 0
+        self.is_stopping = False
         
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
         self.bus.subscribe('worker_idle', self.worker_idle)
         self.bus.subscribe('worker_ping', self.worker_ping)
+        self.bus.subscribe('stop', self.server_stopping, 10) 
         
     def unsubscribe(self):
         self.bus.unsubscribe('worker_failed', self.worker_failed)
         self.bus.unsubscribe('worker_idle', self.worker_idle)
         self.bus.unsubscribe('worker_ping', self.worker_ping)
+        self.bus.unsubscribe('stop', self.server_stopping) 
         
     def create_worker(self, worker_descriptor):
         with self._lock:
@@ -191,10 +196,26 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             return (self.event_count, map(lambda x: x.as_descriptor(), self.workers.values()))
 
+    def server_stopping(self):
+        with self._lock:
+            self.is_stopping = True
+            self.event_condvar.notify_all()
+
     def await_version_after(self, target):
         with self._lock:
+            self.current_waiters = self.current_waiters + 1
             while self.event_count <= target:
-                self.event_condvar.wait()
+                if self.current_waiters > self.max_concurrent_waiters:
+                    break
+                elif self.is_stopping:
+                    break
+                else:
+                    self.event_condvar.wait()
+            self.current_waiters = self.current_waiters - 1
+            if self.current_waiters >= self.max_concurrent_waiters:
+                raise Exception("Too many concurrent waiters")
+            elif self.is_stopping:
+                raise Exception("Server stopping")
             return self.event_count
 
     def get_random_worker(self):

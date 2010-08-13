@@ -37,6 +37,8 @@ class GlobalNameDirectory(plugins.SimplePlugin):
         self.directory = {}
         self.bus = bus
         self.is_stopping = False
+        self.current_waiters = 0
+        self.max_concurrent_waiters = 10
     
     def create_global_id(self, task_id=None):
         entry = GlobalNameDirectoryEntry(task_id, [], self._lock)
@@ -81,8 +83,15 @@ class GlobalNameDirectory(plugins.SimplePlugin):
         with self._lock:
             entry = self.directory[id]
             while (not self.is_stopping) and (len(entry.refs) == 0):
-                entry.cond.wait()
-        if self.is_stopping:
-            return None
-        else:
-            return entry.refs
+                if self.is_stopping:
+                    break
+                elif self.current_waiters > self.max_concurrent_waiters:
+                    break
+                else:
+                    entry.cond.wait()
+            if self.is_stopping:
+                raise Exception("Server stopping")
+            elif self.current_waiters >= self.max_concurrent_waiters:
+                raise Exception("Too many concurrent waiters")
+            else:
+                return entry.refs

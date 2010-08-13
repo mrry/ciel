@@ -60,10 +60,12 @@ def master_main(options):
     
     root = MasterRoot(task_pool, worker_pool, block_store, global_name_directory)
 
-    cherrypy_conf = None
+    cherrypy.config.update({"server.thread_pool" : 50})
+
+    cherrypy_conf = dict()
     
     if options.staticbase is not None:
-        cherrypy_conf = { "/skyweb" : { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase } }
+        cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
 
     cherrypy.tree.mount(root, "", cherrypy_conf)
     

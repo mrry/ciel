@@ -82,7 +82,11 @@ class WorkersRoot:
     @cherrypy.expose
     def await_event_count(self, version=0):
         if cherrypy.request.method == 'POST':
-            return repr(self.worker_pool.await_version_after(int(version)))
+            try:
+                return simplejson.dumps({ "current_version" : repr(self.worker_pool.await_version_after(int(version))) })
+            except Exception as t:
+                return simplejson.dumps({ "error": repr(t) })
+                
         else:
             raise HTTPError(405)
         
@@ -166,8 +170,12 @@ class MasterTaskRoot:
                     self.task_pool.flush_task_dict()
                     return
                 elif id == "wait_event_count":
-                    server_exited = not(self.task_pool.wait_event_after(int(action)))
-                    return simplejson.dumps({ "exited": server_exited, "latest_event_index": self.task_pool.event_index })
+                    try:
+                        self.task_pool.wait_event_after(int(action))
+                        return simplejson.dumps({ "latest_event_index" : self.task_pool.event_index })
+                    except Exception as t:
+                        return simplejson.dumps({ "error" : repr(t)})
+
                 elif id == "events":
                     report_event_index = self.task_pool.event_index
                     start_event_index = int(action)
@@ -344,15 +352,11 @@ class GlobalDataRoot:
         elif attribute == 'completion':
             if cherrypy.request.method == 'GET':
                 real_id = int(id)
-                refs = self.global_name_directory.wait_for_completion(real_id)
-                to_ret = dict()
-                if refs is None:
-                    to_ret["exited"] = True
-                    to_ret["refs"] = []
-                else:
-                    to_ret["exited"] = False
-                    to_ret["refs"] = refs
-                return simplejson.dumps(to_ret, cls=SWReferenceJSONEncoder)
+                try:
+                    ret = {"refs" : self.global_name_directory.wait_for_completion(real_id)}
+                    return simplejson.dumps(ret, cls=SWReferenceJSONEncoder)
+                except Exception as t:
+                    return simplejson.dumps({"error" : repr(t)})
             else:
                 raise HTTPError(405)
         else:

@@ -207,6 +207,8 @@ class TaskPool(plugins.SimplePlugin):
         self.references_blocking_tasks = {}
         self._lock = Lock()
         self._cond = Condition(self._lock)
+        self.max_concurrent_waiters = 5
+        self.current_waiters = 0
         self.event_index = 0
         # event_index: The index which will be given to the *next* event
         self.events = []
@@ -224,10 +226,20 @@ class TaskPool(plugins.SimplePlugin):
 
     def wait_event_after(self, idx):
         with self._lock:
-            while (not self.is_stopping) and (idx == self.event_index):
-                self._cond.wait()
-            return not self.is_stopping
-
+            self.current_waiters = self.current_waiters + 1
+            while idx == self.event_index:
+                if self.current_waiters > self.max_concurrent_waiters:
+                    break
+                elif self.is_stopping:
+                    break
+                else:
+                    self._cond.wait()
+            self.current_waiters = self.current_waiters - 1
+            if self.is_stopping:
+                raise Exception("Server stopping")
+            elif self.current_waiters >= self.max_concurrent_waiters:
+                raise Exception("Too many concurrent waiters")
+            
     def server_stopping(self):
         with self._lock:
             self.is_stopping = True

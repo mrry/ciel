@@ -196,9 +196,9 @@ Skyweb = function(json) {
 
     notify_events_callback = function(json) {
 
-	if(json.exited) {
+	if(json.error) {
 
-	    alert("The server reported it had halted");
+	    alert("Failed to await further events: The server says \"" + json.error + "\". Refresh to try again.");
 
 	}
 	else {
@@ -263,9 +263,14 @@ Skyweb = function(json) {
     var workers_by_id = {};
     var worker_table = $("#skyweb-worker-table");
 
-    notify_workers_callback = function(new_event_count) {
-
-	$.getJSON("../worker/versioned", process_workers_callback);
+    notify_workers_callback = function(json) {
+	
+	if(json.error) {
+	    alert("Failed to await worker updates: The server says \"" + json.error + "\". Refresh to try again.");
+	}
+	else {
+	    $.getJSON("../worker/versioned", process_workers_callback);
+	}
 
     };
 
