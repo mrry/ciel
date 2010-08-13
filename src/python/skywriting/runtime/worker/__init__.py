@@ -34,6 +34,12 @@ import socket
 import urlparse
 import simplejson
 
+class WorkerState:
+    pass
+WORKER_STARTED = WorkerState()
+WORKER_UNASSOCIATED = WorkerState()
+WORKER_ASSOCIATED = WorkerState()
+
 class Worker(plugins.SimplePlugin):
     
     def __init__(self, bus, hostname, port, master_url):
@@ -49,7 +55,7 @@ class Worker(plugins.SimplePlugin):
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
         self.server_root = WorkerRoot(self)
-        self.pinger = Pinger(cherrypy.engine, self.master_proxy, None, 30)
+        self.pinger = Pinger(bus, self.master_proxy, None, 30)
         self.pinger.subscribe()    
         
     def subscribe(self):
@@ -87,6 +93,12 @@ class Worker(plugins.SimplePlugin):
 
     def stop(self):
         pass
+    
+    def submit_task(self, task_descriptor):
+        cherrypy.engine.publish('execute_task', task_descriptor)
+                
+    def abort_task(self, task_id):
+        self.task_executor.abort_task(task_id)
 
 def worker_main(options):
     local_hostname = cherrypy.config.get('server.socket_host')

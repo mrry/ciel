@@ -29,14 +29,14 @@ class WorkerRoot:
     
     def __init__(self, worker):
         self.master = RegisterMasterRoot(worker)
-        self.task = TaskRoot(worker.task_executor)
+        self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
         self.kill = KillRoot()
     
     @cherrypy.expose
     def index(self):
-        return "Hello from the job manager server...."
+        return "Hello from the worker...."
 
 class KillRoot:
     
@@ -64,23 +64,24 @@ class RegisterMasterRoot:
     
 class TaskRoot:
     
-    def __init__(self, task_executor):
-        self.task_executor = task_executor
-    
+    def __init__(self, worker):
+        self.worker = worker
+        
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
             task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
-                cherrypy.engine.publish('execute_task', task_descriptor)
+                self.worker.submit_task(task_descriptor)
                 return
         raise cherrypy.HTTPError(405)
     
     @cherrypy.expose
     def default(self, task_id, action):
+        real_id = uuid.UUID(hex=task_id)
         if action == 'abort':
             if cherrypy.request.method == 'POST':
-                self.task_executor.abort_task(task_id)
+                self.worker.abort_task(task_id)
             else:
                 raise cherrypy.HTTPError(405)
         else:
