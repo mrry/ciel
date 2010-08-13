@@ -20,7 +20,8 @@ Created on 19 Apr 2010
 from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import SWURLReference,\
-    SWRealReference, SW2_FutureReference
+    SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
+    SWTaskOutputProvenance, SWNoProvenance, ACCESS_SWBS
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException
 import shutil
@@ -114,7 +115,10 @@ class SWStdinoutExecutor(SWExecutor):
             raise OSError()
         
         url, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
-        real_ref = SWURLReference([url], size_hint)
+        
+        # XXX: fix provenance.
+        real_ref = SW2_ConcreteReference(self.output_ids[0], SWNoProvenance(), size_hint)
+        real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
         self.output_refs[0] = real_ref
         
     def abort(self):
@@ -171,8 +175,10 @@ class JavaExecutor(SWExecutor):
             raise OSError()
         for i, filename in enumerate(file_outputs):
             url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            url_ref = SWURLReference([url], size_hint)
-            self.output_refs[i] = url_ref
+            # XXX: fix provenance.
+            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            self.output_refs[i] = real_ref
 
     def abort(self):
         if self.proc is not None:
@@ -240,8 +246,10 @@ class DotNetExecutor(SWExecutor):
         
         for i, filename in enumerate(file_outputs):
             url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            url_ref = SWURLReference([url], size_hint)
-            self.output_refs[i] = url_ref
+            # XXX: fix provenance.
+            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            self.output_refs[i] = real_ref
 
 class CExecutor(SWExecutor):
     
@@ -305,5 +313,8 @@ class CExecutor(SWExecutor):
         
         for i, filename in enumerate(file_outputs):
             url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            url_ref = SWURLReference([url], size_hint)
-            self.output_refs[i] = url_ref
+            # XXX: fix provenance.
+            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            self.output_refs[i] = real_ref
+            

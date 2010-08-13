@@ -37,7 +37,7 @@ from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
     SWTaskOutputProvenance, SW2_ConcreteReference, ACCESS_SWBS,\
-    SWSpawnedTaskProvenance
+    SWSpawnedTaskProvenance, SWNoProvenance
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -190,7 +190,6 @@ class SWExecutorTaskExecutionRecord:
             else:
                 parsed_inputs[int(local_id)] = ref
         
-        assert isinstance(args_ref, SWURLReference)
         exec_args = self.task_executor.block_store.retrieve_object_for_ref(args_ref, 'pickle')
         
         def args_parsing_mapper(leaf):
@@ -492,7 +491,8 @@ class SWRuntimeInterpreterTask:
         if size_hint < 128:
             result_ref = SWDataValue(serializable_result)
         else:
-            result_ref = SWURLReference([result_url], size_hint)
+            result_ref = SW2_ConcreteReference(self.expected_outputs[0], SWTaskOutputProvenance(self.task_id, 0), size_hint)
+            result_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
             
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
         
@@ -590,8 +590,12 @@ class SWRuntimeInterpreterTask:
             return leaf
         
         transformed_args = map_leaf_values(args_check_mapper, args)
-        args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle', self.block_store.allocate_new_id())
-        inputs['_args'] = SWURLReference([args_url], size_hint)
+        args_id = self.block_store.allocate_new_id()
+        args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
+        args_ref = SW2_ConcreteReference(args_id, SWNoProvenance(), size_hint)
+        args_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+        
+        inputs['_args'] = args_ref
         
         task_descriptor = {'task_id': str(new_task_id),
                            'handler': executor_name, 
