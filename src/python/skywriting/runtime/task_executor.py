@@ -33,7 +33,7 @@ import cherrypy
 import logging
 import uuid
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
-    SWLocalDataFile, SWRealReference,\
+    SWRealReference,\
     SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
     SWTaskOutputProvenance
@@ -190,7 +190,7 @@ class SWExecutorTaskExecutionRecord:
                 parsed_inputs[int(local_id)] = ref
         
         assert isinstance(args_ref, SWURLReference)
-        exec_args = self.task_executor.block_store.retrieve_object_by_url(self.task_executor.block_store.choose_best_url(args_ref.urls), 'pickle')
+        exec_args = self.task_executor.block_store.retrieve_object_for_ref(args_ref, 'pickle')
         
         def args_parsing_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
@@ -311,11 +311,7 @@ class SWRuntimeInterpreterTask:
         
         assert isinstance(continuation_ref, SWURLReference)
         
-        cherrypy.log.error('Fetching continuation!!!')
-        
-        self.continuation = block_store.retrieve_object_by_url(block_store.choose_best_url(continuation_ref.urls), 'pickle')
-        
-        cherrypy.log.error('Fetched continuation!!!')
+        self.continuation = block_store.retrieve_object_for_ref(continuation_ref, 'pickle')
         
         for local_id, ref in parsed_inputs.items():
         
@@ -326,20 +322,10 @@ class SWRuntimeInterpreterTask:
                 if isinstance(ref, SWDataValue):
                     self.continuation.rewrite_reference(local_id, ref)
                 else:
-                    assert isinstance(ref, SWURLReference)
-                    url = block_store.choose_best_url(ref.urls)
-                    value = block_store.retrieve_object_by_url(url, 'json')
+                    value = block_store.retrieve_object_for_ref(ref, 'json')
                     self.continuation.rewrite_reference(local_id, SWDataValue(value))
             elif self.continuation.is_marked_as_execd(local_id):
-                if isinstance(ref, SWDataValue):
-                    url, _ = block_store.store_object(ref.value, 'json', block_store.allocate_new_id())
-                    filename = block_store.retrieve_filename_by_url(url)
-                elif isinstance(ref, SWURLReference):
-                    url = block_store.choose_best_url(ref.urls)
-                    filename = block_store.retrieve_filename_by_url(url)
-                elif isinstance(ref, SWLocalDataFile):
-                    filename = ref.filename
-                self.continuation.rewrite_reference(local_id, SWLocalDataFile(filename))
+                self.continuation.rewrite_reference(local_id, ref)
             else:
                 assert False
 
@@ -638,7 +624,7 @@ class SWRuntimeInterpreterTask:
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
         elif isinstance(real_ref, SWURLReference):
-            value = self.block_store.retrieve_object_by_url(real_ref.urls[0], 'json')
+            value = self.block_store.retrieve_object_for_ref(real_ref, 'json')
             dv_ref = SWDataValue(value)
             self.continuation.rewrite_reference(ref.index, dv_ref)
             return map_leaf_values(self.convert_real_to_tasklocal_reference, value)

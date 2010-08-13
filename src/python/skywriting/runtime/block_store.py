@@ -34,7 +34,8 @@ import tempfile
 import urlparse
 import simplejson
 from skywriting.runtime.references import SWRealReference,\
-    build_reference_from_tuple
+    build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
+    SWErrorReference, SWNullReference, SWURLReference
 urlparse.uses_netloc.append("swbs")
 
 def get_netloc_for_sw_url(url):
@@ -185,6 +186,7 @@ class BlockStore:
     def retrieve_filename_by_url(self, url, size_limit=None):
         """Returns the filename of a file containing the data at the given URL."""
         filename = self.find_url_in_cache(url)
+        id = None
         if filename is None:
             parsed_url = urlparse.urlparse(url)
             
@@ -217,7 +219,8 @@ class BlockStore:
             except URLError:
                 raise
             
-            id = self.allocate_new_id()
+            if id is None:
+                id = self.allocate_new_id()
        
             filename = self.filename(id)
     
@@ -228,6 +231,54 @@ class BlockStore:
         
         return filename
     
+    def retrieve_filename_for_ref(self, ref):
+        assert isinstance(ref, SWRealReference)
+        if isinstance(ref, SW2_ConcreteReference):
+            raise
+        elif isinstance(ref, SWURLReference):
+            for url in ref.urls:
+                filename = self.find_url_in_cache(url)
+                if filename is not None:
+                    return filename
+            chosen_url = self.choose_best_url(ref.urls)
+            return self.retrieve_filename_by_url(chosen_url)
+        elif isinstance(ref, SWDataValue):
+            id = self.allocate_new_id()
+            with open(self.filename(id), 'w') as obj_file:
+                self.encode_json(ref.value, obj_file)
+            return self.filename(id)
+        elif isinstance(ref, SWErrorReference):
+            raise
+        elif isinstance(ref, SWNullReference):
+            raise
+        else:
+            raise
+        
+    def retrieve_object_for_ref(self, ref, decoder):
+        assert isinstance(ref, SWRealReference)
+        if isinstance(ref, SW2_ConcreteReference):
+            raise
+        elif isinstance(ref, SWURLReference):
+            for url in ref.urls:
+                filename = self.find_url_in_cache(url)
+                if filename is not None:
+                    with open(filename) as f:
+                        ret = self.decoders[decoder](filename)
+                    return ret
+            chosen_url = self.choose_best_url(ref.urls)
+            return self.retrieve_object_by_url(chosen_url, decoder)
+        elif isinstance(ref, SWDataValue):
+            assert decoder == 'json'
+            return ref.value
+        elif isinstance(ref, SWErrorReference):
+            raise
+        elif isinstance(ref, SWNullReference):
+            raise
+        else:
+            print ref
+            raise        
+        
+        
     def choose_best_url(self, urls):
         if len(urls) == 1:
             return urls[0]
