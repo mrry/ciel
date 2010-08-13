@@ -23,6 +23,7 @@ import sys
 import os
 import simplejson
 import cherrypy
+import uuid
 
 class WorkerRoot:
     
@@ -99,7 +100,7 @@ class DataRoot:
         
     @cherrypy.expose
     def default(self, id):
-        safe_id = int(id)
+        safe_id = uuid.UUID(hex=id)
         return serve_file(self.block_store.filename(safe_id))
 
     @cherrypy.expose
