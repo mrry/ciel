@@ -81,7 +81,12 @@ class SWTaskContinuationProvenance(SWProvenance):
         return ('cont', str(self.task_id))
 
 class SW2_FutureReference(SWFutureReference):
-    
+    """
+    Used as a reference to a task that hasn't completed yet. The identifier is in a
+    system-global namespace, and may be passed to other tasks or returned from
+    tasks.
+    """
+        
     def __init__(self, id, provenance=SWNoProvenance()):
         self.id = id
         self.provenance = provenance
@@ -105,29 +110,6 @@ class SW2_ConcreteReference(SWRealReference):
     def __repr__(self):
         return 'SW2_ConcreteReference(%s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
         
-class SWLocalFutureReference(SWFutureReference):
-    """
-    Used as a placeholder reference for the results of spawned tasks. Refers to the
-    output of a particular task in the spawn list. If that task has multiple outputs,
-    refers to a particular result.
-    
-    This must be rewritten before the continuation is spawned. However, it may be used
-    as the argument to another spawned task.
-    """
-    
-    def __init__(self, spawn_list_index, result_index=0):
-        self.spawn_list_index = spawn_list_index
-        self.result_index = result_index
-        
-    def as_tuple(self):
-        if self.result_index is None:
-            return ('lfut', self.spawn_list_index)
-        else:
-            return ('lfut', self.spawn_list_index, self.result_index)
-        
-    def __repr__(self):
-        return 'SWLocalFutureReference(%d, %d)' % (self.spawn_list_index, self.result_index)
-
 class SWURLReference(SWRealReference):
     """
     A reference to one or more URLs representing the same data.
@@ -142,26 +124,6 @@ class SWURLReference(SWRealReference):
     
     def __repr__(self):
         return 'SWURLReference(%s, %s)' % (repr(self.urls), repr(self.size_hint))
-
-class SWGlobalFutureReference(SWFutureReference):
-    """
-    Used as a reference to a task that hasn't completed yet. The identifier is in a
-    system-global namespace, and may be passed to other tasks or returned from
-    tasks.
-    
-    SWLocalFutureReferences must be rewritten to be SWGlobalFutureReference objects.
-
-    Deprecated.
-    """
-
-    def __init__(self, id):
-        raise
-        
-    def as_tuple(self):
-        return ('gfut', self.id)
-
-    def __repr__(self):
-        return 'SWGlobalFutureReference(%d)' % (self.id, )
 
 class SWLocalDataFile(SWRealReference):
     """
@@ -209,14 +171,6 @@ def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
     if ref_type == 'urls':
         return SWURLReference(reference_tuple[1], reference_tuple[2])
-    elif ref_type == 'lfut':
-        if len(reference_tuple) == 3:
-            result_index = reference_tuple[2]
-        else:
-            result_index = None
-        return SWLocalFutureReference(reference_tuple[1], result_index)
-    elif ref_type == 'gfut':
-        return SWGlobalFutureReference(reference_tuple[1])
     elif ref_type == 'lfile':
         return SWLocalDataFile(reference_tuple[1])
     elif ref_type == 'val':

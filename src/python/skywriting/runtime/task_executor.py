@@ -34,9 +34,9 @@ import logging
 import uuid
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWLocalDataFile, SWRealReference,\
-    SWLocalFutureReference, SWFutureReference,\
+    SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
-    SWTaskOutputProvenance, SWGlobalFutureReference
+    SWTaskOutputProvenance
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -443,56 +443,6 @@ class SWRuntimeInterpreterTask:
                 continue
             
             current_cont = self.spawn_list[current_index].continuation
-            current_desc = self.spawn_list[current_index].task_descriptor
-            
-            if current_cont is not None:
-                for local_id, ref_table_entry in current_cont.reference_table.items():
-                    if isinstance(ref_table_entry.reference, SWLocalFutureReference):
-                        # if unavailable in the local lookup table (from previous spawn batches), must wait;
-                        # else rewrite the reference.
-                        spawn_list_index = ref_table_entry.reference.spawn_list_index
-                        result_index = ref_table_entry.reference.result_index
-                        if self.spawn_list[spawn_list_index].ignore:
-                            raise BlameUserException("We have a continuation that depends on an aborted task. This will never be run.")
-                            raise RuntimeSkywritingError()
-                        elif spawn_list_index >= len(self.spawn_task_result_global_ids):
-                            must_wait = True
-                            break
-                        else:
-                            global_id = self.spawn_task_result_global_ids[spawn_list_index][result_index]
-                            current_cont.rewrite_reference(local_id, SWGlobalFutureReference(global_id))
-
-            rewritten_inputs = {}
-            for local_id, ref in current_desc['inputs'].items():
-                if isinstance(ref, SWLocalFutureReference):
-                    if ref.spawn_list_index >= len(self.spawn_task_result_global_ids):
-                        must_wait = True
-                        break
-                    else:
-                        rewritten_inputs[local_id] = SWGlobalFutureReference(self.spawn_task_result_global_ids[ref.spawn_list_index][ref.result_index])
-                else:
-                    rewritten_inputs[local_id] = ref
-            
-            if not must_wait:
-                current_desc['inputs'] = rewritten_inputs
-                
-            try:
-                current_select_group = current_desc['select_group']
-                rewritten_select_group = []
-                for ref in current_select_group:
-                    if isinstance(ref, SWLocalFutureReference):
-                        if ref.spawn_list_index >= len(self.spawn_task_result_global_ids):
-                            must_wait = True
-                            break
-                        else:
-                            rewritten_select_group.append(SWGlobalFutureReference(self.spawn_task_result_global_ids[ref.spawn_list_index][ref.result_index]))
-                    else:
-                        rewritten_select_group.append(ref)
-                
-                if not must_wait:        
-                    current_desc['select_group'] = rewritten_select_group
-            except KeyError:
-                pass
                 
             if must_wait:
                 
@@ -545,22 +495,6 @@ class SWRuntimeInterpreterTask:
                 save_cont_uri = None
             master_proxy.commit_task(self.task_id, {}, save_cont_uri)
             return
-        
-        for local_id, ref_table_entry in self.continuation.reference_table.items():
-            if isinstance(ref_table_entry.reference, SWLocalFutureReference):
-                
-                # if unavailable in the local lookup table (from previous spawn batches), must wait;
-                # else rewrite the reference.
-                spawn_list_index = ref_table_entry.reference.spawn_list_index
-                result_index = ref_table_entry.reference.result_index
-
-                # All subtasks have been spawned and we're completed so this assertion must hold.
-                assert spawn_list_index < len(self.spawn_task_result_global_ids)
-
-                if result_index is None:
-                    self.continuation.rewrite_reference(local_id, SWGlobalFutureReference(self.spawn_task_result_global_ids[spawn_list_index]))
-                else:
-                    self.continuation.rewrite_reference(local_id, SWGlobalFutureReference(self.spawn_task_result_global_ids[spawn_list_index][result_index]))
         
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
         commit_bindings = {}
@@ -720,19 +654,21 @@ class SWRuntimeInterpreterTask:
         return isinstance(real_ref, SWErrorReference)
 
     def abort_production(self, ref):
-        real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        if isinstance(real_ref, SWLocalFutureReference):
-            self.spawn_list[real_ref.spawn_list_index].ignore = True
-        elif isinstance(real_ref, SWGlobalFutureReference):
-            self.master_proxy.abort_production_of_output(real_ref)
-        return True
+        raise
+        #real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        #if isinstance(real_ref, SWLocalFutureReference):
+        #    self.spawn_list[real_ref.spawn_list_index].ignore = True
+        #elif isinstance(real_ref, SWGlobalFutureReference):
+        #    self.master_proxy.abort_production_of_output(real_ref)
+        #return True
     
     def get_task_details(self, ref):
-        real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        if isinstance(real_ref, SWGlobalFutureReference):
-            return self.master_proxy.get_task_details_for_future(ref)
-        else:
-            return {}
+        raise
+        #real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        #if isinstance(real_ref, SWGlobalFutureReference):
+        #    return self.master_proxy.get_task_details_for_future(ref)
+        #else:
+        #    return {}
 
     def select_func(self, select_group, timeout=None):
         if self.select_result is not None:
