@@ -101,17 +101,25 @@ class DataRoot:
     @cherrypy.expose
     def default(self, id):
         safe_id = uuid.UUID(hex=id)
-        return serve_file(self.block_store.filename(safe_id))
+        if cherrypy.request.method == 'GET':
+            return serve_file(self.block_store.filename(safe_id))
+        elif cherrypy.request.method == 'POST':
+            url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
+            return simplejson.dumps(url)
+        else:
+            raise cherrypy.HTTPError(405)
 
     @cherrypy.expose
     def index(self):
-        # TODO: alternative data serialization formats; direct passthrough.
-        # TODO: obviate need for double-pickle.
-        url = self.block_store.store_raw_file(cherrypy.request.body, self.block_store.allocate_new_id())
-        return simplejson.dumps(url)
-
-    # TODO: have a way from outside the cluster to push some data to a node.
-    #       Also might investigate a way for us to have a spanning tree broadcast
+        if cherrypy.request.method == 'POST':
+            url = self.block_store.store_raw_file(cherrypy.request.body, self.block_store.allocate_new_id())
+            return simplejson.dumps(url)
+        elif cherrypy.request.method == 'GET':
+            return serve_file(self.block_store.generate_block_list_file())
+        else:
+            raise cherrypy.HTTPError(405)
+        
+    # TODO: Also might investigate a way for us to have a spanning tree broadcast
     #       for common files.
     
 class FeaturesRoot:

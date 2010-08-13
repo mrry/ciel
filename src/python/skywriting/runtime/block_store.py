@@ -28,6 +28,7 @@ import shutil
 import pickle
 import os
 import uuid
+import tempfile
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -236,3 +237,15 @@ class BlockStore:
                 if parsed_url.netloc == self.netloc:
                     return url
             return random.choice(urls)
+        
+    def generate_block_list_file(self):
+        with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
+            filename = block_list_file.name
+            for block_name in os.listdir(self.base_dir):
+                try:
+                    block_id = uuid.UUID(hex=block_name)
+                    block_list_file.write(block_id.bytes)
+                except:
+                    pass
+                
+        return filename
