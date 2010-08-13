@@ -19,8 +19,8 @@ Created on 19 Apr 2010
 '''
 from __future__ import with_statement
 from subprocess import PIPE
-from skywriting.runtime.references import SWLocalDataFile, SWURLReference,\
-    SWDataValue, SWRealReference, SW2_FutureReference
+from skywriting.runtime.references import SWURLReference,\
+    SWRealReference, SW2_FutureReference
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException
 import shutil

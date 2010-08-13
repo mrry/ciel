@@ -33,7 +33,7 @@ import cherrypy
 import logging
 import uuid
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
-    SWLocalDataFile, SWRealReference,\
+    SWRealReference,\
     SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
     SWTaskOutputProvenance

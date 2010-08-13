@@ -125,21 +125,6 @@ class SWURLReference(SWRealReference):
     def __repr__(self):
         return 'SWURLReference(%s, %s)' % (repr(self.urls), repr(self.size_hint))
 
-class SWLocalDataFile(SWRealReference):
-    """
-    Used when a reference is used as a file input (and hence should
-    not be brought into the environment.
-    """
-    
-    def __init__(self, filename):
-        self.filename = filename
-        
-    def as_tuple(self):
-        return ('lfile', self.filename)
-
-    def __repr__(self):
-        return 'SWLocalDataFile(%s)' % (repr(self.filename), )
-
 class SWDataValue(SWRealReference):
     """
     Used to store data that has been dereferenced and loaded into the environment.
@@ -171,8 +156,6 @@ def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
     if ref_type == 'urls':
         return SWURLReference(reference_tuple[1], reference_tuple[2])
-    elif ref_type == 'lfile':
-        return SWLocalDataFile(reference_tuple[1])
     elif ref_type == 'val':
         return SWDataValue(reference_tuple[1])
     elif ref_type == 'err':
