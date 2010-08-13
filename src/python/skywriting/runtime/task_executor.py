@@ -167,7 +167,7 @@ class SWExecutorTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
         self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
-        self.expected_outputs = task_descriptor['expected_outputs']
+        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
         self.task_executor = task_executor
         self.inputs = task_descriptor['inputs']
         self.executor_name = task_descriptor['handler']
@@ -212,7 +212,7 @@ class SWExecutorTaskExecutionRecord:
             if self.is_running:
                 parsed_args = self.fetch_executor_args(self.inputs)
             if self.is_running:
-                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, len(self.expected_outputs))
+                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs)
             if self.is_running:
                 self.executor.execute(self.task_executor.block_store)
             if self.is_running:
@@ -263,7 +263,7 @@ class SWRuntimeInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
         self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
-        self.expected_outputs = task_descriptor['expected_outputs']
+        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
         self.inputs = task_descriptor['inputs']
 
         try:
@@ -332,7 +332,7 @@ class SWRuntimeInterpreterTask:
                     self.continuation.rewrite_reference(local_id, SWDataValue(value))
             elif self.continuation.is_marked_as_execd(local_id):
                 if isinstance(ref, SWDataValue):
-                    url, _ = block_store.store_object(ref.value, 'json')
+                    url, _ = block_store.store_object(ref.value, 'json', block_store.allocate_new_id())
                     filename = block_store.retrieve_filename_by_url(url)
                 elif isinstance(ref, SWURLReference):
                     url = block_store.choose_best_url(ref.urls)
@@ -395,7 +395,7 @@ class SWRuntimeInterpreterTask:
                                     'inputs': {},
                                     'select_group': select_group,
                                     'select_timeout': timeout,
-                                    'expected_outputs': self.expected_outputs,
+                                    'expected_outputs': map(str, self.expected_outputs),
                                     'save_continuation': self.save_continuation}
             self.save_continuation = False
             self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
@@ -412,7 +412,7 @@ class SWRuntimeInterpreterTask:
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
-                                    'expected_outputs': self.expected_outputs,
+                                    'expected_outputs': map(str, self.expected_outputs),
                                     'save_continuation': self.save_continuation}
             self.save_continuation = False
             if isinstance(ei, FeatureUnavailableException):
@@ -513,7 +513,7 @@ class SWRuntimeInterpreterTask:
                 
                 # Store the continuation and add it to the task descriptor.
                 if current_cont is not None:
-                    cont_url, size_hint = block_store.store_object(current_cont, 'pickle')
+                    cont_url, size_hint = block_store.store_object(current_cont, 'pickle', self.get_spawn_continuation_object_id())
                     self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = SWURLReference([cont_url], size_hint)
             
                 # Current task is now ready to be spawned.
@@ -530,11 +530,17 @@ class SWRuntimeInterpreterTask:
             
             self.spawn_task_result_global_ids.extend(batch_result_ids)
 
+    def get_spawn_continuation_object_id(self):
+        return self.block_store.allocate_new_id()
+
+    def get_continuation_object_id(self):
+        return self.block_store.allocate_new_id()
+
     def commit_result(self, block_store, master_proxy):
         
         if self.result is None:
             if self.save_continuation:
-                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle')
+                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_continuation_object_id())
             else:
                 save_cont_uri = None
             master_proxy.commit_task(self.task_id, {}, save_cont_uri)
@@ -559,7 +565,7 @@ class SWRuntimeInterpreterTask:
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
         commit_bindings = {}
 
-        result_url, size_hint = block_store.store_object(serializable_result, 'json')
+        result_url, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
         if size_hint < 128:
             result_ref = SWDataValue(serializable_result)
         else:
@@ -568,7 +574,7 @@ class SWRuntimeInterpreterTask:
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
         
         if self.save_continuation:
-            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle')
+            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.block_store.allocate_new_id())
         else:
             save_cont_uri = None
         
@@ -661,7 +667,7 @@ class SWRuntimeInterpreterTask:
             return leaf
         
         transformed_args = map_leaf_values(args_check_mapper, args)
-        args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle')
+        args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle', self.block_store.allocate_new_id())
         inputs['_args'] = SWURLReference([args_url], size_hint)
         
         task_descriptor = {'task_id': str(new_task_id),
@@ -677,7 +683,9 @@ class SWRuntimeInterpreterTask:
         
         real_args = map_leaf_values(self.check_no_thunk_mapper, args)
 
-        self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, num_outputs)
+        output_ids = map(uuid.uuid1, range(0, num_outputs))
+
+        self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
         self.current_executor.execute(self.block_store)
         ret = map(self.continuation.create_tasklocal_reference, self.current_executor.output_refs)
         self.current_executor = None

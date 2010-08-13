@@ -41,18 +41,19 @@ class ExecutionFeatures:
     def all_features(self):
         return self.executors.keys()
     
-    def get_executor(self, name, args, continuation, num_outputs, fetch_limit=None):
+    def get_executor(self, name, args, continuation, expected_output_ids, fetch_limit=None):
         try:
             Executor = self.executors[name]
         except KeyError:
             raise FeatureUnavailableException(name)
-        return Executor(args, continuation, num_outputs, fetch_limit)
+        return Executor(args, continuation, expected_output_ids, fetch_limit)
 
 class SWExecutor:
 
-    def __init__(self, args, continuation, num_outputs, fetch_limit=None):
+    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
         self.continuation = continuation
-        self.output_refs = [None for i in range(num_outputs)]
+        self.output_ids = expected_output_ids
+        self.output_refs = [None for id in self.output_ids]
         self.fetch_limit = fetch_limit
 
     def get_filename(self, block_store, ref):
@@ -67,7 +68,7 @@ class SWExecutor:
         elif isinstance(real_ref, SWURLReference):
             return block_store.retrieve_filename_by_url(block_store.choose_best_url(real_ref.urls), self.fetch_limit)
         elif isinstance(real_ref, SWDataValue):
-            return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json')[0])
+            return block_store.retrieve_filename_by_url(block_store.store_object(real_ref.value, 'json', block_store.allocate_new_id())[0])
         elif isinstance(real_ref, list):
             raise BlameUserException("Attempted to exec with invalid argument: %s" % repr(real_ref))
         else:
@@ -87,9 +88,9 @@ class SWExecutor:
         
 class SWStdinoutExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, num_outputs, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, num_outputs, fetch_limit)
-        assert num_outputs == 1
+    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
+        assert len(expected_output_ids) == 1
         try:
             self.input_refs = args['inputs']
             self.command_line = args['command_line']
@@ -99,7 +100,7 @@ class SWStdinoutExecutor(SWExecutor):
     
     def execute(self, block_store):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
-        temp_output = tempfile.NamedTemporaryFile()
+        temp_output = tempfile.NamedTemporaryFile(delete=False)
         filenames = self.get_filenames(block_store, self.input_refs)
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
@@ -115,7 +116,7 @@ class SWStdinoutExecutor(SWExecutor):
             print rc
             raise OSError()
         
-        url, size_hint = block_store.store_file(temp_output.name, can_move=True)
+        url, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
         real_ref = SWURLReference([url], size_hint)
         self.output_refs[0] = real_ref
         
@@ -126,8 +127,8 @@ class SWStdinoutExecutor(SWExecutor):
 
 class JavaExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, num_outputs, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, num_outputs, fetch_limit)
+    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
         self.continuation = continuation
         try:
             self.input_refs = args['inputs']
@@ -172,7 +173,7 @@ class JavaExecutor(SWExecutor):
         if rc != 0:
             raise OSError()
         for i, filename in enumerate(file_outputs):
-            url, size_hint = block_store.store_file(filename, can_move=True)
+            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             url_ref = SWURLReference([url], size_hint)
             self.output_refs[i] = url_ref
 
@@ -240,9 +241,10 @@ class DotNetExecutor(SWExecutor):
                         print l
             raise OSError()
         
-        urls = map(lambda filename: block_store.store_file(filename), file_outputs)
-        url_refs = map(lambda url: SWURLReference([url]), urls)
-        self.output_refs = map(lambda url_ref: self.continuation.create_tasklocal_reference(url_ref), url_refs)
+        for i, filename in enumerate(file_outputs):
+            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            url_ref = SWURLReference([url], size_hint)
+            self.output_refs[i] = url_ref
 
 class CExecutor(SWExecutor):
     
@@ -304,6 +306,7 @@ class CExecutor(SWExecutor):
                         print l
             raise OSError()
         
-        urls = map(lambda filename: block_store.store_file(filename), file_outputs)
-        url_refs = map(lambda url: SWURLReference([url]), urls)
-        self.output_refs = map(lambda url_ref: self.continuation.create_tasklocal_reference(url_ref), url_refs)
+        for i, filename in enumerate(file_outputs):
+            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            url_ref = SWURLReference([url], size_hint)
+            self.output_refs[i] = url_ref

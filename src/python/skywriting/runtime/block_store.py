@@ -126,26 +126,22 @@ class BlockStore:
     def publish_global_refs(self, global_id, refs, size_hint=None):
         self.master_proxy.publish_global_refs(global_id, refs)
     
-    def store_raw_file(self, incoming_fobj):
-        with self._lock:
-            id = self.allocate_new_id()
+    def store_raw_file(self, incoming_fobj, id):
         with open(self.filename(id), "wb") as data_file:
             shutil.copyfileobj(incoming_fobj, data_file)
             file_size = data_file.tell()
         return 'swbs://%s/%s' % (self.netloc, str(id)), file_size            
     
-    def store_object(self, object, encoder):
+    def store_object(self, object, encoder, id):
         """Stores the given object as a block, and returns a swbs URL to it."""
-        id = self.allocate_new_id()
         self.object_cache[id] = object
         with open(self.filename(id), "wb") as object_file:
             self.encoders[encoder](object, object_file)
             file_size = object_file.tell()
         return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
     
-    def store_file(self, filename, can_move=False):
+    def store_file(self, filename, id, can_move=False):
         """Stores the file with the given local filename as a block, and returns a swbs URL to it."""
-        id = self.allocate_new_id()
         if can_move:
             shutil.move(filename, self.filename(id))
         else:

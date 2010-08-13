@@ -81,7 +81,10 @@ class MasterProxy:
         return simplejson.loads(result)
     
     def commit_task(self, task_id, bindings, saved_continuation_uri=None):
-        payload_dict = {'bindings' : bindings}
+        serializable_bindings = {}
+        for (id, binding) in bindings.items():
+            serializable_bindings[str(id)] = binding
+        payload_dict = {'bindings' : serializable_bindings}
         if saved_continuation_uri is not None:
             payload_dict['saved_continuation_uri'] = saved_continuation_uri
         message_payload = simplejson.dumps(payload_dict, cls=SWReferenceJSONEncoder)

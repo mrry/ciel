@@ -107,7 +107,7 @@ class DataRoot:
     def index(self):
         # TODO: alternative data serialization formats; direct passthrough.
         # TODO: obviate need for double-pickle.
-        url = self.block_store.store_raw_file(cherrypy.request.body)
+        url = self.block_store.store_raw_file(cherrypy.request.body, self.block_store.allocate_new_id())
         return simplejson.dumps(url)
 
     # TODO: have a way from outside the cluster to push some data to a node.
