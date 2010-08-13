@@ -29,6 +29,9 @@ def main(default_role=None):
 
     cherrypy.config.update({'server.socket_host': '0.0.0.0'})
     
+    if cherrypy.config.get('server.socket_port') is None:
+        cherrypy.config.update({'server.socket_port': 8000})
+    
     parser = OptionParser()
     parser.add_option("-r", "--role", action="store", dest="role", help="Server role", metavar="ROLE", default=default_role)
     parser.add_option("-p", "--port", action="callback", callback=lambda w, x, y, z: set_port(y), default=cherrypy.config.get('server.socket_port'), type="int", help="Server port", metavar="PORT")

@@ -11,7 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
 '''
 Created on 15 Apr 2010
 
@@ -20,12 +19,13 @@ Created on 15 Apr 2010
 from __future__ import with_statement
 from cherrypy.process import plugins
 from threading import Lock, Condition
-from skywriting.runtime.references import SWGlobalFutureReference,\
-    SWURLReference, SWErrorReference
+from skywriting.runtime.references import \
+    SWURLReference, SWErrorReference, SW2_FutureReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
 import time
 import datetime
 import logging
+import uuid
 import cherrypy
 
 TASK_CREATED = -1
@@ -90,7 +90,7 @@ class Task:
     
         self.blocking_dict = {}
         for local_id, input in self.dependencies.items():
-            if isinstance(input, SWGlobalFutureReference):
+            if isinstance(input, SW2_FutureReference):
                 global_id = input.id
                 refs = global_name_directory.get_refs_for_id(global_id)
                 if len(refs) > 0:
@@ -114,7 +114,7 @@ class Task:
             self.select_result = []
             
             for i, ref in enumerate(select_group):
-                if isinstance(ref, SWGlobalFutureReference):
+                if isinstance(ref, SW2_FutureReference):
                     global_id = ref.id
                     refs = global_name_directory.get_refs_for_id(global_id)
                     if len(refs) > 0:
@@ -171,10 +171,10 @@ class Task:
                 self.record_event("RUNNABLE")
         
     def as_descriptor(self, long=False):        
-        descriptor = {'task_id': self.task_id,
+        descriptor = {'task_id': str(self.task_id),
                       'dependencies': self.dependencies,
                       'handler': self.handler,
-                      'expected_outputs': self.expected_outputs,
+                      'expected_outputs': map(str, self.expected_outputs),
                       'inputs': self.inputs,
                       'event_index': self.event_index}
         
@@ -282,10 +282,15 @@ class TaskPool(plugins.SimplePlugin):
         handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
         handler_queue.put(task)
     
+    def generate_task_id(self):
+        return uuid.uuid4()
+    
     def add_task(self, task_descriptor, parent_task_id=None):
         with self._lock:
-            task_id = self.current_task_id
-            self.current_task_id += 1
+            try:
+                task_id = uuid.UUID(hex=task_descriptor['task_id']) 
+            except:
+                task_id = self.generate_task_id()
             
             task = Task(task_id, task_descriptor, self.global_name_directory, self, parent_task_id)
             self.tasks[task_id] = task
@@ -418,7 +423,7 @@ class TaskPool(plugins.SimplePlugin):
         # which ought to be enough.
         if should_notify_outputs:
             for output in task.expected_outputs:
-                self.global_name_directory.add_refs_for_id(int(output), [SWErrorReference(reason, details)]) 
+                self.global_name_directory.add_refs_for_id(output, [SWErrorReference(reason, details)]) 
 
         if worker_id is not None:
             self.bus.publish('worker_idle', worker_id)

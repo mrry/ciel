@@ -27,6 +27,8 @@ import urllib2
 import shutil
 import pickle
 import os
+import uuid
+import tempfile
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -55,8 +57,8 @@ def json_decode_object_hook(dict_):
 def sw_to_external_url(url):
     parsed_url = urlparse.urlparse(url)
     if parsed_url.scheme == 'swbs':
-        id = int(parsed_url.path[1:])
-        return 'http://%s/data/%d' % (parsed_url.netloc, id)
+        id = uuid.UUID(hex=parsed_url.path[1:])
+        return 'http://%s/data/%s' % (parsed_url.netloc, str(id))
     else:
         return url
 
@@ -66,7 +68,6 @@ class BlockStore:
         self._lock = Lock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
-        self.current_id = 0
         self.object_cache = {}
     
         self.current_cache_access_id = 0
@@ -92,9 +93,7 @@ class BlockStore:
         return pickle.load(file)
     
     def allocate_new_id(self):
-        ret = self.current_id
-        self.current_id += 1
-        return ret
+        return uuid.uuid1()
     
     def mark_url_as_accessed(self, url):
         self.url_cache_access_times[url] = self.current_cache_access_id
@@ -128,34 +127,28 @@ class BlockStore:
     def publish_global_refs(self, global_id, refs, size_hint=None):
         self.master_proxy.publish_global_refs(global_id, refs)
     
-    def store_raw_file(self, incoming_fobj):
-        with self._lock:
-            id = self.allocate_new_id()
+    def store_raw_file(self, incoming_fobj, id):
         with open(self.filename(id), "wb") as data_file:
             shutil.copyfileobj(incoming_fobj, data_file)
             file_size = data_file.tell()
-        return 'swbs://%s/%d' % (self.netloc, id), file_size            
+        return 'swbs://%s/%s' % (self.netloc, str(id)), file_size            
     
-    def store_object(self, object, encoder):
+    def store_object(self, object, encoder, id):
         """Stores the given object as a block, and returns a swbs URL to it."""
-        with self._lock:
-            id = self.allocate_new_id()
-            self.object_cache[id] = object
+        self.object_cache[id] = object
         with open(self.filename(id), "wb") as object_file:
             self.encoders[encoder](object, object_file)
             file_size = object_file.tell()
-        return 'swbs://%s/%d' % (self.netloc, id), file_size
+        return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
     
-    def store_file(self, filename, can_move=False):
+    def store_file(self, filename, id, can_move=False):
         """Stores the file with the given local filename as a block, and returns a swbs URL to it."""
-        with self._lock:
-            id = self.allocate_new_id()
         if can_move:
             shutil.move(filename, self.filename(id))
         else:
             shutil.copyfile(filename, self.filename(id))
         file_size = os.path.getsize(self.filename(id))
-        return 'swbs://%s/%d' % (self.netloc, id), file_size
+        return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
 
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
@@ -163,7 +156,7 @@ class BlockStore:
         if filename is None:
             parsed_url = urlparse.urlparse(url)
             if parsed_url.scheme == 'swbs':
-                id = int(parsed_url.path[1:])
+                id = uuid.UUID(hex=parsed_url.path[1:])
                 if parsed_url.netloc == self.netloc:
                     # Retrieve local object.
                     try:
@@ -174,7 +167,7 @@ class BlockStore:
                 else:
                     # Retrieve remote in-system object.
                     # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%d' % (parsed_url.netloc, id)
+                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, str(id))
     
             else:
                 # Retrieve remote ex-system object.
@@ -196,14 +189,14 @@ class BlockStore:
             parsed_url = urlparse.urlparse(url)
             
             if parsed_url.scheme == 'swbs':
-                id = int(parsed_url.path[1:])
+                id = uuid.UUID(hex=parsed_url.path[1:])
                 if parsed_url.netloc == self.netloc:
                     # Retrieve local object.
                     return self.filename(id)
                 else:
                     # Retrieve remote in-system object.
                     # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%d' % (parsed_url.netloc, id)
+                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, str(id))
             else:
                 # Retrieve remote ex-system object.
                 fetch_url = url
@@ -224,8 +217,7 @@ class BlockStore:
             except URLError:
                 raise
             
-            with self._lock:
-                id = self.allocate_new_id()
+            id = self.allocate_new_id()
        
             filename = self.filename(id)
     
@@ -245,3 +237,15 @@ class BlockStore:
                 if parsed_url.netloc == self.netloc:
                     return url
             return random.choice(urls)
+        
+    def generate_block_list_file(self):
+        with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
+            filename = block_list_file.name
+            for block_name in os.listdir(self.base_dir):
+                try:
+                    block_id = uuid.UUID(hex=block_name)
+                    block_list_file.write(block_id.bytes)
+                except:
+                    pass
+                
+        return filename
