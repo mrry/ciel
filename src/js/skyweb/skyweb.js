@@ -59,7 +59,7 @@ Skyweb = function(json) {
 
     }
 
-    var paper = Raphael(10, 1, total_grid_size, total_grid_size);
+    var paper = Raphael("skyweb-canvas", total_grid_size, total_grid_size);
 
     circle_coords_to_pixels = function(tx, ty) {
 
@@ -260,6 +260,48 @@ Skyweb = function(json) {
 
     };
 
+    var workers_by_id = {};
+    var worker_table = $("#skyweb-worker-table");
+
+    notify_workers_callback = function(new_event_count) {
+
+	$.getJSON("../worker/versioned", process_workers_callback);
+
+    };
+
+    process_workers_callback = function(json) {
+
+	html_of_worker = function(worker) {
+
+	    return "<td class=\"worker-table-data\">" + worker.worker_id + "</td><td class=\"worker-table-data\">" + worker.current_task_id + "</td><td class=\"worker-table-data\">" + worker.netloc + "</td><td class=\"worker-table-data\">" + worker.features + "</td><td class=\"worker-table-data\">" + worker.last_ping + "</td>";
+	    
+	}
+
+	for(var i in json.workers) {
+
+	    if(workers_by_id[json.workers[i].worker_id]) {
+
+		var table_row = workers_by_id[json.workers[i].worker_id].table_row;
+		var row_children = table_row.children();
+		row_children.remove();
+		table_row.append(html_of_worker(json.workers[i]));
+
+	    }
+	    else {
+
+		new_row = $("<tr>" + html_of_worker(json.workers[i]) + "</tr>")
+		worker_table.append(new_row);
+		workers_by_id[json.workers[i].worker_id] = {descriptor: json.workers[i], table_row: new_row};
+
+	    }
+
+	}
+
+	$.post("../worker/await_event_count", {version: json.version}, notify_workers_callback, "json");
+
+    };
+
     $.getJSON("../task/wait_event_count/" + next_event_index, notify_events_callback);
+    $.getJSON("../worker/versioned", process_workers_callback);
 
 };

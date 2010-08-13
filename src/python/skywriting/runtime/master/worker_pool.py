@@ -20,7 +20,7 @@ Created on Apr 15, 2010
 from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
-from threading import Lock
+from threading import Lock, Condition
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 from skywriting.runtime.master.task_pool import TASK_ASSIGNED
 import random
@@ -77,6 +77,8 @@ class WorkerPool(plugins.SimplePlugin):
         self.idle_set = set()
         self._lock = Lock()
         self.feature_queues = FeatureQueues()
+        self.event_count = 0
+        self.event_condvar = Condition(self._lock)
         
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
@@ -96,6 +98,9 @@ class WorkerPool(plugins.SimplePlugin):
             self.workers[id] = worker
             self.netlocs[worker.netloc] = worker
             self.idle_set.add(id)
+            self.event_count += 1
+            self.event_condvar.notify_all()
+            
         self.bus.publish('schedule')
         return id
     
@@ -123,6 +128,8 @@ class WorkerPool(plugins.SimplePlugin):
             task.state = TASK_ASSIGNED
             task.record_event("ASSIGNED")
             task.worker_id = worker_id
+            self.event_count += 1
+            self.event_condvar.notify_all()
             
         try:
             httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
@@ -152,6 +159,8 @@ class WorkerPool(plugins.SimplePlugin):
     
     def worker_failed(self, id):
         with self._lock:
+            self.event_count += 1
+            self.event_condvar.notify_all()
             self.idle_set.discard(id)
             failed_task = self.workers[id].current_task_id
             del self.netlocs[self.workers[id].netloc]
@@ -163,16 +172,30 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             self.workers[id].current_task_id = None
             self.idle_set.add(id)
+            self.event_count += 1
+            self.event_condvar.notify_all()
         self.bus.publish('schedule')
             
     def worker_ping(self, id, status, ping_news):
         with self._lock:
             worker = self.workers[id]
+            self.event_count += 1
+            self.event_condvar.notify_all()
         worker.last_ping = datetime.datetime.now()
         
     def get_all_workers(self):
         with self._lock:
-            return map(lambda x: x.as_descriptor(), self.workers.values())
+            return 
+
+    def get_all_workers_with_version(self):
+        with self._lock:
+            return (self.event_count, map(lambda x: x.as_descriptor(), self.workers.values()))
+
+    def await_version_after(self, target):
+        with self._lock:
+            while self.event_count <= target:
+                self.event_condvar.wait()
+            return self.event_count
 
     def get_random_worker(self):
         with self._lock:

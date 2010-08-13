@@ -70,6 +70,21 @@ class WorkersRoot:
             return simplejson.dumps(workers)
         else:
             raise HTTPError(405)
+
+    @cherrypy.expose
+    def versioned(self):
+        if cherrypy.request.method == 'GET':
+            (version, workers) = self.worker_pool.get_all_workers_with_version()
+            return simplejson.dumps({"version": version, "workers": workers})
+        else:
+            raise HTTPError(405)
+
+    @cherrypy.expose
+    def await_event_count(self, version=0):
+        if cherrypy.request.method == 'POST':
+            return repr(self.worker_pool.await_version_after(int(version)))
+        else:
+            raise HTTPError(405)
         
     @cherrypy.expose
     def random(self):
