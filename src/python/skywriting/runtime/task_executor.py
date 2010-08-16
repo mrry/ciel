@@ -278,7 +278,7 @@ class SWRuntimeInterpreterTask:
             self.save_continuation = False
             
         try:
-            self.replay_uuid_list = [uuid.UUID(hex=x) for x in task_descriptor['replay_uuid']]
+            self.replay_uuid_list = [uuid.UUID(hex=x) for x in task_descriptor['replay_uuids']]
             self.replay_uuids = True
             self.current_uuid_index = 0
         except KeyError:
@@ -292,7 +292,6 @@ class SWRuntimeInterpreterTask:
         
         self.continuation = None
         self.result = None
-        self.spawn_task_result_global_ids = None
         
         self.master_proxy = master_proxy
         
@@ -434,8 +433,6 @@ class SWRuntimeInterpreterTask:
     def spawn_all(self, block_store, master_proxy):
         current_batch = []
         
-        self.spawn_task_result_global_ids = []
-        
         current_index = 0
         while current_index < len(self.spawn_list):
             
@@ -453,10 +450,7 @@ class SWRuntimeInterpreterTask:
                     return
                 
                 # Fire off the current batch.
-                batch_result_ids = master_proxy.spawn_tasks(self.task_id, current_batch)
-                
-                # Update a local structure containing all of the spawn/global ids so far.
-                self.spawn_task_result_global_ids.extend(batch_result_ids)
+                master_proxy.spawn_tasks(self.task_id, current_batch)
                 
                 # Iterate again on the same index.
                 current_batch = []
@@ -482,10 +476,8 @@ class SWRuntimeInterpreterTask:
                 return
             
             # Fire off the current batch.
-            batch_result_ids = master_proxy.spawn_tasks(self.task_id, current_batch)
+            master_proxy.spawn_tasks(self.task_id, current_batch)
             
-            self.spawn_task_result_global_ids.extend(batch_result_ids)
-
     def get_spawn_continuation_object_id(self):
         return self.create_uuid()
 

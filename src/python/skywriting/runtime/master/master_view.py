@@ -194,67 +194,19 @@ class MasterTaskRoot:
                 else:
                     raise HTTPError(404)
             
-            # Spawn and commit actions should probably happen on a buffer object for transactional
-            # semantics.
             if action == 'spawn':
                 if cherrypy.request.method == 'POST':
-                    
                     parent_task = self.task_pool.get_task_by_id(task_id)
-#                    if not parent_task.state == TASK_ASSIGNED
-                    
                     task_descriptors = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    spawn_result_ids = []
-                    
-                    # TODO: stage this in a task-local transaction buffer.
-                    for task_d in task_descriptors:
-                        try:
-                            spawned_task_id = uuid.UUID(hex=task_d['task_id'])
-                            expected_outputs = [uuid.UUID(hex=x) for x in task_d['expected_outputs']]
-                            for global_id in expected_outputs:
-                                self.global_name_directory.create_global_id(spawned_task_id, global_id)
-                        except KeyError:
-                            raise
-                            #try:
-                            #    num_outputs = task_d['num_outputs']
-                            #    expected_outputs = map(lambda x: self.global_name_directory.create_global_id(), range(0, num_outputs))
-                            #except:
-                            #    raise
-                            #
-                            #task_d['expected_outputs'] = map(str, expected_outputs)
-                        
-                        task = self.task_pool.add_task(task_d, task_id)
-                        parent_task.children.append(task.task_id)
-                        
-                        spawn_result_ids.append(map(str, expected_outputs)) 
-                    
-                    return simplejson.dumps(spawn_result_ids)
-                    
+                    self.task_pool.spawn_child_tasks(parent_task, task_descriptors)
+                    return
                 else:
                     raise HTTPError(405)
-                pass
             elif action == 'commit':
                 if cherrypy.request.method == 'POST':
                     commit_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    commit_bindings = commit_payload['bindings']
-                    
-                    # Apply commit bindings (if any), i.e. publish results.
-                    for global_id, refs in commit_bindings.items():
-                        self.global_name_directory.add_refs_for_id(uuid.UUID(global_id), refs)
-                    
-                    self.task_pool.task_completed(task_id)
-                    
-                    # Saved continuation URI, if necessary.
-                    try:
-                        commit_continuation_uri = commit_payload['saved_continuation_uri']
-                        self.task_pool.get_task_by_id(task_id).saved_continuation_uri = commit_continuation_uri
-                    except KeyError:
-                        pass
-                    
-                    # TODO: Check task for consistency.
-                    # TODO: Commit all task activities.
-
+                    self.task_pool.commit_task(task_id, commit_payload)
                     return simplejson.dumps(True)
-                    
                 else:
                     raise HTTPError(405)
             elif action == 'failed':
@@ -267,29 +219,25 @@ class MasterTaskRoot:
                 self.task_pool.abort(task_id)
             elif action is None:
                 if cherrypy.request.method == 'GET':
-                    return simplejson.dumps(self.task_pool.tasks[task_id].as_descriptor(long=True), cls=SWReferenceJSONEncoder)
+                    return simplejson.dumps(self.task_pool.get_task_by_id(task_id).as_descriptor(long=True), cls=SWReferenceJSONEncoder)
         elif cherrypy.request.method == 'POST':
             # New task spawning in here.
             task_descriptor = simplejson.loads(cherrypy.request.body.read())
-
             spawned_task_id = self.task_pool.generate_task_id()
             task_descriptor['task_id'] = str(spawned_task_id)
-                
-            if task_descriptor is not None:
+            try:
+                expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
+                for output in expected_outputs:
+                    self.global_name_directory.create_global_id(spawned_task_id, output)
+            except KeyError:
                 try:
-                    expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
-                    for output in expected_outputs:
-                        self.global_name_directory.create_global_id(spawned_task_id, output)
-                except KeyError:
-                    try:
-                        num_outputs = task_descriptor['num_outputs']
-                        expected_outputs = map(lambda x: self.global_name_directory.create_global_id(spawned_task_id), range(0, num_outputs))
-                    except:
-                        expected_outputs = [self.global_name_directory.create_global_id()]
-                    task_descriptor['expected_outputs'] = expected_outputs
-                
-                task = self.task_pool.add_task(task_descriptor)
-                return simplejson.dumps({'outputs': map(str, expected_outputs), 'task_id': str(task.task_id)})
+                    num_outputs = task_descriptor['num_outputs']
+                    expected_outputs = map(lambda x: self.global_name_directory.create_global_id(spawned_task_id), range(0, num_outputs))
+                except:
+                    expected_outputs = [self.global_name_directory.create_global_id()]
+                task_descriptor['expected_outputs'] = expected_outputs
+            task = self.task_pool.add_task(task_descriptor)
+            return simplejson.dumps({'outputs': map(str, expected_outputs), 'task_id': str(task.task_id)})
                         
         else:
             if cherrypy.request.method == 'GET':

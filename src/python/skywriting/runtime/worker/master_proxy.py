@@ -97,8 +97,7 @@ class MasterProxy(SimplePlugin):
     def spawn_tasks(self, parent_task_id, tasks):
         message_payload = simplejson.dumps(tasks, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%s/spawn' % (str(parent_task_id), ))
-        (_, result) = self.backoff_request(message_url, "POST", message_payload)
-        return simplejson.loads(result)
+        self.backoff_request(message_url, "POST", message_payload)
     
     def commit_task(self, task_id, bindings, saved_continuation_uri=None, replay_uuid_list=None):
         serializable_bindings = {}
