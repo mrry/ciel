@@ -20,8 +20,7 @@ Created on 14 Apr 2010
 from __future__ import with_statement
 from threading import Lock
 from urllib2 import URLError, HTTPError
-from skywriting.runtime.exceptions import ExecutionInterruption,\
-    ReferenceUnavailableException
+from skywriting.runtime.exceptions import ExecutionInterruption
 import random
 import urllib2
 import shutil
@@ -234,6 +233,7 @@ class BlockStore:
     def retrieve_filename_for_concrete_ref(self, ref):
         netloc = self.choose_best_netloc(ref.location_hints.keys())
         access_method = self.choose_best_access_method(ref.location_hints[netloc])
+        assert access_method == ACCESS_SWBS
         return self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
         
     def retrieve_filename_for_ref(self, ref):
@@ -262,6 +262,7 @@ class BlockStore:
     def retrieve_object_for_concrete_ref(self, ref, decoder):
         netloc = self.choose_best_netloc(ref.location_hints.keys())
         access_method = self.choose_best_access_method(ref.location_hints[netloc])
+        assert access_method == ACCESS_SWBS
         return self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
         
     def retrieve_object_for_ref(self, ref, decoder):

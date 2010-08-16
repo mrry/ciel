@@ -26,8 +26,8 @@ from skywriting.lang.visitors import \
     StatementExecutorVisitor, SWDereferenceWrapper
 from skywriting.lang import ast
 from skywriting.runtime.exceptions import ReferenceUnavailableException,\
-    FeatureUnavailableException, ExecutionInterruption, RuntimeSkywritingError,\
-    SelectException, BlameUserException
+    FeatureUnavailableException, ExecutionInterruption,\
+    SelectException
 from threading import Lock
 import cherrypy
 import logging

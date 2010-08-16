@@ -20,7 +20,6 @@ Created on 8 Feb 2010
 from cherrypy.lib.static import serve_file
 from skywriting.runtime.block_store import json_decode_object_hook
 import sys
-import os
 import simplejson
 import cherrypy
 import uuid
