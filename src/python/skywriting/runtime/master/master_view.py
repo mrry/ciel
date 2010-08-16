@@ -211,7 +211,8 @@ class MasterTaskRoot:
                     raise HTTPError(405)
             elif action == 'failed':
                 if cherrypy.request.method == 'POST':
-                    cherrypy.engine.publish('task_failed', task_id, 'RUNTIME_EXCEPTION')
+                    reason, details = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                    cherrypy.engine.publish('task_failed', task_id, reason, details)
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)

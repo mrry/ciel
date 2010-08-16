@@ -20,7 +20,8 @@ Created on 14 Apr 2010
 from __future__ import with_statement
 from threading import Lock
 from urllib2 import URLError, HTTPError
-from skywriting.runtime.exceptions import ExecutionInterruption
+from skywriting.runtime.exceptions import ExecutionInterruption,\
+    ReferenceUnavailableException, MissingInputException
 import random
 import urllib2
 import shutil
@@ -234,7 +235,25 @@ class BlockStore:
         netloc = self.choose_best_netloc(ref.location_hints.keys())
         access_method = self.choose_best_access_method(ref.location_hints[netloc])
         assert access_method == ACCESS_SWBS
-        return self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
+        try:
+            result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
+        except:
+            
+            alternative_netlocs = ref.location_hints.copy()
+            del alternative_netlocs[netloc]
+            while len(alternative_netlocs) > 0:
+                netloc = self.choose_best_netloc(alternative_netlocs)
+                access_method = self.choose_best_access_method(alternative_netlocs[netloc])
+                try:
+                    result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
+                    break
+                except:
+                    del alternative_netlocs[netloc]
+                
+            if len(alternative_netlocs) == 0:
+                raise MissingInputException(ref, None)
+        
+        return result
         
     def retrieve_filename_for_ref(self, ref):
         assert isinstance(ref, SWRealReference)
@@ -263,7 +282,26 @@ class BlockStore:
         netloc = self.choose_best_netloc(ref.location_hints.keys())
         access_method = self.choose_best_access_method(ref.location_hints[netloc])
         assert access_method == ACCESS_SWBS
-        return self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
+        try:
+            result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
+        except:
+            
+            alternative_netlocs = ref.location_hints.copy()
+            del alternative_netlocs[netloc]
+            while len(alternative_netlocs) > 0:
+                netloc = self.choose_best_netloc(alternative_netlocs)
+                access_method = self.choose_best_access_method(alternative_netlocs[netloc])
+                try:
+                    result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
+                    break
+                except:
+                    del alternative_netlocs[netloc]
+                
+            if len(alternative_netlocs) == 0:
+                raise MissingInputException(ref, None)
+        
+        return result
+            
         
     def retrieve_object_for_ref(self, ref, decoder):
         assert isinstance(ref, SWRealReference)

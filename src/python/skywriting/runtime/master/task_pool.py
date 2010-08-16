@@ -414,7 +414,7 @@ class TaskPool(plugins.SimplePlugin):
                     self.bus.publish('schedule')
                     failure_event["action"] = "WORKER_FAIL_RETRY"
             elif reason == 'MISSING_INPUT':
-                # Problem fetching input, so we will have to rete it.
+                # Problem fetching input, so we will have to reexecute it.
                 task.record_event("MISSING_INPUT_FAILURE")
                 failure_event["action"] = "MISSING_INPUT_FAIL"
             elif reason == 'RUNTIME_EXCEPTION':

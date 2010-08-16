@@ -116,7 +116,7 @@ class SWStdinoutExecutor(SWExecutor):
         
         url, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
         
-        # XXX: fix provenance.
+        # XXX: We fix the provenance in the caller.
         real_ref = SW2_ConcreteReference(self.output_ids[0], SWNoProvenance(), size_hint)
         real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
         self.output_refs[0] = real_ref

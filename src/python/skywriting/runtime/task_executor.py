@@ -27,7 +27,7 @@ from skywriting.lang.visitors import \
 from skywriting.lang import ast
 from skywriting.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption,\
-    SelectException
+    SelectException, MissingInputException
 from threading import Lock
 import cherrypy
 import logging
@@ -252,9 +252,14 @@ class SWInterpreterTaskExecutionRecord:
                 self.interpreter.commit_result(self.task_executor.block_store, self.task_executor.master_proxy)
             else:
                 self.task_executor.master_proxy.failed_task(self.task_id)
+        
+        except MissingInputException as mie:
+            cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', mie.ref)
+                
         except:
             cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id)    
+            self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')    
 
     def abort(self):
         self.is_running = False
@@ -423,6 +428,9 @@ class SWRuntimeInterpreterTask:
             self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
             return
             
+        except MissingInputException as mie:
+            print "!!! ERROR: cannot retrieve input: %s" % (repr(mie.ref), )
+            raise
 
         except Exception:
             print "!!! WEIRD EXCEPTION"
