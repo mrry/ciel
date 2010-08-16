@@ -203,8 +203,9 @@ class SWExecutorTaskExecutionRecord:
     
     def commit(self):
         commit_bindings = {}
-        for (global_id, output_ref) in zip(self.expected_outputs, self.executor.output_refs):
-            commit_bindings[global_id] = [output_ref]
+        for i, output_ref in enumerate(self.executor.output_refs):
+            output_ref.provenance = SWTaskOutputProvenance(self.task_id, i)
+            commit_bindings[output_ref.id] = [output_ref]
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
     def execute(self):        
@@ -275,6 +276,14 @@ class SWRuntimeInterpreterTask:
             self.save_continuation = task_descriptor['save_continuation']
         except KeyError:
             self.save_continuation = False
+            
+        try:
+            self.replay_uuid_list = [uuid.UUID(hex=x) for x in task_descriptor['replay_uuid']]
+            self.replay_uuids = True
+            self.current_uuid_index = 0
+        except KeyError:
+            self.replay_uuid_list = []
+            self.replay_uuids = False
 
         self.block_store = block_store
         self.execution_features = execution_features
@@ -339,6 +348,15 @@ class SWRuntimeInterpreterTask:
         else:
             return value
 
+    def create_uuid(self):
+        if self.replay_uuids:
+            ret = self.replay_uuids[self.current_uuid_index]
+            self.current_uuid_index += 1
+        else:
+            ret = uuid.uuid1()
+            self.replay_uuid_list.append(ret)
+        return ret
+
     def interpret(self):
         self.continuation.context.restart()
         task_context = TaskContext(self.continuation.context, self)
@@ -372,7 +390,7 @@ class SWRuntimeInterpreterTask:
             
             select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
                         
-            cont_task_id = uuid.uuid1()
+            cont_task_id = self.create_uuid()
                         
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',
@@ -392,7 +410,7 @@ class SWRuntimeInterpreterTask:
                 if (not isinstance(self.continuation.resolve_tasklocal_reference_with_index(index), SWDataValue)) and \
                    (self.continuation.is_marked_as_dereferenced(index) or self.continuation.is_marked_as_execd(index)):
                     cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index)
-            cont_task_id = uuid.uuid1()
+            cont_task_id = self.create_uuid()
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
@@ -469,10 +487,10 @@ class SWRuntimeInterpreterTask:
             self.spawn_task_result_global_ids.extend(batch_result_ids)
 
     def get_spawn_continuation_object_id(self):
-        return self.block_store.allocate_new_id()
+        return self.create_uuid()
 
     def get_continuation_object_id(self):
-        return self.block_store.allocate_new_id()
+        return self.create_uuid()
 
     def commit_result(self, block_store, master_proxy):
         
@@ -497,11 +515,11 @@ class SWRuntimeInterpreterTask:
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
         
         if self.save_continuation:
-            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.block_store.allocate_new_id())
+            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.create_uuid())
         else:
             save_cont_uri = None
         
-        master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri)
+        master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri, self.replay_uuid_list)
 
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
@@ -539,8 +557,8 @@ class SWRuntimeInterpreterTask:
         
         
         # Append the new task definition to the spawn list.
-        new_task_id = uuid.uuid1()
-        expected_output_id = uuid.uuid1()
+        new_task_id = self.create_uuid()
+        expected_output_id = self.create_uuid()
         
         # Match up the output with a new tasklocal reference.
         ret = self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_id, SWTaskOutputProvenance(new_task_id, 0)))
@@ -570,8 +588,8 @@ class SWRuntimeInterpreterTask:
    
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
         
-        new_task_id = uuid.uuid1()
-        expected_output_ids = [uuid.uuid1() for i in range(num_outputs)]
+        new_task_id = self.create_uuid()
+        expected_output_ids = [self.create_uuid() for i in range(num_outputs)]
         ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
         inputs = {}
         
@@ -590,7 +608,7 @@ class SWRuntimeInterpreterTask:
             return leaf
         
         transformed_args = map_leaf_values(args_check_mapper, args)
-        args_id = self.block_store.allocate_new_id()
+        args_id = self.create_uuid()
         args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
         args_ref = SW2_ConcreteReference(args_id, SWNoProvenance(), size_hint)
         args_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
@@ -610,7 +628,7 @@ class SWRuntimeInterpreterTask:
         
         real_args = map_leaf_values(self.check_no_thunk_mapper, args)
 
-        output_ids = map(uuid.uuid1, range(0, num_outputs))
+        output_ids = map(self.create_uuid, range(0, num_outputs))
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
         self.current_executor.execute(self.block_store)

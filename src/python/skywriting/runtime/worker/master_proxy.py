@@ -100,13 +100,15 @@ class MasterProxy(SimplePlugin):
         (_, result) = self.backoff_request(message_url, "POST", message_payload)
         return simplejson.loads(result)
     
-    def commit_task(self, task_id, bindings, saved_continuation_uri=None):
+    def commit_task(self, task_id, bindings, saved_continuation_uri=None, replay_uuid_list=None):
         serializable_bindings = {}
         for (id, binding) in bindings.items():
             serializable_bindings[str(id)] = binding
         payload_dict = {'bindings' : serializable_bindings}
         if saved_continuation_uri is not None:
             payload_dict['saved_continuation_uri'] = saved_continuation_uri
+        if replay_uuid_list is not None:
+            payload_dict['replay_uuids'] = map(str, replay_uuid_list)
         message_payload = simplejson.dumps(payload_dict, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%s/commit' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)

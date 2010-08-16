@@ -290,7 +290,7 @@ class TaskPool(plugins.SimplePlugin):
         handler_queue.put(task)
     
     def generate_task_id(self):
-        return uuid.uuid4()
+        return uuid.uuid1()
     
     def add_task(self, task_descriptor, parent_task_id=None):
         with self._lock:

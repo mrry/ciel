@@ -91,10 +91,7 @@ class BlockStore:
         return pickle.dump(obj, file)
     def decode_pickle(self, file):
         return pickle.load(file)
-    
-    def allocate_new_id(self):
-        return uuid.uuid1()
-    
+        
     def mark_url_as_accessed(self, url):
         self.url_cache_access_times[url] = self.current_cache_access_id
         self.current_cache_access_id += 1
@@ -112,6 +109,9 @@ class BlockStore:
         lru_url = min([(access_time, url) for (url, access_time) in self.url_cache_access_times.items()])[1]
         del self.url_cache_filenames[lru_url]
         del self.url_cache_access_times[lru_url] 
+    
+    def allocate_new_id(self):
+        return uuid.uuid1()
     
     CACHE_SIZE_LIMIT=1024
     def store_url_in_cache(self, url, filename):

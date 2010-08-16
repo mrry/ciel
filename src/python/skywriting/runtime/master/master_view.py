@@ -271,15 +271,15 @@ class MasterTaskRoot:
         elif cherrypy.request.method == 'POST':
             # New task spawning in here.
             task_descriptor = simplejson.loads(cherrypy.request.body.read())
-            try:
-                spawned_task_id = uuid.UUID(hex=task_descriptor['task_id'])
-            except KeyError:
-                spawned_task_id = uuid.uuid1()
-                task_descriptor['task_id'] = str(spawned_task_id)
+
+            spawned_task_id = self.task_pool.generate_task_id()
+            task_descriptor['task_id'] = str(spawned_task_id)
                 
             if task_descriptor is not None:
                 try:
                     expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
+                    for output in expected_outputs:
+                        self.global_name_directory.create_global_id(spawned_task_id, output)
                 except KeyError:
                     try:
                         num_outputs = task_descriptor['num_outputs']
@@ -287,10 +287,6 @@ class MasterTaskRoot:
                     except:
                         expected_outputs = [self.global_name_directory.create_global_id()]
                     task_descriptor['expected_outputs'] = expected_outputs
-                else:
-
-                    for output in expected_outputs:
-                        self.global_name_directory.create_global_id(spawned_task_id, output)
                 
                 task = self.task_pool.add_task(task_descriptor)
                 return simplejson.dumps({'outputs': map(str, expected_outputs), 'task_id': str(task.task_id)})
