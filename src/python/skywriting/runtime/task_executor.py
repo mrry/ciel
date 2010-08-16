@@ -491,7 +491,7 @@ class SWRuntimeInterpreterTask:
                 save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_continuation_object_id())
             else:
                 save_cont_uri = None
-            master_proxy.commit_task(self.task_id, {}, save_cont_uri)
+            master_proxy.commit_task(self.task_id, {}, save_cont_uri, self.replay_uuid_list)
             return
         
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
