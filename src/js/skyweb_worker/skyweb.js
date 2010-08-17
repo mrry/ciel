@@ -39,4 +39,6 @@ Skyweb = function(json) {
 
     };
 
+    process_events_callback(json);
+
 };

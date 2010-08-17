@@ -109,6 +109,7 @@ class LogRoot:
         else:
             raise cherrypy.HTTPError(405)
 
+    @cherrypy.expose
     def index(self, first_event, last_event):
         if cherrypy.request.method == 'GET':
             events = self.worker.get_log_entries(int(first_event), int(last_event))

@@ -34,7 +34,7 @@ import socket
 import urlparse
 import simplejson
 from threading import Lock, Condition
-import datetime
+from datetime import datetime
 
 class WorkerState:
     pass
@@ -69,12 +69,15 @@ class Worker(plugins.SimplePlugin):
         if options.staticbase is not None:
             self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
 
+        self.subscribe()
+
     def subscribe(self):
         self.bus.subscribe('stop', self.stop, priority=10)
         self.bus.subscribe("worker_event", self.add_log_entry)
         
     def unsubscribe(self):
         self.bus.unsubscribe('stop', self.stop)
+        self.bus.unsubscribe("worker_event", self.add_log_entry)
         
     def netloc(self):
         return '%s:%d' % (self.hostname, self.port)
@@ -90,7 +93,7 @@ class Worker(plugins.SimplePlugin):
     def start_running(self):
 
         cherrypy.engine.start()
-        cherrypy.tree.mount(self.server_root, "", None)
+        cherrypy.tree.mount(self.server_root, "", self.cherrypy_conf)
         if hasattr(cherrypy.engine, "signal_handler"):
             cherrypy.engine.signal_handler.subscribe()
         if hasattr(cherrypy.engine, "console_control_handler"):
@@ -110,7 +113,7 @@ class Worker(plugins.SimplePlugin):
             self.log_condition.notify_all()
     
     def submit_task(self, task_descriptor):
-        cherrypy.engine.publish("worker_event", "Start task " + repr(task_descriptor.task_id))
+        cherrypy.engine.publish("worker_event", "Start task " + repr(task_descriptor["task_id"]))
         cherrypy.engine.publish('execute_task', task_descriptor)
                 
     def abort_task(self, task_id):
@@ -128,7 +131,7 @@ class Worker(plugins.SimplePlugin):
 
     def await_log_entries_after(self, index):
         with self.log_lock:
-            while len(self.event_log) <= index:
+            while len(self.event_log) <= int(index):
                 if self.stopping == True:
                     break
                 self.log_condition.wait()
