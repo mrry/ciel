@@ -37,7 +37,8 @@ from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
     SWTaskOutputProvenance, SW2_ConcreteReference, ACCESS_SWBS,\
-    SWSpawnedTaskProvenance, SWNoProvenance, SWExecResultProvenance
+    SWSpawnedTaskProvenance, SWNoProvenance, SWExecResultProvenance,\
+    SWSpawnExecArgsProvenance
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -168,7 +169,11 @@ class SWExecutorTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
         self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
-        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
+        try:
+            self.original_task_id = uuid.UUID(hex=task_descriptor['original_task_id'])
+        except KeyError:
+            self.original_task_id = self.task_id
+        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']] 
         self.task_executor = task_executor
         self.inputs = task_descriptor['inputs']
         self.executor_name = task_descriptor['handler']
@@ -204,7 +209,7 @@ class SWExecutorTaskExecutionRecord:
     def commit(self):
         commit_bindings = {}
         for i, output_ref in enumerate(self.executor.output_refs):
-            output_ref.provenance = SWTaskOutputProvenance(self.task_id, i)
+            output_ref.provenance = SWTaskOutputProvenance(self.original_task_id, i)
             commit_bindings[output_ref.id] = [output_ref]
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
@@ -220,9 +225,12 @@ class SWExecutorTaskExecutionRecord:
                 self.commit()
             else:
                 self.task_executor.master_proxy.failed_task(self.task_id)
+        except MissingInputException as mie:
+            cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', mie.ref)
         except:
             cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')
             
 class SWInterpreterTaskExecutionRecord:
     
@@ -269,6 +277,16 @@ class SWRuntimeInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
         self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
+        
+        try:
+            self.original_task_id = uuid.UUID(hex=task_descriptor['original_task_id'])
+            self.replay_ref = task_descriptor['replay_ref']
+        except KeyError:
+            self.original_task_id = self.task_id
+            self.replay_ref = None
+
+        self.additional_refs_to_publish = []
+        
         self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
         self.inputs = task_descriptor['inputs']
 
@@ -304,6 +322,7 @@ class SWRuntimeInterpreterTask:
         
         self.current_executor = None
         self.exec_result_counter = 0
+        self.spawn_exec_counter = 0
         
     def abort(self):
         self.is_running = False
@@ -355,7 +374,7 @@ class SWRuntimeInterpreterTask:
 
     def create_uuid(self):
         if self.replay_uuids:
-            ret = self.replay_uuids[self.current_uuid_index]
+            ret = self.replay_uuid_list[self.current_uuid_index]
             self.current_uuid_index += 1
         else:
             ret = uuid.uuid1()
@@ -421,7 +440,7 @@ class SWRuntimeInterpreterTask:
                                     'inputs': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': map(str, self.expected_outputs),
                                     'save_continuation': self.save_continuation,
-                                    'continues_task': str(self.task_id)}
+                                    'continues_task': str(self.original_task_id)}
             self.save_continuation = False
             if isinstance(ei, FeatureUnavailableException):
                 cont_task_descriptor['require_features'] = [ei.feature_name]
@@ -471,9 +490,10 @@ class SWRuntimeInterpreterTask:
                 if current_cont is not None:
                     spawned_cont_id = self.get_spawn_continuation_object_id()
                     cont_url, size_hint = block_store.store_object(current_cont, 'pickle', spawned_cont_id)
-                    spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, SWSpawnedTaskProvenance(self.task_id, current_index), size_hint)
+                    spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, SWSpawnedTaskProvenance(self.original_task_id, current_index), size_hint)
                     spawned_cont_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
                     self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = spawned_cont_ref
+                    self.maybe_also_publish(spawned_cont_ref)
             
                 # Current task is now ready to be spawned.
                 current_batch.append(self.spawn_list[current_index].task_descriptor)
@@ -493,24 +513,36 @@ class SWRuntimeInterpreterTask:
     def get_continuation_object_id(self):
         return self.create_uuid()
 
+    def maybe_also_publish(self, concrete_ref):
+        if self.replay_ref is not None and concrete_ref.id == self.replay_ref.id:
+            self.additional_refs_to_publish.append(concrete_ref)
+
     def commit_result(self, block_store, master_proxy):
+        
+        commit_bindings = {}
+        for ref in self.additional_refs_to_publish:
+            try:
+                ref_list = commit_bindings[ref.id]
+            except KeyError:
+                ref_list = []
+                commit_bindings[ref.id] = ref_list
+            ref_list.append(ref)
         
         if self.result is None:
             if self.save_continuation:
                 save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_continuation_object_id())
             else:
                 save_cont_uri = None
-            master_proxy.commit_task(self.task_id, {}, save_cont_uri, self.replay_uuid_list)
+            master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri, self.replay_uuid_list)
             return
         
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
-        commit_bindings = {}
 
         result_url, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
         if size_hint < 128:
             result_ref = SWDataValue(serializable_result)
         else:
-            result_ref = SW2_ConcreteReference(self.expected_outputs[0], SWTaskOutputProvenance(self.task_id, 0), size_hint)
+            result_ref = SW2_ConcreteReference(self.expected_outputs[0], SWTaskOutputProvenance(self.original_task_id, 0), size_hint)
             result_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
             
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
@@ -525,7 +557,6 @@ class SWRuntimeInterpreterTask:
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
         cont = SWContinuation(spawned_task_stmt, SimpleContext())
-        
         
         # Now need to build the reference table for the spawned task.
         local_reference_indices = set()
@@ -611,8 +642,10 @@ class SWRuntimeInterpreterTask:
         transformed_args = map_leaf_values(args_check_mapper, args)
         args_id = self.create_uuid()
         args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
-        args_ref = SW2_ConcreteReference(args_id, SWNoProvenance(), size_hint)
+        args_ref = SW2_ConcreteReference(args_id, SWSpawnExecArgsProvenance(self.original_task_id, self.spawn_exec_counter), size_hint)
+        self.spawn_exec_counter += 1
         args_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+        self.maybe_also_publish(args_ref)
         
         inputs['_args'] = args_ref
         
@@ -635,7 +668,7 @@ class SWRuntimeInterpreterTask:
         self.current_executor.execute(self.block_store)
         
         for ref in self.current_executor.output_refs:
-            ref.provenance = SWExecResultProvenance(self.task_id, self.exec_result_counter)
+            ref.provenance = SWExecResultProvenance(self.original_task_id, self.exec_result_counter)
             self.exec_result_counter += 1
         
         ret = map(self.continuation.create_tasklocal_reference, self.current_executor.output_refs)

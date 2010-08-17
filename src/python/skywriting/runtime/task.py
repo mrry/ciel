@@ -41,6 +41,10 @@ class Task:
         self.parent = parent_task_id
         self.children = []
         self.continues_task = continues_task
+        self.continuation = None
+        
+        self.original_task_id = None
+        self.replay_ref = None
         
         self.handler = handler
         
@@ -52,8 +56,7 @@ class Task:
             self.dependencies = inputs
 
         self.select_group = select_group
-        if self.select_group is not None:
-            self.select_result = select_result
+        self.select_result = select_result
             
         self.expected_outputs = expected_outputs
         
@@ -81,6 +84,9 @@ class TaskPoolTask(Task):
         
         self.worker_id = None
         self.saved_continuation_uri = None
+        
+        self.event_index = 0
+        self.current_attempt = 0
 
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
@@ -171,6 +177,13 @@ class TaskPoolTask(Task):
         self.record_event("ASSIGNED")
         self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
 
+    def make_replay_task(self, replay_task_id, replay_ref):
+        
+        ret = TaskPoolTask(replay_task_id, self.parent, self.handler, self.inputs, True, self.expected_outputs, self.save_continuation, self.continues_task, self.replay_uuids, self.select_group, self.select_result, TASK_RUNNABLE, self.task_pool)
+        ret.original_task_id = self.task_id
+        ret.replay_ref = replay_ref
+        return ret
+
     def as_descriptor(self, long=False):        
         descriptor = {'task_id': str(self.task_id),
                       'dependencies': self.dependencies,
@@ -187,15 +200,22 @@ class TaskPoolTask(Task):
             descriptor['parent'] = str(self.parent)
             descriptor['children'] = map(str, self.children)
                     
-        if hasattr(self, 'select_result'):
+        if self.select_result is not None:
             descriptor['select_result'] = self.select_result
         
         if self.save_continuation:
             descriptor['save_continuation'] = True
-        if self.continues_task:
+        if self.continues_task is not None:
             descriptor['continues_task'] = str(self.continues_task)
+        if self.continuation is not None:
+            descriptor['continuation'] = str(self.continuation)
         if self.replay_uuids is not None:
             descriptor['replay_uuids'] = map(str, self.replay_uuids)
+            
+        if self.original_task_id is not None:
+            descriptor['original_task_id'] = str(self.original_task_id)
+        if self.replay_ref is not None:
+            descriptor['replay_ref'] = self.replay_ref
         
         return descriptor        
 

@@ -64,7 +64,7 @@ class GlobalNameDirectory(plugins.SimplePlugin):
     def set_task_for_id(self, id, task_id):
         self.directory[id].task_id = task_id
     
-    def delete_all_refs_for_id(self, id, refs):
+    def delete_all_refs_for_id(self, id):
         try:
             with self._lock:
                 entry = self.directory[id]

@@ -22,8 +22,9 @@ from threading import Condition, RLock
 from skywriting.runtime.references import \
     SWURLReference, SWErrorReference, SW2_ConcreteReference,\
     SWTaskOutputProvenance, SWSpawnedTaskProvenance,\
-    SWTaskContinuationProvenance
-from skywriting.runtime.task import Task, TASK_RUNNABLE, TASK_ABORTED,\
+    SWTaskContinuationProvenance, SWExecResultProvenance,\
+    SWSpawnExecArgsProvenance
+from skywriting.runtime.task import TASK_RUNNABLE, TASK_ABORTED,\
     TASK_COMMITTED, TASK_ASSIGNED, TASK_FAILED,\
     build_taskpool_task_from_descriptor, TASK_QUEUED
 from skywriting.runtime.block_store import get_netloc_for_sw_url
@@ -187,7 +188,7 @@ class TaskPool(plugins.SimplePlugin):
         with self._lock:
             self._abort(task_id)
             
-    def reference_available(self, id, urls):
+    def reference_available(self, id, refs):
 
         with self._lock:
 
@@ -198,7 +199,7 @@ class TaskPool(plugins.SimplePlugin):
             for task_id in blocked_tasks_set:
                 task = self.tasks[task_id]
                 was_blocked = task.is_blocked()
-                task.unblock_on(id, urls)
+                task.unblock_on(id, refs)
                 if was_blocked and not task.is_blocked():
 
                     runnable_event = self.new_event(task)
@@ -228,12 +229,14 @@ class TaskPool(plugins.SimplePlugin):
     def handle_missing_input_failure(self, task, input_ref):
         task.record_event("MISSING_INPUT_FAILURE")
 
+        print 'Handling missing input failure for:', task, input_ref
+
         # Inform global data store that the referenced data is being reproduced.
         # TODO: We may have already started to reproduce this data, so we should check that.
         self.global_name_directory.delete_all_refs_for_id(input_ref.id)
 
         # Requeue the current task.
-        task.check_dependencies()
+        task.check_dependencies(self.global_name_directory)
         if task.is_blocked():
             for global_id in task.blocked_on():
                 try:
@@ -246,16 +249,50 @@ class TaskPool(plugins.SimplePlugin):
 
         # Replicate the task that produced the missing input (if not already done).
         if isinstance(input_ref.provenance, SWTaskOutputProvenance):
-            # 1. Find the task that should have written this output, from the provenance.
+            # 1. Find the (original) task that should have written this output, from the provenance.
+            producing_task = self.tasks[input_ref.provenance.task_id]
+            
             # 2. Iterate through the continuation chain until we find the task that actually wrote it.
-            # 3. 
-            pass
+            while producing_task.continuation is not None:
+                producing_task = self.tasks[producing_task.continuation]
+            
+            # 3. Re-execute that task, and publish the relevant outputs.
+            replay_task = producing_task.make_replay_task(self.generate_task_id(), input_ref)
+            
         elif isinstance(input_ref.provenance, SWSpawnedTaskProvenance):
-            pass
+            # 1. Find the task that spawned this task, from the provenance.
+            producing_task = self.tasks[input_ref.provenance.task_id]
+            
+            # 2. Re-execute that task, and ensure that the spawned continuation gets published at the end.
+            replay_task = producing_task.make_replay_task(self.generate_task_id(), input_ref)
+
         elif isinstance(input_ref.provenance, SWTaskContinuationProvenance):
-            pass
+            # 1. Find the task that wrote this output, from the provenance.
+            producing_task = self.tasks[input_ref.provenance.task_id]
+            
+            # 2. Re-execute that task, and ensure that the continuation gets published at the end.
+            replay_task = producing_task.make_replay_task(self.generate_task_id(), input_ref)
+            
+        elif isinstance(input_ref.provenance, SWExecResultProvenance):
+            # 1. Find the task that did this exec, from the provenance.
+            producing_task = self.tasks[input_ref.provenance.task_id]
+            
+            # 2. Re-execute that task, and ensure that the exec result gets published at the end.
+            replay_task = producing_task.make_replay_task(self.generate_task_id(), input_ref)
 
+        elif isinstance(input_ref.provenance, SWSpawnExecArgsProvenance):
+            # 1. Find the task that did this exec, from the provenance.
+            producing_task = self.tasks[input_ref.provenance.task_id]
+            
+            # 2. Re-execute that task, and ensure that the spawn_exec args get published at the end.
+            replay_task = producing_task.make_replay_task(self.generate_task_id(), input_ref)
 
+        
+        print 'Created replay task:', replay_task.as_descriptor(long=True)
+        
+        self.tasks[replay_task.task_id] = replay_task
+        self.add_task_to_queues(replay_task)
+        
         self.bus.publish('schedule')
     
     
@@ -283,6 +320,7 @@ class TaskPool(plugins.SimplePlugin):
                     
             elif reason == 'MISSING_INPUT':
                 # Problem fetching input, so we will have to reexecute it.
+                worker_id = task.worker_id
                 failure_event["action"] = "MISSING_INPUT_FAIL"
                 self.handle_missing_input_failure(task, details)
                 
@@ -320,6 +358,9 @@ class TaskPool(plugins.SimplePlugin):
             
             task = self.add_task(child, parent_task.task_id)
             parent_task.children.append(task.task_id)
+            
+            if task.continues_task is not None:
+                parent_task.continuation = spawned_task_id
 
     def commit_task(self, task_id, commit_payload):
         

@@ -251,7 +251,7 @@ class BlockStore:
                     del alternative_netlocs[netloc]
                 
             if len(alternative_netlocs) == 0:
-                raise MissingInputException(ref, None)
+                raise MissingInputException(ref)
         
         return result
         
@@ -298,7 +298,7 @@ class BlockStore:
                     del alternative_netlocs[netloc]
                 
             if len(alternative_netlocs) == 0:
-                raise MissingInputException(ref, None)
+                raise MissingInputException(ref)
         
         return result
             

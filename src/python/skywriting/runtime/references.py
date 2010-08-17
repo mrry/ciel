@@ -89,6 +89,15 @@ class SWExecResultProvenance(SWProvenance):
     def as_tuple(self):
         return ('exec', str(self.task_id), self.exec_result_index)
 
+class SWSpawnExecArgsProvenance(SWProvenance):
+    
+    def __init__(self, task_id, spawn_exec_index):
+        self.task_id = task_id
+        self.spawn_exec_index = spawn_exec_index
+        
+    def as_tuple(self):
+        return ('se_args', str(self.task_id), self.spawn_exec_index)
+
 class SW2_FutureReference(SWFutureReference):
     """
     Used as a reference to a task that hasn't completed yet. The identifier is in a
@@ -172,6 +181,8 @@ def build_provenance_from_tuple(provenance_tuple):
         return SWSpawnedTaskProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
     elif p_type == 'cont':
         return SWTaskContinuationProvenance(uuid.UUID(hex=provenance_tuple[1]))
+    elif p_type == 'se_args':
+        return SWSpawnExecArgsProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
     else:
         raise KeyError(p_type)
 
