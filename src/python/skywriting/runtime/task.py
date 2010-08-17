@@ -34,7 +34,7 @@ for (name, number) in TASK_STATES.items():
 
 class Task:
 
-    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies_are_processed, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED):
+    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED):
         self.task_id = task_id
         
         # Task creation graph.
@@ -48,12 +48,8 @@ class Task:
         
         self.handler = handler
         
-        if dependencies_are_processed:
-            self.inputs = inputs
-            self.dependencies = inputs
-        else:
-            self.inputs = {}
-            self.dependencies = inputs
+        self.inputs = inputs
+        self.dependencies = dependencies
 
         self.select_group = select_group
         self.select_result = select_result
@@ -69,8 +65,8 @@ class Task:
 
 class TaskPoolTask(Task):
     
-    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies_are_processed, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None):
-        Task.__init__(self, task_id, parent_task_id, handler, inputs, dependencies_are_processed, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state)
+    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None):
+        Task.__init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state)
         
         self.task_pool = task_pool
         
@@ -184,7 +180,7 @@ class TaskPoolTask(Task):
 
     def make_replay_task(self, replay_task_id, replay_ref):
         
-        ret = TaskPoolTask(replay_task_id, self.parent, self.handler, self.inputs, True, self.expected_outputs, self.save_continuation, self.continues_task, self.replay_uuids, self.select_group, self.select_result, TASK_RUNNABLE, self.task_pool)
+        ret = TaskPoolTask(replay_task_id, self.parent, self.handler, self.inputs, self.dependencies, self.expected_outputs, self.save_continuation, self.continues_task, self.replay_uuids, self.select_group, self.select_result, TASK_RUNNABLE, self.task_pool)
         ret.original_task_id = self.task_id
         ret.replay_ref = replay_ref
         return ret
@@ -228,8 +224,8 @@ class TaskPoolTask(Task):
 def build_taskpool_task_from_descriptor(task_id, task_descriptor, global_name_directory, task_pool, parent_task_id=None):
 
     handler = task_descriptor['handler']
-    inputs = task_descriptor['inputs']
-    dependencies_are_processed = False
+    inputs = {}
+    dependencies = task_descriptor['inputs']
     expected_outputs = task_descriptor['expected_outputs']
 
     try:
@@ -252,7 +248,7 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, global_name_di
     
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task_id, handler, inputs, dependencies_are_processed, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state, task_pool)
+    return TaskPoolTask(task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state, task_pool)
 #
 #class Task:
 #    

@@ -21,7 +21,7 @@ from __future__ import with_statement
 from threading import Lock
 from urllib2 import URLError, HTTPError
 from skywriting.runtime.exceptions import ExecutionInterruption,\
-    MissingInputException
+    MissingInputException, RuntimeSkywritingError
 import random
 import urllib2
 import shutil
@@ -320,7 +320,7 @@ class BlockStore:
             assert decoder == 'json'
             return ref.value
         elif isinstance(ref, SWErrorReference):
-            raise
+            raise RuntimeSkywritingError()
         elif isinstance(ref, SWNullReference):
             raise
         else:

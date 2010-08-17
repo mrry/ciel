@@ -29,6 +29,7 @@ import socket
 import httplib2
 from cherrypy.process.plugins import SimplePlugin
 from threading import Event
+import uuid
 
 import simplejson
 
@@ -87,7 +88,7 @@ class MasterProxy(SimplePlugin):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
         message_url = urljoin(self.master_url, 'worker/')
         _, result = self.backoff_request(message_url, 'POST', message_payload)
-        self.worker.id = simplejson.loads(result)
+        self.worker.id = uuid.UUID(hex=simplejson.loads(result))
     
     def publish_global_refs(self, global_id, refs):
         message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
@@ -119,7 +120,7 @@ class MasterProxy(SimplePlugin):
 
     def ping(self, status, ping_news):
         message_payload = simplejson.dumps({'worker': self.worker.netloc(), 'status': status, 'news': ping_news})
-        message_url = urljoin(self.master_url, 'worker/%d/ping/' % (self.worker.id, ))
+        message_url = urljoin(self.master_url, 'worker/%s/ping/' % (str(self.worker.id), ))
         try:
             self.backoff_request(message_url, "POST", message_payload, 1, 0)
         except MasterNotRespondingException:

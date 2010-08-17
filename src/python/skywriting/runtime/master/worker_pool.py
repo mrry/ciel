@@ -11,7 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
 '''
 Created on Apr 15, 2010
 
@@ -28,6 +27,7 @@ import datetime
 import sys
 import simplejson
 import httplib2
+import uuid
 
 class FeatureQueues:
     def __init__(self):
@@ -50,6 +50,8 @@ class Worker:
         self.current_task_id = None
         self.last_ping = datetime.datetime.now()
         
+        self.failed = False
+        
         self.local_queue = Queue()
         self.queues = [self.local_queue]
         for feature in self.features:
@@ -59,11 +61,12 @@ class Worker:
         return 'Worker(%d)' % self.id
 
     def as_descriptor(self):
-        return {'worker_id': self.id,
+        return {'worker_id': str(self.id),
                 'netloc': self.netloc,
                 'features': self.features,
                 'current_task_id': str(self.current_task_id),
-                'last_ping': self.last_ping.ctime()}
+                'last_ping': self.last_ping.ctime(),
+                'failed':  self.failed}
         
 
 class WorkerPool(plugins.SimplePlugin):
@@ -72,7 +75,6 @@ class WorkerPool(plugins.SimplePlugin):
         plugins.SimplePlugin.__init__(self, bus)
         self.deferred_worker = deferred_worker
         self.idle_worker_queue = Queue()
-        self.current_worker_id = 0
         self.workers = {}
         self.netlocs = {}
         self.idle_set = set()
@@ -89,6 +91,7 @@ class WorkerPool(plugins.SimplePlugin):
         self.bus.subscribe('worker_idle', self.worker_idle)
         self.bus.subscribe('worker_ping', self.worker_ping)
         self.bus.subscribe('stop', self.server_stopping, 10) 
+        self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
         
     def unsubscribe(self):
         self.bus.unsubscribe('worker_failed', self.worker_failed)
@@ -96,10 +99,12 @@ class WorkerPool(plugins.SimplePlugin):
         self.bus.unsubscribe('worker_ping', self.worker_ping)
         self.bus.unsubscribe('stop', self.server_stopping) 
         
+    def allocate_worker_id(self):
+        return uuid.uuid1()
+        
     def create_worker(self, worker_descriptor):
         with self._lock:
-            id = self.current_worker_id
-            self.current_worker_id += 1
+            id = self.allocate_worker_id()
             worker = Worker(id, worker_descriptor, self.feature_queues)
             self.workers[id] = worker
             self.netlocs[worker.netloc] = worker
@@ -150,7 +155,7 @@ class WorkerPool(plugins.SimplePlugin):
             worker = self.workers[worker_id]
     
         try:
-            print "Aborting task %d on worker %d" % (task.task_id, worker_id)
+            print "Aborting task %d on worker %s" % (task.task_id, worker_id)
             response, _ = httplib2.Http().request('http://%s/task/%d/abort' % (worker.netloc, task.task_id), 'POST')
             if response.status == 200:
                 self.worker_idle(worker_id)
@@ -170,6 +175,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.discard(id)
             failed_task = self.workers[id].current_task_id
             del self.netlocs[self.workers[id].netloc]
+            self.workers[id].failed = True
 
         if failed_task is not None:
             self.bus.publish('task_failed', failed_task, 'WORKER_FAILED')
@@ -236,3 +242,14 @@ class WorkerPool(plugins.SimplePlugin):
             return self.netlocs[netloc]
         except KeyError:
             return None
+
+    def reap_dead_workers(self):
+        if not self.is_stopping:
+            for worker in self.workers.values():
+                if worker.failed:
+                    continue
+                if (worker.last_ping + datetime.timedelta(seconds=30)) < datetime.datetime.now():
+                    failed_worker = worker
+                    self.deferred_worker.do_deferred(lambda: self.investigate_worker_failure(failed_worker))
+                    
+            self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)

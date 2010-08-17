@@ -64,7 +64,7 @@ class WorkersRoot:
         if cherrypy.request.method == 'POST':
             worker_descriptor = simplejson.loads(cherrypy.request.body.read())
             worker_id = self.worker_pool.create_worker(worker_descriptor)
-            return simplejson.dumps(worker_id)
+            return simplejson.dumps(str(worker_id))
         elif cherrypy.request.method == 'GET':
             workers = self.worker_pool.get_all_workers()
             return simplejson.dumps(workers)
@@ -96,19 +96,23 @@ class WorkersRoot:
         
     @cherrypy.expose
     def default(self, worker_id, action=None):
+        try:
+            real_id = uuid.UUID(hex=worker_id)
+        except:
+            raise HTTPError(404)
         if cherrypy.request.method == 'POST':
             if action == 'ping':
                 ping_contents = simplejson.loads(cherrypy.request.body.read())
                 worker_status = ping_contents['status']
                 news_list = ping_contents['news']
-                cherrypy.engine.publish('worker_ping', int(worker_id), worker_status, news_list)
+                cherrypy.engine.publish('worker_ping', real_id, worker_status, news_list)
             elif action == 'stopping':
-                cherrypy.engine.publish('worker_failed', int(worker_id))
+                cherrypy.engine.publish('worker_failed', real_id)
             else:
                 raise HTTPError(404)
         else:
             if action is None:
-                return simplejson.dumps(self.worker_pool.get_worker_by_id(int(worker_id)).as_descriptor())
+                return simplejson.dumps(self.worker_pool.get_worker_by_id(real_id).as_descriptor())
 
 class MasterStreamTaskRoot:
     
