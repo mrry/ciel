@@ -64,6 +64,14 @@ class GlobalNameDirectory(plugins.SimplePlugin):
     def set_task_for_id(self, id, task_id):
         self.directory[id].task_id = task_id
     
+    def delete_all_refs_for_id(self, id, refs):
+        try:
+            with self._lock:
+                entry = self.directory[id]
+                entry.refs = []
+        except KeyError:
+            self.create_global_id(None, id)
+    
     def add_refs_for_id(self, id, refs):
         with self._lock:
             entry = self.directory[id]
@@ -73,8 +81,7 @@ class GlobalNameDirectory(plugins.SimplePlugin):
         cherrypy.engine.publish('global_name_available', id, entry.refs)
     
     def get_refs_for_id(self, id):
-        with self._lock:
-            return self.directory[id].refs
+        return self.directory[id].refs
 
     def server_stopping(self):
         with self._lock:

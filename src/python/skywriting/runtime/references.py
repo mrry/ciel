@@ -80,6 +80,15 @@ class SWTaskContinuationProvenance(SWProvenance):
     def as_tuple(self):
         return ('cont', str(self.task_id))
 
+class SWExecResultProvenance(SWProvenance):
+    
+    def __init__(self, task_id, exec_result_index):
+        self.task_id = task_id
+        self.exec_result_index = exec_result_index
+        
+    def as_tuple(self):
+        return ('exec', str(self.task_id), self.exec_result_index)
+
 class SW2_FutureReference(SWFutureReference):
     """
     Used as a reference to a task that hasn't completed yet. The identifier is in a

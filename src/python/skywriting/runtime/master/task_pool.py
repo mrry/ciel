@@ -18,186 +18,18 @@ Created on 15 Apr 2010
 '''
 from __future__ import with_statement
 from cherrypy.process import plugins
-from threading import Lock, Condition
+from threading import Condition, RLock
 from skywriting.runtime.references import \
-    SWURLReference, SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
+    SWURLReference, SWErrorReference, SW2_ConcreteReference,\
+    SWTaskOutputProvenance, SWSpawnedTaskProvenance,\
+    SWTaskContinuationProvenance
+from skywriting.runtime.task import Task, TASK_RUNNABLE, TASK_ABORTED,\
+    TASK_COMMITTED, TASK_ASSIGNED, TASK_FAILED,\
+    build_taskpool_task_from_descriptor, TASK_QUEUED
 from skywriting.runtime.block_store import get_netloc_for_sw_url
-import time
-import datetime
 import logging
 import uuid
 import cherrypy
-
-TASK_CREATED = -1
-TASK_BLOCKING = 0
-TASK_SELECTING = 1
-TASK_RUNNABLE = 2
-TASK_QUEUED = 3
-TASK_ASSIGNED = 4
-TASK_COMMITTED = 5
-TASK_FAILED = 6
-TASK_ABORTED = 7
-
-TASK_STATES = {'CREATED': TASK_CREATED,
-               'BLOCKING': TASK_BLOCKING,
-               'SELECTING': TASK_SELECTING,
-               'RUNNABLE': TASK_RUNNABLE,
-               'QUEUED': TASK_QUEUED,
-               'ASSIGNED': TASK_ASSIGNED,
-               'COMMITTED': TASK_COMMITTED,
-               'FAILED': TASK_FAILED,
-               'ABORTED': TASK_ABORTED}
-
-TASK_STATE_NAMES = {}
-for (name, number) in TASK_STATES.items():
-    TASK_STATE_NAMES[number] = name
-
-class Task:
-    
-    def __init__(self, task_id, task_descriptor, global_name_directory, task_pool, parent_task_id=None):
-        self.task_id = task_id
-        self.handler = task_descriptor['handler']
-        self.inputs = {}
-        self.current_attempt = 0
-        self.worker_id = None
-        self.event_index = 0
-        self.task_pool = task_pool
-        
-        self.history = []
-       
-        self.parent = parent_task_id
-        self.children = []
-        
-        self.dependencies = task_descriptor['inputs']
-        
-        self.inputs = {}
-                
-        self.expected_outputs = task_descriptor['expected_outputs']
-    
-        try:
-            self.save_continuation = task_descriptor['save_continuation']
-        except KeyError:
-            self.save_continuation = False
-
-        try:
-            self.continues_task = uuid.UUID(hex=task_descriptor['continues_task'])
-        except KeyError:
-            self.continues_task = None
-
-        self.replay_uuids = None
-        self.saved_continuation_uri = None
-    
-        self.state = TASK_RUNNABLE    
-    
-        self.blocking_dict = {}
-        for local_id, input in self.dependencies.items():
-            if isinstance(input, SW2_FutureReference):
-                global_id = input.id
-                refs = global_name_directory.get_refs_for_id(global_id)
-                if len(refs) > 0:
-                    self.inputs[local_id] = refs[0]
-                else:
-                    try:
-                        self.blocking_dict[global_id].add(local_id)
-                    except KeyError:
-                        self.blocking_dict[global_id] = set([local_id])
-            else:
-                self.inputs[local_id] = input
-
-        if len(self.blocking_dict) > 0:
-            self.state = TASK_BLOCKING
-            
-        
-        # select()-handling code.
-        try:
-            select_group = task_descriptor['select_group']
-            self.selecting_dict = {}
-            self.select_result = []
-            
-            for i, ref in enumerate(select_group):
-                if isinstance(ref, SW2_FutureReference):
-                    global_id = ref.id
-                    refs = global_name_directory.get_refs_for_id(global_id)
-                    if len(refs) > 0:
-                        self.select_result.append(i)
-                    else:
-                        self.selecting_dict[global_id] = i
-                else:
-                    self.select_result.append(i)
-
-            if len(select_group) > 0 and len(self.select_result) == 0:
-                self.state = TASK_SELECTING
-            
-        except KeyError:
-            pass
-        
-        self.record_event("CREATED")
-
-    # Warning: called under worker_pool._lock
-    def set_assigned_to_worker(self, worker_id):
-        self.worker_id = worker_id
-        self.state = TASK_ASSIGNED
-        self.record_event("ASSIGNED")
-        self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
-        
-    def __repr__(self):
-        return 'Task(%d)' % self.task_id
-       
-    def record_event(self, description):
-        self.history.append((datetime.datetime.now(), description))
-        
-    def is_blocked(self):
-        return self.state in (TASK_BLOCKING, TASK_SELECTING)
-            
-    def blocked_on(self):
-        if self.state == TASK_SELECTING:
-            return self.selecting_dict.keys()
-        elif self.state == TASK_BLOCKING:
-            return self.blocking_dict.keys()
-        else:
-            return []
-    
-    def unblock_on(self, global_id, refs):
-        if self.state in (TASK_RUNNABLE, TASK_SELECTING):
-            i = self.selecting_dict.pop(global_id)
-            self.select_result.append(i)
-            self.state = TASK_RUNNABLE
-            self.record_event("RUNNABLE")
-        elif self.state in (TASK_BLOCKING,):
-            local_ids = self.blocking_dict.pop(global_id)
-            for local_id in local_ids:
-                self.inputs[local_id] = refs[0]
-            if len(self.blocking_dict) == 0:
-                self.state = TASK_RUNNABLE
-                self.record_event("RUNNABLE")
-        
-    def as_descriptor(self, long=False):        
-        descriptor = {'task_id': str(self.task_id),
-                      'dependencies': self.dependencies,
-                      'handler': self.handler,
-                      'expected_outputs': map(str, self.expected_outputs),
-                      'inputs': self.inputs,
-                      'event_index': self.event_index}
-        
-        if long:
-            descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
-            descriptor['worker_id'] = self.worker_id
-            descriptor['saved_continuation_uri'] = self.saved_continuation_uri
-            descriptor['state'] = TASK_STATE_NAMES[self.state]
-            descriptor['parent'] = str(self.parent)
-            descriptor['children'] = map(str, self.children)
-                    
-        if hasattr(self, 'select_result'):
-            descriptor['select_result'] = self.select_result
-        
-        if self.save_continuation:
-            descriptor['save_continuation'] = True
-        if self.continues_task:
-            descriptor['continues_task'] = str(self.continues_task)
-        if self.replay_uuids is not None:
-            descriptor['replay_uuids'] = map(str, self.replay_uuids)
-        
-        return descriptor        
 
 class TaskPool(plugins.SimplePlugin):
     
@@ -208,7 +40,7 @@ class TaskPool(plugins.SimplePlugin):
         self.current_task_id = 0
         self.tasks = {}
         self.references_blocking_tasks = {}
-        self._lock = Lock()
+        self._lock = RLock()
         self._cond = Condition(self._lock)
         self.max_concurrent_waiters = 5
         self.current_waiters = 0
@@ -302,11 +134,13 @@ class TaskPool(plugins.SimplePlugin):
             except:
                 task_id = self.generate_task_id()
             
-            task = Task(task_id, task_descriptor, self.global_name_directory, self, parent_task_id)
+            task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self.global_name_directory, self, parent_task_id)
             self.tasks[task_id] = task
             add_event = self.new_event(task)
             add_event["task_descriptor"] = task.as_descriptor(long=True)
             add_event["action"] = "CREATED"
+        
+            task.check_dependencies(self.global_name_directory)
         
             if task.is_blocked():
                 for global_id in task.blocked_on():
@@ -390,12 +224,45 @@ class TaskPool(plugins.SimplePlugin):
             task.record_event("COMMITTED")
             
         self.bus.publish('worker_idle', worker_id)
+
+    def handle_missing_input_failure(self, task, input_ref):
+        task.record_event("MISSING_INPUT_FAILURE")
+
+        # Inform global data store that the referenced data is being reproduced.
+        # TODO: We may have already started to reproduce this data, so we should check that.
+        self.global_name_directory.delete_all_refs_for_id(input_ref.id)
+
+        # Requeue the current task.
+        task.check_dependencies()
+        if task.is_blocked():
+            for global_id in task.blocked_on():
+                try:
+                    self.references_blocking_tasks[global_id].add(task.task_id)
+                except KeyError:
+                    self.references_blocking_tasks[global_id] = set([task.task_id])
+        else:
+            task.state = TASK_RUNNABLE
+            self.add_task_to_queues(task)
+
+        # Replicate the task that produced the missing input (if not already done).
+        if isinstance(input_ref.provenance, SWTaskOutputProvenance):
+            # 1. Find the task that should have written this output, from the provenance.
+            # 2. Iterate through the continuation chain until we find the task that actually wrote it.
+            # 3. 
+            pass
+        elif isinstance(input_ref.provenance, SWSpawnedTaskProvenance):
+            pass
+        elif isinstance(input_ref.provenance, SWTaskContinuationProvenance):
+            pass
+
+
+        self.bus.publish('schedule')
+    
     
     def task_failed(self, id, reason, details=None):
         cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
         worker_id = None
         should_notify_outputs = False
-        task = None
 
         with self._lock:
             task = self.tasks[id]
@@ -408,22 +275,23 @@ class TaskPool(plugins.SimplePlugin):
                     task.state = TASK_FAILED
                     task.record_event("TASK_FAILURE")
                     failure_event["action"] = "WORKER_FAIL"
-                    # TODO: notify parents.
+                    should_notify_outputs = True
                 else:
                     self.add_task_to_queues(task)
                     self.bus.publish('schedule')
                     failure_event["action"] = "WORKER_FAIL_RETRY"
+                    
             elif reason == 'MISSING_INPUT':
                 # Problem fetching input, so we will have to reexecute it.
-                task.record_event("MISSING_INPUT_FAILURE")
                 failure_event["action"] = "MISSING_INPUT_FAIL"
+                self.handle_missing_input_failure(task, details)
+                
             elif reason == 'RUNTIME_EXCEPTION':
                 # Kill the entire job, citing the problem.
                 worker_id = task.worker_id
                 task.record_event("RUNTIME_EXCEPTION_FAILURE")
                 task.state = TASK_FAILED
                 failure_event["action"] = "RUNTIME_EXCEPTION_FAIL"
-                # TODO: notify parents.
                 should_notify_outputs = True
             
             self.events.append(failure_event)
