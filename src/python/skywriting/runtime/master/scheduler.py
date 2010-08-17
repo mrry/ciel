@@ -23,10 +23,11 @@ from skywriting.runtime.master.task_pool import TASK_QUEUED
 
 class Scheduler(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, task_pool, worker_pool):
+    def __init__(self, bus, task_pool, worker_pool, deferred_worker):
         AsynchronousExecutePlugin.__init__(self, bus, 1, 'schedule')
         self.worker_pool = worker_pool
         self.task_pool = task_pool
+        self.deferred_worker = deferred_worker
         
     def handle_input(self, input):
         idle_workers = self.worker_pool.get_idle_workers()

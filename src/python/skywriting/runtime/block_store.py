@@ -21,7 +21,7 @@ from __future__ import with_statement
 from threading import Lock
 from urllib2 import URLError, HTTPError
 from skywriting.runtime.exceptions import ExecutionInterruption,\
-    ReferenceUnavailableException, MissingInputException
+    MissingInputException
 import random
 import urllib2
 import shutil

@@ -11,14 +11,13 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
 '''
 Created on 11 Feb 2010
 
 @author: dgm36
 '''
 from __future__ import with_statement
-#from skywriting.master.datamodel import JobManagerPool
+from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 from skywriting.runtime.master.master_view import MasterRoot
 from skywriting.runtime.master.data_store import GlobalNameDirectory
 from skywriting.runtime.master.worker_pool import WorkerPool
@@ -39,13 +38,16 @@ import cherrypy
 
 def master_main(options):
 
+    deferred_worker = DeferredWorkPlugin(cherrypy.engine)
+    deferred_worker.subscribe()
+
     global_name_directory = GlobalNameDirectory(cherrypy.engine)
     global_name_directory.subscribe()
 
-    worker_pool = WorkerPool(cherrypy.engine)
+    worker_pool = WorkerPool(cherrypy.engine, deferred_worker)
     worker_pool.subscribe()
 
-    task_pool = TaskPool(cherrypy.engine, global_name_directory, worker_pool)
+    task_pool = TaskPool(cherrypy.engine, global_name_directory, worker_pool, deferred_worker)
     task_pool.subscribe()
     
 
@@ -56,7 +58,7 @@ def master_main(options):
     block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
     master_proxy.block_store = block_store
 
-    scheduler = Scheduler(cherrypy.engine, task_pool, worker_pool)
+    scheduler = Scheduler(cherrypy.engine, task_pool, worker_pool, deferred_worker)
     scheduler.subscribe()
     
     root = MasterRoot(task_pool, worker_pool, block_store, global_name_directory)

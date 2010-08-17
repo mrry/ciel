@@ -68,8 +68,9 @@ class Worker:
 
 class WorkerPool(plugins.SimplePlugin):
     
-    def __init__(self, bus):
+    def __init__(self, bus, deferred_worker):
         plugins.SimplePlugin.__init__(self, bus)
+        self.deferred_worker = deferred_worker
         self.idle_worker_queue = Queue()
         self.current_worker_id = 0
         self.workers = {}
@@ -217,6 +218,14 @@ class WorkerPool(plugins.SimplePlugin):
             elif self.is_stopping:
                 raise Exception("Server stopping")
             return self.event_count
+
+    def investigate_worker_failure(self, worker):
+        print 'In investigate_worker_failure for', worker
+        try:
+            response, _ = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
+        except:
+            print 'Worker', worker, 'has failed'
+            self.bus.publish('worker_failed', worker.id)
 
     def get_random_worker(self):
         with self._lock:

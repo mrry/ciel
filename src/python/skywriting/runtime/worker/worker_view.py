@@ -80,7 +80,7 @@ class TaskRoot:
         real_id = uuid.UUID(hex=task_id)
         if action == 'abort':
             if cherrypy.request.method == 'POST':
-                self.worker.abort_task(task_id)
+                self.worker.abort_task(real_id)
             else:
                 raise cherrypy.HTTPError(405)
         else:

@@ -37,7 +37,7 @@ from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
     SWTaskOutputProvenance, SW2_ConcreteReference, ACCESS_SWBS,\
-    SWSpawnedTaskProvenance, SWNoProvenance, SWExecResultProvenance,\
+    SWSpawnedTaskProvenance, SWExecResultProvenance,\
     SWSpawnExecArgsProvenance
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
@@ -670,6 +670,7 @@ class SWRuntimeInterpreterTask:
         for ref in self.current_executor.output_refs:
             ref.provenance = SWExecResultProvenance(self.original_task_id, self.exec_result_counter)
             self.exec_result_counter += 1
+            self.maybe_also_publish(ref)
         
         ret = map(self.continuation.create_tasklocal_reference, self.current_executor.output_refs)
         self.current_executor = None

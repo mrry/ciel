@@ -65,7 +65,7 @@ class Task:
         self.replay_uuids = replay_uuids
 
     def __repr__(self):
-        return 'Task(%d)' % self.task_id
+        return 'Task(%s)' % self.task_id
 
 class TaskPoolTask(Task):
     
@@ -94,7 +94,9 @@ class TaskPoolTask(Task):
     def check_dependencies(self, global_name_directory):
         
         if self.select_group is None:
-        
+
+            self.inputs = {}
+
             for local_id, input in self.dependencies.items():
                 if isinstance(input, SW2_FutureReference):
                     global_id = input.id
@@ -144,6 +146,9 @@ class TaskPoolTask(Task):
                 # TODO: We need to make sure we handle blocking/failure for this task correctly.
                 self.state = TASK_RUNNABLE
                 self.record_event("RUNNABLE")
+        
+    def is_replay_task(self):
+        return self.replay_ref is not None
         
     def is_blocked(self):
         return self.state in (TASK_BLOCKING, TASK_SELECTING)
