@@ -33,6 +33,8 @@ import os
 import socket
 import urlparse
 import simplejson
+from threading import Lock, Condition
+import datetime
 
 class WorkerState:
     pass
@@ -42,12 +44,12 @@ WORKER_ASSOCIATED = WorkerState()
 
 class Worker(plugins.SimplePlugin):
     
-    def __init__(self, bus, hostname, port, master_url):
+    def __init__(self, bus, hostname, port, options):
         plugins.SimplePlugin.__init__(self, bus)
         self.hostname = hostname
         self.port = port
-        self.master_url = master_url
-        self.master_proxy = MasterProxy(self, bus, master_url)
+        self.master_url = options.master
+        self.master_proxy = MasterProxy(self, bus, self.master_url)
         self.master_proxy.subscribe()
         temp_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         self.block_store = BlockStore(self.hostname, self.port, temp_dir, self.master_proxy)
@@ -56,10 +58,20 @@ class Worker(plugins.SimplePlugin):
         self.task_executor.subscribe()
         self.server_root = WorkerRoot(self)
         self.pinger = Pinger(bus, self.master_proxy, None, 30)
-        self.pinger.subscribe()    
-        
+        self.pinger.subscribe()
+        self.stopping = False
+        self.event_log = []
+        self.log_lock = Lock()
+        self.log_condition = Condition(self.log_lock)
+
+        self.cherrypy_conf = dict()
+    
+        if options.staticbase is not None:
+            self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
+
     def subscribe(self):
-        self.bus.subscribe('stop', self.stop)
+        self.bus.subscribe('stop', self.stop, priority=10)
+        self.bus.subscribe("worker_event", self.add_log_entry)
         
     def unsubscribe(self):
         self.bus.unsubscribe('stop', self.stop)
@@ -76,6 +88,7 @@ class Worker(plugins.SimplePlugin):
         self.master_proxy.register_as_worker()
 
     def start_running(self):
+
         cherrypy.engine.start()
         cherrypy.tree.mount(self.server_root, "", None)
         if hasattr(cherrypy.engine, "signal_handler"):
@@ -92,20 +105,43 @@ class Worker(plugins.SimplePlugin):
         cherrypy.engine.block()
 
     def stop(self):
-        pass
+        with self.log_lock:
+            self.stopping = True
+            self.log_condition.notify_all()
     
     def submit_task(self, task_descriptor):
+        cherrypy.engine.publish("worker_event", "Start task " + repr(task_descriptor.task_id))
         cherrypy.engine.publish('execute_task', task_descriptor)
                 
     def abort_task(self, task_id):
+        cherrypy.engine.publish("worker_event", "Abort task " + repr(task_id))
         self.task_executor.abort_task(task_id)
+
+    def add_log_entry(self, log_string):
+        with self.log_lock:
+            self.event_log.append((datetime.now(), log_string))
+            self.log_condition.notify_all()
+
+    def get_log_entries(self, start_index, end_index):
+        with self.log_lock:
+            return self.event_log[start_index:end_index]
+
+    def await_log_entries_after(self, index):
+        with self.log_lock:
+            while len(self.event_log) <= index:
+                if self.stopping == True:
+                    break
+                self.log_condition.wait()
+            if self.stopping:
+                raise Exception("Worker stopping")
+            
 
 def worker_main(options):
     local_hostname = cherrypy.config.get('server.socket_host')
     local_port = cherrypy.config.get('server.socket_port')
     assert(local_port)
     
-    w = Worker(cherrypy.engine, local_hostname, local_port, options.master)
+    w = Worker(cherrypy.engine, local_hostname, local_port, options)
     w.start_running()
 
 if __name__ == '__main__':

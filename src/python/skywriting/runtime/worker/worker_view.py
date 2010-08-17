@@ -32,6 +32,7 @@ class WorkerRoot:
         self.data = DataRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
         self.kill = KillRoot()
+        self.log = LogRoot(worker)
     
     @cherrypy.expose
     def index(self):
@@ -92,6 +93,28 @@ class TaskRoot:
     #       ...and a way of killing the task.
     #       Ideally, we should create a task view (Root) for each running task.    
 
+class LogRoot:
+
+    def __init__(self, worker):
+        self.worker = worker
+
+    @cherrypy.expose
+    def wait_after(self, event_count):
+        if cherrypy.request.method == 'POST':
+            try:
+                self.worker.await_log_entries_after(event_count)
+                return simplejson.dumps({})
+            except Exception as e:
+                return simplejson.dumps({"error": repr(e)})
+        else:
+            raise cherrypy.HTTPError(405)
+
+    def index(self, first_event, last_event):
+        if cherrypy.request.method == 'GET':
+            events = self.worker.get_log_entries(int(first_event), int(last_event))
+            return simplejson.dumps([{"time": repr(t), "event": e} for (t, e) in events])
+        else:
+            raise cherrypy.HTTPError(405)
 
 class DataRoot:
     
