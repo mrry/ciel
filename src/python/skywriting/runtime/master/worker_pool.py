@@ -50,6 +50,8 @@ class Worker:
         self.current_task_id = None
         self.last_ping = datetime.datetime.now()
         
+        self.failed = False
+        
         self.local_queue = Queue()
         self.queues = [self.local_queue]
         for feature in self.features:
@@ -63,7 +65,8 @@ class Worker:
                 'netloc': self.netloc,
                 'features': self.features,
                 'current_task_id': str(self.current_task_id),
-                'last_ping': self.last_ping.ctime()}
+                'last_ping': self.last_ping.ctime(),
+                'failed':  self.failed}
         
 
 class WorkerPool(plugins.SimplePlugin):
@@ -89,6 +92,7 @@ class WorkerPool(plugins.SimplePlugin):
         self.bus.subscribe('worker_idle', self.worker_idle)
         self.bus.subscribe('worker_ping', self.worker_ping)
         self.bus.subscribe('stop', self.server_stopping, 10) 
+        self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
         
     def unsubscribe(self):
         self.bus.unsubscribe('worker_failed', self.worker_failed)
@@ -170,6 +174,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.discard(id)
             failed_task = self.workers[id].current_task_id
             del self.netlocs[self.workers[id].netloc]
+            self.workers[id].failed = True
 
         if failed_task is not None:
             self.bus.publish('task_failed', failed_task, 'WORKER_FAILED')
@@ -236,3 +241,14 @@ class WorkerPool(plugins.SimplePlugin):
             return self.netlocs[netloc]
         except KeyError:
             return None
+
+    def reap_dead_workers(self):
+        if not self.is_stopping:
+            for worker in self.workers.values():
+                if worker.failed:
+                    continue
+                if (worker.last_ping + datetime.timedelta(seconds=30)) < datetime.datetime.now():
+                    failed_worker = worker
+                    self.deferred_worker.do_deferred(lambda: self.investigate_worker_failure(failed_worker))
+                    
+            self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
