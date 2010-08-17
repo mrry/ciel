@@ -1,6 +1,6 @@
 Skywriting is a programming language and execution engine for
 distributed, parallel computation. Like previous frameworks (such
-as MapReduce and Dryad, it masks the complexity of distributed
+as MapReduce and Dryad), it masks the complexity of distributed
 programming. Unlike those frameworks, it offers a full general-purpose
 programming language for expressing distributed coordination, which
 enables developers to implement algorithms using arbitrary task
