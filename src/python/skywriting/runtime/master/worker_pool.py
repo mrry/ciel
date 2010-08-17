@@ -62,7 +62,7 @@ class Worker:
         return {'worker_id': self.id,
                 'netloc': self.netloc,
                 'features': self.features,
-                'current_task_id': self.current_task_id,
+                'current_task_id': str(self.current_task_id),
                 'last_ping': self.last_ping.ctime()}
         
 
