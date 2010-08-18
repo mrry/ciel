@@ -726,3 +726,56 @@ class SWRuntimeInterpreterTask:
             return self.select_result
         else:
             raise SelectException(select_group, timeout)
+
+    def hash_update_with_structure(self, hash, value):
+        """
+        Recurses over a Skywriting data structure (containing lists, dicts and 
+        primitive leaves) in a deterministic order, and updates the given hash with
+        all values contained therein.
+        """
+        if isinstance(value, list):
+            hash.update('[')
+            for element in value:
+                self.hash_update_with_structure(hash, element)
+                hash.update(',')
+            hash.update(']')
+        elif isinstance(value, dict):
+            hash.update('{')
+            for (dict_key, dict_value) in sorted(value.items()):
+                hash.update(dict_key)
+                hash.update(':')
+                self.hash_update_with_structure(hash, dict_value)
+                hash.update(',')
+            hash.update('}')
+        elif isinstance(value, SWLocalReference):
+            self.hash_update_with_structure(hash, self.convert_tasklocal_to_real_reference(value))
+        elif isinstance(value, SW2_ConcreteReference) or isinstance(value, SW2_FutureReference):
+            hash.update('ref')
+            hash.update(value.id)
+        elif isinstance(value, SWURLReference):
+            hash.update('ref')
+            hash.update(value.urls[0])
+        elif isinstance(value, SWDataValue):
+            hash.update('ref*')
+            self.hash_update_with_structure(hash, value.value)
+        elif isinstance(value, SWNullReference):
+            hash.update('refnull')
+        else:
+            hash.update(str(value))
+
+def map_leaf_values(f, value):
+    """
+    Recurses over a Skywriting data structure (containing lists, dicts and 
+    primitive leaves), and returns a new structure with the leaves mapped as specified.
+    """
+    if isinstance(value, list):
+        return map(lambda x: map_leaf_values(f, x), value)
+    elif isinstance(value, dict):
+        ret = {}
+        for (dict_key, dict_value) in value.items():
+            key = map_leaf_values(f, dict_key)
+            value = map_leaf_values(f, dict_value)
+            ret[key] = value
+        return ret
+    else:
+        return f(value)
