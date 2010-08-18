@@ -183,6 +183,8 @@ def build_provenance_from_tuple(provenance_tuple):
         return SWTaskContinuationProvenance(uuid.UUID(hex=provenance_tuple[1]))
     elif p_type == 'se_args':
         return SWSpawnExecArgsProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
+    elif p_type == 'exec':
+        return SWExecResultProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
     else:
         raise KeyError(p_type)
 
