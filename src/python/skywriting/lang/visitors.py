@@ -123,7 +123,7 @@ class StatementExecutorVisitor(Visitor):
         try:
             if resume_record.rvalue is None:
                 resume_record.rvalue = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.rvalue, stack, stack_base + 1)
-            prev = self.context.value_of(node.lvalue)
+            prev = self.context.value_of(node.lvalue.identifier)
             if isinstance(prev, list):
                 prev.append(resume_record.rvalue)
             else:
