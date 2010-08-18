@@ -698,7 +698,7 @@ class SWRuntimeInterpreterTask:
 
     def is_future(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        return isinstance(real_ref, SWFutureReference)
+        return isinstance(real_ref, SW2_FutureReference)
 
     def is_error(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
