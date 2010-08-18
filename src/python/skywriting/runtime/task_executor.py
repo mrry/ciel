@@ -388,7 +388,7 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
         task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
-        task_context.bind_tasklocal_identifier("range", LambdaFunction(lambda x: range(x[0],x[1])))
+        task_context.bind_tasklocal_identifier("range", LambdaFunction(lambda x: range(*x)))
         task_context.bind_tasklocal_identifier("len", LambdaFunction(lambda x: len(x[0])))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: self.make_reference(x)))
