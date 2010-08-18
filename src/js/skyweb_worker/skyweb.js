@@ -23,7 +23,7 @@ Skyweb = function(json) {
 
 	html_of_event = function(event) {
 
-	    return "<td class=\"worker-log-time\">" + event.time + "</td><td class=\"worker-log-evemt\">" + event.event + "</td>";
+	    return "<td class=\"worker-log-time\">" + event.time + "</td><td class=\"worker-log-event\">" + event.event + "</td>";
 	    
 	}
 

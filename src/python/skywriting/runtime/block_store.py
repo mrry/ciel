@@ -29,6 +29,7 @@ import pickle
 import os
 import uuid
 import tempfile
+import cherrypy
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -194,6 +195,7 @@ class BlockStore:
                 id = uuid.UUID(hex=parsed_url.path[1:])
                 if parsed_url.netloc == self.netloc:
                     # Retrieve local object.
+                    cherrypy.engine.publish("worker_event", "Block store: SWBS target was local already")
                     return self.filename(id)
                 else:
                     # Retrieve remote in-system object.
@@ -207,6 +209,7 @@ class BlockStore:
             if size_limit is not None:
                 headers['If-Match'] = str(size_limit)
             
+            cherrypy.engine.publish("worker_event", "Block store: fetching " + fetch_url)
             request = urllib2.Request(fetch_url, headers=headers)
             
             try:
@@ -228,7 +231,9 @@ class BlockStore:
                 shutil.copyfileobj(response, data_file)
  
             self.store_url_in_cache(url, filename)
-        
+        else:
+            cherrypy.engine.publish("worker_event", "Block store: URL hit in cache")
+
         return filename
     
     def retrieve_filename_for_concrete_ref(self, ref):
@@ -258,15 +263,19 @@ class BlockStore:
     def retrieve_filename_for_ref(self, ref):
         assert isinstance(ref, SWRealReference)
         if isinstance(ref, SW2_ConcreteReference):
+            cherrypy.engine.publish("worker_event", "Block store: fetch SWBS")
             return self.retrieve_filename_for_concrete_ref(ref)
         elif isinstance(ref, SWURLReference):
             for url in ref.urls:
                 filename = self.find_url_in_cache(url)
                 if filename is not None:
+                    cherrypy.engine.publish("worker_event", "Block store: URL hit in cache")
                     return filename
             chosen_url = self.choose_best_url(ref.urls)
+            cherrypy.engine.publish("worker_event", "Block store: fetch URL " + chosen_url)
             return self.retrieve_filename_by_url(chosen_url)
         elif isinstance(ref, SWDataValue):
+            cherrypy.engine.publish("worker_event", "Block store: writing datavalue to file")
             id = self.allocate_new_id()
             with open(self.filename(id), 'w') as obj_file:
                 self.encode_json(ref.value, obj_file)

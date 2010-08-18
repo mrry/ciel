@@ -72,9 +72,11 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_id = uuid.UUID(hex=input['task_id'])
             self.current_task_execution_record = execution_record
         
+        cherrypy.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
         cherrypy.log.error("Starting task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         try:
             execution_record.execute()
+            cherrypy.engine.publish("worker_event", "Completed execution " + repr(input['task_id']))
             cherrypy.log.error("Completed task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         except:
             cherrypy.log.error("Error in task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.ERROR, True)
@@ -216,12 +218,16 @@ class SWExecutorTaskExecutionRecord:
     def execute(self):        
         try:
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Fetching args")
                 parsed_args = self.fetch_executor_args(self.inputs)
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Fetching executor")
                 self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs)
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Executing")
                 self.executor.execute(self.task_executor.block_store)
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Committing")
                 self.commit()
             else:
                 self.task_executor.master_proxy.failed_task(self.task_id)
@@ -251,12 +257,16 @@ class SWInterpreterTaskExecutionRecord:
     def execute(self):
         try:
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Fetching args")
                 self.interpreter.fetch_inputs(self.task_executor.block_store)
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Interpreting")
                 self.interpreter.interpret()
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Spawning")
                 self.interpreter.spawn_all(self.task_executor.block_store, self.task_executor.master_proxy)
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Committing")
                 self.interpreter.commit_result(self.task_executor.block_store, self.task_executor.master_proxy)
             else:
                 self.task_executor.master_proxy.failed_task(self.task_id)
@@ -662,7 +672,7 @@ class SWRuntimeInterpreterTask:
         
         real_args = map_leaf_values(self.check_no_thunk_mapper, args)
 
-        output_ids = map(self.create_uuid, range(0, num_outputs))
+        output_ids = [self.create_uuid() for x in range(0, num_outputs)]
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
         self.current_executor.execute(self.block_store)

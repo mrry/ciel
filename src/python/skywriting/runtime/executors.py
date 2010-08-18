@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import tempfile
 import os
+import cherrypy
 
 class ExecutionFeatures:
     
@@ -70,8 +71,10 @@ class SWExecutor:
             # Data is not yet available, so 
             raise ReferenceUnavailableException(ref, self.continuation)
         else:
-            return block_store.retrieve_filename_for_ref(real_ref)
-
+            cherrypy.engine.publish("Executor: fetching reference")
+            ret = block_store.retrieve_filename_for_ref(real_ref)
+            cherrypy.engine.publish("Executor: done fetching reference")
+            return ret
 
     def get_filenames(self, block_store, refs):
         #print "GET_FILENAMES:", refs
@@ -140,9 +143,11 @@ class JavaExecutor(SWExecutor):
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
     def execute(self, block_store):
+        cherrypy.engine.publish("worker_event", "Java: fetching inputs")
         file_inputs = self.get_filenames(block_store, self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
         
+        cherrypy.engine.publish("worker_event", "Java: fetching JAR")
         jar_filenames = map(lambda ref: self.get_filename(block_store, ref), self.jar_refs)
 
 #        print "Input filenames:"
@@ -151,7 +156,9 @@ class JavaExecutor(SWExecutor):
 #        print "Output filenames:"
 #        for fn in file_outputs:
 #            print '\t', fn
-        
+
+        cherrypy.engine.publish("worker_event", "Java: running")
+
         #print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
         cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
         process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
@@ -171,14 +178,17 @@ class JavaExecutor(SWExecutor):
         proc.stdin.close()
         rc = proc.wait()
 #        print 'Return code', rc
+        cherrypy.engine.publish("worker_event", "Java: JVM finished")
         if rc != 0:
             raise OSError()
+        cherrypy.engine.publish("worker_event", "Java: Storing outputs")
         for i, filename in enumerate(file_outputs):
             url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
             real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
             self.output_refs[i] = real_ref
+        cherrypy.engine.publish("worker_event", "Java: Finished storing outputs")
 
     def abort(self):
         if self.proc is not None:
