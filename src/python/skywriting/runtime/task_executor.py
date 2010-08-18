@@ -662,7 +662,7 @@ class SWRuntimeInterpreterTask:
         
         real_args = map_leaf_values(self.check_no_thunk_mapper, args)
 
-        output_ids = map(self.create_uuid, range(0, num_outputs))
+        output_ids = [self.create_uuid() for x in range(0, num_outputs)]
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
         self.current_executor.execute(self.block_store)
