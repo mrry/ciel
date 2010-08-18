@@ -35,6 +35,7 @@ class ExecutionFeatures:
 
         self.executors = {'swi': None, # Could make a special SWI interpreter....
                           'stdinout': SWStdinoutExecutor,
+                          'environ': EnvironmentExecutor,
                           'java': JavaExecutor,
                           'dotnet': DotNetExecutor,
                           'c': CExecutor}
@@ -120,6 +121,55 @@ class SWStdinoutExecutor(SWExecutor):
         real_ref = SW2_ConcreteReference(self.output_ids[0], SWNoProvenance(), size_hint)
         real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
         self.output_refs[0] = real_ref
+        
+    def abort(self):
+        if self.proc is not None:
+            self.proc.kill()
+            self.proc.wait()
+
+class EnvironmentExecutor(SWExecutor):
+    
+    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
+        try:
+            self.input_refs = args['inputs']
+            self.command_line = args['command_line']
+        except KeyError:
+            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
+        self.proc = None
+    
+    def execute(self, block_store):
+        print "Executing environ with:", " ".join(map(str, self.command_line))
+
+        input_filenames = self.get_filenames(block_store, self.input_refs)
+        with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
+            for filename in input_filenames:
+                input_filenames_file.write(filename)
+                input_filenames_file.write('\n')
+            input_filenames_name = input_filenames_file.name
+            
+        output_filenames = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
+        with tempfile.NamedTemporaryFile(delete=False) as output_filenames_file:
+            for filename in output_filenames:
+                output_filenames_file.write(filename)
+                output_filenames_file.write('\n')
+            output_filenames_name = output_filenames_file.name
+            
+        environment = {'INPUT_FILES'  : input_filenames_name,
+                       'OUTPUT_FILES' : output_filenames_name}
+            
+        self.proc = subprocess.Popen(map(str, self.command_line), env=environment)
+
+        rc = self.proc.wait()
+        if rc != 0:
+            print rc
+            raise OSError()
+        for i, filename in enumerate(output_filenames):
+            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            # XXX: We fix the provenance in the caller.
+            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            self.output_refs[i] = real_ref
         
     def abort(self):
         if self.proc is not None:
