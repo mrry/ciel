@@ -140,7 +140,11 @@ class Worker(plugins.SimplePlugin):
             
 
 def worker_main(options):
-    local_hostname = cherrypy.config.get('server.socket_host')
+    local_hostname = None
+    if options.hostname is not None:
+        local_hostname = options.hostname
+    else:
+        local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
     assert(local_port)
     
