@@ -11,7 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
 '''
 Created on 13 Apr 2010
 
@@ -32,6 +31,7 @@ from threading import Lock
 import cherrypy
 import logging
 import uuid
+import hashlib
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWFutureReference,\
@@ -621,11 +621,12 @@ class SWRuntimeInterpreterTask:
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
         
         new_task_id = self.create_uuid()
-        expected_output_ids = [self.create_uuid() for i in range(num_outputs)]
-        ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
         inputs = {}
         
         args = map_leaf_values(self.check_no_thunk_mapper, exec_args)
+
+        expected_output_ids = self.create_exec_output_names(executor_name, args, num_outputs)
+        ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
 
         def args_check_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
@@ -652,17 +653,24 @@ class SWRuntimeInterpreterTask:
         task_descriptor = {'task_id': str(new_task_id),
                            'handler': executor_name, 
                            'inputs': inputs,
-                           'expected_outputs': map(str, expected_output_ids)}
+                           'expected_outputs': expected_output_ids}
         
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
         
         return ret
     
+    def create_exec_output_names(self, executor_name, real_args, num_outputs):
+        sha = hashlib.sha1()
+        self.hash_update_with_structure(sha, [real_args, num_outputs])
+        prefix = '%s:%s:' % (executor_name, sha.hexdigest())
+        print '### [spawn_]exec output prefix:', prefix
+        return ['%s%d' % (prefix, i) for i in range(num_outputs)] 
+    
     def exec_func(self, executor_name, args, num_outputs):
         
         real_args = map_leaf_values(self.check_no_thunk_mapper, args)
 
-        output_ids = [self.create_uuid() for x in range(0, num_outputs)]
+        output_ids = self.create_exec_output_names(executor_name, real_args, num_outputs)
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
         self.current_executor.execute(self.block_store)
