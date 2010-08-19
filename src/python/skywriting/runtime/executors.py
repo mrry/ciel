@@ -64,7 +64,6 @@ class SWExecutor:
             real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         else:
             real_ref = ref
-
         assert isinstance(real_ref, SWRealReference)
         if isinstance(real_ref, SW2_FutureReference):
             print "Blocking because reference is", real_ref
@@ -148,7 +147,7 @@ class EnvironmentExecutor(SWExecutor):
                 input_filenames_file.write('\n')
             input_filenames_name = input_filenames_file.name
             
-        output_filenames = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
+        output_filenames = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
         with tempfile.NamedTemporaryFile(delete=False) as output_filenames_file:
             for filename in output_filenames:
                 output_filenames_file.write(filename)
