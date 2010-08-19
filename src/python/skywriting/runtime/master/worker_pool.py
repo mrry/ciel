@@ -58,13 +58,13 @@ class Worker:
             self.queues.append(feature_queues.get_queue_for_feature(feature))
 
     def __repr__(self):
-        return 'Worker(%d)' % self.id
+        return 'Worker(%s)' % self.id
 
     def as_descriptor(self):
-        return {'worker_id': str(self.id),
+        return {'worker_id': self.id,
                 'netloc': self.netloc,
                 'features': self.features,
-                'current_task_id': str(self.current_task_id),
+                'current_task_id': self.current_task_id,
                 'last_ping': self.last_ping.ctime(),
                 'failed':  self.failed}
         
@@ -100,7 +100,7 @@ class WorkerPool(plugins.SimplePlugin):
         self.bus.unsubscribe('stop', self.server_stopping) 
         
     def allocate_worker_id(self):
-        return uuid.uuid1()
+        return str(uuid.uuid1())
         
     def create_worker(self, worker_descriptor):
         with self._lock:

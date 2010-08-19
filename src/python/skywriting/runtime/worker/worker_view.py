@@ -22,7 +22,6 @@ from skywriting.runtime.block_store import json_decode_object_hook
 import sys
 import simplejson
 import cherrypy
-import uuid
 
 class WorkerRoot:
     
@@ -77,7 +76,7 @@ class TaskRoot:
     
     @cherrypy.expose
     def default(self, task_id, action):
-        real_id = uuid.UUID(hex=task_id)
+        real_id = task_id
         if action == 'abort':
             if cherrypy.request.method == 'POST':
                 self.worker.abort_task(real_id)
@@ -100,7 +99,7 @@ class DataRoot:
         
     @cherrypy.expose
     def default(self, id):
-        safe_id = uuid.UUID(hex=id)
+        safe_id = id
         if cherrypy.request.method == 'GET':
             return serve_file(self.block_store.filename(safe_id))
         elif cherrypy.request.method == 'POST':

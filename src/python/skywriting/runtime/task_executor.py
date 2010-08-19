@@ -69,7 +69,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             execution_record = SWExecutorTaskExecutionRecord(input, self)
 
         with self._lock:
-            self.current_task_id = uuid.UUID(hex=input['task_id'])
+            self.current_task_id = input['task_id']
             self.current_task_execution_record = execution_record
         
         cherrypy.log.error("Starting task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
@@ -168,12 +168,12 @@ class SWLocalReference:
 class SWExecutorTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
-        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
+        self.task_id = task_descriptor['task_id']
         try:
-            self.original_task_id = uuid.UUID(hex=task_descriptor['original_task_id'])
+            self.original_task_id = task_descriptor['original_task_id']
         except KeyError:
             self.original_task_id = self.task_id
-        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']] 
+        self.expected_outputs = task_descriptor['expected_outputs'] 
         self.task_executor = task_executor
         self.inputs = task_descriptor['inputs']
         self.executor_name = task_descriptor['handler']
@@ -235,7 +235,7 @@ class SWExecutorTaskExecutionRecord:
 class SWInterpreterTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
-        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
+        self.task_id = task_descriptor['task_id']
         self.task_executor = task_executor
         
         self.is_running = True
@@ -276,10 +276,10 @@ class SWInterpreterTaskExecutionRecord:
 class SWRuntimeInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
-        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
+        self.task_id = task_descriptor['task_id']
         
         try:
-            self.original_task_id = uuid.UUID(hex=task_descriptor['original_task_id'])
+            self.original_task_id = task_descriptor['original_task_id']
             self.replay_ref = task_descriptor['replay_ref']
         except KeyError:
             self.original_task_id = self.task_id
@@ -287,7 +287,7 @@ class SWRuntimeInterpreterTask:
 
         self.additional_refs_to_publish = []
         
-        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
+        self.expected_outputs = task_descriptor['expected_outputs']
         self.inputs = task_descriptor['inputs']
 
         try:
@@ -301,7 +301,7 @@ class SWRuntimeInterpreterTask:
             self.save_continuation = False
             
         try:
-            self.replay_uuid_list = [uuid.UUID(hex=x) for x in task_descriptor['replay_uuids']]
+            self.replay_uuid_list = task_descriptor['replay_uuids']
             self.replay_uuids = True
             self.current_uuid_index = 0
         except KeyError:
@@ -377,7 +377,7 @@ class SWRuntimeInterpreterTask:
             ret = self.replay_uuid_list[self.current_uuid_index]
             self.current_uuid_index += 1
         else:
-            ret = uuid.uuid1()
+            ret = str(uuid.uuid1())
             self.replay_uuid_list.append(ret)
         return ret
 
@@ -726,3 +726,56 @@ class SWRuntimeInterpreterTask:
             return self.select_result
         else:
             raise SelectException(select_group, timeout)
+
+    def hash_update_with_structure(self, hash, value):
+        """
+        Recurses over a Skywriting data structure (containing lists, dicts and 
+        primitive leaves) in a deterministic order, and updates the given hash with
+        all values contained therein.
+        """
+        if isinstance(value, list):
+            hash.update('[')
+            for element in value:
+                self.hash_update_with_structure(hash, element)
+                hash.update(',')
+            hash.update(']')
+        elif isinstance(value, dict):
+            hash.update('{')
+            for (dict_key, dict_value) in sorted(value.items()):
+                hash.update(dict_key)
+                hash.update(':')
+                self.hash_update_with_structure(hash, dict_value)
+                hash.update(',')
+            hash.update('}')
+        elif isinstance(value, SWLocalReference):
+            self.hash_update_with_structure(hash, self.convert_tasklocal_to_real_reference(value))
+        elif isinstance(value, SW2_ConcreteReference) or isinstance(value, SW2_FutureReference):
+            hash.update('ref')
+            hash.update(value.id)
+        elif isinstance(value, SWURLReference):
+            hash.update('ref')
+            hash.update(value.urls[0])
+        elif isinstance(value, SWDataValue):
+            hash.update('ref*')
+            self.hash_update_with_structure(hash, value.value)
+        elif isinstance(value, SWNullReference):
+            hash.update('refnull')
+        else:
+            hash.update(str(value))
+
+def map_leaf_values(f, value):
+    """
+    Recurses over a Skywriting data structure (containing lists, dicts and 
+    primitive leaves), and returns a new structure with the leaves mapped as specified.
+    """
+    if isinstance(value, list):
+        return map(lambda x: map_leaf_values(f, x), value)
+    elif isinstance(value, dict):
+        ret = {}
+        for (dict_key, dict_value) in value.items():
+            key = map_leaf_values(f, dict_key)
+            value = map_leaf_values(f, dict_value)
+            ret[key] = value
+        return ret
+    else:
+        return f(value)

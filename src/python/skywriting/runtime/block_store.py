@@ -28,6 +28,7 @@ import shutil
 import pickle
 import os
 import uuid
+import struct
 import tempfile
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
@@ -58,8 +59,8 @@ def json_decode_object_hook(dict_):
 def sw_to_external_url(url):
     parsed_url = urlparse.urlparse(url)
     if parsed_url.scheme == 'swbs':
-        id = uuid.UUID(hex=parsed_url.path[1:])
-        return 'http://%s/data/%s' % (parsed_url.netloc, str(id))
+        id = parsed_url.path[1:]
+        return 'http://%s/data/%s' % (parsed_url.netloc, id)
     else:
         return url
 
@@ -112,7 +113,7 @@ class BlockStore:
         del self.url_cache_access_times[lru_url] 
     
     def allocate_new_id(self):
-        return uuid.uuid1()
+        return str(uuid.uuid1())
     
     CACHE_SIZE_LIMIT=1024
     def store_url_in_cache(self, url, filename):
@@ -157,7 +158,7 @@ class BlockStore:
         if filename is None:
             parsed_url = urlparse.urlparse(url)
             if parsed_url.scheme == 'swbs':
-                id = uuid.UUID(hex=parsed_url.path[1:])
+                id = parsed_url.path[1:]
                 if parsed_url.netloc == self.netloc:
                     # Retrieve local object.
                     try:
@@ -168,7 +169,7 @@ class BlockStore:
                 else:
                     # Retrieve remote in-system object.
                     # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, str(id))
+                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, id)
     
             else:
                 # Retrieve remote ex-system object.
@@ -191,14 +192,14 @@ class BlockStore:
             parsed_url = urlparse.urlparse(url)
             
             if parsed_url.scheme == 'swbs':
-                id = uuid.UUID(hex=parsed_url.path[1:])
+                id = parsed_url.path[1:]
                 if parsed_url.netloc == self.netloc:
                     # Retrieve local object.
                     return self.filename(id)
                 else:
                     # Retrieve remote in-system object.
                     # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, str(id))
+                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, id)
             else:
                 # Retrieve remote ex-system object.
                 fetch_url = url
@@ -354,10 +355,9 @@ class BlockStore:
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
             filename = block_list_file.name
             for block_name in os.listdir(self.base_dir):
-                try:
-                    block_id = uuid.UUID(hex=block_name)
-                    block_list_file.write(block_id.bytes)
-                except:
-                    pass
+                block_id = block_name
+                block_list_file.write(struct.pack('B', len(block_id)))
+                block_list_file.write(block_id)
+
                 
         return filename

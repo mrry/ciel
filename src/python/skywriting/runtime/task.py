@@ -186,10 +186,10 @@ class TaskPoolTask(Task):
         return ret
 
     def as_descriptor(self, long=False):        
-        descriptor = {'task_id': str(self.task_id),
+        descriptor = {'task_id': self.task_id,
                       'dependencies': self.dependencies,
                       'handler': self.handler,
-                      'expected_outputs': map(str, self.expected_outputs),
+                      'expected_outputs': self.expected_outputs,
                       'inputs': self.inputs,
                       'event_index': self.event_index}
         
@@ -198,8 +198,8 @@ class TaskPoolTask(Task):
             descriptor['worker_id'] = self.worker_id
             descriptor['saved_continuation_uri'] = self.saved_continuation_uri
             descriptor['state'] = TASK_STATE_NAMES[self.state]
-            descriptor['parent'] = str(self.parent)
-            descriptor['children'] = map(str, self.children)
+            descriptor['parent'] = self.parent
+            descriptor['children'] = self.children
                     
         if self.select_result is not None:
             descriptor['select_result'] = self.select_result
@@ -207,14 +207,14 @@ class TaskPoolTask(Task):
         if self.save_continuation:
             descriptor['save_continuation'] = True
         if self.continues_task is not None:
-            descriptor['continues_task'] = str(self.continues_task)
+            descriptor['continues_task'] = self.continues_task
         if self.continuation is not None:
-            descriptor['continuation'] = str(self.continuation)
+            descriptor['continuation'] = self.continuation
         if self.replay_uuids is not None:
-            descriptor['replay_uuids'] = map(str, self.replay_uuids)
+            descriptor['replay_uuids'] = self.replay_uuids
             
         if self.original_task_id is not None:
-            descriptor['original_task_id'] = str(self.original_task_id)
+            descriptor['original_task_id'] = self.original_task_id
         if self.replay_ref is not None:
             descriptor['replay_ref'] = self.replay_ref
         
@@ -234,7 +234,7 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, global_name_di
         save_continuation = False
 
     try:
-        continues_task = uuid.UUID(hex=task_descriptor['continues_task'])
+        continues_task = task_descriptor['continues_task']
     except KeyError:
         continues_task = None
 
