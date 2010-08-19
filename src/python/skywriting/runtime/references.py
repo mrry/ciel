@@ -11,7 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-import uuid
 
 '''
 Created on 20 Apr 2010
@@ -176,15 +175,15 @@ def build_provenance_from_tuple(provenance_tuple):
     if p_type == 'na':
         return SWNoProvenance()
     elif p_type == 'out':
-        return SWTaskOutputProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
+        return SWTaskOutputProvenance(provenance_tuple[1], provenance_tuple[2])
     elif p_type == 'spawn':
-        return SWSpawnedTaskProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
+        return SWSpawnedTaskProvenance(provenance_tuple[1], provenance_tuple[2])
     elif p_type == 'cont':
-        return SWTaskContinuationProvenance(uuid.UUID(hex=provenance_tuple[1]))
+        return SWTaskContinuationProvenance(provenance_tuple[1])
     elif p_type == 'se_args':
-        return SWSpawnExecArgsProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
+        return SWSpawnExecArgsProvenance(provenance_tuple[1], provenance_tuple[2])
     elif p_type == 'exec':
-        return SWExecResultProvenance(uuid.UUID(hex=provenance_tuple[1]), provenance_tuple[2])
+        return SWExecResultProvenance(provenance_tuple[1], provenance_tuple[2])
     else:
         raise KeyError(p_type)
 
@@ -199,8 +198,8 @@ def build_reference_from_tuple(reference_tuple):
     elif ref_type == 'null':
         return SWNullReference()
     elif ref_type == 'f2':
-        return SW2_FutureReference(uuid.UUID(hex=reference_tuple[1]), build_provenance_from_tuple(reference_tuple[2]))
+        return SW2_FutureReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]))
     elif ref_type == 'c2':
-        return SW2_ConcreteReference(uuid.UUID(hex=reference_tuple[1]), build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3], reference_tuple[4])
+        return SW2_ConcreteReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3], reference_tuple[4])
     else:
         raise KeyError(ref_type)

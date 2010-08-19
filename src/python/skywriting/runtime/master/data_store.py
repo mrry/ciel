@@ -54,7 +54,7 @@ class GlobalNameDirectory(plugins.SimplePlugin):
         except:
             entry = GlobalNameDirectoryEntry(task_id, [], self._lock)
             if data_id is None:
-                data_id = uuid.uuid1()
+                data_id = str(uuid.uuid1())
             self.directory[data_id] = entry
         return data_id
     
