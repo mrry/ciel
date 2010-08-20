@@ -141,7 +141,7 @@ class TaskPool(plugins.SimplePlugin):
             except:
                 task_id = self.generate_task_id()
             
-            task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self.global_name_directory, self, parent_task_id)
+            task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, parent_task_id)
             self.tasks[task_id] = task
             add_event = self.new_event(task)
             add_event["task_descriptor"] = task.as_descriptor(long=True)

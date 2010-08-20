@@ -100,10 +100,7 @@ class TaskPoolTask(Task):
                     if len(refs) > 0:
                         self.inputs[local_id] = refs[0]
                     else:
-                        try:
-                            self._blocking_dict[global_id].add(local_id)
-                        except KeyError:
-                            self._blocking_dict[global_id] = set([local_id])
+                        self.block_on(global_id, local_id)
                 else:
                     self.inputs[local_id] = input
     
@@ -157,6 +154,12 @@ class TaskPoolTask(Task):
         else:
             return []
 
+    def block_on(self, global_id, local_id):
+        try:
+            self._blocking_dict[global_id].add(local_id)
+        except KeyError:
+            self._blocking_dict[global_id] = set([local_id])
+            
     def unblock_on(self, global_id, refs):
         if self.state in (TASK_RUNNABLE, TASK_SELECTING):
             i = self._selecting_dict.pop(global_id)
@@ -176,7 +179,7 @@ class TaskPoolTask(Task):
         self.worker_id = worker_id
         self.state = TASK_ASSIGNED
         self.record_event("ASSIGNED")
-        self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
+        #self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
 
     def make_replay_task(self, replay_task_id, replay_ref):
         
@@ -221,7 +224,7 @@ class TaskPoolTask(Task):
         return descriptor        
 
 
-def build_taskpool_task_from_descriptor(task_id, task_descriptor, global_name_directory, task_pool, parent_task_id=None):
+def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, parent_task_id=None):
 
     handler = task_descriptor['handler']
     inputs = {}

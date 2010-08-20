@@ -11,12 +11,10 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-'''
-Created on 11 Feb 2010
-
-@author: dgm36
-'''
 from __future__ import with_statement
+from skywriting.runtime.master.lazy_task_pool import LazyTaskPool,\
+    LazyTaskPoolAdapter
+from skywriting.runtime.master.lazy_scheduler import LazyScheduler
 from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 from skywriting.runtime.master.master_view import MasterRoot
 from skywriting.runtime.master.data_store import GlobalNameDirectory
@@ -47,21 +45,20 @@ def master_main(options):
     worker_pool = WorkerPool(cherrypy.engine, deferred_worker)
     worker_pool.subscribe()
 
-    task_pool = TaskPool(cherrypy.engine, global_name_directory, worker_pool, deferred_worker)
-    task_pool.subscribe()
-    
+    lazy_task_pool = LazyTaskPool(cherrypy.engine)
+    task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
 
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
     print 'Local port is', local_port
-    master_proxy = LocalMasterProxy(task_pool, None, global_name_directory, worker_pool)
+    master_proxy = LocalMasterProxy(task_pool_adapter, None, global_name_directory, worker_pool)
     block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
     master_proxy.block_store = block_store
 
-    scheduler = Scheduler(cherrypy.engine, task_pool, worker_pool, deferred_worker)
+    scheduler = LazyScheduler(cherrypy.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool, worker_pool, block_store, global_name_directory)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

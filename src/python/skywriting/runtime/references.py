@@ -135,6 +135,17 @@ class SW2_ConcreteReference(SWRealReference):
             self.location_hints[netloc] = hints_for_netloc
         hints_for_netloc.append(access_method)
         
+    def combine_with(self, ref):
+        """Add the location hints from ref to this object."""
+        if isinstance(ref, SW2_ConcreteReference):
+            assert ref.id == self.id
+            for (netloc, access_methods) in ref.location_hints.items():
+                try:
+                    existing_access_methods = set(self.location_hints[netloc])
+                except KeyError:
+                    existing_access_methods = set()
+                self.location_hints[netloc] = list(set(access_methods) | existing_access_methods)
+        
     def as_tuple(self):
         return('c2', str(self.id), self.provenance.as_tuple(), self.size_hint, self.location_hints)
         

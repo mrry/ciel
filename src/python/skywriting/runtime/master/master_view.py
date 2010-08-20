@@ -222,7 +222,7 @@ class MasterTaskRoot:
                     return simplejson.dumps(self.task_pool.get_task_by_id(task_id).as_descriptor(long=True), cls=SWReferenceJSONEncoder)
         elif cherrypy.request.method == 'POST':
             # New task spawning in here.
-            task_descriptor = simplejson.loads(cherrypy.request.body.read())
+            task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             spawned_task_id = self.task_pool.generate_task_id()
             task_descriptor['task_id'] = str(spawned_task_id)
             try:

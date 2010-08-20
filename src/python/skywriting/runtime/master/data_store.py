@@ -42,10 +42,12 @@ class GlobalNameDirectory(plugins.SimplePlugin):
     
     def subscribe(self):
         self.bus.subscribe("stop", self.server_stopping, 10)
+        self.bus.subscribe('job_done', self.job_done)
         # Higher priority than the HTTP server
     
     def unsubscribe(self):
         self.bus.unsubscribe("stop", self.server_stopping)
+        self.bus.unsubscribe('job_done', self.job_done)
 
     def create_global_id(self, task_id=None, data_id=None):
         try:
@@ -71,6 +73,9 @@ class GlobalNameDirectory(plugins.SimplePlugin):
                 entry.refs = []
         except KeyError:
             self.create_global_id(None, id)
+    
+    def job_done(self, id, ref):
+        self.add_refs_for_id(id, [ref])
     
     def add_refs_for_id(self, id, refs):
         with self._lock:

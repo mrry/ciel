@@ -8,8 +8,8 @@ from threading import Timer
 
 class DeferredWorkPlugin(AsynchronousExecutePlugin):
     
-    def __init__(self, bus):
-        AsynchronousExecutePlugin.__init__(self, bus, 1, "deferred_work")
+    def __init__(self, bus, event_name="deferred_work"):
+        AsynchronousExecutePlugin.__init__(self, bus, 1, event_name)
         self.timers = {}
         self.current_timer_id = 0
     
