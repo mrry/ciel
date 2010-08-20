@@ -26,7 +26,6 @@ import os
 import tempfile
 import simplejson
 import cherrypy
-import uuid
 from skywriting.runtime.worker.worker_view import DataRoot
 
 class MasterRoot:
@@ -97,7 +96,7 @@ class WorkersRoot:
     @cherrypy.expose
     def default(self, worker_id, action=None):
         try:
-            real_id = uuid.UUID(hex=worker_id)
+            real_id = worker_id
         except:
             raise HTTPError(404)
         if cherrypy.request.method == 'POST':
@@ -167,36 +166,32 @@ class MasterTaskRoot:
     def default(self, id=None, action=None):
         if id is not None:
         
-            try:
-                task_id = uuid.UUID(hex=id)
-            except:
-                if id == 'flush':
-                    self.task_pool.flush_task_dict()
-                    return
-                elif id == "wait_event_count":
-                    try:
-                        self.task_pool.wait_event_after(int(action))
-                        return simplejson.dumps({ "latest_event_index" : self.task_pool.event_index })
-                    except Exception as t:
-                        return simplejson.dumps({ "error" : repr(t)})
+            task_id = id
+            if id == 'flush':
+                self.task_pool.flush_task_dict()
+                return
+            elif id == "wait_event_count":
+                try:
+                    self.task_pool.wait_event_after(int(action))
+                    return simplejson.dumps({ "latest_event_index" : self.task_pool.event_index })
+                except Exception as t:
+                    return simplejson.dumps({ "error" : repr(t)})
 
-                elif id == "events":
-                    report_event_index = self.task_pool.event_index
-                    start_event_index = int(action)
-                    finish_event_index = None
-                    if ((report_event_index - start_event_index) > 1000):
-                        # Maximum report size; should make client-configurable
-                        finish_event_index = start_event_index + 1000
-                    else:
-                        finish_event_index = report_event_index
-                    events_to_send = self.task_pool.events[start_event_index:finish_event_index]
-                    #sys.stderr.write("Events: %s. Sending %d-%d == %s\n" % (repr(self.task_pool.events), start_event_index, finish_event_index, repr(events_to_send)))
-                    events_reply = {"events": events_to_send, 
-                                    "next_event_to_fetch": finish_event_index, 
-                                    "first_unavailable_event": report_event_index}
-                    return simplejson.dumps(events_reply, cls=SWReferenceJSONEncoder)
+            elif id == "events":
+                report_event_index = self.task_pool.event_index
+                start_event_index = int(action)
+                finish_event_index = None
+                if ((report_event_index - start_event_index) > 1000):
+                    # Maximum report size; should make client-configurable
+                    finish_event_index = start_event_index + 1000
                 else:
-                    raise HTTPError(404)
+                    finish_event_index = report_event_index
+                events_to_send = self.task_pool.events[start_event_index:finish_event_index]
+                #sys.stderr.write("Events: %s. Sending %d-%d == %s\n" % (repr(self.task_pool.events), start_event_index, finish_event_index, repr(events_to_send)))
+                events_reply = {"events": events_to_send, 
+                                "next_event_to_fetch": finish_event_index, 
+                                "first_unavailable_event": report_event_index}
+                return simplejson.dumps(events_reply, cls=SWReferenceJSONEncoder)
             
             if action == 'spawn':
                 if cherrypy.request.method == 'POST':
@@ -231,7 +226,7 @@ class MasterTaskRoot:
             spawned_task_id = self.task_pool.generate_task_id()
             task_descriptor['task_id'] = str(spawned_task_id)
             try:
-                expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
+                expected_outputs = task_descriptor['expected_outputs']
                 for output in expected_outputs:
                     self.global_name_directory.create_global_id(spawned_task_id, output)
             except KeyError:
@@ -270,10 +265,7 @@ class GlobalDataRoot:
     @cherrypy.expose
     def default(self, id, attribute=None):
         
-        try:
-            real_id = uuid.UUID(hex=id)
-        except:
-            raise HTTPError(404)
+        real_id = id
         
         if attribute is None:
             if cherrypy.request.method == 'POST':

@@ -11,7 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
 '''
 Created on 13 Apr 2010
 
@@ -32,6 +31,7 @@ from threading import Lock
 import cherrypy
 import logging
 import uuid
+import hashlib
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWFutureReference,\
@@ -69,7 +69,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             execution_record = SWExecutorTaskExecutionRecord(input, self)
 
         with self._lock:
-            self.current_task_id = uuid.UUID(hex=input['task_id'])
+            self.current_task_id = input['task_id']
             self.current_task_execution_record = execution_record
         
         cherrypy.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
@@ -170,12 +170,12 @@ class SWLocalReference:
 class SWExecutorTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
-        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
+        self.task_id = task_descriptor['task_id']
         try:
-            self.original_task_id = uuid.UUID(hex=task_descriptor['original_task_id'])
+            self.original_task_id = task_descriptor['original_task_id']
         except KeyError:
             self.original_task_id = self.task_id
-        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']] 
+        self.expected_outputs = task_descriptor['expected_outputs'] 
         self.task_executor = task_executor
         self.inputs = task_descriptor['inputs']
         self.executor_name = task_descriptor['handler']
@@ -241,7 +241,7 @@ class SWExecutorTaskExecutionRecord:
 class SWInterpreterTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
-        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
+        self.task_id = task_descriptor['task_id']
         self.task_executor = task_executor
         
         self.is_running = True
@@ -286,10 +286,10 @@ class SWInterpreterTaskExecutionRecord:
 class SWRuntimeInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy): # scheduler, task_expr, is_root=False, result_ref_id=None, result_ref_id_list=None, context=None, condvar=None):
-        self.task_id = uuid.UUID(hex=task_descriptor['task_id'])
+        self.task_id = task_descriptor['task_id']
         
         try:
-            self.original_task_id = uuid.UUID(hex=task_descriptor['original_task_id'])
+            self.original_task_id = task_descriptor['original_task_id']
             self.replay_ref = task_descriptor['replay_ref']
         except KeyError:
             self.original_task_id = self.task_id
@@ -297,7 +297,7 @@ class SWRuntimeInterpreterTask:
 
         self.additional_refs_to_publish = []
         
-        self.expected_outputs = [uuid.UUID(hex=x) for x in task_descriptor['expected_outputs']]
+        self.expected_outputs = task_descriptor['expected_outputs']
         self.inputs = task_descriptor['inputs']
 
         try:
@@ -311,7 +311,7 @@ class SWRuntimeInterpreterTask:
             self.save_continuation = False
             
         try:
-            self.replay_uuid_list = [uuid.UUID(hex=x) for x in task_descriptor['replay_uuids']]
+            self.replay_uuid_list = task_descriptor['replay_uuids']
             self.replay_uuids = True
             self.current_uuid_index = 0
         except KeyError:
@@ -387,7 +387,7 @@ class SWRuntimeInterpreterTask:
             ret = self.replay_uuid_list[self.current_uuid_index]
             self.current_uuid_index += 1
         else:
-            ret = uuid.uuid1()
+            ret = str(uuid.uuid1())
             self.replay_uuid_list.append(ret)
         return ret
 
@@ -398,7 +398,7 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
         task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
-        task_context.bind_tasklocal_identifier("range", LambdaFunction(lambda x: range(x[0],x[1])))
+        task_context.bind_tasklocal_identifier("range", LambdaFunction(lambda x: range(*x)))
         task_context.bind_tasklocal_identifier("len", LambdaFunction(lambda x: len(x[0])))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: self.make_reference(x)))
@@ -631,11 +631,12 @@ class SWRuntimeInterpreterTask:
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
         
         new_task_id = self.create_uuid()
-        expected_output_ids = [self.create_uuid() for i in range(num_outputs)]
-        ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
         inputs = {}
         
         args = map_leaf_values(self.check_no_thunk_mapper, exec_args)
+
+        expected_output_ids = self.create_exec_output_names(executor_name, args, num_outputs)
+        ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
 
         def args_check_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
@@ -659,17 +660,24 @@ class SWRuntimeInterpreterTask:
         task_descriptor = {'task_id': str(new_task_id),
                            'handler': executor_name, 
                            'inputs': inputs,
-                           'expected_outputs': map(str, expected_output_ids)}
+                           'expected_outputs': expected_output_ids}
         
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
         
         return ret
     
+    def create_exec_output_names(self, executor_name, real_args, num_outputs):
+        sha = hashlib.sha1()
+        self.hash_update_with_structure(sha, [real_args, num_outputs])
+        prefix = '%s:%s:' % (executor_name, sha.hexdigest())
+        print '### [spawn_]exec output prefix:', prefix
+        return ['%s%d' % (prefix, i) for i in range(num_outputs)] 
+    
     def exec_func(self, executor_name, args, num_outputs):
         
         real_args = map_leaf_values(self.check_no_thunk_mapper, args)
 
-        output_ids = [self.create_uuid() for x in range(0, num_outputs)]
+        output_ids = self.create_exec_output_names(executor_name, real_args, num_outputs)
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
         self.current_executor.execute(self.block_store)
@@ -705,7 +713,7 @@ class SWRuntimeInterpreterTask:
 
     def is_future(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        return isinstance(real_ref, SWFutureReference)
+        return isinstance(real_ref, SW2_FutureReference)
 
     def is_error(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
@@ -733,3 +741,56 @@ class SWRuntimeInterpreterTask:
             return self.select_result
         else:
             raise SelectException(select_group, timeout)
+
+    def hash_update_with_structure(self, hash, value):
+        """
+        Recurses over a Skywriting data structure (containing lists, dicts and 
+        primitive leaves) in a deterministic order, and updates the given hash with
+        all values contained therein.
+        """
+        if isinstance(value, list):
+            hash.update('[')
+            for element in value:
+                self.hash_update_with_structure(hash, element)
+                hash.update(',')
+            hash.update(']')
+        elif isinstance(value, dict):
+            hash.update('{')
+            for (dict_key, dict_value) in sorted(value.items()):
+                hash.update(dict_key)
+                hash.update(':')
+                self.hash_update_with_structure(hash, dict_value)
+                hash.update(',')
+            hash.update('}')
+        elif isinstance(value, SWLocalReference):
+            self.hash_update_with_structure(hash, self.convert_tasklocal_to_real_reference(value))
+        elif isinstance(value, SW2_ConcreteReference) or isinstance(value, SW2_FutureReference):
+            hash.update('ref')
+            hash.update(value.id)
+        elif isinstance(value, SWURLReference):
+            hash.update('ref')
+            hash.update(value.urls[0])
+        elif isinstance(value, SWDataValue):
+            hash.update('ref*')
+            self.hash_update_with_structure(hash, value.value)
+        elif isinstance(value, SWNullReference):
+            hash.update('refnull')
+        else:
+            hash.update(str(value))
+
+def map_leaf_values(f, value):
+    """
+    Recurses over a Skywriting data structure (containing lists, dicts and 
+    primitive leaves), and returns a new structure with the leaves mapped as specified.
+    """
+    if isinstance(value, list):
+        return map(lambda x: map_leaf_values(f, x), value)
+    elif isinstance(value, dict):
+        ret = {}
+        for (dict_key, dict_value) in value.items():
+            key = map_leaf_values(f, dict_key)
+            value = map_leaf_values(f, dict_value)
+            ret[key] = value
+        return ret
+    else:
+        return f(value)

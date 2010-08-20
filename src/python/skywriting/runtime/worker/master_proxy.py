@@ -29,7 +29,6 @@ import socket
 import httplib2
 from cherrypy.process.plugins import SimplePlugin
 from threading import Event
-import uuid
 
 import simplejson
 
@@ -88,7 +87,7 @@ class MasterProxy(SimplePlugin):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
         message_url = urljoin(self.master_url, 'worker/')
         _, result = self.backoff_request(message_url, 'POST', message_payload)
-        self.worker.id = uuid.UUID(hex=simplejson.loads(result))
+        self.worker.id = simplejson.loads(result)
     
     def publish_global_refs(self, global_id, refs):
         message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
