@@ -640,13 +640,10 @@ class SWRuntimeInterpreterTask:
         def args_check_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
                 real_ref = self.continuation.resolve_tasklocal_reference_with_ref(leaf)
-                if isinstance(real_ref, SWFutureReference):
-                    i = len(inputs)
-                    inputs[i] = real_ref
-                    ret = SWLocalReference(i)
-                    return ret
-                else:
-                    return real_ref
+                i = len(inputs)
+                inputs[i] = real_ref
+                ret = SWLocalReference(i)
+                return ret
             return leaf
         
         transformed_args = map_leaf_values(args_check_mapper, args)
@@ -658,7 +655,10 @@ class SWRuntimeInterpreterTask:
         self.maybe_also_publish(args_ref)
         
         inputs['_args'] = args_ref
-        
+
+        print "Spawn-exec: inputs is", inputs
+        print "Spawn-exec: args is", exec_args
+
         task_descriptor = {'task_id': str(new_task_id),
                            'handler': executor_name, 
                            'inputs': inputs,
