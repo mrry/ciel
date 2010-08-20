@@ -656,9 +656,6 @@ class SWRuntimeInterpreterTask:
         
         inputs['_args'] = args_ref
 
-        print "Spawn-exec: inputs is", inputs
-        print "Spawn-exec: args is", exec_args
-
         task_descriptor = {'task_id': str(new_task_id),
                            'handler': executor_name, 
                            'inputs': inputs,

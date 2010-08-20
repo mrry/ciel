@@ -96,7 +96,10 @@ class TaskPool(plugins.SimplePlugin):
     def compute_best_worker_for_task(self, task):
         netlocs = {}
         for input in task.inputs.values():
-            if isinstance(input, SWURLReference) and input.size_hint is not None:
+            if isinstance(input, SWURLReference):
+                if input.size_hint is None:
+                    input.size_hint = 10000000
+                    # Do something sensible here; probably HTTP HEAD
                 for url in input.urls:
                     netloc = get_netloc_for_sw_url(url)
                     try:
@@ -112,8 +115,10 @@ class TaskPool(plugins.SimplePlugin):
                         current_saving_for_netloc = 0
                     netlocs[netloc] = current_saving_for_netloc + input.size_hint
         ranked_netlocs = [(saving, netloc) for (netloc, saving) in netlocs.items()]
-        if len(ranked_netlocs) > 0:
-            return self.worker_pool.get_worker_at_netloc(min(ranked_netlocs)[1])
+        filtered_ranked_netlocs = filter(lambda (saving, netloc) : self.worker_pool.get_worker_at_netloc(netloc) is not None, ranked_netlocs)
+        if len(filtered_ranked_netlocs) > 0:
+            ret = self.worker_pool.get_worker_at_netloc(max(filtered_ranked_netlocs)[1])
+            return ret
         else:
             return None
     
@@ -143,7 +148,7 @@ class TaskPool(plugins.SimplePlugin):
             add_event["action"] = "CREATED"
         
             task.check_dependencies(self.global_name_directory)
-        
+
             if task.is_blocked():
                 for global_id in task.blocked_on():
                     try:

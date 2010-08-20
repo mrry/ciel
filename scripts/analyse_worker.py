@@ -26,6 +26,7 @@ hits = []
 current_state = "misc"
 state_times = dict()
 task_state_times = dict()
+idle_time_float = 0.0
 
 def change_state(new_state, current_time):
     global state_times
@@ -52,6 +53,14 @@ for log_record in log_records:
 
     if event_text.find("Start execution") >= 0:
         start_time = real_time
+        try:
+            this_idle_time = start_time - previous_state_time
+            this_idle_time_float = (float(this_idle_time.seconds) + (float(this_idle_time.microseconds) / 1000000))
+            sys.stdout.write("    ")
+            print "Idle for", this_idle_time_float, "seconds"
+            idle_time_float += this_idle_time_float
+        except:
+            pass
         previous_state_time = real_time
         current_state = "misc"
         event_uuid_match = uuid_regex.search(event_text)
@@ -92,7 +101,9 @@ sys.stdout.write("Summary: ")
 total_time = 0.0
 for (state_name, state_time) in state_times.iteritems():
     total_time += state_time
-for (state_name, state_time) in state_times.iteritems():
+total_time += idle_time_float
+print "Total elapsed time", total_time, "seconds"
+for (state_name, state_time) in (state_times.items() + [("idle", idle_time_float)]):
     state_time_percent = (state_time / total_time) * 100
     sys.stdout.write("%s %.3g%%   " % (state_name, state_time_percent))
 sys.stdout.write("\n")
