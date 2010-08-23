@@ -16,6 +16,10 @@ from skywriting.runtime.task import TASK_STATES,\
 from threading import Lock, Condition
 import uuid
 from cherrypy.process import plugins
+import os
+import simplejson
+from skywriting.runtime.block_store import SWReferenceJSONEncoder
+import struct
 
 JOB_ACTIVE = 0
 JOB_COMPLETED = 1
@@ -31,13 +35,16 @@ for (name, number) in JOB_STATES.items():
 
 class Job:
     
-    def __init__(self, id, root_task):
+    def __init__(self, id, root_task, job_dir=None):
         self.id = id
         self.root_task = root_task
+        self.job_dir = job_dir
         
         self.state = JOB_ACTIVE
         
         self.result_ref = None
+
+        self.task_journal_fp = None
         
         # Counters for each task state.
         self.task_state_counts = {}
@@ -46,7 +53,7 @@ class Job:
         self._lock = Lock()
         self._condition = Condition(self._lock)
 
-        self.add_task(root_task)
+        self.add_task(root_task, True)
 
     def completed(self, result_ref):
         self.state = JOB_COMPLETED
@@ -59,9 +66,18 @@ class Job:
         with self._lock:
             self._condition.notify_all()
 
-    def add_task(self, task):
+    def add_task(self, task, should_sync=False):
         with self._lock:
+            if self.task_journal_fp is None and self.job_dir is not None:
+                self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'a')
             self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
+            if self.task_journal_fp is not None:
+                task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
+                self.task_journal_fp.write(struct.pack('!I', len(task_details)))
+                self.task_journal_fp.write(task_details)
+                if should_sync:
+                    self.task_journal_fp.flush()
+                    os.fsync(self.task_journal_fp.fileno())
 
     def record_state_change(self, prev_state, next_state):
         with self._lock:
@@ -103,7 +119,6 @@ class JobPool(plugins.SimplePlugin):
 
     def unsubscribe(self):
         self.bus.unsubscribe("stop", self.server_stopping)
-        self.bus.unsubscribe("job_done", self.job_completed)
         
     def server_stopping(self):
         # When the server is shutting down, we need to notify all threads
@@ -122,7 +137,7 @@ class JobPool(plugins.SimplePlugin):
     def allocate_job_id(self):
         return str(uuid.uuid1())
     
-    def add_job(self, job):
+    def add_job(self, job, sync_journal=False):
         # We will use this both for new jobs and on recovery.
         self.jobs[job.id] = job
     
@@ -130,6 +145,9 @@ class JobPool(plugins.SimplePlugin):
         
         job_id = self.allocate_job_id()
         task_id = 'root:%s' % (job_id, ) 
+
+        # TODO: Here is where we will set up the job journal, etc.
+        job_dir = self.make_job_directory(job_id)
         
         # TODO: Remove the global name directory dependency.
         try:
@@ -145,13 +163,20 @@ class JobPool(plugins.SimplePlugin):
             task_descriptor['expected_outputs'] = expected_outputs
             
         task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, None)
-        job = Job(self.allocate_job_id(), task)
+        job = Job(self.allocate_job_id(), task, job_dir)
         task.job = job
         
         self.add_job(job)
 
-        # TODO: Here is where we will set up the job journal, etc.
         return job
+
+    def make_job_directory(self, job_id):
+        if self.journal_root is not None:
+            job_dir = os.path.join(self.journal_root, job_id)
+            os.mkdir(job_dir)
+            return job_dir
+        else:
+            return None
 
     def start_job(self, job):
         self.task_pool.add_task(job.root_task, True)
