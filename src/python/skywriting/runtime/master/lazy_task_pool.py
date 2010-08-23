@@ -102,12 +102,11 @@ class LazyTaskPool(plugins.SimplePlugin):
     def get_task_queue(self):
         return self.task_queue
         
-    def task_failed(self, task_id, reason, details=None):
+    def task_failed(self, task, reason, details=None):
 
         cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
         worker = None
         should_notify_outputs = False
-        task = self.tasks[task_id]
 
         with self._lock:
             if reason == 'WORKER_FAILED':
@@ -119,7 +118,7 @@ class LazyTaskPool(plugins.SimplePlugin):
                     task.set_state(TASK_FAILED)
                     should_notify_outputs = True
                 else:
-                    cherrypy.log.error('Rescheduling task %s after worker failure' % task_id, 'TASKPOOL', logging.WARNING)
+                    cherrypy.log.error('Rescheduling task %s after worker failure' % task.task_id, 'TASKPOOL', logging.WARNING)
                     task.set_state(TASK_FAILED)
                     self.add_runnable_task(task)
                     self.bus.publish('schedule')
@@ -335,7 +334,6 @@ class LazyTaskPool(plugins.SimplePlugin):
                     try:
                         producing_task = self.task_for_output[ref.id]
                     except KeyError:
-                        print ref
                         producing_task = self.tasks[ref.provenance.task_id]
                     
                     assert producing_task.state in (TASK_CREATED, 
@@ -369,16 +367,16 @@ class LazyTaskPoolAdapter:
     def __init__(self, lazy_task_pool):
         self.lazy_task_pool = lazy_task_pool
      
-    def add_task(self, task_descriptor, parent_task_id=None, job=None):
+    def add_task(self, task_descriptor, parent_task=None, job=None):
         try:
             task_id = task_descriptor['task_id']
         except:
             task_id = self.generate_task_id()
         
-        task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, parent_task_id)
+        task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, parent_task)
         task.job = job
         
-        self.lazy_task_pool.add_task(task, parent_task_id is None)
+        self.lazy_task_pool.add_task(task, parent_task is None)
         
         #add_event = self.new_event(task)
         #add_event["task_descriptor"] = task.as_descriptor(long=True)
@@ -405,8 +403,8 @@ class LazyTaskPoolAdapter:
             except KeyError:
                 raise
             
-            task = self.add_task(child, parent_task.task_id, parent_task.job)
-            parent_task.children.append(task.task_id)
+            task = self.add_task(child, parent_task, parent_task.job)
+            parent_task.children.append(task)
             
             if task.continues_task is not None:
                 parent_task.continuation = spawned_task_id

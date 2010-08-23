@@ -34,11 +34,11 @@ for (name, number) in TASK_STATES.items():
 
 class Task:
 
-    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED):
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED):
         self.task_id = task_id
         
         # Task creation graph.
-        self.parent = parent_task_id
+        self.parent = parent_task
         self.children = []
         self.continues_task = continues_task
         self.continuation = None
@@ -65,8 +65,8 @@ class Task:
 
 class TaskPoolTask(Task):
     
-    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None, job=None):
-        Task.__init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state)
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None, job=None):
+        Task.__init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state)
         
         self.task_pool = task_pool
         
@@ -211,8 +211,8 @@ class TaskPoolTask(Task):
                 descriptor['worker_id'] = self.worker.id
             descriptor['saved_continuation_uri'] = self.saved_continuation_uri
             descriptor['state'] = TASK_STATE_NAMES[self.state]
-            descriptor['parent'] = self.parent
-            descriptor['children'] = self.children
+            descriptor['parent'] = self.parent.task_id
+            descriptor['children'] = [x.task_id for x in self.children]
                     
         if self.select_result is not None:
             descriptor['select_result'] = self.select_result
@@ -234,7 +234,7 @@ class TaskPoolTask(Task):
         return descriptor        
 
 
-def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, parent_task_id=None):
+def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, parent_task=None):
 
     handler = task_descriptor['handler']
     inputs = {}
@@ -261,7 +261,7 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, par
     
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state, task_pool)
+    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state, task_pool)
 #
 #class Task:
 #    

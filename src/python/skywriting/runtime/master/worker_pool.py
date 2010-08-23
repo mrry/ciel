@@ -47,7 +47,7 @@ class Worker:
         self.id = worker_id
         self.netloc = worker_descriptor['netloc']
         self.features = worker_descriptor['features']
-        self.current_task_id = None
+        self.current_task = None
         self.last_ping = datetime.datetime.now()
         
         self.failed = False
@@ -64,7 +64,7 @@ class Worker:
         return {'worker_id': self.id,
                 'netloc': self.netloc,
                 'features': self.features,
-                'current_task_id': self.current_task_id,
+                'current_task_id': self.current_task.task_id if self.current_task is not None else None,
                 'last_ping': self.last_ping.ctime(),
                 'failed':  self.failed}
         
@@ -133,7 +133,7 @@ class WorkerPool(plugins.SimplePlugin):
     def execute_task_on_worker(self, worker, task):
         with self._lock:
             self.idle_set.remove(worker.id)
-            worker.current_task_id = task.task_id
+            worker.current_task = task
             task.set_assigned_to_worker(worker)
             self.event_count += 1
             self.event_condvar.notify_all()
@@ -167,7 +167,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.event_count += 1
             self.event_condvar.notify_all()
             self.idle_set.discard(worker.id)
-            failed_task = worker.current_task_id
+            failed_task = worker.current_task
             del self.netlocs[worker.netloc]
             worker.failed = True
 
@@ -176,7 +176,7 @@ class WorkerPool(plugins.SimplePlugin):
         
     def worker_idle(self, worker):
         with self._lock:
-            worker.current_task_id = None
+            worker.current_task = None
             self.idle_set.add(worker.id)
             self.event_count += 1
             self.event_condvar.notify_all()
