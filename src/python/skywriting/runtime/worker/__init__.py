@@ -51,8 +51,11 @@ class Worker(plugins.SimplePlugin):
         self.master_url = options.master
         self.master_proxy = MasterProxy(self, bus, self.master_url)
         self.master_proxy.subscribe()
-        temp_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
-        self.block_store = BlockStore(self.hostname, self.port, temp_dir, self.master_proxy)
+        if options.blockstore is None:
+            block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+        else:
+            block_store_dir = options.blockstore
+        self.block_store = BlockStore(self.hostname, self.port, block_store_dir, self.master_proxy)
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()

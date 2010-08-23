@@ -40,6 +40,7 @@ def main(default_role=None):
     parser.add_option("-w", "--workerlist", action="store", dest="workerlist", help="List of workers", metavar = "FILE", default=None)
     parser.add_option("-s", "--staticbase", action="store", dest="staticbase", help="Path to base for static content (for masters)", metavar="PATH", default=None)
     parser.add_option("-j", "--journaldir", action="store", dest="journaldir", help="Path to the job journal directory (for masters)", metavar="PATH", default=None)
+    parser.add_option("-b", "--blockstore", action="store", dest="blockstore", help="Path to the block store directory", metavar="PATH", default=None)
     parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
     (options, _) = parser.parse_args()
    

@@ -34,6 +34,7 @@ import tempfile
 import socket
 import cherrypy
 from skywriting.runtime.master.job_pool import JobPool
+import os
 
 def master_main(options):
 
@@ -57,7 +58,13 @@ def master_main(options):
     local_port = cherrypy.config.get('server.socket_port')
     print 'Local port is', local_port
     master_proxy = LocalMasterProxy(task_pool_adapter, None, global_name_directory, worker_pool)
-    block_store = BlockStore(local_hostname, local_port, tempfile.mkdtemp(), master_proxy)
+    
+    if options.blockstore is None:
+        block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+    else:
+        block_store_dir = options.blockstore
+
+    block_store = BlockStore(local_hostname, local_port, block_store_dir, master_proxy)
     master_proxy.block_store = block_store
 
     scheduler = LazyScheduler(cherrypy.engine, lazy_task_pool, worker_pool)

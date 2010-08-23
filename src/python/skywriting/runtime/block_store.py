@@ -370,3 +370,6 @@ class BlockStore:
 
                 
         return filename
+
+    def is_empty(self):
+        return len(os.listdir(self.base_dir)) > 0
