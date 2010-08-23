@@ -60,16 +60,27 @@ class Job:
         self.result_ref = result_ref
         with self._lock:
             self._condition.notify_all()
+        self.stop_journalling()
             
     def failed(self):
         self.state = JOB_FAILED
         with self._lock:
             self._condition.notify_all()
 
+    def start_journalling(self):
+        if self.task_journal_fp is None and self.job_dir is not None:
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'a')
+
+    def stop_journalling(self):
+        if self.task_journal_fp is not None:
+            self.task_journal_fp.close()
+            
+        if self.job_dir is not None:
+            with open(os.path.join(self.job_dir, 'result'), 'w') as result_file:
+                simplejson.dump(self.result_ref, result_file, cls=SWReferenceJSONEncoder)
+
     def add_task(self, task, should_sync=False):
         with self._lock:
-            if self.task_journal_fp is None and self.job_dir is not None:
-                self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'a')
             self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
             if self.task_journal_fp is not None:
                 task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
@@ -179,6 +190,7 @@ class JobPool(plugins.SimplePlugin):
             return None
 
     def start_job(self, job):
+        job.start_journalling()
         self.task_pool.add_task(job.root_task, True)
 
     def wait_for_completion(self, job):

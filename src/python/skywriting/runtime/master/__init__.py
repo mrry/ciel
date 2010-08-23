@@ -50,7 +50,7 @@ def master_main(options):
     task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
     lazy_task_pool.subscribe()
     
-    job_pool = JobPool(cherrypy.engine, lazy_task_pool, None, global_name_directory)
+    job_pool = JobPool(cherrypy.engine, lazy_task_pool, options.journaldir, global_name_directory)
     job_pool.subscribe()
 
     local_hostname = socket.getfqdn()
