@@ -98,7 +98,6 @@ class LazyScheduler(AsynchronousExecutePlugin):
     # Based on TaskPool.add_task_to_queues()
     def add_task_to_worker_queues(self, task):
         best_worker = self.compute_best_worker_for_task(task)
-        task.state = TASK_QUEUED
         if best_worker is not None:
             best_worker.local_queue.put(task)
         handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)

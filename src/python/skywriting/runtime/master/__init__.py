@@ -33,6 +33,7 @@ import httplib2
 import tempfile
 import socket
 import cherrypy
+from skywriting.runtime.master.job_pool import JobPool
 
 def master_main(options):
 
@@ -47,6 +48,10 @@ def master_main(options):
 
     lazy_task_pool = LazyTaskPool(cherrypy.engine)
     task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
+    lazy_task_pool.subscribe()
+    
+    job_pool = JobPool(cherrypy.engine, lazy_task_pool, '', global_name_directory)
+    job_pool.subscribe()
 
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
@@ -58,7 +63,7 @@ def master_main(options):
     scheduler = LazyScheduler(cherrypy.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory, job_pool)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

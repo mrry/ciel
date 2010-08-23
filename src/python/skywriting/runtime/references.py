@@ -146,6 +146,9 @@ class SW2_ConcreteReference(SWRealReference):
                     existing_access_methods = set()
                 self.location_hints[netloc] = list(set(access_methods) | existing_access_methods)
         
+    def as_future(self):
+        return SW2_FutureReference(self.id, self.provenance)
+        
     def as_tuple(self):
         return('c2', str(self.id), self.provenance.as_tuple(), self.size_hint, self.location_hints)
         

@@ -65,7 +65,7 @@ class Task:
 
 class TaskPoolTask(Task):
     
-    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None):
+    def __init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None, job=None):
         Task.__init__(self, task_id, parent_task_id, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state)
         
         self.task_pool = task_pool
@@ -80,9 +80,17 @@ class TaskPoolTask(Task):
         
         self.worker_id = None
         self.saved_continuation_uri = None
+
+        self.job = job
         
         self.event_index = 0
         self.current_attempt = 0
+
+    def set_state(self, state):
+        if self.job is not None:
+            self.job.record_state_change(self.state, state)
+        self.state = state
+        
 
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
@@ -177,8 +185,9 @@ class TaskPoolTask(Task):
     # Warning: called under worker_pool._lock
     def set_assigned_to_worker(self, worker_id):
         self.worker_id = worker_id
-        self.state = TASK_ASSIGNED
-        self.record_event("ASSIGNED")
+        self.set_state(TASK_ASSIGNED)
+        #self.state = TASK_ASSIGNED
+        #self.record_event("ASSIGNED")
         #self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
 
     def make_replay_task(self, replay_task_id, replay_ref):

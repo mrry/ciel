@@ -14,15 +14,19 @@
 
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE,\
     TASK_ASSIGNED, TASK_COMMITTED, build_taskpool_task_from_descriptor,\
-    TASK_QUEUED
+    TASK_QUEUED, TASK_FAILED
 import collections
 from skywriting.runtime.references import SW2_FutureReference,\
-    SW2_ConcreteReference
+    SW2_ConcreteReference, SWErrorReference
 import uuid
 from threading import Lock
 from Queue import Queue
+from skywriting.runtime.master.job_pool import Job
+import cherrypy
+from cherrypy.process import plugins
+import logging
 
-class LazyTaskPool:
+class LazyTaskPool(plugins.SimplePlugin):
     
     def __init__(self, bus):
     
@@ -54,6 +58,12 @@ class LazyTaskPool:
         # published.
         self._lock = Lock()
         
+    def subscribe(self):
+        self.bus.subscribe('task_failed', self.task_failed)
+        
+    def unsubscribe(self):
+        self.bus.unsubscribe('task_failed', self.task_failed)
+        
     def get_task_by_id(self, task_id):
         return self.tasks[task_id]
         
@@ -64,9 +74,12 @@ class LazyTaskPool:
         
         self.tasks[task.task_id] = task
         if is_root_task:
-            # XXX: We should handle this with a separate job object.
-            self.job_outputs[task.expected_outputs[0]] = True
-            self.register_job_interest_for_output(task.expected_outputs[0])
+            self.job_outputs[task.expected_outputs[0]] = task.job
+            self.register_job_interest_for_output(task.expected_outputs[0], task.job)
+        else:
+            # The task inherits the parent task's job.
+            # XXX: We should probably do this outside the lazy task pool.
+            task.job.add_task(task)
         
         # If any of the task outputs are being waited on, we should reduce this
         # task's graph. 
@@ -78,7 +91,7 @@ class LazyTaskPool:
                 self.do_root_graph_reduction()
             
     def task_completed(self, task, commit_bindings):
-        task.state = TASK_COMMITTED
+        task.set_state(TASK_COMMITTED)
         worker_id = task.worker_id
         
         # Need to notify all of the consumers, which may make other tasks
@@ -89,8 +102,59 @@ class LazyTaskPool:
     def get_task_queue(self):
         return self.task_queue
         
-    def task_failed(self, task):
-        pass
+    def task_failed(self, task_id, reason, details=None):
+
+        cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
+        worker_id = None
+        should_notify_outputs = False
+        task = self.tasks[task_id]
+
+        with self._lock:
+            if reason == 'WORKER_FAILED':
+                # Try to reschedule task.
+                task.current_attempt += 1
+                # XXX: Remove this hard-coded constant. We limit the number of
+                #      retries in case the task is *causing* the failures.
+                if task.current_attempt > 3:
+                    task.set_state(TASK_FAILED)
+                    should_notify_outputs = True
+                else:
+                    cherrypy.log.error('Rescheduling task %s after worker failure' % task_id, 'TASKPOOL', logging.WARNING)
+                    task.set_state(TASK_FAILED)
+                    self.add_runnable_task(task)
+                    self.bus.publish('schedule')
+                    
+            elif reason == 'MISSING_INPUT':
+                # Problem fetching input, so we will have to re-execute it.
+                worker_id = task.worker_id
+                self.handle_missing_input(task, details)
+                
+            elif reason == 'RUNTIME_EXCEPTION':
+                # A hard error, so kill the entire job, citing the problem.
+                self.handle_runtime_exception(task)
+                worker_id = task.worker_id
+                task.set_state(TASK_FAILED)
+                should_notify_outputs = True
+
+        # Doing this outside the lock because this leads via add_refs_to_id
+        # --> self::reference_available, creating a circular wait. We noted the task as FAILED inside the lock,
+        # which ought to be enough.
+        if should_notify_outputs:
+            for output in task.expected_outputs:
+                self._publish_ref(output, SWErrorReference(reason, details))
+
+        if worker_id is not None:
+            self.bus.publish('worker_idle', worker_id)
+    
+    def handle_missing_input(self, task, input_ref):
+        task.set_state(TASK_FAILED)
+        
+        # We will re-reduce the graph for this task, ignoring the network
+        # locations for which getting the input failed.
+        assert isinstance(input_ref, SW2_ConcreteReference)
+        ignore_netlocs = input_ref.location_hints.keys()
+        
+        self.do_graph_reduction(root_tasks=[task], ignore_netlocs=ignore_netlocs)
     
     def publish_refs(self, refs):
         with self._lock:
@@ -116,8 +180,8 @@ class LazyTaskPool:
         try:
             consumers = self.consumers_for_output.pop(global_id)
             for consumer in consumers:
-                if consumer == "job":
-                    self.bus.publish('job_done', global_id, existing_ref)
+                if isinstance(consumer, Job):
+                    consumer.completed(existing_ref)
                 else:
                     self.notify_task_of_reference(consumer, global_id, existing_ref)
         except KeyError:
@@ -128,15 +192,15 @@ class LazyTaskPool:
         if not task.is_blocked():
             self.add_runnable_task(task)
                 
-    def register_job_interest_for_output(self, ref_id):
+    def register_job_interest_for_output(self, ref_id, job):
         try:
             subscribers = self.consumers_for_output[ref_id]
         except:
             subscribers = set()
             self.consumers_for_output[ref_id] = subscribers
-        subscribers.add("job")
+        subscribers.add(job)
             
-    def register_task_interest_for_ref(self, task, ref):
+    def register_task_interest_for_ref(self, task, ref, ignore_netlocs=[]):
         if isinstance(ref, SW2_FutureReference):
             # First, see if we already have a concrete reference for this
             # output.
@@ -156,6 +220,43 @@ class LazyTaskPool:
             return None
 
         elif isinstance(ref, SW2_ConcreteReference):
+
+            if len(ignore_netlocs) > 0:
+                # Exceptional case: we want to ignore the network locations
+                # corresponding to one or more failed workers.
+                
+                # In the mean time, the concrete reference may have been 
+                # updated with more locations, so compute the union of the
+                # location hints.
+                try:
+                    conc_ref = self.ref_for_output[ref.id]
+                    
+                    # We delete the reference, because we will either add back
+                    # a modified version, or the reference will be unavailable.
+                    del self.ref_for_output[ref.id]
+                    
+                    ref.combine_with(conc_ref)
+                except KeyError:
+                    pass
+            
+                # Delete the failed worker(s) from the combined reference.    
+                for netloc in ignore_netlocs:
+                    if ref.location_hints.has_key(netloc):
+                        del ref.location_hints[netloc]
+            
+                if len(ref.location_hints) > 0:
+                    # In this case, we got lucky because another task has
+                    # produced the output that we were seeking.
+                    # Store the updated reference minus the ignored netlocs.
+                    self.ref_for_output[ref.id] = ref
+                    return ref
+                else:
+                    # The reference is unavailable, so we will need to
+                    # reproduce its data.
+                    return self.register_task_interest_for_ref(task, 
+                                                               ref.as_future(),
+                                                               ignore_netlocs)
+                
             # We have a concrete reference for this name, but others may
             # be waiting on it, so publish it.
             self._publish_ref(ref.id, ref)
@@ -183,13 +284,13 @@ class LazyTaskPool:
             return False
     
     def add_runnable_task(self, task):
-        task.state = TASK_QUEUED
+        task.set_state(TASK_QUEUED)
         self.task_queue.put(task)
     
     def do_root_graph_reduction(self):
         self.do_graph_reduction(object_ids=self.job_outputs.keys())
     
-    def do_graph_reduction(self, object_ids=[], root_tasks=[]):
+    def do_graph_reduction(self, object_ids=[], root_tasks=[], ignore_netlocs=[]):
         
         should_schedule = False
         newly_active_task_queue = collections.deque()
@@ -200,7 +301,7 @@ class LazyTaskPool:
             task = self.task_for_output[object_id]
             if task.state == TASK_CREATED:
                 # Task has not yet been scheduled, so add it to the queue.
-                task.state = TASK_BLOCKING
+                task.set_state(TASK_BLOCKING)
                 newly_active_task_queue.append(task)
             
         for task in root_tasks:
@@ -217,37 +318,42 @@ class LazyTaskPool:
             # runnable.
             task_will_block = False
             for local_id, ref in task.dependencies.items():
-                conc_ref = self.register_task_interest_for_ref(task, ref)
+                conc_ref = self.register_task_interest_for_ref(task, 
+                                                               ref,
+                                                               ignore_netlocs=ignore_netlocs)
                 if conc_ref is not None:
                     task.inputs[local_id] = conc_ref
                 else:
                     
                     # The reference is a future that has not yet been produced,
                     # so block the task.
-                    assert isinstance(ref, SW2_FutureReference)
                     task_will_block = True
                     task.block_on(ref.id, local_id)
                     
                     # We may need to recursively check the inputs on the
                     # producing task for this reference.
-                    producing_task = self.task_for_output[ref.id]
+                    try:
+                        producing_task = self.task_for_output[ref.id]
+                    except KeyError:
+                        print ref
+                        producing_task = self.tasks[ref.provenance.task_id]
                     
-                    # XXX: This assertion may not be true when we start to do
-                    # fault-tolerance.
                     assert producing_task.state in (TASK_CREATED, 
-                                                    TASK_BLOCKING, 
+                                                    TASK_BLOCKING,
                                                     TASK_RUNNABLE, 
-                                                    TASK_ASSIGNED)
+                                                    TASK_QUEUED,
+                                                    TASK_ASSIGNED,
+                                                    TASK_COMMITTED)
 
                     # The producing task is inactive, so recursively visit it.                    
-                    if producing_task.state == TASK_CREATED:
-                        producing_task.state = TASK_BLOCKING
+                    if producing_task.state in (TASK_CREATED, TASK_COMMITTED):
+                        producing_task.set_state(TASK_BLOCKING)
                         newly_active_task_queue.append(producing_task)
             
             # If all inputs are available, we can now run this task. Otherwise,
             # it will run when its inputs are published.
             if not task_will_block:
-                task.state = TASK_RUNNABLE
+                task.set_state(TASK_RUNNABLE)
                 should_schedule = True
                 self.add_runnable_task(task)
                 
@@ -263,13 +369,14 @@ class LazyTaskPoolAdapter:
     def __init__(self, lazy_task_pool):
         self.lazy_task_pool = lazy_task_pool
      
-    def add_task(self, task_descriptor, parent_task_id=None):
+    def add_task(self, task_descriptor, parent_task_id=None, job=None):
         try:
             task_id = task_descriptor['task_id']
         except:
             task_id = self.generate_task_id()
         
         task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, parent_task_id)
+        task.job = job
         
         self.lazy_task_pool.add_task(task, parent_task_id is None)
         
@@ -288,8 +395,7 @@ class LazyTaskPoolAdapter:
         return self.lazy_task_pool.get_task_by_id(id)
     
     def spawn_child_tasks(self, parent_task, spawned_task_descriptors):
-        # TODO: stage this in a task-local transaction buffer.
-        
+
         if parent_task.is_replay_task():
             return
             
@@ -299,7 +405,7 @@ class LazyTaskPoolAdapter:
             except KeyError:
                 raise
             
-            task = self.add_task(child, parent_task.task_id)
+            task = self.add_task(child, parent_task.task_id, parent_task.job)
             parent_task.children.append(task.task_id)
             
             if task.continues_task is not None:

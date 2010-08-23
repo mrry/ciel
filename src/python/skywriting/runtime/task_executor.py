@@ -524,8 +524,8 @@ class SWRuntimeInterpreterTask:
         return self.create_uuid()
 
     def maybe_also_publish(self, concrete_ref):
-        if self.replay_ref is not None and concrete_ref.id == self.replay_ref.id:
-            self.additional_refs_to_publish.append(concrete_ref)
+        #if self.replay_ref is not None and concrete_ref.id == self.replay_ref.id:
+        self.additional_refs_to_publish.append(concrete_ref)
 
     def commit_result(self, block_store, master_proxy):
         

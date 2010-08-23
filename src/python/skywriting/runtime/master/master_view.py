@@ -11,11 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-'''
-Created on 8 Feb 2010
-
-@author: dgm36
-'''
 from __future__ import with_statement
 from cherrypy import HTTPError
 from skywriting.runtime.block_store import json_decode_object_hook,\
@@ -30,8 +25,9 @@ from skywriting.runtime.worker.worker_view import DataRoot
 
 class MasterRoot:
     
-    def __init__(self, task_pool, worker_pool, block_store, global_name_directory):
+    def __init__(self, task_pool, worker_pool, block_store, global_name_directory, job_pool):
         self.worker = WorkersRoot(worker_pool)
+        self.job = JobRoot(job_pool)
         self.task = MasterTaskRoot(global_name_directory, task_pool)
         self.streamtask = MasterStreamTaskRoot(global_name_directory, task_pool)
         self.data = DataRoot(block_store)
@@ -106,12 +102,61 @@ class WorkersRoot:
                 news_list = ping_contents['news']
                 cherrypy.engine.publish('worker_ping', real_id, worker_status, news_list)
             elif action == 'stopping':
-                cherrypy.engine.publish('worker_failed', real_id)
+                cherrypy.engine.publish('worker_failed', self.worker_pool.get_worker_by_id(real_id))
             else:
                 raise HTTPError(404)
         else:
             if action is None:
                 return simplejson.dumps(self.worker_pool.get_worker_by_id(real_id).as_descriptor())
+
+class JobRoot:
+    
+    def __init__(self, job_pool):
+        self.job_pool = job_pool
+        
+    @cherrypy.expose
+    def index(self):
+        if cherrypy.request.method == 'POST':
+            # 1. Read task descriptor from request.
+            task_descriptor = simplejson.loads(cherrypy.request.body.read(), 
+                                               object_hook=json_decode_object_hook)
+
+            # 2. Add to job pool (synchronously).
+            job = self.job_pool.create_job_for_task(task_descriptor)
+            
+            # 2a. Start job. Possibly do this as deferred work.
+            self.job_pool.start_job(job)
+            
+            # 3. Return descriptor for newly-created job.
+            return simplejson.dumps(job.as_descriptor())
+            
+        elif cherrypy.request.method == 'GET':
+            # Return a list of all jobs in the system.
+            return self.job_pool.get_all_job_ids()
+        else:
+            raise HTTPError(405)
+        
+    @cherrypy.expose
+    def default(self, id, attribute=None):
+        if cherrypy.request.method != 'GET':
+            raise HTTPError(405)
+        
+        try:
+            job = self.job_pool.get_job_by_id(id)
+        except KeyError:
+            raise HTTPError(404)
+        
+        if attribute is None:
+            # Return the job descriptor as JSON.
+            return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder, indent=4)
+        elif attribute == 'completion':
+            # Block until the job is completed.
+            self.job_pool.wait_for_completion(job)
+            return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder) 
+        else:
+            # Invalid attribute.
+            raise HTTPError(404)
+        
 
 class MasterStreamTaskRoot:
     

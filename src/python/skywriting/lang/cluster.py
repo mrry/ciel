@@ -82,17 +82,18 @@ def main():
     
     task_descriptor = {'inputs': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi'}
     
-    master_task_submit_uri = urlparse.urljoin(master_uri, "/task/")
+    master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
     
     print id, "SUBMITTED_JOB", now_as_timestamp() 
     
     
     out = simplejson.loads(content)
-    gd_url = urlparse.urljoin(master_uri, "/global_data/%s" % out['outputs'][0])
-    notify_url = urlparse.urljoin(master_uri, "/global_data/%s/completion" % out['outputs'][0])
+    
+    notify_url = urlparse.urljoin(master_uri, "/job/%s/completion" % out['job_id'])
+    job_url = urlparse.urljoin(master_uri, "/job/%s" % out['job_id'])
 
-    print id, "GLOBAL_DATA_URL", gd_url
+    print id, "JOB_URL", job_url
     
     #print "Blocking to get final result"
     (response, content) = http.request(notify_url)
@@ -103,7 +104,7 @@ def main():
     else:
         print id, "GOT_RESULT", now_as_timestamp()
         #print content
-        return completion_result["refs"][0]
+        return completion_result["result_ref"]
 
 if __name__ == '__main__':
     main()

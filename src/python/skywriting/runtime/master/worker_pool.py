@@ -136,9 +136,6 @@ class WorkerPool(plugins.SimplePlugin):
             worker = self.workers[worker_id]
             worker.current_task_id = task.task_id
             task.set_assigned_to_worker(worker_id)
-            task.state = TASK_ASSIGNED
-            task.record_event("ASSIGNED")
-            task.worker_id = worker_id
             self.event_count += 1
             self.event_condvar.notify_all()
             
@@ -147,7 +144,7 @@ class WorkerPool(plugins.SimplePlugin):
         except:
             print sys.exc_info()
             print 'Worker failed:', worker_id
-            self.worker_failed(worker_id)
+            self.worker_failed(worker)
             
     def abort_task_on_worker(self, task):
         worker_id = task.worker_id
@@ -162,20 +159,20 @@ class WorkerPool(plugins.SimplePlugin):
             else:
                 print response
                 print 'Worker failed to abort a task:', worker_id 
-                self.worker_failed(worker_id)
+                self.worker_failed(worker)
         except:
             print sys.exc_info()
             print 'Worker failed:', worker_id
-            self.worker_failed(worker_id)
+            self.worker_failed(worker)
     
-    def worker_failed(self, id):
+    def worker_failed(self, worker):
         with self._lock:
             self.event_count += 1
             self.event_condvar.notify_all()
-            self.idle_set.discard(id)
-            failed_task = self.workers[id].current_task_id
-            del self.netlocs[self.workers[id].netloc]
-            self.workers[id].failed = True
+            self.idle_set.discard(worker.id)
+            failed_task = worker.current_task_id
+            del self.netlocs[worker.netloc]
+            worker.failed = True
 
         if failed_task is not None:
             self.bus.publish('task_failed', failed_task, 'WORKER_FAILED')
@@ -231,7 +228,7 @@ class WorkerPool(plugins.SimplePlugin):
             response, _ = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
         except:
             print 'Worker', worker, 'has failed'
-            self.bus.publish('worker_failed', worker.id)
+            self.bus.publish('worker_failed', worker)
 
     def get_random_worker(self):
         with self._lock:
