@@ -11,23 +11,19 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-'''
-Created on Apr 15, 2010
-
-@author: derek
-'''
 from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
 from threading import Lock, Condition
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
-from skywriting.runtime.master.task_pool import TASK_ASSIGNED
 import random
 import datetime
 import sys
 import simplejson
 import httplib2
 import uuid
+import cherrypy
+import logging
 
 class FeatureQueues:
     def __init__(self):
@@ -111,6 +107,15 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.add(id)
             self.event_count += 1
             self.event_condvar.notify_all()
+            
+        try:
+            has_blocks = worker_descriptor['has_blocks']
+        except:
+            has_blocks = False
+            
+        if has_blocks:
+            cherrypy.log.error('%s has blocks, so will fetch' % str(worker), 'WORKER_POOL', logging.INFO)
+            self.bus.publish('fetch_block_list', worker)
             
         self.bus.publish('schedule')
         return id
@@ -246,3 +251,7 @@ class WorkerPool(plugins.SimplePlugin):
                     self.deferred_worker.do_deferred(lambda: self.investigate_worker_failure(failed_worker))
                     
             self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
+            
+    def fetch_blocks_from_worker(self, worker):
+        print 'Fetching blocks from worker:', worker
+        

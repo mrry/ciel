@@ -155,6 +155,10 @@ class LazyTaskPool(plugins.SimplePlugin):
         
         self.do_graph_reduction(root_tasks=[task], ignore_netlocs=ignore_netlocs)
     
+    def publish_single_ref(self, global_id, ref):
+        with self._lock:
+            self._publish_ref(global_id, ref)
+    
     def publish_refs(self, refs):
         with self._lock:
             for global_id, reflist in refs.items():

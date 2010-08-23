@@ -11,12 +11,6 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
-'''
-Created on 14 Apr 2010
-
-@author: dgm36
-'''
 from __future__ import with_statement
 from threading import Lock
 from urllib2 import URLError, HTTPError
@@ -31,6 +25,7 @@ import uuid
 import struct
 import tempfile
 import cherrypy
+import logging
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -39,6 +34,8 @@ from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, ACCESS_SWBS
 urlparse.uses_netloc.append("swbs")
+
+BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
 
 def get_netloc_for_sw_url(url):
     return urlparse.urlparse(url).netloc
@@ -361,15 +358,13 @@ class BlockStore:
             return random.choice(urls)
         
     def generate_block_list_file(self):
+        cherrypy.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
             filename = block_list_file.name
             for block_name in os.listdir(self.base_dir):
                 block_id = block_name
-                block_list_file.write(struct.pack('B', len(block_id)))
-                block_list_file.write(block_id)
-
-                
+                block_list_file.write(BLOCK_LIST_RECORD_STRUCT.pack(block_id, os.path.getsize(os.path.join(self.base_dir, block_id))))
         return filename
 
     def is_empty(self):
-        return len(os.listdir(self.base_dir)) > 0
+        return len(os.listdir(self.base_dir)) == 0

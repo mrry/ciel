@@ -35,6 +35,7 @@ import socket
 import cherrypy
 from skywriting.runtime.master.job_pool import JobPool
 import os
+from skywriting.runtime.master.recovery import RecoveryManager
 
 def master_main(options):
 
@@ -53,6 +54,9 @@ def master_main(options):
     
     job_pool = JobPool(cherrypy.engine, lazy_task_pool, options.journaldir, global_name_directory)
     job_pool.subscribe()
+
+    recovery_manager = RecoveryManager(cherrypy.engine, lazy_task_pool, deferred_worker)
+    recovery_manager.subscribe()
 
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')

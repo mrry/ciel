@@ -139,6 +139,18 @@ class SW2_ConcreteReference(SWRealReference):
         """Add the location hints from ref to this object."""
         if isinstance(ref, SW2_ConcreteReference):
             assert ref.id == self.id
+
+            # We attempt to upgrade the provenance if more information is 
+            # available from the merging reference. 
+            if isinstance(self.provenance, SWNoProvenance):
+                self.provenance = ref.provenance
+            
+            # We attempt to upgrade the size hint if more information is
+            # available from the merging reference.
+            if self.size_hint is None:
+                self.size_hint = ref.size_hint
+            
+            # We calculate the union of the two sets of location hints.
             for (netloc, access_methods) in ref.location_hints.items():
                 try:
                     existing_access_methods = set(self.location_hints[netloc])
