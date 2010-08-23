@@ -183,8 +183,8 @@ class TaskPoolTask(Task):
                 self.record_event("RUNNABLE")
         
     # Warning: called under worker_pool._lock
-    def set_assigned_to_worker(self, worker_id):
-        self.worker_id = worker_id
+    def set_assigned_to_worker(self, worker):
+        self.worker = worker
         self.set_state(TASK_ASSIGNED)
         #self.state = TASK_ASSIGNED
         #self.record_event("ASSIGNED")
@@ -207,7 +207,8 @@ class TaskPoolTask(Task):
         
         if long:
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
-            descriptor['worker_id'] = self.worker_id
+            if self.worker is not None:
+                descriptor['worker_id'] = self.worker.id
             descriptor['saved_continuation_uri'] = self.saved_continuation_uri
             descriptor['state'] = TASK_STATE_NAMES[self.state]
             descriptor['parent'] = self.parent

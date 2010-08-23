@@ -53,7 +53,7 @@ class LazyScheduler(AsynchronousExecutePlugin):
                     # Skip over tasks that have been aborted or otherwise scheduled.
                     while task.state != TASK_QUEUED:
                         task = worker.queues[attempt_count].get(block=False)
-                    self.worker_pool.execute_task_on_worker_id(worker.id, task)
+                    self.worker_pool.execute_task_on_worker(worker, task)
                 except Empty:
                     # Try again on next round of attempts.
                     retry_workers.append(worker)

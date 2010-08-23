@@ -92,22 +92,22 @@ class WorkersRoot:
     @cherrypy.expose
     def default(self, worker_id, action=None):
         try:
-            real_id = worker_id
-        except:
+            worker = self.worker_pool.get_worker_by_id(worker_id)
+        except KeyError:
             raise HTTPError(404)
         if cherrypy.request.method == 'POST':
             if action == 'ping':
                 ping_contents = simplejson.loads(cherrypy.request.body.read())
                 worker_status = ping_contents['status']
                 news_list = ping_contents['news']
-                cherrypy.engine.publish('worker_ping', real_id, worker_status, news_list)
+                cherrypy.engine.publish('worker_ping', worker, worker_status, news_list)
             elif action == 'stopping':
-                cherrypy.engine.publish('worker_failed', self.worker_pool.get_worker_by_id(real_id))
+                cherrypy.engine.publish('worker_failed', worker)
             else:
                 raise HTTPError(404)
         else:
             if action is None:
-                return simplejson.dumps(self.worker_pool.get_worker_by_id(real_id).as_descriptor())
+                return simplejson.dumps(worker.as_descriptor())
 
 class JobRoot:
     
@@ -344,9 +344,9 @@ class GlobalDataRoot:
                 task_id = self.global_name_directory.get_task_for_id(real_id)
                 task = self.task_pool.get_task_by_id(task_id)
                 task_descriptor = task.as_descriptor(long=True)
-                task_descriptor['is_running'] = task.worker_id is not None
-                if task.worker_id is not None:
-                    task_descriptor['worker'] = self.worker_pool.get_worker_by_id(task.worker_id).as_descriptor()
+                task_descriptor['is_running'] = task.worker is not None
+                if task.worker is not None:
+                    task_descriptor['worker'] = task.worker.as_descriptor()
                 return simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder)
             else:
                 raise HTTPError(405)

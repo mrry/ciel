@@ -130,12 +130,11 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             return map(lambda x: self.workers[x], self.idle_set)
     
-    def execute_task_on_worker_id(self, worker_id, task):
+    def execute_task_on_worker(self, worker, task):
         with self._lock:
-            self.idle_set.remove(worker_id)
-            worker = self.workers[worker_id]
+            self.idle_set.remove(worker.id)
             worker.current_task_id = task.task_id
-            task.set_assigned_to_worker(worker_id)
+            task.set_assigned_to_worker(worker)
             self.event_count += 1
             self.event_condvar.notify_all()
             
@@ -143,26 +142,24 @@ class WorkerPool(plugins.SimplePlugin):
             httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
             print sys.exc_info()
-            print 'Worker failed:', worker_id
+            print 'Worker failed:', worker
             self.worker_failed(worker)
             
     def abort_task_on_worker(self, task):
-        worker_id = task.worker_id
-        with self._lock:
-            worker = self.workers[worker_id]
+        worker = task.worker
     
         try:
-            print "Aborting task %d on worker %s" % (task.task_id, worker_id)
+            print "Aborting task %d on worker %s" % (task.task_id, worker)
             response, _ = httplib2.Http().request('http://%s/task/%d/abort' % (worker.netloc, task.task_id), 'POST')
             if response.status == 200:
-                self.worker_idle(worker_id)
+                self.worker_idle(worker)
             else:
                 print response
-                print 'Worker failed to abort a task:', worker_id 
+                print 'Worker failed to abort a task:', worker 
                 self.worker_failed(worker)
         except:
             print sys.exc_info()
-            print 'Worker failed:', worker_id
+            print 'Worker failed:', worker
             self.worker_failed(worker)
     
     def worker_failed(self, worker):
@@ -177,17 +174,16 @@ class WorkerPool(plugins.SimplePlugin):
         if failed_task is not None:
             self.bus.publish('task_failed', failed_task, 'WORKER_FAILED')
         
-    def worker_idle(self, id):
+    def worker_idle(self, worker):
         with self._lock:
-            self.workers[id].current_task_id = None
-            self.idle_set.add(id)
+            worker.current_task_id = None
+            self.idle_set.add(worker.id)
             self.event_count += 1
             self.event_condvar.notify_all()
         self.bus.publish('schedule')
             
-    def worker_ping(self, id, status, ping_news):
+    def worker_ping(self, worker, status, ping_news):
         with self._lock:
-            worker = self.workers[id]
             self.event_count += 1
             self.event_condvar.notify_all()
         worker.last_ping = datetime.datetime.now()

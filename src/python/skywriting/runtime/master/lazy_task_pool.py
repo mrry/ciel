@@ -92,12 +92,12 @@ class LazyTaskPool(plugins.SimplePlugin):
             
     def task_completed(self, task, commit_bindings):
         task.set_state(TASK_COMMITTED)
-        worker_id = task.worker_id
+        worker = task.worker
         
         # Need to notify all of the consumers, which may make other tasks
         # runnable.
         self.publish_refs(commit_bindings)
-        self.bus.publish('worker_idle', worker_id)
+        self.bus.publish('worker_idle', worker)
         
     def get_task_queue(self):
         return self.task_queue
@@ -105,7 +105,7 @@ class LazyTaskPool(plugins.SimplePlugin):
     def task_failed(self, task_id, reason, details=None):
 
         cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
-        worker_id = None
+        worker = None
         should_notify_outputs = False
         task = self.tasks[task_id]
 
@@ -126,13 +126,13 @@ class LazyTaskPool(plugins.SimplePlugin):
                     
             elif reason == 'MISSING_INPUT':
                 # Problem fetching input, so we will have to re-execute it.
-                worker_id = task.worker_id
+                worker = task.worker
                 self.handle_missing_input(task, details)
                 
             elif reason == 'RUNTIME_EXCEPTION':
                 # A hard error, so kill the entire job, citing the problem.
                 self.handle_runtime_exception(task)
-                worker_id = task.worker_id
+                worker = task.worker
                 task.set_state(TASK_FAILED)
                 should_notify_outputs = True
 
@@ -143,8 +143,8 @@ class LazyTaskPool(plugins.SimplePlugin):
             for output in task.expected_outputs:
                 self._publish_ref(output, SWErrorReference(reason, details))
 
-        if worker_id is not None:
-            self.bus.publish('worker_idle', worker_id)
+        if worker is not None:
+            self.bus.publish('worker_idle', worker)
     
     def handle_missing_input(self, task, input_ref):
         task.set_state(TASK_FAILED)
