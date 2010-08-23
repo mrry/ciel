@@ -23,13 +23,35 @@ from Queue import Queue, Empty
 from skywriting.runtime.plugins import THREAD_TERMINATOR
 import threading
     
+class PingerPoker:
+    pass
+PINGER_POKER = PingerPoker()
+    
 class Pinger(plugins.SimplePlugin):
+    '''
+    The pinger maintains the connection between a worker and the master. It
+    serves two roles:
+    
+    1. At start up, the pinger is responsible for making the initial connection
+       to the master. It periodically attempts registration.
+       
+    2. During normal operation, the pinger sends a heartbeat message every 30
+       seconds to the master. The timeout is configurable, using the
+       ping_timeout argument to the constructor.
+       
+    If the ping should fail, the pinger will attempt to re-register with a 
+    master at the same URL. The master can be changed using the /master/ URI on
+    the worker.
+    '''
     
     def __init__(self, bus, master_proxy, status_provider=None, ping_timeout=30):
         plugins.SimplePlugin.__init__(self, bus)
         self.queue = Queue()
         self.non_urgent_queue = Queue()
+        
+        self.is_connected = False
         self.is_running = False
+        
         self.thread = None
         self.master_proxy = master_proxy
         self.status_provider = status_provider
@@ -38,14 +60,12 @@ class Pinger(plugins.SimplePlugin):
     def subscribe(self):
         self.bus.subscribe('start', self.start)
         self.bus.subscribe('stop', self.stop)
-        self.bus.subscribe('ping_now', self.ping_now)
-        self.bus.subscribe('ping_non_urgent', self.ping_non_urgent)
+        self.bus.subscribe('poke', self.poke)
         
     def unsubscribe(self):
         self.bus.unsubscribe('start', self.start)
         self.bus.unsubscribe('stop', self.stop)
-        self.bus.unsubscribe('ping_now', self.ping_now)
-        self.bus.unsubscribe('ping_non_urgent', self.ping_non_urgent)
+        self.bus.unsubscribe('poke', self.poke)
                 
     def start(self):
         if not self.is_running:
@@ -59,51 +79,45 @@ class Pinger(plugins.SimplePlugin):
             self.queue.put(THREAD_TERMINATOR)
             self.thread.join()
             self.thread = None
-    
-    def ping_now(self, message=None):
-        self.queue.put(message)
         
-    def ping_non_urgent(self, message):
-        self.non_urgent_queue.put(message)
+    def poke(self):
+        self.queue.put(PINGER_POKER)
         
     def thread_main(self):
+        
         while True:
             
-            ping_news = []
+            # While not connected, attempt to register as a new worker.
+            while not self.is_connected:
             
-            try:
-                new_thing = self.queue.get(block=True, timeout=self.ping_timeout)
-                if not self.is_running or new_thing is THREAD_TERMINATOR:
+                try:    
+                    self.master_proxy.register_as_worker()
+                    self.is_connected = True
+                    break
+                except:
                     pass
-                elif new_thing is not None:
-                    ping_news.append(new_thing)
-            except Empty:
-                pass
             
-            if self.is_running:
+                try:
+                    maybe_terminator = self.queue.get(block=True, timeout=self.ping_timeout)
+                    if not self.is_running or maybe_terminator is THREAD_TERMINATOR:
+                        return
+                except Empty:
+                    pass
+            
+            # While connected, periodically ping the master.
+            while self.is_connected:
                 
                 try:
-                    while True:
-                        ping_news.append(self.queue.get_nowait())
+                    new_thing = self.queue.get(block=True, timeout=self.ping_timeout)
+                    if not self.is_connected or not self.is_running or new_thing is THREAD_TERMINATOR:
+                        break
                 except Empty:
                     pass
                 
                 try:
-                    while True:
-                        ping_news.append(self.non_urgent_queue.get_nowait())
-                except Empty:
-                    pass
-            
-            if self.status_provider is not None:
-                status = self.status_provider.current_status()
-            else:
-                status = None 
-            
-            try:
-                self.master_proxy.ping(status, ping_news)
-            except:
-                for news in ping_news:
-                    self.non_urgent_queue.put(news)
-            
+                    self.master_proxy.ping()
+                except:
+                    self.is_connected = False
+                
             if not self.is_running:
                 break

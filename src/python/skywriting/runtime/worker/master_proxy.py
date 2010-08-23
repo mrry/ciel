@@ -44,8 +44,9 @@ class MasterProxy(SimplePlugin):
         self.stop_event = Event()
 
     def subscribe(self):
+        # Stopping is high-priority
         self.bus.subscribe("stop", self.handle_shutdown, 10)
-        # High priority
+
 
     def unsubscribe(self):
         self.bus.unsubscribe("stop", self.handle_shutdown)
@@ -117,13 +118,9 @@ class MasterProxy(SimplePlugin):
         message_url = urljoin(self.master_url, 'task/%s/failed' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
 
-    def ping(self, status, ping_news):
-        message_payload = simplejson.dumps({'worker': self.worker.netloc(), 'status': status, 'news': ping_news})
+    def ping(self):
         message_url = urljoin(self.master_url, 'worker/%s/ping/' % (str(self.worker.id), ))
-        try:
-            self.backoff_request(message_url, "POST", message_payload, 1, 0)
-        except MasterNotRespondingException:
-            pass
+        self.backoff_request(message_url, "POST", "PING", 1, 0)
         
     def get_task_descriptor_for_future(self, ref):
         message_url = urljoin(self.master_url, 'global_data/%d/task' % (ref.id, ))

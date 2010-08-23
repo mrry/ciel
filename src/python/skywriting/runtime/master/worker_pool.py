@@ -182,7 +182,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.event_condvar.notify_all()
         self.bus.publish('schedule')
             
-    def worker_ping(self, worker, status, ping_news):
+    def worker_ping(self, worker):
         with self._lock:
             self.event_count += 1
             self.event_condvar.notify_all()

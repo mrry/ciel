@@ -86,12 +86,12 @@ class Worker(plugins.SimplePlugin):
         return '%s:%d' % (self.hostname, self.port)
 
     def as_descriptor(self):
-        return {'netloc': self.netloc(), 'features': self.execution_features.all_features()}
+        return {'netloc': self.netloc(), 'features': self.execution_features.all_features(), 'has_blocks': not self.block_store.is_empty()}
 
     def set_master(self, master_details):
         self.master_url = master_details['master']
         self.master_proxy.change_master(self.master_url)
-        self.master_proxy.register_as_worker()
+        self.pinger.poke()
 
     def start_running(self):
 
@@ -101,13 +101,6 @@ class Worker(plugins.SimplePlugin):
             cherrypy.engine.signal_handler.subscribe()
         if hasattr(cherrypy.engine, "console_control_handler"):
             cherrypy.engine.console_control_handler.subscribe()
-
-        try:
-            self.master_proxy.register_as_worker()
-        except:
-            cherrypy.log.error("Error registering with master: %s" % (self.master_url, ), 'WORKER', logging.WARNING, True)
-            pass
-        
         cherrypy.engine.block()
 
     def stop(self):

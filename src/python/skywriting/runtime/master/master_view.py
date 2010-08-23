@@ -97,10 +97,7 @@ class WorkersRoot:
             raise HTTPError(404)
         if cherrypy.request.method == 'POST':
             if action == 'ping':
-                ping_contents = simplejson.loads(cherrypy.request.body.read())
-                worker_status = ping_contents['status']
-                news_list = ping_contents['news']
-                cherrypy.engine.publish('worker_ping', worker, worker_status, news_list)
+                cherrypy.engine.publish('worker_ping', worker)
             elif action == 'stopping':
                 cherrypy.engine.publish('worker_failed', worker)
             else:
