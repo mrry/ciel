@@ -61,8 +61,8 @@ class WorkersRoot:
             worker_id = self.worker_pool.create_worker(worker_descriptor)
             return simplejson.dumps(str(worker_id))
         elif cherrypy.request.method == 'GET':
-            workers = self.worker_pool.get_all_workers()
-            return simplejson.dumps(workers)
+            workers = [x.as_descriptor() for x in self.worker_pool.get_all_workers()]
+            return simplejson.dumps(workers, indent=4)
         else:
             raise HTTPError(405)
 
@@ -129,7 +129,7 @@ class JobRoot:
             
         elif cherrypy.request.method == 'GET':
             # Return a list of all jobs in the system.
-            return self.job_pool.get_all_job_ids()
+            return simplejson.dumps(self.job_pool.get_all_job_ids())
         else:
             raise HTTPError(405)
         
