@@ -55,7 +55,7 @@ def master_main(options):
     job_pool = JobPool(cherrypy.engine, lazy_task_pool, options.journaldir, global_name_directory)
     job_pool.subscribe()
 
-    recovery_manager = RecoveryManager(cherrypy.engine, lazy_task_pool, deferred_worker)
+    recovery_manager = RecoveryManager(cherrypy.engine, job_pool, lazy_task_pool, deferred_worker)
     recovery_manager.subscribe()
 
     local_hostname = socket.getfqdn()
