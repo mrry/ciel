@@ -334,6 +334,10 @@ class SWRuntimeInterpreterTask:
         self.exec_result_counter = 0
         self.spawn_exec_counter = 0
         
+        # This should be the same as the length of the spawn list, outside 
+        # calls to spawn_func and spawn_exec_func.
+        self.spawn_counter = 0
+        
     def abort(self):
         self.is_running = False
         if self.current_executor is not None:
@@ -424,7 +428,7 @@ class SWRuntimeInterpreterTask:
             
             select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
                         
-            cont_task_id = self.create_uuid()
+            cont_task_id = self.create_spawned_task_name()
                         
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',
@@ -444,7 +448,7 @@ class SWRuntimeInterpreterTask:
                 if (not isinstance(self.continuation.resolve_tasklocal_reference_with_index(index), SWDataValue)) and \
                    (self.continuation.is_marked_as_dereferenced(index) or self.continuation.is_marked_as_execd(index)):
                     cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index)
-            cont_task_id = self.create_uuid()
+            cont_task_id = self.create_spawned_task_name()
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',
                                     'inputs': cont_deps, # _cont will be added at spawn time.
@@ -470,6 +474,9 @@ class SWRuntimeInterpreterTask:
 
     def spawn_all(self, block_store, master_proxy):
         current_batch = []
+        
+        if len(self.spawn_list) == 0:
+            return
         
         current_index = 0
         while current_index < len(self.spawn_list):
@@ -498,8 +505,8 @@ class SWRuntimeInterpreterTask:
                 
                 # Store the continuation and add it to the task descriptor.
                 if current_cont is not None:
-                    spawned_cont_id = self.get_spawn_continuation_object_id()
-                    cont_url, size_hint = block_store.store_object(current_cont, 'pickle', spawned_cont_id)
+                    spawned_cont_id = self.get_spawn_continuation_object_id(self.spawn_list[current_index].id)
+                    _, size_hint = block_store.store_object(current_cont, 'pickle', spawned_cont_id)
                     spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, SWSpawnedTaskProvenance(self.original_task_id, current_index), size_hint)
                     spawned_cont_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
                     self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = spawned_cont_ref
@@ -517,11 +524,11 @@ class SWRuntimeInterpreterTask:
             # Fire off the current batch.
             master_proxy.spawn_tasks(self.task_id, current_batch)
             
-    def get_spawn_continuation_object_id(self):
-        return self.create_uuid()
+    def get_spawn_continuation_object_id(self, task_id):
+        return '%s:cont' % (task_id, )
 
-    def get_continuation_object_id(self):
-        return self.create_uuid()
+    def get_saved_continuation_object_id(self):
+        return '%s:saved_cont' % (self.task_id, )
 
     def maybe_also_publish(self, concrete_ref):
         #if self.replay_ref is not None and concrete_ref.id == self.replay_ref.id:
@@ -540,7 +547,7 @@ class SWRuntimeInterpreterTask:
         
         if self.result is None:
             if self.save_continuation:
-                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_continuation_object_id())
+                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
             else:
                 save_cont_uri = None
             master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri, self.replay_uuid_list)
@@ -558,7 +565,7 @@ class SWRuntimeInterpreterTask:
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
         
         if self.save_continuation:
-            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.create_uuid())
+            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
         else:
             save_cont_uri = None
         
@@ -590,6 +597,16 @@ class SWRuntimeInterpreterTask:
         
         return cont
 
+    def create_spawned_task_name(self):
+        sha = hashlib.sha1()
+        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
+        ret = sha.hexdigest()
+        self.spawn_counter += 1
+        return ret
+    
+    def create_spawn_output_name(self, task_id):
+        return 'swi:%s' % task_id
+    
     def spawn_func(self, spawn_expr, args):
         args = map_leaf_values(self.check_no_thunk_mapper, args)        
 
@@ -599,13 +616,13 @@ class SWRuntimeInterpreterTask:
         
         
         # Append the new task definition to the spawn list.
-        new_task_id = self.create_uuid()
-        expected_output_id = self.create_uuid()
+        new_task_id = self.create_spawned_task_name()
+        expected_output_id = self.create_spawn_output_name(new_task_id)
         
         # Match up the output with a new tasklocal reference.
         ret = self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_id, SWTaskOutputProvenance(new_task_id, 0)))
         
-        task_descriptor = {'task_id': str(new_task_id),
+        task_descriptor = {'task_id': new_task_id,
                            'handler': 'swi',
                            'inputs': {},
                            'expected_outputs': [str(expected_output_id)] # _cont will be added later
@@ -621,7 +638,6 @@ class SWRuntimeInterpreterTask:
         # Return local reference to the interpreter.
         return ret
 
-
     def check_no_thunk_mapper(self, leaf):
         if isinstance(leaf, SWDereferenceWrapper):
             return self.eager_dereference(leaf.ref)
@@ -630,12 +646,12 @@ class SWRuntimeInterpreterTask:
    
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
         
-        new_task_id = self.create_uuid()
+        new_task_id = self.create_spawned_task_name()
         inputs = {}
         
         args = map_leaf_values(self.check_no_thunk_mapper, exec_args)
 
-        expected_output_ids = self.create_exec_output_names(executor_name, args, num_outputs)
+        args_id, expected_output_ids = self.create_names_for_exec(executor_name, args, num_outputs)
         ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
 
         def args_check_mapper(leaf):
@@ -648,8 +664,7 @@ class SWRuntimeInterpreterTask:
             return leaf
         
         transformed_args = map_leaf_values(args_check_mapper, args)
-        args_id = self.create_uuid()
-        args_url, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
+        _, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
         args_ref = SW2_ConcreteReference(args_id, SWSpawnExecArgsProvenance(self.original_task_id, self.spawn_exec_counter), size_hint)
         self.spawn_exec_counter += 1
         args_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
@@ -657,7 +672,7 @@ class SWRuntimeInterpreterTask:
         
         inputs['_args'] = args_ref
 
-        task_descriptor = {'task_id': str(new_task_id),
+        task_descriptor = {'task_id': new_task_id,
                            'handler': executor_name, 
                            'inputs': inputs,
                            'expected_outputs': expected_output_ids}
@@ -666,18 +681,21 @@ class SWRuntimeInterpreterTask:
         
         return ret
     
-    def create_exec_output_names(self, executor_name, real_args, num_outputs):
+    def create_names_for_exec(self, executor_name, real_args, num_outputs):
         sha = hashlib.sha1()
         self.hash_update_with_structure(sha, [real_args, num_outputs])
         prefix = '%s:%s:' % (executor_name, sha.hexdigest())
         print '### [spawn_]exec output prefix:', prefix
-        return ['%s%d' % (prefix, i) for i in range(num_outputs)] 
+        
+        args_name = '%sargs' % (prefix, )
+        output_names = ['%s%d' % (prefix, i) for i in range(num_outputs)]
+        return args_name, output_names
     
     def exec_func(self, executor_name, args, num_outputs):
         
         real_args = map_leaf_values(self.check_no_thunk_mapper, args)
 
-        output_ids = self.create_exec_output_names(executor_name, real_args, num_outputs)
+        _, output_ids = self.create_names_for_exec(executor_name, real_args, num_outputs)
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
         self.current_executor.execute(self.block_store)
