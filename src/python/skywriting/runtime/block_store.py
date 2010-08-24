@@ -357,6 +357,12 @@ class BlockStore:
                     return url
             return random.choice(urls)
         
+    def block_list_generator(self):
+        cherrypy.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
+        for block_name in os.listdir(self.base_dir):
+            block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
+            yield block_name, block_size
+    
     def generate_block_list_file(self):
         cherrypy.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
