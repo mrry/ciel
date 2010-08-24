@@ -130,7 +130,6 @@ class LazyTaskPool(plugins.SimplePlugin):
                 
             elif reason == 'RUNTIME_EXCEPTION':
                 # A hard error, so kill the entire job, citing the problem.
-                self.handle_runtime_exception(task)
                 worker = task.worker
                 task.set_state(TASK_FAILED)
                 should_notify_outputs = True
@@ -425,4 +424,4 @@ class LazyTaskPoolAdapter:
             commit_continuation_uri = commit_payload['saved_continuation_uri']
             task.saved_continuation_uri = commit_continuation_uri
         except KeyError:
-            pass                
+            pass
