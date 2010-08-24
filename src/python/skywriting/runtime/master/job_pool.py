@@ -55,6 +55,8 @@ class Job:
         self._lock = Lock()
         self._condition = Condition(self._lock)
 
+        self.start_journalling()
+
         if root_task is not None:
             self.add_task(root_task, True)
 
@@ -182,7 +184,7 @@ class JobPool(plugins.SimplePlugin):
             task_descriptor['expected_outputs'] = expected_outputs
             
         task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, None)
-        job = Job(self.allocate_job_id(), task, job_dir)
+        job = Job(job_id, task, job_dir)
         task.job = job
         
         self.add_job(job)
