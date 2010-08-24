@@ -22,27 +22,40 @@ import cherrypy
 import os
 import simplejson
 from skywriting.runtime.master.job_pool import TASK_DESCRIPTOR_LENGTH_STRUCT,\
-    Job
+    Job, JOB_ACTIVE
 from skywriting.runtime.task import build_taskpool_task_from_descriptor
 
 class RecoveryManager(plugins.SimplePlugin):
     
-    def __init__(self, bus, job_pool, task_pool, deferred_worker):
+    def __init__(self, bus, job_pool, task_pool, block_store, deferred_worker):
         plugins.SimplePlugin.__init__(self, bus)
         self.job_pool = job_pool
         self.task_pool = task_pool
+        self.block_store = block_store
         self.deferred_worker = deferred_worker
         
     def subscribe(self):
-        # In order to present a consistent view to clients, we must do this
+        # In order to present a consistent view to clients, we must do these
         # before starting the webserver.
+        self.bus.subscribe('start', self.recover_local_blocks, 5)
         self.bus.subscribe('start', self.recover_job_descriptors, 10)
+        
         
         self.bus.subscribe('fetch_block_list', self.fetch_block_list_defer)
     
     def unsubscribe(self):
+        self.bus.unsubscribe('start', self.recover_local_blocks)
         self.bus.unsubscribe('start', self.recover_job_descriptors)
         self.bus.unsubscribe('fetch_block_list', self.fetch_block_list_defer)
+
+    def recover_local_blocks(self):
+        if not self.block_store.is_empty():
+            for block_name, block_size in self.block_store.block_list_generator():
+                conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), 
+                                                 block_size)
+                conc_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+                #cherrypy.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
+                self.task_pool.publish_single_ref(block_name, conc_ref)                
 
     def recover_job_descriptors(self):
         root = self.job_pool.journal_root
@@ -69,11 +82,18 @@ class RecoveryManager(plugins.SimplePlugin):
                 root_task_id = root_task_descriptor['task_id']
                 root_task = build_taskpool_task_from_descriptor(root_task_id, root_task_descriptor, self.task_pool, None)
                 job = Job(job_id, root_task, job_dir)
+                root_task.job = job
                 if result is not None:
                     job.completed(result)
                 self.job_pool.add_job(job)
                 
-                self.load_other_tasks_defer(job, journal_file)
+                if result is None:
+                    self.load_other_tasks_defer(job, journal_file)
+                else:
+                    journal_file.close()
+                
+                cherrypy.log.error('Recovered job %s' % job_id, 'RECOVERY', logging.INFO, False)
+                cherrypy.log.error('Recovered task %s for job %s' % (root_task_id, job_id), 'RECOVERY', logging.INFO, False)
                 
             except:
                 # We have lost critical data for the job, so we must fail it.
@@ -91,9 +111,11 @@ class RecoveryManager(plugins.SimplePlugin):
             while True:
                 td_length, = TASK_DESCRIPTOR_LENGTH_STRUCT.unpack(journal_file.read(TASK_DESCRIPTOR_LENGTH_STRUCT.size))
                 if td_length != TASK_DESCRIPTOR_LENGTH_STRUCT.size:
+                    cherrypy.log.error('Journal entry truncated for job %s' % job.id, 'RECOVERY', logging.WARNING, False)
                     break
                 td_string = journal_file.read(td_length)
                 if len(td_string) != td_length:
+                    cherrypy.log.error('Journal entry truncated for job %s' % job.id, 'RECOVERY', logging.WARNING, False)
                     break
                 td = simplejson.loads(td_string, object_jook=json_decode_object_hook)
                 task_id = td['task_id']
@@ -101,6 +123,8 @@ class RecoveryManager(plugins.SimplePlugin):
                 task = build_taskpool_task_from_descriptor(task_id, td, self.task_pool, parent_task)
                 task.job = job
                 task.parent.children.append(task)
+
+                cherrypy.log.error('Recovered task %s for job %s' % (task_id, job.id), 'RECOVERY', logging.INFO, False)
                 self.task_pool.add_task(task)
 
         except:
@@ -108,9 +132,11 @@ class RecoveryManager(plugins.SimplePlugin):
 
         finally:
             journal_file.close()
+            if job.state == JOB_ACTIVE:
+                cherrypy.log.error('Restarting recovered job %s' % job.id, 'RECOVERY', logging.INFO)
+            self.job_pool.start_job(job)
 
     def fetch_block_list_defer(self, worker):
-        print 'In fetch_block_list_defer'
         self.deferred_worker.do_deferred(lambda: self.fetch_block_names_from_worker(worker))
         
     def fetch_block_names_from_worker(self, worker):
@@ -118,8 +144,6 @@ class RecoveryManager(plugins.SimplePlugin):
         Loop through the block list file from the given worker, and publish the
         references found there.
         '''
-        
-        print 'In fetch_block_names_from_worker(%s)' % str(worker)
         
         block_file = urllib2.urlopen('http://%s/data/' % worker.netloc)
 
@@ -132,7 +156,7 @@ class RecoveryManager(plugins.SimplePlugin):
                                              block_size)
             conc_ref.add_location_hint(worker.netloc, ACCESS_SWBS)
             
-            cherrypy.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
+            #cherrypy.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
             self.task_pool.publish_single_ref(block_name, conc_ref)
 
         

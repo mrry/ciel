@@ -55,11 +55,9 @@ def master_main(options):
     job_pool = JobPool(cherrypy.engine, lazy_task_pool, options.journaldir, global_name_directory)
     job_pool.subscribe()
 
-    recovery_manager = RecoveryManager(cherrypy.engine, job_pool, lazy_task_pool, deferred_worker)
-    recovery_manager.subscribe()
-
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
+    master_netloc = '%s:%d' % (local_hostname, local_port)
     print 'Local port is', local_port
     master_proxy = LocalMasterProxy(task_pool_adapter, None, global_name_directory, worker_pool)
     
@@ -70,6 +68,9 @@ def master_main(options):
 
     block_store = BlockStore(local_hostname, local_port, block_store_dir, master_proxy)
     master_proxy.block_store = block_store
+
+    recovery_manager = RecoveryManager(cherrypy.engine, job_pool, lazy_task_pool, block_store, deferred_worker)
+    recovery_manager.subscribe()
 
     scheduler = LazyScheduler(cherrypy.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
@@ -95,7 +96,7 @@ def master_main(options):
     
     
     if options.workerlist is not None:
-        master_details = {'netloc': '%s:%d' % (local_hostname, local_port)}
+        master_details = {'netloc': master_netloc}
         master_details_as_json = simplejson.dumps(master_details)
         with (open(options.workerlist, "r")) as f:
             for worker_url in f.readlines():
