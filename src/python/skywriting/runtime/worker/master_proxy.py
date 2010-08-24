@@ -21,7 +21,7 @@ from urlparse import urljoin
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,\
     json_decode_object_hook
 from skywriting.runtime.exceptions import MasterNotRespondingException,\
-    WorkerShutdownException
+    WorkerShutdownException, RuntimeSkywritingError
 import logging
 import random
 import cherrypy
@@ -60,7 +60,7 @@ class MasterProxy(SimplePlugin):
     def handle_shutdown(self):
         self.stop_event.set()
     
-    def backoff_request(self, url, method, payload=None, num_attempts=3, initial_wait=5):
+    def backoff_request(self, url, method, payload=None, num_attempts=1, initial_wait=0):
         initial_wait = 5
         for i in range(0, num_attempts):
             if self.stop_event.is_set():
@@ -72,8 +72,9 @@ class MasterProxy(SimplePlugin):
                 if response.status == 200:
                     return response, content
                 else:
-                    cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
-                    cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, True)
+                    cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
+                    cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
+                    raise RuntimeSkywritingError()
             except:
                 cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
             self.stop_event.wait(initial_wait)
