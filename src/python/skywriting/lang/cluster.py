@@ -80,7 +80,7 @@ def main():
     
     #print continuation_uri
     
-    task_descriptor = {'inputs': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi'}
+    task_descriptor = {'dependencies': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi'}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))

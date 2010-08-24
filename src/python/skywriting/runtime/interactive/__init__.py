@@ -60,7 +60,7 @@ class SWInteractiveShell(cmd.Cmd):
         continuation_uri, size_hint = simplejson.loads(content)
         
         # 3. Submit a new task with the updated local continuation.
-        task_descriptor = {'inputs': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi', 'save_continuation': True}
+        task_descriptor = {'dependencies': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi', 'save_continuation': True}
         master_task_submit_uri = urlparse.urljoin(self.master_uri, "/task/")
         (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
         submit_result = simplejson.loads(content)

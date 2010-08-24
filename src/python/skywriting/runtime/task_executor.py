@@ -432,7 +432,7 @@ class SWRuntimeInterpreterTask:
                         
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',
-                                    'inputs': {},
+                                    'dependencies': {},
                                     'select_group': select_group,
                                     'select_timeout': timeout,
                                     'expected_outputs': map(str, self.expected_outputs),
@@ -451,7 +451,7 @@ class SWRuntimeInterpreterTask:
             cont_task_id = self.create_spawned_task_name()
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',
-                                    'inputs': cont_deps, # _cont will be added at spawn time.
+                                    'dependencies': cont_deps, # _cont will be added at spawn time.
                                     'expected_outputs': map(str, self.expected_outputs),
                                     'save_continuation': self.save_continuation,
                                     'continues_task': str(self.original_task_id)}
@@ -509,7 +509,7 @@ class SWRuntimeInterpreterTask:
                     _, size_hint = block_store.store_object(current_cont, 'pickle', spawned_cont_id)
                     spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, SWSpawnedTaskProvenance(self.original_task_id, current_index), size_hint)
                     spawned_cont_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
-                    self.spawn_list[current_index].task_descriptor['inputs']['_cont'] = spawned_cont_ref
+                    self.spawn_list[current_index].task_descriptor['dependencies']['_cont'] = spawned_cont_ref
                     self.maybe_also_publish(spawned_cont_ref)
             
                 # Current task is now ready to be spawned.
@@ -624,7 +624,7 @@ class SWRuntimeInterpreterTask:
         
         task_descriptor = {'task_id': new_task_id,
                            'handler': 'swi',
-                           'inputs': {},
+                           'dependencies': {},
                            'expected_outputs': [str(expected_output_id)] # _cont will be added later
                           }
         
@@ -674,7 +674,7 @@ class SWRuntimeInterpreterTask:
 
         task_descriptor = {'task_id': new_task_id,
                            'handler': executor_name, 
-                           'inputs': inputs,
+                           'dependencies': inputs,
                            'expected_outputs': expected_output_ids}
         
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))

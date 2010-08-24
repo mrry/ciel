@@ -237,8 +237,13 @@ class TaskPoolTask(Task):
 def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, parent_task=None):
 
     handler = task_descriptor['handler']
-    inputs = {}
-    dependencies = task_descriptor['inputs']
+    
+    try:
+        inputs = task_descriptor['inputs']
+    except KeyError:
+        inputs = {}
+        
+    dependencies = task_descriptor['dependencies']
     expected_outputs = task_descriptor['expected_outputs']
 
     try:
