@@ -64,7 +64,7 @@ def sw_to_external_url(url):
 
 class BlockStore:
     
-    def __init__(self, hostname, port, base_dir, master_proxy):
+    def __init__(self, hostname, port, base_dir):
         self._lock = Lock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
@@ -123,10 +123,7 @@ class BlockStore:
     
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
-    
-    def publish_global_refs(self, global_id, refs, size_hint=None):
-        self.master_proxy.publish_global_refs(global_id, refs)
-    
+        
     def store_raw_file(self, incoming_fobj, id):
         with open(self.filename(id), "wb") as data_file:
             shutil.copyfileobj(incoming_fobj, data_file)

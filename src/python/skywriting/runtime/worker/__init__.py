@@ -55,7 +55,7 @@ class Worker(plugins.SimplePlugin):
             block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         else:
             block_store_dir = options.blockstore
-        self.block_store = BlockStore(self.hostname, self.port, block_store_dir, self.master_proxy)
+        self.block_store = BlockStore(self.hostname, self.port, block_store_dir)
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()

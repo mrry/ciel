@@ -21,7 +21,6 @@ from skywriting.runtime.master.data_store import GlobalNameDirectory
 from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.block_store import BlockStore
 from skywriting.runtime.task_executor import TaskExecutorPlugin
-from skywriting.runtime.master.local_master_proxy import LocalMasterProxy
 from skywriting.runtime.master.task_pool import TaskPool
 import skywriting
 from skywriting.runtime.master.scheduler import Scheduler
@@ -59,15 +58,13 @@ def master_main(options):
     local_port = cherrypy.config.get('server.socket_port')
     master_netloc = '%s:%d' % (local_hostname, local_port)
     print 'Local port is', local_port
-    master_proxy = LocalMasterProxy(task_pool_adapter, None, global_name_directory, worker_pool)
     
     if options.blockstore is None:
         block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
     else:
         block_store_dir = options.blockstore
 
-    block_store = BlockStore(local_hostname, local_port, block_store_dir, master_proxy)
-    master_proxy.block_store = block_store
+    block_store = BlockStore(local_hostname, local_port, block_store_dir)
 
     recovery_manager = RecoveryManager(cherrypy.engine, job_pool, lazy_task_pool, block_store, deferred_worker)
     recovery_manager.subscribe()
