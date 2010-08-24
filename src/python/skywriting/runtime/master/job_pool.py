@@ -33,6 +33,8 @@ JOB_STATE_NAMES = {}
 for (name, number) in JOB_STATES.items():
     JOB_STATE_NAMES[number] = name
 
+TASK_DESCRIPTOR_LENGTH_STRUCT = struct.Struct('!I')
+
 class Job:
     
     def __init__(self, id, root_task, job_dir=None):
@@ -53,7 +55,8 @@ class Job:
         self._lock = Lock()
         self._condition = Condition(self._lock)
 
-        self.add_task(root_task, True)
+        if root_task is not None:
+            self.add_task(root_task, True)
 
     def completed(self, result_ref):
         self.state = JOB_COMPLETED
@@ -69,7 +72,7 @@ class Job:
 
     def start_journalling(self):
         if self.task_journal_fp is None and self.job_dir is not None:
-            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'a')
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
 
     def stop_journalling(self):
         if self.task_journal_fp is not None:
@@ -81,12 +84,10 @@ class Job:
 
     def add_task(self, task, should_sync=False):
         with self._lock:
-            if self.task_journal_fp is None and self.job_dir is not None:
-                self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'a')
             self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
             if self.task_journal_fp is not None:
                 task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
-                self.task_journal_fp.write(struct.pack('!I', len(task_details)))
+                self.task_journal_fp.write(TASK_DESCRIPTOR_LENGTH_STRUCT.pack(len(task_details)))
                 self.task_journal_fp.write(task_details)
                 if should_sync:
                     self.task_journal_fp.flush()
@@ -102,8 +103,8 @@ class Job:
         ret = {'job_id': self.id, 
                'task_counts': counts, 
                'state': JOB_STATE_NAMES[self.state], 
-               'root_task': self.root_task.task_id,
-               'expected_outputs': self.root_task.expected_outputs,
+               'root_task': self.root_task.task_id if self.root_task is not None else None,
+               'expected_outputs': self.root_task.expected_outputs if self.root_task is not None else None,
                'result_ref': self.result_ref}
         with self._lock:
             for (name, state_index) in TASK_STATES.items():
@@ -144,7 +145,7 @@ class JobPool(plugins.SimplePlugin):
     def get_job_by_id(self, id):
         return self.jobs[id]
     
-    def get_all_job_ids(self, id):
+    def get_all_job_ids(self):
         return self.jobs.keys()
     
     def allocate_job_id(self):
@@ -153,6 +154,11 @@ class JobPool(plugins.SimplePlugin):
     def add_job(self, job, sync_journal=False):
         # We will use this both for new jobs and on recovery.
         self.jobs[job.id] = job
+    
+    def add_failed_job(self, job_id):
+        job = Job(job_id, None, None)
+        job.state = JOB_FAILED
+        self.jobs[job_id] = job
     
     def create_job_for_task(self, task_descriptor):
         
