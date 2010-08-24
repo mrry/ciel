@@ -369,6 +369,9 @@ class LazyTaskPoolAdapter:
     
     def __init__(self, lazy_task_pool):
         self.lazy_task_pool = lazy_task_pool
+        
+        # XXX: This exposes the task pool to the view.
+        self.tasks = lazy_task_pool.tasks
      
     def add_task(self, task_descriptor, parent_task=None, job=None):
         try:
