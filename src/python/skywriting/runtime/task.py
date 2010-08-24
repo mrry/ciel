@@ -211,7 +211,7 @@ class TaskPoolTask(Task):
                 descriptor['worker_id'] = self.worker.id
             descriptor['saved_continuation_uri'] = self.saved_continuation_uri
             descriptor['state'] = TASK_STATE_NAMES[self.state]
-            descriptor['parent'] = self.parent.task_id
+            descriptor['parent'] = self.parent.task_id if self.parent is not None else None
             descriptor['children'] = [x.task_id for x in self.children]
                     
         if self.select_result is not None:
