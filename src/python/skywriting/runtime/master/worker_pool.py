@@ -195,7 +195,7 @@ class WorkerPool(plugins.SimplePlugin):
         
     def get_all_workers(self):
         with self._lock:
-            return 
+            return self.workers.values()
 
     def get_all_workers_with_version(self):
         with self._lock:
