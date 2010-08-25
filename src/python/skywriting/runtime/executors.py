@@ -11,19 +11,14 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
-'''
-Created on 19 Apr 2010
-
-@author: dgm36
-'''
 from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWNoProvenance, ACCESS_SWBS
+    SWNoProvenance, ACCESS_SWBS, SWDataValue
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -39,7 +34,8 @@ class ExecutionFeatures:
                           'environ': EnvironmentExecutor,
                           'java': JavaExecutor,
                           'dotnet': DotNetExecutor,
-                          'c': CExecutor}
+                          'c': CExecutor,
+                          'grab': GrabURLExecutor}
     
     def all_features(self):
         return self.executors.keys()
@@ -98,7 +94,7 @@ class SWStdinoutExecutor(SWExecutor):
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
         self.proc = None
     
-    def execute(self, block_store):
+    def execute(self, block_store, task_id):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
         temp_output = tempfile.NamedTemporaryFile(delete=False)
         filenames = self.get_filenames(block_store, self.input_refs)
@@ -140,7 +136,7 @@ class EnvironmentExecutor(SWExecutor):
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
         self.proc = None
     
-    def execute(self, block_store):
+    def execute(self, block_store, task_id):
         print "Executing environ with:", " ".join(map(str, self.command_line))
 
         input_filenames = self.get_filenames(block_store, self.input_refs)
@@ -191,7 +187,7 @@ class JavaExecutor(SWExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
-    def execute(self, block_store):
+    def execute(self, block_store, task_id):
         cherrypy.engine.publish("worker_event", "Java: fetching inputs")
         file_inputs = self.get_filenames(block_store, self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
@@ -257,7 +253,7 @@ class DotNetExecutor(SWExecutor):
             print "Incorrect arguments for stdinout executor"
             raise
 
-    def execute(self, block_store):
+    def execute(self, block_store, task_id):
         
         file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
@@ -324,7 +320,7 @@ class CExecutor(SWExecutor):
             print "Incorrect arguments for stdinout executor"
             raise
 
-    def execute(self, block_store):
+    def execute(self, block_store, task_id):
         
         file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
@@ -377,3 +373,26 @@ class CExecutor(SWExecutor):
             real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
             self.output_refs[i] = real_ref
             
+class GrabURLExecutor(SWExecutor):
+    
+    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
+        try:
+            self.urls = args['urls']
+            self.version = args['version']
+        except KeyError:
+            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
+        assert len(self.urls) == len(expected_output_ids)
+        self.proc = None
+    
+    def execute(self, block_store, task_id):
+        cherrypy.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
+        
+        for i, url in enumerate(self.urls):
+            ref = block_store.get_ref_for_url(url, self.version, task_id)
+            self.output_refs[i] = SWDataValue(ref)
+        
+    def abort(self):
+        if self.proc is not None:
+            self.proc.kill()
+            self.proc.wait()

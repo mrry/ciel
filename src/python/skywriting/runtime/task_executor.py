@@ -211,8 +211,9 @@ class SWExecutorTaskExecutionRecord:
     def commit(self):
         commit_bindings = {}
         for i, output_ref in enumerate(self.executor.output_refs):
-            output_ref.provenance = SWTaskOutputProvenance(self.original_task_id, i)
-            commit_bindings[output_ref.id] = [output_ref]
+            if isinstance(output_ref, SW2_ConcreteReference):
+                output_ref.provenance = SWTaskOutputProvenance(self.original_task_id, i)
+            commit_bindings[self.expected_outputs[i]] = [output_ref]
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
     def execute(self):        
@@ -225,7 +226,7 @@ class SWExecutorTaskExecutionRecord:
                 self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Executing")
-                self.executor.execute(self.task_executor.block_store)
+                self.executor.execute(self.task_executor.block_store, self.task_id)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Committing")
                 self.commit()
@@ -530,9 +531,10 @@ class SWRuntimeInterpreterTask:
     def get_saved_continuation_object_id(self):
         return '%s:saved_cont' % (self.task_id, )
 
-    def maybe_also_publish(self, concrete_ref):
+    def maybe_also_publish(self, ref):
         #if self.replay_ref is not None and concrete_ref.id == self.replay_ref.id:
-        self.additional_refs_to_publish.append(concrete_ref)
+        if isinstance(ref, SW2_ConcreteReference):
+            self.additional_refs_to_publish.append(ref)
 
     def commit_result(self, block_store, master_proxy):
         
@@ -698,10 +700,11 @@ class SWRuntimeInterpreterTask:
         _, output_ids = self.create_names_for_exec(executor_name, real_args, num_outputs)
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
-        self.current_executor.execute(self.block_store)
+        self.current_executor.execute(self.block_store, self.task_id)
         
         for ref in self.current_executor.output_refs:
-            ref.provenance = SWExecResultProvenance(self.original_task_id, self.exec_result_counter)
+            if isinstance(ref, SW2_ConcreteReference):
+                ref.provenance = SWExecResultProvenance(self.original_task_id, self.exec_result_counter)
             self.exec_result_counter += 1
             self.maybe_also_publish(ref)
         
