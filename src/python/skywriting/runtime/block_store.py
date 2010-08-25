@@ -32,7 +32,10 @@ import urlparse
 import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
-    SWErrorReference, SWNullReference, SWURLReference, ACCESS_SWBS
+    SWErrorReference, SWNullReference, SWURLReference, ACCESS_SWBS,\
+    SWNoProvenance, SWTaskOutputProvenance
+import hashlib
+import contextlib
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -225,6 +228,8 @@ class BlockStore:
             with open(filename, 'wb') as data_file:
                 shutil.copyfileobj(response, data_file)
  
+            response.close()
+ 
             self.store_url_in_cache(url, filename)
         else:
             cherrypy.engine.publish("worker_event", "Block store: URL hit in cache")
@@ -305,7 +310,6 @@ class BlockStore:
                 raise MissingInputException(ref)
         
         return result
-            
         
     def retrieve_object_for_ref(self, ref, decoder):
         assert isinstance(ref, SWRealReference)
@@ -330,6 +334,48 @@ class BlockStore:
         else:
             print ref
             raise        
+        
+    def get_ref_for_url(self, url, version, task_id):
+        """
+        Returns a SW2_ConcreteReference for the data stored at the given URL.
+        Currently, the version is ignored, but we imagine using this for e.g.
+        HTTP ETags, which would raise an error if the data changed.
+        """
+        
+        parsed_url = urlparse.urlparse(url)
+        if parsed_url.scheme == 'swbs':
+            # URL is in a Skywriting Block Store, so we can make a reference
+            # for it directly.
+            id = parsed_url.path[1:]
+            ref = SW2_ConcreteReference(id, SWTaskOutputProvenance(task_id, -1), None)
+            ref.add_location_hint(parsed_url.netloc, ACCESS_SWBS)
+        else:
+            # URL is outside the cluster, so we have to fetch it. We use
+            # content-based addressing to name the fetched data.
+            hash = hashlib.sha1()
+            
+            # 1. Fetch URL to a file-like object.
+            with contextlib.closing(urllib2.urlopen(url)) as url_file:
+            
+                # 2. Hash its contents and write it to disk.
+                with tempfile.NamedTemporaryFile('wb', 4096, delete=False) as fetch_file:
+                    fetch_filename = fetch_file.name
+                    while True:
+                        chunk = url_file.read(4096)
+                        if not chunk:
+                            break
+                        hash.update(chunk)
+                        fetch_file.write(chunk)
+                
+            # 3. Store the fetched file in the block store, named by the
+            #    content hash.
+            id = 'urlfetch:%s' % hash.hexdigest()
+            _, size = self.store_file(fetch_filename, id, True)
+            
+            ref = SW2_ConcreteReference(id, SWTaskOutputProvenance(task_id, -1), size)
+            ref.add_location_hint(self.netloc, ACCESS_SWBS)
+        
+        return ref
         
     def choose_best_netloc(self, netlocs):
         if len(netlocs) == 1:
