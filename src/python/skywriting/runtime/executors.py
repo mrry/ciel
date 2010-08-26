@@ -113,7 +113,7 @@ class SWStdinoutExecutor(SWExecutor):
             print rc
             raise OSError()
         
-        url, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
+        _, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
         
         # XXX: We fix the provenance in the caller.
         real_ref = SW2_ConcreteReference(self.output_ids[0], SWNoProvenance(), size_hint)
@@ -163,7 +163,7 @@ class EnvironmentExecutor(SWExecutor):
             print rc
             raise OSError()
         for i, filename in enumerate(output_filenames):
-            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: We fix the provenance in the caller.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
             real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
@@ -228,7 +228,7 @@ class JavaExecutor(SWExecutor):
             raise OSError()
         cherrypy.engine.publish("worker_event", "Java: Storing outputs")
         for i, filename in enumerate(file_outputs):
-            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
             real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
@@ -300,7 +300,7 @@ class DotNetExecutor(SWExecutor):
             raise OSError()
         
         for i, filename in enumerate(file_outputs):
-            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
             real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
@@ -367,7 +367,7 @@ class CExecutor(SWExecutor):
             raise OSError()
         
         for i, filename in enumerate(file_outputs):
-            url, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
             real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
