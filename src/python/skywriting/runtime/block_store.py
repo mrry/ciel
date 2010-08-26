@@ -40,6 +40,10 @@ urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
 
+class StreamRetry:
+    pass
+STREAM_RETRY = StreamRetry()
+
 def get_netloc_for_sw_url(url):
     return urlparse.urlparse(url).netloc
 
@@ -165,6 +169,17 @@ class BlockStore:
         file_size = os.path.getsize(self.filename(id))
         return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
 
+    def make_stream_sink(self, id):
+        '''
+        Called when an executor wants its output to be streamable.
+        This method only prepares the block store, and
+        '''
+        with self._lock:
+            self.streaming_id_set.add(id)
+            filename = self.streaming_filename(id)
+            open(filename, 'wb').close()
+            return filename
+
     def prepublish_file(self, filename, id):
         '''
         Called when an executor wants its output to be streamable.
@@ -232,6 +247,9 @@ class BlockStore:
             object_file.close()
         return ret
                 
+    def is_available_locally(self, ref):
+        return self.netloc in ref.location_hints.keys() or (isinstance(ref, SW2_ConcreteReference) and os.path.exists(self.filename(ref.id)))
+
     def retrieve_filename_by_url(self, url, size_limit=None):
         """Returns the filename of a file containing the data at the given URL."""
         filename = self.find_url_in_cache(url)
@@ -385,6 +403,34 @@ class BlockStore:
             print ref
             raise        
         
+    def retrieve_range_for_ref(self, ref, start, chunk_size):
+        assert isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_ConcreteReference)
+        netloc = self.choose_best_netloc(ref.location_hints.keys())
+        assert ACCESS_SWBS in ref.location_hints[netloc]
+    
+        fetch_url = 'http://%s/data/%s' % (netloc, ref.id)
+        range_header = 'bytes=%d-%d' % (start, start + chunk_size - 1)
+        headers = {'Range': range_header}
+        # TODO: Some event publishing.
+        request = urllib2.Request(fetch_url, headers=headers)
+            
+        try:
+            response = urllib2.urlopen(request)
+        except HTTPError, he:
+            if he.code == 416:
+                try:
+                    streaming = he.info()['Pragma']
+                    if streaming == 'streaming':
+                        return STREAM_RETRY
+                    else:
+                        return False
+                except KeyError:
+                    return False
+            else:
+                raise he
+        
+        return response.read()
+               
     def get_ref_for_url(self, url, version, task_id):
         """
         Returns a SW2_ConcreteReference for the data stored at the given URL.
