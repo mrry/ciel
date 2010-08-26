@@ -175,7 +175,7 @@ class SW2_StreamReference(SWRealReference):
         if location_hints is not None:
             self.location_hints = location_hints
         else:
-            self.location_hints = []
+            self.location_hints = {}
         
     def add_location_hint(self, netloc, access_method):
         try:
@@ -192,7 +192,7 @@ class SW2_StreamReference(SWRealReference):
         return('s2', str(self.id), self.provenance.as_tuple(), self.location_hints)
         
     def __repr__(self):
-        return 'SW2_StreamReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
+        return 'SW2_StreamReference(%s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
                 
 
 class SWURLReference(SWRealReference):
