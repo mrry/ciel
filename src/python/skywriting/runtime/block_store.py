@@ -33,7 +33,7 @@ import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, ACCESS_SWBS,\
-    SWNoProvenance, SWTaskOutputProvenance
+    SWNoProvenance, SWTaskOutputProvenance, SW2_StreamReference
 import hashlib
 import contextlib
 urlparse.uses_netloc.append("swbs")
@@ -72,6 +72,11 @@ class BlockStore:
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
         self.object_cache = {}
+    
+        # Maintains a set of block IDs that are currently being written.
+        # (i.e. They are in the pre-publish/streamable state, and have not been
+        #       committed to the block store.)
+        self.streaming_id_set = set()
     
         self.current_cache_access_id = 0
         self.url_cache_filenames = {}
@@ -124,6 +129,16 @@ class BlockStore:
             self.url_cache_filenames[url] = filename
             self.mark_url_as_accessed(url)
     
+    def maybe_streaming_filename(self, id):
+        with self._lock:
+            if id in self.streaming_id_set:
+                return True, self.streaming_filename(id)
+            else:
+                return False, self.filename(id)
+    
+    def streaming_filename(self, id):
+        os.path.join(self.base_dir, '.%s' % id)
+    
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
         
@@ -150,6 +165,41 @@ class BlockStore:
         file_size = os.path.getsize(self.filename(id))
         return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
 
+    def prepublish_file(self, filename, id):
+        '''
+        Called when an executor wants its output to be streamable.
+        This method only prepares the block store, and
+        '''
+        with self._lock:
+            self.streaming_id_set.add(id)
+            os.symlink(filename, self.streaming_filename(id))
+                   
+    def commit_file(self, filename, id, can_move=False):
+        if can_move:
+            # Moving the file under the lock should be cheap.
+            # N.B. We need to protect all operations because the streaming
+            #      filename will be unlinked.
+            with self._lock:
+                self.store_file(filename, id, True)
+                self.streaming_id_set.remove(id)
+                os.symlink(self.filename(id), self.streaming_filename(id))
+        else:
+            # A copy will be necessary, so do this outside the lock.
+            self.store_file(filename, id, False)
+            with self._lock:
+                self.streaming_id_set.remove(id)
+                os.symlink(self.filename(id), self.streaming_filename(id))
+            
+        url, file_size = self.store_file(filename, id, False)
+        
+        
+        return url, file_size
+
+    def rollback_file(self, id):
+        with self._lock:
+            self.streaming_id_set.remove(id)
+            os.unlink(self.streaming_filename(id))
+    
     def retrieve_object_by_url(self, url, decoder):
         """Returns the object referred to by the given URL."""
         filename = self.find_url_in_cache(url)
@@ -403,16 +453,16 @@ class BlockStore:
     def block_list_generator(self):
         cherrypy.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
         for block_name in os.listdir(self.base_dir):
-            block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
-            yield block_name, block_size
+            if not block_name.startswith('.'):
+                block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
+                yield block_name, block_size
     
     def generate_block_list_file(self):
         cherrypy.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
             filename = block_list_file.name
-            for block_name in os.listdir(self.base_dir):
-                block_id = block_name
-                block_list_file.write(BLOCK_LIST_RECORD_STRUCT.pack(block_id, os.path.getsize(os.path.join(self.base_dir, block_id))))
+            for block_name, block_size in self.block_list_generator():
+                block_list_file.write(BLOCK_LIST_RECORD_STRUCT.pack(block_name, block_size))
         return filename
 
     def is_empty(self):
