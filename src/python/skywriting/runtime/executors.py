@@ -15,7 +15,7 @@ from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWNoProvenance, ACCESS_SWBS, SWDataValue
+    SWNoProvenance, ACCESS_SWBS, SWDataValue, SW2_StreamReference
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException
 import logging
@@ -24,6 +24,8 @@ import subprocess
 import tempfile
 import os
 import cherrypy
+import threading
+from skywriting.runtime.block_store import STREAM_RETRY
 
 class ExecutionFeatures:
     
@@ -54,6 +56,18 @@ class SWExecutor:
         self.output_ids = expected_output_ids
         self.output_refs = [None for id in self.output_ids]
         self.fetch_limit = fetch_limit
+        self.fetchers = []
+
+    def make_fetcher(self, block_store, ref):
+        fetcher = StreamingInputFetcher(self, block_store, ref)
+        fetcher.start()
+        self.fetchers.append(fetcher)
+        return fetcher.fifo_name
+    
+    def cleanup_fetchers(self):
+        for fetcher in self.fetchers:
+            fetcher.stop()
+            fetcher.cleanup()
 
     def get_filename(self, block_store, ref):
         if self.continuation is not None:
@@ -61,11 +75,15 @@ class SWExecutor:
             real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         else:
             real_ref = ref
+        print real_ref
         assert isinstance(real_ref, SWRealReference)
         if isinstance(real_ref, SW2_FutureReference):
             print "Blocking because reference is", real_ref
             # Data is not yet available, so 
             raise ReferenceUnavailableException(ref, self.continuation)
+        elif isinstance(real_ref, SW2_StreamReference) or isinstance(real_ref, SW2_ConcreteReference):
+            cherrypy.log.error('Making stream fetcher for %s' % repr(real_ref), 'EXEC', logging.INFO)
+            return self.make_fetcher(block_store, ref)
         else:
             cherrypy.engine.publish("Executor: fetching reference")
             ret = block_store.retrieve_filename_for_ref(real_ref)
@@ -79,9 +97,111 @@ class SWExecutor:
             map(self.continuation.mark_as_execd, refs)
         return map(lambda ref: self.get_filename(block_store, ref), refs)
         
-    def abort(self):
+    def execute(self, block_store, task_id):
+        try:
+            self._execute(block_store, task_id)
+        finally:
+            self.cleanup()
+        
+    def cleanup(self):
+        self._cleanup()
+        self.cleanup_fetchers()
+    
+    def _cleanup(self):
         pass
         
+    def abort(self):
+        self._abort()
+        
+    def _abort(self):
+        pass
+
+class StreamingInputFetcher:
+    '''
+    This class implements the chunked fetching of SW2_StreamReferences and 
+    SW2_ConcreteReferences from other nodes.
+    '''
+    
+    def __init__(self, executor, block_store, stream_ref):
+        self.executor = executor
+        self.block_store = block_store
+        self.ref = stream_ref
+        
+        if self.block_store.is_available_locally(stream_ref):
+            self.local = True
+            self.fifo_name = self.block_store.retrieve_filename_for_concrete_ref(stream_ref)
+        else:
+            self.local = False
+            self.fifo_dir = tempfile.mkdtemp()
+            self.fifo_name = os.path.join(self.fifo_dir, 'fetch_fifo')
+            
+            with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
+                self.sinkfile_name = sinkfile.name
+            
+            os.mkfifo(self.fifo_name)
+            self.stop_event = threading.Event()
+            self.has_completed = False
+            self.thread = None
+            
+            self.current_start_byte = 0
+            self.chunk_size = 1024768
+        
+    def start(self):
+        if not self.local:
+            self.thread = threading.Thread(target=self.fetch_thread_main)
+            self.thread.start()
+    
+    def stop(self):
+        if not self.local:
+            self.stop_event.set()
+            if self.thread is not None:
+                self.thread.join()
+            
+    def cleanup(self):
+        if not self.local:
+            os.unlink(self.fifo_name)
+            os.rmdir(self.fifo_dir)
+            if self.has_completed:
+                self.block_store.store_file(self.sinkfile_name, self.ref.id, True)
+        
+    def fetch_thread_main(self):
+        assert not self.local
+        with open(self.fifo_name, 'wb') as f:
+            with open(self.sinkfile_name, 'wb') as f_sink:
+                while not self.has_completed:
+                    
+                    # Try to fetch a chunk.
+                    try:
+                        # TODO: Make chunk size adaptive.
+                        # XXX: The chunk size might be bigger than the FIFO buffer.
+                        #      Need to ensure that we don't block badly.
+                        chunk = self.block_store.retrieve_range_for_ref(self.ref, self.current_start_byte, self.chunk_size)
+                        if not chunk:
+                            cherrypy.log.error('Completed fetching ref %s' % (repr(self.ref)), 'FETCHER', logging.INFO)
+                            self.has_completed = True
+                            return
+                        elif chunk is not STREAM_RETRY:
+                            cherrypy.log.error('Fetched %d bytes of ref %s' % (len(chunk), repr(self.ref)), 'FETCHER', logging.INFO)
+                            f.write(chunk)
+                            f_sink.write(chunk)
+                            self.current_start_byte += len(chunk)
+                            
+                    except:
+                        cherrypy.log.error('Error attempting to read a range', 'FETCHER', logging.WARNING, True)
+                        self.executor.abort()
+                        return
+                              
+                    # We use self.stop_event to signal this fetcher that its 
+                    # executor is stopping/has failed.  
+                    if self.stop_event.is_set():
+                        return
+                    
+                    if chunk is STREAM_RETRY:
+                        # TODO: Make wait period adaptive.
+                        if self.stop_event.wait(5):
+                            return
+                    
+    
 class SWStdinoutExecutor(SWExecutor):
     
     def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
@@ -94,7 +214,7 @@ class SWStdinoutExecutor(SWExecutor):
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
         self.proc = None
     
-    def execute(self, block_store, task_id):
+    def _execute(self, block_store, task_id):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
         temp_output = tempfile.NamedTemporaryFile(delete=False)
         filenames = self.get_filenames(block_store, self.input_refs)
@@ -120,7 +240,7 @@ class SWStdinoutExecutor(SWExecutor):
         real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
         self.output_refs[0] = real_ref
         
-    def abort(self):
+    def _abort(self):
         if self.proc is not None:
             self.proc.kill()
             self.proc.wait()
@@ -136,7 +256,7 @@ class EnvironmentExecutor(SWExecutor):
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
         self.proc = None
     
-    def execute(self, block_store, task_id):
+    def _execute(self, block_store, task_id):
         print "Executing environ with:", " ".join(map(str, self.command_line))
 
         input_filenames = self.get_filenames(block_store, self.input_refs)
@@ -169,7 +289,7 @@ class EnvironmentExecutor(SWExecutor):
             real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
             self.output_refs[i] = real_ref
         
-    def abort(self):
+    def _abort(self):
         if self.proc is not None:
             self.proc.kill()
             self.proc.wait()
@@ -187,7 +307,7 @@ class JavaExecutor(SWExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
-    def execute(self, block_store, task_id):
+    def _execute(self, block_store, task_id):
         cherrypy.engine.publish("worker_event", "Java: fetching inputs")
         file_inputs = self.get_filenames(block_store, self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
@@ -235,7 +355,7 @@ class JavaExecutor(SWExecutor):
             self.output_refs[i] = real_ref
         cherrypy.engine.publish("worker_event", "Java: Finished storing outputs")
 
-    def abort(self):
+    def _abort(self):
         if self.proc is not None:
             self.proc.kill()
         
@@ -253,7 +373,7 @@ class DotNetExecutor(SWExecutor):
             print "Incorrect arguments for stdinout executor"
             raise
 
-    def execute(self, block_store, task_id):
+    def _execute(self, block_store, task_id):
         
         file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
@@ -320,7 +440,7 @@ class CExecutor(SWExecutor):
             print "Incorrect arguments for stdinout executor"
             raise
 
-    def execute(self, block_store, task_id):
+    def _execute(self, block_store, task_id):
         
         file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
@@ -383,16 +503,10 @@ class GrabURLExecutor(SWExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
         assert len(self.urls) == len(expected_output_ids)
-        self.proc = None
     
-    def execute(self, block_store, task_id):
+    def _execute(self, block_store, task_id):
         cherrypy.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
         
         for i, url in enumerate(self.urls):
             ref = block_store.get_ref_for_url(url, self.version, task_id)
             self.output_refs[i] = SWDataValue(ref)
-        
-    def abort(self):
-        if self.proc is not None:
-            self.proc.kill()
-            self.proc.wait()
