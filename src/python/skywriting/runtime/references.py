@@ -167,6 +167,34 @@ class SW2_ConcreteReference(SWRealReference):
     def __repr__(self):
         return 'SW2_ConcreteReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.size_hint), repr(self.location_hints))
         
+class SW2_StreamReference(SWRealReference):
+    
+    def __init__(self, id, provenance, location_hints=None):
+        self.id = id
+        self.provenance = provenance
+        if location_hints is not None:
+            self.location_hints = location_hints
+        else:
+            self.location_hints = []
+        
+    def add_location_hint(self, netloc, access_method):
+        try:
+            hints_for_netloc = self.location_hints[netloc]
+        except KeyError:
+            hints_for_netloc = []
+            self.location_hints[netloc] = hints_for_netloc
+        hints_for_netloc.append(access_method)
+
+    def as_future(self):
+        return SW2_FutureReference(self.id, self.provenance)
+        
+    def as_tuple(self):
+        return('s2', str(self.id), self.provenance.as_tuple(), self.location_hints)
+        
+    def __repr__(self):
+        return 'SW2_StreamReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
+                
+
 class SWURLReference(SWRealReference):
     """
     A reference to one or more URLs representing the same data.
@@ -227,5 +255,7 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_FutureReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]))
     elif ref_type == 'c2':
         return SW2_ConcreteReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3], reference_tuple[4])
+    elif ref_type == 's2':
+        return SW2_StreamReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3])
     else:
         raise KeyError(ref_type)
