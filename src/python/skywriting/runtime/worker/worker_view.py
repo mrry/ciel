@@ -125,7 +125,10 @@ class DataRoot:
     def default(self, id):
         safe_id = id
         if cherrypy.request.method == 'GET':
-            return serve_file(self.block_store.filename(safe_id))
+            is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
+            if is_streaming:
+                cherrypy.response.headers['Pragma'] = 'streaming'
+            return serve_file(filename)
         elif cherrypy.request.method == 'POST':
             url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
             return simplejson.dumps(url)
