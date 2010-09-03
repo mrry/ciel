@@ -333,6 +333,17 @@ class BlockStore:
         
     def retrieve_filename_for_ref(self, ref):
         assert isinstance(ref, SWRealReference)
+        # XXX URL-fetch and Concrete-fetch both approach doing the right thing from different directions.
+        # These should be unified. Right now, URL-fetch does:
+        # 1. Check if any of the alternatives are in local cache
+        # 2. If not, try to fetch the best one.
+        # 3. If that doesn't work, fail.
+        # On the other hand, Concrete-fetch does:
+        # 1. Choose the 'best' URL (which is just, prefer local, otherwise random)
+        # 2. Try to fetch that
+        # 3. If it doesn't work, try the others.
+        # So URL-fetch fails to retry with alternatives, 
+        # whilst Concrete-fetch fails to check if an alternative is already in-cache.
         if isinstance(ref, SW2_ConcreteReference):
             cherrypy.engine.publish("worker_event", "Block store: fetch SWBS")
             return self.retrieve_filename_for_concrete_ref(ref)

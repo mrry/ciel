@@ -55,29 +55,31 @@ class SWExecutor:
         self.output_refs = [None for id in self.output_ids]
         self.fetch_limit = fetch_limit
 
-    def get_filename(self, block_store, ref):
+    def resolve_ref(self, ref):
         if self.continuation is not None:
             self.continuation.mark_as_execd(ref)
-            real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+            return self.continuation.resolve_tasklocal_reference_with_ref(ref)
         else:
-            real_ref = ref
-        assert isinstance(real_ref, SWRealReference)
-        if isinstance(real_ref, SW2_FutureReference):
-            print "Blocking because reference is", real_ref
-            # Data is not yet available, so 
-            raise ReferenceUnavailableException(ref, self.continuation)
-        else:
-            cherrypy.engine.publish("Executor: fetching reference")
-            ret = block_store.retrieve_filename_for_ref(real_ref)
-            cherrypy.engine.publish("Executor: done fetching reference")
-            return ret
+            return ref        
 
     def get_filenames(self, block_store, refs):
-        #print "GET_FILENAMES:", refs
         # Mark all as execd before we risk faulting.
         if self.continuation is not None:
             map(self.continuation.mark_as_execd, refs)
-        return map(lambda ref: self.get_filename(block_store, ref), refs)
+
+        real_refs = map(self.resolve_ref, refs)
+        for ref in real_refs:
+            assert isinstance(real_ref, SWRealReference)
+            if isinstance(real_ref, SW2_FutureReference):
+                print "Blocking because reference is", real_ref
+                # Data is not yet available, so 
+                raise ReferenceUnavailableException(ref, self.continuation)
+
+        cherrypy.engine.publish("Executor: fetching %d references" % len(real_refs))
+        ret = block_store.retrieve_filenames_for_refs(real_refs)
+        cherrypy.engine.publish("Executor: done fetching references")
+
+        return ret
         
     def abort(self):
         pass
