@@ -26,6 +26,7 @@ import struct
 import tempfile
 import cherrypy
 import logging
+import pycurl
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -39,6 +40,76 @@ import contextlib
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
+
+# This code adapted from pycurl example "retriever-multi.py"
+
+def grab_urls(reqs):
+
+    queue = []
+
+    m = pycurl.CurlMulti()
+    m.handles = []
+    m.setopt(pycurl.PIPELINING, 1)
+    m.setopt(pycurl.MAXCONNECTS, 20)
+    for req in reqs:
+        c = pycurl.Curl()
+        c.req = req
+        c.req.succeeded = False
+        c.req.failed = False
+        c.setopt(pycurl.FOLLOWLOCATION, 1)
+        c.setopt(pycurl.MAXREDIRS, 5)
+        c.setopt(pycurl.CONNECTTIMEOUT, 30)
+        c.setopt(pycurl.TIMEOUT, 300)
+        c.setopt(pycurl.NOSIGNAL, 1)
+        c.setopt(pycurl.URL, req["url"])
+        if "save_to" in req:
+            c.fp = open(req["save_to"], "wb")
+            c.setopt(pycurl.WRITEDATA, c.fp)
+        elif "write_callback" in req:
+            c.fp = None
+            c.setopt(pycurl.WRITEFUNCTION, req["write_callback"])
+            c.setopt(pycurl.WRITEDATA, req["write_callback_data"])
+        else:
+            raise Exception("grab_urls: requests must include either 'save_to' or 'write_callback'")
+        m.handles.append(c)
+        m.add_handle(c)
+
+    num_processed = 0
+    num_urls = len(reqs)
+    while num_processed < num_urls:
+        # Run the internal curl state machine for the multi stack
+        while 1:
+            ret, num_handles = m.perform()
+            if ret != pycurl.E_CALL_MULTI_PERFORM:
+                break
+        # Check for curl objects which have terminated
+        while 1:
+            num_q, ok_list, err_list = m.info_read()
+            for c in ok_list:
+                if c.fp is not None:
+                    c.fp.close()
+                    c.fp = None
+                m.remove_handle(c)
+                c.req.succeeded = True
+            for c, errno, errmsg in err_list:
+                if c.fp is not None:
+                    c.fp.close()
+                    c.fp = None
+                m.remove_handle(c)
+                
+            num_processed = num_processed + len(ok_list) + len(err_list)
+            if num_q == 0:
+                break
+
+        m.select(1.0)
+
+    # Cleanup
+    for c in m.handles:
+        if c.fp is not None:
+            c.fp.close()
+            c.fp = None
+        c.close()
+    m.close()
 
 def get_netloc_for_sw_url(url):
     return urlparse.urlparse(url).netloc
