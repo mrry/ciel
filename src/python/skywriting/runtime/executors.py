@@ -75,9 +75,9 @@ class SWExecutor:
                 # Data is not yet available, so 
                 raise ReferenceUnavailableException(ref, self.continuation)
 
-        cherrypy.engine.publish("Executor: fetching %d references" % len(real_refs))
+        cherrypy.engine.publish("worker_event", "Executor: fetching %d references" % len(real_refs))
         ret = block_store.retrieve_filenames_for_refs(real_refs)
-        cherrypy.engine.publish("Executor: done fetching references")
+        cherrypy.engine.publish("worker_event", "Executor: done fetching references")
 
         return ret
         
@@ -257,7 +257,7 @@ class DotNetExecutor(SWExecutor):
 
     def execute(self, block_store, task_id):
         
-        file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
+        file_inputs = self.get_filenames(block_store, self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
         
         dll_filenames = map(lambda ref: self.get_filename(block_store, ref), self.dll_refs)
@@ -324,7 +324,7 @@ class CExecutor(SWExecutor):
 
     def execute(self, block_store, task_id):
         
-        file_inputs = map(lambda ref: self.get_filename(block_store, ref), self.input_refs)
+        file_inputs = self.get_filenames(block_store, self.input_refs)
         file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
         
         so_filenames = map(lambda ref: self.get_filename(block_store, ref), self.so_refs)
