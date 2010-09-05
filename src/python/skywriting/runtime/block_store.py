@@ -90,13 +90,13 @@ def grab_urls(reqs):
                     c.fp.close()
                     c.fp = None
                 m.remove_handle(c)
-                c.req.succeeded = True
+                c.req["succeeded"] = True
             for c, errno, errmsg in err_list:
                 if c.fp is not None:
                     c.fp.close()
                     c.fp = None
                 m.remove_handle(c)
-                
+
             num_processed = num_processed + len(ok_list) + len(err_list)
             if num_q == 0:
                 break
@@ -330,7 +330,107 @@ class BlockStore:
                 raise MissingInputException(ref)
         
         return result
-        
+
+    def retrieve_filenames_for_refs(self, refs):
+
+        # Step 1: Resolve simple refs and check for exceptions
+
+        resolved_after_data = []
+        for ref in refs:
+            assert isinstance(ref, SWRealReference)
+            if isinstance(ref, SWDataValue):
+                cherrypy.engine.publish("worker_event", "Block store: writing datavalue to file")
+                id = self.allocate_new_id()
+                with open(self.filename(id), 'w') as obj_file:
+                    self.encode_json(ref.value, obj_file)
+                resolved_after_data.append(("resolved", self.filename(id)))
+            elif isinstance(ref, SWErrorReference):
+                raise
+            elif isinstance(ref, SWNullReference):
+                raise
+            elif isinstance(ref, SW2_ConcreteReference):
+                resolved_after_data.append(("int-fetch", (ref.location_hints, str(ref.id))))
+            elif isinstance(ref, SWURLReference):
+                resolved_after_data.append(("ext-fetch", ref.urls))
+            else:
+                raise
+
+        # Step 2: Check for hits in the URL cache, or due to already-local in-system locations
+
+        resolved_after_cache = []
+
+        def find_first_cached(urls):
+            for url in urls:
+                filename = self.find_url_in_cache(url)
+                if filename is not None:
+                    return filename
+            return None
+
+        def add_fetch(check_urls, fetch_urls, id=None):
+            filename = find_first_cached(check_urls)
+            if filename is not None:
+                resolved_after_cache.append(("resolved", filename))
+            else:
+                if id is None:
+                    id = self.allocate_new_id()
+                resolved_after_cache.append(("fetch", (check_urls, fetch_urls, self.filename(id))))
+
+        for (fetch_type, info) in resolved_after_data:
+            if fetch_type == "int-fetch":
+                loc_hints, id = info
+                fetch_urls = ["http://%s/data/%s" % (loc_hint, id) for loc_hint in loc_hints]
+                check_urls = ["swbs://%s/%s" % (loc_hint, id) for loc_hint in loc_hints]
+                add_fetch(check_urls, fetch_urls, id)
+            elif fetch_type == "ext-fetch":
+                add_fetch(info, info)
+            else:
+                resolved_after_cache.append((fetch_type, info))
+
+        # Step 3: Build a request descriptor for each request needing a real fetch
+
+        fetch_requests = []
+        i = 0
+        for (action, info) in resolved_after_cache:
+            if action == "fetch":
+                check_urls, fetch_urls, filename = info
+                fetch_requests.append({"check_urls": check_urls, 
+                                       "failures": 0, 
+                                       "done": False,
+                                       "fetch_urls": fetch_urls,
+                                       "save_to": filename,
+                                       "url": fetch_urls[0]})
+            else:
+                fetch_requests.append({"done": True,
+                                       "save_to": info})
+            i += 1
+
+        # Step 4: Try to fetch what we need, failing over to backup URLs as necessary.
+        # This isn't the ideal algorithm, as it won't submit retry requests until all the current wave
+        # has either succeeded or failed. That would require more pycURL understanding,
+        # specifically how to add requests to an ongoing multi-request.
+
+        while True:
+            live_requests = filter(lambda req : req["done"], fetch_requests)
+            if live_requests == []:
+                break
+            grab_urls(live_requests)
+            for req_result in live_requests:
+                
+                if "succeeded" in req_result:
+                    req_result["done"] = True
+                    self.store_url_in_cache(req_result["check_urls"][req_result["failures"]], req_result["save_to"])
+                else:
+                    try:
+                        req_result["failures"] += 1
+                        req_result["url"] = req_result["fetch_urls"][req_result["failures"]]
+                    except IndexError:
+                        # Damn
+                        req_result["save_to"] = None
+                        req_result["done"] = True
+
+        filenames_to_return = [req["save_to"] for req in fetch_requests]
+        return filenames_to_return
+            
     def retrieve_filename_for_ref(self, ref):
         assert isinstance(ref, SWRealReference)
         # XXX URL-fetch and Concrete-fetch both approach doing the right thing from different directions.
@@ -357,17 +457,9 @@ class BlockStore:
             cherrypy.engine.publish("worker_event", "Block store: fetch URL " + chosen_url)
             return self.retrieve_filename_by_url(chosen_url)
         elif isinstance(ref, SWDataValue):
-            cherrypy.engine.publish("worker_event", "Block store: writing datavalue to file")
-            id = self.allocate_new_id()
-            with open(self.filename(id), 'w') as obj_file:
-                self.encode_json(ref.value, obj_file)
+
             return self.filename(id)
-        elif isinstance(ref, SWErrorReference):
-            raise
-        elif isinstance(ref, SWNullReference):
-            raise
-        else:
-            raise
+
         
     def retrieve_object_for_concrete_ref(self, ref, decoder):
         netloc = self.choose_best_netloc(ref.location_hints.keys())
