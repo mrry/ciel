@@ -253,34 +253,10 @@ class BlockStore:
         if(decoder != "handle"):
             object_file.close()
         return ret
-                
-    def retrieve_filenames_for_refs(self, refs):
 
-        # Step 1: Resolve simple refs and check for exceptions
+    def try_retrieve_filename_for_ref_without_transfer(self, ref):
 
-        resolved_after_data = []
-        for ref in refs:
-            assert isinstance(ref, SWRealReference)
-            if isinstance(ref, SWDataValue):
-                cherrypy.engine.publish("worker_event", "Block store: writing datavalue to file")
-                id = self.allocate_new_id()
-                with open(self.filename(id), 'w') as obj_file:
-                    self.encode_json(ref.value, obj_file)
-                resolved_after_data.append(("resolved", self.filename(id)))
-            elif isinstance(ref, SWErrorReference):
-                raise
-            elif isinstance(ref, SWNullReference):
-                raise
-            elif isinstance(ref, SW2_ConcreteReference):
-                resolved_after_data.append(("int-fetch", (ref.location_hints, str(ref.id))))
-            elif isinstance(ref, SWURLReference):
-                resolved_after_data.append(("ext-fetch", ref.urls))
-            else:
-                raise
-
-        # Step 2: Check for hits in the URL cache, or due to already-local in-system locations
-
-        resolved_after_cache = []
+        assert isinstance(ref, SWRealReference)
 
         def find_first_cached(urls):
             for url in urls:
@@ -289,45 +265,50 @@ class BlockStore:
                     return filename
             return None
 
-        def add_fetch(check_urls, fetch_urls, id=None):
-            filename = find_first_cached(check_urls)
-            if filename is not None:
-                resolved_after_cache.append(("resolved", filename))
-            else:
-                if id is None:
-                    id = self.allocate_new_id()
-                resolved_after_cache.append(("fetch", (check_urls, fetch_urls, self.filename(id))))
+        if isinstance(ref, SWErrorReference):
+            raise
+        elif isinstance(ref, SWNullReference):
+            raise
+        elif isinstance(ref, SWDataValue):
+            id = self.allocate_new_id()
+            with open(self.filename(id), 'w') as obj_file:
+                self.encode_json(ref.value, obj_file)
+            return self.filename(id)
+        elif isinstance(ref, SW2_ConcreteReference):
+            check_urls = ["swbs://%s/%s" % (loc_hint, str(ref.id)) for loc_hint in ref.location_hints]
+            return find_first_cached(check_urls)
+        elif isinstance(ref, SWURLReference):
+            return find_first_cached(ref.urls)
 
-        for (fetch_type, info) in resolved_after_data:
-            if fetch_type == "int-fetch":
-                loc_hints, id = info
-                fetch_urls = ["http://%s/data/%s" % (loc_hint, id) for loc_hint in loc_hints]
-                check_urls = ["swbs://%s/%s" % (loc_hint, id) for loc_hint in loc_hints]
-                add_fetch(check_urls, fetch_urls, id)
-            elif fetch_type == "ext-fetch":
-                add_fetch(info, info)
-            else:
-                resolved_after_cache.append((fetch_type, info))
+    def build_request_for_ref(self, (ref, resolution)):
 
-        # Step 3: Build a request descriptor for each request needing a real fetch
+        def build_request(check_urls, fetch_urls, filename):
+            return {"check_urls": check_urls, 
+                    "failures": 0, 
+                    "done": False,
+                    "fetch_urls": fetch_urls,
+                    "save_to": filename,
+                    "url": fetch_urls[0]})
 
-        fetch_requests = []
-        i = 0
-        for (action, info) in resolved_after_cache:
-            if action == "fetch":
-                check_urls, fetch_urls, filename = info
-                fetch_requests.append({"check_urls": check_urls, 
-                                       "failures": 0, 
-                                       "done": False,
-                                       "fetch_urls": fetch_urls,
-                                       "save_to": filename,
-                                       "url": fetch_urls[0]})
-            else:
-                fetch_requests.append({"done": True,
-                                       "save_to": info})
-            i += 1
+        if resolution is not None:
+            return {"done": True, "save_to": resolution}
+        else:
+            if isinstance(ref, SW2_ConcreteReference):
+                fetch_urls = ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+                check_urls = ["swbs://%s/%s" % (loc_hint, ref.id) for loc_hint in location_hints]
+                return build_request(check_urls, fetch_urls, self.filename(ref.id))
+            elif isinstance(ref, SWURLReference):
+                return build_request(ref.urls, ref.urls, self.filename(self.allocate_new_id()))
+                
+    def retrieve_filenames_for_refs(self, refs):
 
-        # Step 4: Try to fetch what we need, failing over to backup URLs as necessary.
+        # Step 1: Resolve from local cache
+        resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
+        
+        # Step 2: Build request descriptors
+        fetch_requests = map(self.build_request_for_ref, zip(refs, resolved_refs))
+        
+        # Step 3: Try to fetch what we need, failing over to backup URLs as necessary.
         # This isn't the ideal algorithm, as it won't submit retry requests until all the current wave
         # has either succeeded or failed. That would require more pycURL understanding,
         # specifically how to add requests to an ongoing multi-request.
