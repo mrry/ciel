@@ -288,7 +288,7 @@ class BlockStore:
                     "done": False,
                     "fetch_urls": fetch_urls,
                     "save_to": filename,
-                    "url": fetch_urls[0]})
+                    "url": fetch_urls[0]}
 
         if resolution is not None:
             return {"done": True, "save_to": resolution}
