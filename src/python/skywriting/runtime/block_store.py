@@ -49,19 +49,19 @@ def grab_urls(reqs):
 
     m = pycurl.CurlMulti()
     m.handles = []
-    m.setopt(pycurl.PIPELINING, 1)
-    m.setopt(pycurl.MAXCONNECTS, 20)
+    m.setopt(pycurl.M_PIPELINING, 1)
+    m.setopt(pycurl.M_MAXCONNECTS, 20)
     for req in reqs:
         c = pycurl.Curl()
         c.req = req
-        c.req.succeeded = False
-        c.req.failed = False
+        c.req["succeeded"] = False
+        c.req["failed"] = False
         c.setopt(pycurl.FOLLOWLOCATION, 1)
         c.setopt(pycurl.MAXREDIRS, 5)
         c.setopt(pycurl.CONNECTTIMEOUT, 30)
         c.setopt(pycurl.TIMEOUT, 300)
         c.setopt(pycurl.NOSIGNAL, 1)
-        c.setopt(pycurl.URL, req["url"])
+        c.setopt(pycurl.URL, str(req["url"]))
         if "save_to" in req:
             c.fp = open(req["save_to"], "wb")
             c.setopt(pycurl.WRITEDATA, c.fp)
@@ -96,6 +96,7 @@ def grab_urls(reqs):
                     c.fp.close()
                     c.fp = None
                 m.remove_handle(c)
+                c.req["failed"] = True
 
             num_processed = num_processed + len(ok_list) + len(err_list)
             if num_q == 0:
@@ -409,14 +410,13 @@ class BlockStore:
         # has either succeeded or failed. That would require more pycURL understanding,
         # specifically how to add requests to an ongoing multi-request.
 
-        while True:
-            live_requests = filter(lambda req : req["done"], fetch_requests)
-            if live_requests == []:
-                break
+        live_requests = fetch_requests
+        while len(live_requests) > 0:
+            live_requests = filter(lambda req : not req["done"], live_requests)
             grab_urls(live_requests)
             for req_result in live_requests:
                 
-                if "succeeded" in req_result:
+                if req_result["succeeded"]:
                     req_result["done"] = True
                     self.store_url_in_cache(req_result["check_urls"][req_result["failures"]], req_result["save_to"])
                 else:

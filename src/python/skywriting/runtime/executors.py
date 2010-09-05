@@ -69,8 +69,8 @@ class SWExecutor:
 
         real_refs = map(self.resolve_ref, refs)
         for ref in real_refs:
-            assert isinstance(real_ref, SWRealReference)
-            if isinstance(real_ref, SW2_FutureReference):
+            assert isinstance(ref, SWRealReference)
+            if isinstance(ref, SW2_FutureReference):
                 print "Blocking because reference is", real_ref
                 # Data is not yet available, so 
                 raise ReferenceUnavailableException(ref, self.continuation)
@@ -80,6 +80,9 @@ class SWExecutor:
         cherrypy.engine.publish("worker_event", "Executor: done fetching references")
 
         return ret
+
+    def get_filename(self, block_store, ref):
+        return self.get_filenames(block_store, [ref])[0]
         
     def abort(self):
         pass
@@ -211,7 +214,7 @@ class JavaExecutor(SWExecutor):
         process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
         for x in jar_filenames:
             process_args.append("file://" + x)
-#        print 'Command-line:', " ".join(process_args)
+        print 'Command-line:', " ".join(process_args)
         
         proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=None, stderr=None)
         
