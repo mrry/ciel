@@ -27,6 +27,7 @@ import tempfile
 import cherrypy
 import logging
 import pycurl
+import cStringIO
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -222,38 +223,6 @@ class BlockStore:
         file_size = os.path.getsize(self.filename(id))
         return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
 
-    def retrieve_object_by_url(self, url, decoder):
-        """Returns the object referred to by the given URL."""
-        filename = self.find_url_in_cache(url)
-        if filename is None:
-            parsed_url = urlparse.urlparse(url)
-            if parsed_url.scheme == 'swbs':
-                id = parsed_url.path[1:]
-                if parsed_url.netloc == self.netloc:
-                    # Retrieve local object.
-                    try:
-                        return self.object_cache[id]
-                    except KeyError:
-                        with open(self.filename(id)) as object_file:
-                            return self.decoders[decoder](object_file)
-                else:
-                    # Retrieve remote in-system object.
-                    # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, id)
-    
-            else:
-                # Retrieve remote ex-system object.
-                fetch_url = url
-
-            object_file = urllib2.urlopen(fetch_url)
-        else:
-            object_file = open(filename, "r")
-
-        ret = self.decoders[decoder](object_file)
-        if(decoder != "handle"):
-            object_file.close()
-        return ret
-
     def try_retrieve_filename_for_ref_without_transfer(self, ref):
 
         assert isinstance(ref, SWRealReference)
@@ -275,45 +244,57 @@ class BlockStore:
                 self.encode_json(ref.value, obj_file)
             return self.filename(id)
         elif isinstance(ref, SW2_ConcreteReference):
+            for loc in ref.location_hints:
+                if loc == self.netloc:
+                    return self.filename(ref.id)
             check_urls = ["swbs://%s/%s" % (loc_hint, str(ref.id)) for loc_hint in ref.location_hints]
             return find_first_cached(check_urls)
         elif isinstance(ref, SWURLReference):
             return find_first_cached(ref.urls)
 
+    def try_retrieve_object_for_ref_without_transfer(self, ref, decoder):
+
+        # Basically like the same task for files, but with the possibility of cached decoded forms
+        if isinstance(ref, SW2_ConcreteReference):
+            for loc in ref.location_hints:
+                if loc == self.netloc:
+                    try:
+                        return self.object_cache[ref.id]
+                    except:
+                        pass
+        cached_file = try_retrieve_filename_for_ref_without_transfer(self, ref)
+        if cached_file is not None:
+            with open(cached_file, "r") as f:
+                return self.decoders[decoder](f)
+        return None
+
     def build_request_for_ref(self, (ref, resolution)):
 
-        def build_request(check_urls, fetch_urls, filename):
+        def build_request(check_urls, fetch_urls):
             return {"check_urls": check_urls, 
                     "failures": 0, 
                     "done": False,
                     "fetch_urls": fetch_urls,
-                    "save_to": filename,
                     "url": fetch_urls[0]}
 
         if resolution is not None:
-            return {"done": True, "save_to": resolution}
+            return {"done": True, "save_to": resolution, "succeeded": True}
         else:
             if isinstance(ref, SW2_ConcreteReference):
                 fetch_urls = ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
                 check_urls = ["swbs://%s/%s" % (loc_hint, ref.id) for loc_hint in location_hints]
-                return build_request(check_urls, fetch_urls, self.filename(ref.id))
+                return build_request(check_urls, fetch_urls)
             elif isinstance(ref, SWURLReference):
-                return build_request(ref.urls, ref.urls, self.filename(self.allocate_new_id()))
+                return build_request(ref.urls, ref.urls)
                 
-    def retrieve_filenames_for_refs(self, refs):
+    def process_requests(self, reqs, do_store=True):
 
-        # Step 1: Resolve from local cache
-        resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
-        
-        # Step 2: Build request descriptors
-        fetch_requests = map(self.build_request_for_ref, zip(refs, resolved_refs))
-        
-        # Step 3: Try to fetch what we need, failing over to backup URLs as necessary.
+        # Try to fetch what we need, failing over to backup URLs as necessary.
         # This isn't the ideal algorithm, as it won't submit retry requests until all the current wave
         # has either succeeded or failed. That would require more pycURL understanding,
         # specifically how to add requests to an ongoing multi-request.
 
-        live_requests = fetch_requests
+        live_requests = reqs
         while len(live_requests) > 0:
             live_requests = filter(lambda req : not req["done"], live_requests)
             grab_urls(live_requests)
@@ -321,66 +302,82 @@ class BlockStore:
                 
                 if req_result["succeeded"]:
                     req_result["done"] = True
-                    self.store_url_in_cache(req_result["check_urls"][req_result["failures"]], req_result["save_to"])
+                    if do_store:
+                        self.store_url_in_cache(req_result["check_urls"][req_result["failures"]], req_result["save_to"])
                 else:
                     try:
                         req_result["failures"] += 1
                         req_result["url"] = req_result["fetch_urls"][req_result["failures"]]
+                        if "reset_callback" in req_result:
+                            req_result["reset_callback"]()
                     except IndexError:
                         # Damn
-                        req_result["save_to"] = None
                         req_result["done"] = True
 
-        filenames_to_return = [req["save_to"] for req in fetch_requests]
+
+    def retrieve_filenames_for_refs(self, refs, do_store=True):
+
+        # Step 1: Resolve from local cache
+        resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
+        
+        # Step 2: Build request descriptors
+        fetch_requests = map(self.build_request_for_ref, zip(refs, resolved_refs))
+
+        for (ref, req) in zip(refs, fetch_requests):
+            if isinstance(ref, SW2_ConcreteReference):
+                req["save_to"] = self.filename(ref.id)
+            elif isinstance(ref, SWURLReference):
+                req["save_to"] = self.filename(self.allocate_new_id())
+        
+        process_requests(self, fetch_requests)
+
+        def filename_of_req(req):
+            if req["succeeded"]:
+                return req["save_to"]
+            else:
+                return None
+
+        filenames_to_return = map(filename_of_req, fetch_requests)
         return filenames_to_return
-            
-    def retrieve_object_for_concrete_ref(self, ref, decoder):
-        netloc = self.choose_best_netloc(ref.location_hints.keys())
-        access_method = self.choose_best_access_method(ref.location_hints[netloc])
-        assert access_method == ACCESS_SWBS
-        try:
-            result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
-        except:
-            
-            alternative_netlocs = ref.location_hints.copy()
-            del alternative_netlocs[netloc]
-            while len(alternative_netlocs) > 0:
-                netloc = self.choose_best_netloc(alternative_netlocs)
-                access_method = self.choose_best_access_method(alternative_netlocs[netloc])
-                try:
-                    result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
-                    break
-                except:
-                    del alternative_netlocs[netloc]
-                
-            if len(alternative_netlocs) == 0:
-                raise MissingInputException(ref)
+
+    def retrieve_objects_for_refs(self, refs, decoder):
         
-        return result
-        
+        easy_solutions = [self.try_retrieve_object_for_ref_without_transfer(self, ref, decoder) for ref in refs]
+
+        # The rest need a real fetch.
+        request_descriptors = [self.build_request_descriptor_for_ref(self, x) for x in zip(refs, easy_solutions)]
+
+        def empty_buffer(req):
+            req["buffer"].close()
+            req["buffer"] = StringIO()
+
+        for req in request_descriptors:
+            if not req["done"]:
+                req["buffer"] = StringIO()
+                req["write_callback"] = req["buffer"].write
+                req["write_callback_data"] = None
+                req["reset_callback"] = empty_buffer
+
+        self.process_requests(request_descriptors)
+
+        def object_of_req(req):
+            if "save_to" in req:
+                # Object found in cache
+                return req["save_to"]
+            elif "buffer" in req and req["succeeded"]:
+                # Object received from remote
+                return self.decoders[decoder](req["buffer"])
+            else:
+                return None
+
+        for req in request_descriptors:
+            if "buffer" in req:
+                req["buffer"].close()
+
+        return map(object_of_req, request_descriptors)
+
     def retrieve_object_for_ref(self, ref, decoder):
-        assert isinstance(ref, SWRealReference)
-        if isinstance(ref, SW2_ConcreteReference):
-            return self.retrieve_object_for_concrete_ref(ref, decoder)
-        elif isinstance(ref, SWURLReference):
-            for url in ref.urls:
-                filename = self.find_url_in_cache(url)
-                if filename is not None:
-                    with open(filename) as f:
-                        ret = self.decoders[decoder](f)
-                    return ret
-            chosen_url = self.choose_best_url(ref.urls)
-            return self.retrieve_object_by_url(chosen_url, decoder)
-        elif isinstance(ref, SWDataValue):
-            assert decoder == 'json'
-            return ref.value
-        elif isinstance(ref, SWErrorReference):
-            raise RuntimeSkywritingError()
-        elif isinstance(ref, SWNullReference):
-            raise
-        else:
-            print ref
-            raise        
+        return retrieve_objects_for_refs(self, [ref], decoder)[0]
         
     def get_ref_for_url(self, url, version, task_id):
         """
