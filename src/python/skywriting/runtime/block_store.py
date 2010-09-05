@@ -254,84 +254,6 @@ class BlockStore:
             object_file.close()
         return ret
                 
-    def retrieve_filename_by_url(self, url, size_limit=None):
-        """Returns the filename of a file containing the data at the given URL."""
-        filename = self.find_url_in_cache(url)
-        id = None
-        if filename is None:
-            parsed_url = urlparse.urlparse(url)
-            
-            if parsed_url.scheme == 'swbs':
-                id = parsed_url.path[1:]
-                if parsed_url.netloc == self.netloc:
-                    # Retrieve local object.
-                    cherrypy.engine.publish("worker_event", "Block store: SWBS target was local already")
-                    return self.filename(id)
-                else:
-                    # Retrieve remote in-system object.
-                    # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, id)
-            else:
-                # Retrieve remote ex-system object.
-                fetch_url = url
-            
-            headers = {}
-            if size_limit is not None:
-                headers['If-Match'] = str(size_limit)
-            
-            cherrypy.engine.publish("worker_event", "Block store: fetching " + fetch_url)
-            request = urllib2.Request(fetch_url, headers=headers)
-            
-            try:
-                response = urllib2.urlopen(request)
-            except HTTPError, ue:
-                if ue.code == 412:
-                    raise ExecutionInterruption()
-                else:
-                    raise
-            except URLError:
-                raise
-            
-            if id is None:
-                id = self.allocate_new_id()
-       
-            filename = self.filename(id)
-    
-            with open(filename, 'wb') as data_file:
-                shutil.copyfileobj(response, data_file)
- 
-            response.close()
- 
-            self.store_url_in_cache(url, filename)
-        else:
-            cherrypy.engine.publish("worker_event", "Block store: URL hit in cache")
-
-        return filename
-    
-    def retrieve_filename_for_concrete_ref(self, ref):
-        netloc = self.choose_best_netloc(ref.location_hints.keys())
-        access_method = self.choose_best_access_method(ref.location_hints[netloc])
-        assert access_method == ACCESS_SWBS
-        try:
-            result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
-        except:
-            
-            alternative_netlocs = ref.location_hints.copy()
-            del alternative_netlocs[netloc]
-            while len(alternative_netlocs) > 0:
-                netloc = self.choose_best_netloc(alternative_netlocs)
-                access_method = self.choose_best_access_method(alternative_netlocs[netloc])
-                try:
-                    result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
-                    break
-                except:
-                    del alternative_netlocs[netloc]
-                
-            if len(alternative_netlocs) == 0:
-                raise MissingInputException(ref)
-        
-        return result
-
     def retrieve_filenames_for_refs(self, refs):
 
         # Step 1: Resolve simple refs and check for exceptions
@@ -431,36 +353,6 @@ class BlockStore:
         filenames_to_return = [req["save_to"] for req in fetch_requests]
         return filenames_to_return
             
-    def retrieve_filename_for_ref(self, ref):
-        assert isinstance(ref, SWRealReference)
-        # XXX URL-fetch and Concrete-fetch both approach doing the right thing from different directions.
-        # These should be unified. Right now, URL-fetch does:
-        # 1. Check if any of the alternatives are in local cache
-        # 2. If not, try to fetch the best one.
-        # 3. If that doesn't work, fail.
-        # On the other hand, Concrete-fetch does:
-        # 1. Choose the 'best' URL (which is just, prefer local, otherwise random)
-        # 2. Try to fetch that
-        # 3. If it doesn't work, try the others.
-        # So URL-fetch fails to retry with alternatives, 
-        # whilst Concrete-fetch fails to check if an alternative is already in-cache.
-        if isinstance(ref, SW2_ConcreteReference):
-            cherrypy.engine.publish("worker_event", "Block store: fetch SWBS")
-            return self.retrieve_filename_for_concrete_ref(ref)
-        elif isinstance(ref, SWURLReference):
-            for url in ref.urls:
-                filename = self.find_url_in_cache(url)
-                if filename is not None:
-                    cherrypy.engine.publish("worker_event", "Block store: URL hit in cache")
-                    return filename
-            chosen_url = self.choose_best_url(ref.urls)
-            cherrypy.engine.publish("worker_event", "Block store: fetch URL " + chosen_url)
-            return self.retrieve_filename_by_url(chosen_url)
-        elif isinstance(ref, SWDataValue):
-
-            return self.filename(id)
-
-        
     def retrieve_object_for_concrete_ref(self, ref, decoder):
         netloc = self.choose_best_netloc(ref.location_hints.keys())
         access_method = self.choose_best_access_method(ref.location_hints[netloc])
