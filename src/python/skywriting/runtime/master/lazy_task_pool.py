@@ -168,15 +168,10 @@ class LazyTaskPool(plugins.SimplePlugin):
     
     def publish_refs(self, refs):
         with self._lock:
-            for global_id, reflist in refs.items():
-                # XXX: Currently, we publish a list of refs for each name, 
-                #      whereas we should move to publishing a single concrete
-                #      ref with many location hints.
-                self._publish_ref(global_id, reflist[0])
+            for global_id, ref in refs.items():
+                self._publish_ref(global_id, ref)
         
     def _publish_ref(self, global_id, ref):
-        
-        cherrypy.log.error('Publishing ref: %s' % (repr(ref), ), 'TASKPOOL', logging.INFO)
         
         # Record the name-to-concrete-reference mapping for this ref's name.
         try:
