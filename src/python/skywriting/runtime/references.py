@@ -185,6 +185,29 @@ class SW2_StreamReference(SWRealReference):
             self.location_hints[netloc] = hints_for_netloc
         hints_for_netloc.append(access_method)
 
+    def combine_with(self, ref):
+        """Add the location hints from ref to this object."""
+        if isinstance(ref, SW2_StreamReference):
+            assert ref.id == self.id
+
+            # We attempt to upgrade the provenance if more information is 
+            # available from the merging reference. 
+            if isinstance(self.provenance, SWNoProvenance):
+                self.provenance = ref.provenance
+            
+            # We attempt to upgrade the size hint if more information is
+            # available from the merging reference.
+            if self.size_hint is None:
+                self.size_hint = ref.size_hint
+            
+            # We calculate the union of the two sets of location hints.
+            for (netloc, access_methods) in ref.location_hints.items():
+                try:
+                    existing_access_methods = set(self.location_hints[netloc])
+                except KeyError:
+                    existing_access_methods = set()
+                self.location_hints[netloc] = list(set(access_methods) | existing_access_methods)
+        
     def as_future(self):
         return SW2_FutureReference(self.id, self.provenance)
         
@@ -194,6 +217,23 @@ class SW2_StreamReference(SWRealReference):
     def __repr__(self):
         return 'SW2_StreamReference(%s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
                 
+class SW2_TombstoneReference(SWRealReference):
+    
+    def __init__(self, id, netlocs=None):
+        self.id = id
+        if netlocs is not None:
+            self.netlocs = set(netlocs)
+        else:
+            self.netlocs = set()
+            
+    def add_netloc(self, netloc):
+        self.netlocs.add(netloc)
+        
+    def as_tuple(self):
+        return ('t2', str(self.id), list(self.netlocs))
+    
+    def __repr__(self):
+        return 'SW2_TombstoneReference(%s, %s)' % (repr(self.id), repr(self.netlocs))
 
 class SWURLReference(SWRealReference):
     """
@@ -257,5 +297,34 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_ConcreteReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3], reference_tuple[4])
     elif ref_type == 's2':
         return SW2_StreamReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3])
+    elif ref_type == 't2':
+        return SW2_TombstoneReference(reference_tuple[1], reference_tuple[2])
     else:
         raise KeyError(ref_type)
+    
+def combine_references(original, update):
+        
+    # Concrete reference > streaming reference > future reference.
+    if (isinstance(original, SW2_FutureReference) or isinstance(original, SW2_StreamReference)) and isinstance(update, SW2_ConcreteReference):
+        return update
+    if isinstance(original, SW2_FutureReference) and isinstance(update, SW2_StreamReference):
+        return update
+    
+    # For references of the same type, merge the location hints for the two references.
+    if isinstance(original, SW2_StreamReference) and isinstance(update, SW2_StreamReference):
+        original.combine_with(update)
+        return original
+    if isinstance(original, SW2_ConcreteReference) and isinstance(update, SW2_ConcreteReference):
+        original.combine_with(update)
+        return original
+    
+    if (isinstance(original, SW2_ConcreteReference) or isinstance(original, SW2_StreamReference)) and isinstance(update, SW2_TombstoneReference):
+        original.apply_deletions(update)
+        if len(original.location_hints) == 0:
+            return original.as_future()
+        else:
+            return original
+    
+    # If we return false, this means we should ignore the update.
+    return False
+    
