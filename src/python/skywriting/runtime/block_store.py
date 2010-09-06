@@ -33,7 +33,7 @@ import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, \
-    SWNoProvenance, SWTaskOutputProvenance, SW2_StreamReference,\
+    SWTaskOutputProvenance, SW2_StreamReference,\
     SW2_TombstoneReference
 import hashlib
 import contextlib
@@ -321,7 +321,7 @@ class BlockStore:
                     alternative_netlocs.remove(netloc)
                 
             if len(alternative_netlocs) == 0:
-                raise MissingInputException({ ref.id : [SW2_TombstoneReference(ref.id, ref.location_hints)] })
+                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
         
         return result
         
@@ -369,7 +369,7 @@ class BlockStore:
                     alternative_netlocs.remove(netloc)
                     
             if len(alternative_netlocs) == 0:
-                raise MissingInputException({ ref.id : [SW2_TombstoneReference(ref.id, ref.location_hints)] })
+                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
         
         return result
         

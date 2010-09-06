@@ -212,7 +212,7 @@ class SWExecutorTaskExecutionRecord:
         for i, output_ref in enumerate(self.executor.output_refs):
             if isinstance(output_ref, SW2_ConcreteReference):
                 output_ref.provenance = SWTaskOutputProvenance(self.original_task_id, i)
-            commit_bindings[self.expected_outputs[i]] = [output_ref]
+            commit_bindings[self.expected_outputs[i]] = output_ref
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
     def execute(self):        
@@ -539,16 +539,11 @@ class SWRuntimeInterpreterTask:
         
         commit_bindings = {}
         for ref in self.additional_refs_to_publish:
-            try:
-                ref_list = commit_bindings[ref.id]
-            except KeyError:
-                ref_list = []
-                commit_bindings[ref.id] = ref_list
-            ref_list.append(ref)
+            commit_bindings[ref.id] = ref
         
         if self.result is None:
             if self.save_continuation:
-                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
+                save_cont_uri, _ = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
             else:
                 save_cont_uri = None
             master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri, self.replay_uuid_list)
@@ -556,14 +551,14 @@ class SWRuntimeInterpreterTask:
         
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
 
-        result_url, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
+        _, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
         if size_hint < 128:
             result_ref = SWDataValue(serializable_result)
         else:
             result_ref = SW2_ConcreteReference(self.expected_outputs[0], SWTaskOutputProvenance(self.original_task_id, 0), size_hint)
             result_ref.add_location_hint(self.block_store.netloc)
             
-        commit_bindings[self.expected_outputs[0]] = [result_ref]        
+        commit_bindings[self.expected_outputs[0]] = result_ref
         
         if self.save_continuation:
             save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
