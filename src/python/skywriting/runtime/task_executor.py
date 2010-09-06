@@ -357,7 +357,7 @@ class SWRuntimeInterpreterTask:
             else:
                 parsed_inputs[int(local_id)] = ref
         
-        self.continuation = block_store.retrieve_object_for_ref(continuation_ref, 'pickle')
+        self.continuation = self.block_store.retrieve_object_for_ref(continuation_ref, 'pickle')
 
         fetch_objects = []
         for local_id, ref in parsed_inputs.items():
@@ -376,7 +376,7 @@ class SWRuntimeInterpreterTask:
                 assert False
 
         fetch_refs = [ref for (local_id, ref) in fetch_objects]
-        fetched_objects = block_store.retrieve_objects_for_refs(fetch_refs, 'json')
+        fetched_objects = self.block_store.retrieve_objects_for_refs(fetch_refs, 'json')
 
         for (id, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetched_objects):
             self.continuation.rewrite_reference(id, SWDataValue(ob))
@@ -659,8 +659,9 @@ class SWRuntimeInterpreterTask:
 
     def do_eager_thunks(self, args):
 
-        fetches_needed = accumulate_leaf_values(check_for_eager_fetch, args)
-        fetched_objects = block_store.retrieve_objects_for_refs([ref for (id, ref) in fetches_needed], "json")
+        fetches_needed = accumulate_leaf_values(self.check_for_eager_fetch, args)
+        fetches_needed = filter(lambda x: x is not None, fetches_needed)
+        fetched_objects = self.block_store.retrieve_objects_for_refs([ref for (id, ref) in fetches_needed], "json")
         id_to_result_map = dict(zip([id for (id, ref) in fetches_needed], fetched_objects))
 
         def resolve_thunks_mapper(leaf):

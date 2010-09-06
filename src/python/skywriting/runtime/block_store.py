@@ -27,7 +27,7 @@ import tempfile
 import cherrypy
 import logging
 import pycurl
-import cStringIO
+from cStringIO import StringIO
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -69,7 +69,6 @@ def grab_urls(reqs):
         elif "write_callback" in req:
             c.fp = None
             c.setopt(pycurl.WRITEFUNCTION, req["write_callback"])
-            c.setopt(pycurl.WRITEDATA, req["write_callback_data"])
         else:
             raise Exception("grab_urls: requests must include either 'save_to' or 'write_callback'")
         m.handles.append(c)
@@ -262,7 +261,7 @@ class BlockStore:
                         return self.object_cache[ref.id]
                     except:
                         pass
-        cached_file = try_retrieve_filename_for_ref_without_transfer(self, ref)
+        cached_file = self.try_retrieve_filename_for_ref_without_transfer(ref)
         if cached_file is not None:
             with open(cached_file, "r") as f:
                 return self.decoders[decoder](f)
@@ -281,11 +280,12 @@ class BlockStore:
             return {"done": True, "save_to": resolution, "succeeded": True}
         else:
             if isinstance(ref, SW2_ConcreteReference):
-                fetch_urls = ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
                 check_urls = ["swbs://%s/%s" % (loc_hint, ref.id) for loc_hint in location_hints]
+                fetch_urls = ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
                 return build_request(check_urls, fetch_urls)
             elif isinstance(ref, SWURLReference):
-                return build_request(ref.urls, ref.urls)
+                fetch_urls = map(sw_to_external_url, ref.urls)
+                return build_request(ref.urls, fetch_urls)
                 
     def process_requests(self, reqs, do_store=True):
 
@@ -319,17 +319,18 @@ class BlockStore:
 
         # Step 1: Resolve from local cache
         resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
-        
+
         # Step 2: Build request descriptors
         fetch_requests = map(self.build_request_for_ref, zip(refs, resolved_refs))
 
         for (ref, req) in zip(refs, fetch_requests):
-            if isinstance(ref, SW2_ConcreteReference):
-                req["save_to"] = self.filename(ref.id)
-            elif isinstance(ref, SWURLReference):
-                req["save_to"] = self.filename(self.allocate_new_id())
-        
-        process_requests(self, fetch_requests)
+            if not req["done"]:
+                if isinstance(ref, SW2_ConcreteReference):
+                    req["save_to"] = self.filename(ref.id)
+                elif isinstance(ref, SWURLReference):
+                    req["save_to"] = self.filename(self.allocate_new_id())
+
+        self.process_requests(fetch_requests)
 
         def filename_of_req(req):
             if req["succeeded"]:
@@ -342,10 +343,10 @@ class BlockStore:
 
     def retrieve_objects_for_refs(self, refs, decoder):
         
-        easy_solutions = [self.try_retrieve_object_for_ref_without_transfer(self, ref, decoder) for ref in refs]
+        easy_solutions = [self.try_retrieve_object_for_ref_without_transfer(ref, decoder) for ref in refs]
 
         # The rest need a real fetch.
-        request_descriptors = [self.build_request_descriptor_for_ref(self, x) for x in zip(refs, easy_solutions)]
+        request_descriptors = [self.build_request_for_ref(x) for x in zip(refs, easy_solutions)]
 
         def empty_buffer(req):
             req["buffer"].close()
@@ -355,10 +356,9 @@ class BlockStore:
             if not req["done"]:
                 req["buffer"] = StringIO()
                 req["write_callback"] = req["buffer"].write
-                req["write_callback_data"] = None
                 req["reset_callback"] = empty_buffer
 
-        self.process_requests(request_descriptors)
+        self.process_requests(request_descriptors, False)
 
         def object_of_req(req):
             if "save_to" in req:
@@ -366,18 +366,21 @@ class BlockStore:
                 return req["save_to"]
             elif "buffer" in req and req["succeeded"]:
                 # Object received from remote
+                req["buffer"].seek(0)
                 return self.decoders[decoder](req["buffer"])
             else:
                 return None
+
+        results = map(object_of_req, request_descriptors)
 
         for req in request_descriptors:
             if "buffer" in req:
                 req["buffer"].close()
 
-        return map(object_of_req, request_descriptors)
+        return results
 
     def retrieve_object_for_ref(self, ref, decoder):
-        return retrieve_objects_for_refs(self, [ref], decoder)[0]
+        return self.retrieve_objects_for_refs([ref], decoder)[0]
         
     def get_ref_for_url(self, url, version, task_id):
         """
