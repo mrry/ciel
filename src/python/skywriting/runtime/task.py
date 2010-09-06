@@ -4,7 +4,8 @@ Created on 17 Aug 2010
 @author: dgm36
 '''
 import datetime
-from skywriting.runtime.references import SW2_FutureReference
+from skywriting.runtime.references import SW2_FutureReference,\
+    SW2_ConcreteReference
 import uuid
 import time
 
@@ -113,9 +114,9 @@ class TaskPoolTask(Task):
                     self.inputs[local_id] = input
     
             if len(self._blocking_dict) > 0:
-                self.state = TASK_BLOCKING
+                self.set_state(TASK_BLOCKING)
             else:
-                self.state = TASK_RUNNABLE
+                self.set_state(TASK_RUNNABLE)
                 self.record_event("RUNNABLE")
                 
         else:
@@ -136,16 +137,16 @@ class TaskPoolTask(Task):
                         self.select_result.append(i)
 
                 if len(self.select_group) > 0 and len(self.select_result) == 0:
-                    self.state = TASK_SELECTING
+                    self.set_state(TASK_SELECTING)
                 else:
-                    self.state = TASK_RUNNABLE
+                    self.set_state(TASK_RUNNABLE)
                     self.record_event("RUNNABLE")
         
             else:
                 
                 # We are replaying a task that has previously returned from a call to select().
                 # TODO: We need to make sure we handle blocking/failure for this task correctly.
-                self.state = TASK_RUNNABLE
+                self.set_state(TASK_RUNNABLE)
                 self.record_event("RUNNABLE")
         
     def is_replay_task(self):
@@ -163,23 +164,19 @@ class TaskPoolTask(Task):
             return []
 
     def block_on(self, global_id, local_id):
+        self.set_state(TASK_BLOCKING)
         try:
             self._blocking_dict[global_id].add(local_id)
         except KeyError:
             self._blocking_dict[global_id] = set([local_id])
             
-    def unblock_on(self, global_id, refs):
-        if self.state in (TASK_RUNNABLE, TASK_SELECTING):
-            i = self._selecting_dict.pop(global_id)
-            self.select_result.append(i)
-            self.state = TASK_RUNNABLE
-            self.record_event("RUNNABLE")
-        elif self.state in (TASK_BLOCKING,):
+    def unblock_on(self, global_id, ref):
+        if self.state == TASK_BLOCKING:
             local_ids = self._blocking_dict.pop(global_id)
             for local_id in local_ids:
-                self.inputs[local_id] = refs[0]
+                self.inputs[local_id] = ref
             if len(self._blocking_dict) == 0:
-                self.state = TASK_RUNNABLE
+                self.set_state(TASK_RUNNABLE)
                 self.record_event("RUNNABLE")
         
     # Warning: called under worker_pool._lock
@@ -189,6 +186,12 @@ class TaskPoolTask(Task):
         #self.state = TASK_ASSIGNED
         #self.record_event("ASSIGNED")
         #self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
+
+    def convert_dependencies_to_futures(self):
+        new_deps = {}
+        for local_id, ref in self.dependencies.items(): 
+            new_deps[local_id] = ref.as_future()
+        self.dependencies = new_deps
 
     def make_replay_task(self, replay_task_id, replay_ref):
         
