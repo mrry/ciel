@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE,\
-    TASK_ASSIGNED, TASK_COMMITTED, build_taskpool_task_from_descriptor,\
+    TASK_COMMITTED, build_taskpool_task_from_descriptor,\
     TASK_QUEUED, TASK_FAILED
 import collections
 from skywriting.runtime.references import SW2_FutureReference,\

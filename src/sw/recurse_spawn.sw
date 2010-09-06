@@ -8,4 +8,4 @@ function recurse_spawner (current, limit) {
 	} 
 }
 
-return recurse_spawner(0, 17);
+return recurse_spawner(0, 8);

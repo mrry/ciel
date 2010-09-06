@@ -46,7 +46,7 @@ class ForceEvalRR:
 class FunctionCallRR:
     
     def __init__(self, num_args):
-        self.args = [None for i in range(num_args)]
+        self.args = [None for _ in range(num_args)]
         
     def __repr__(self):
         return 'FunctionCallRR(args=%s)' % (repr(self.args), )
@@ -54,7 +54,7 @@ class FunctionCallRR:
 class ListRR:
     
     def __init__(self, length):
-        self.items = [None for i in range(length)]
+        self.items = [None for _ in range(length)]
         
     def __repr__(self):
         return 'ListRR(items=[%s])' % (repr(self.items), )
@@ -62,7 +62,7 @@ class ListRR:
 class DictRR:
     
     def __init__(self, num_items):
-        self.contents = [None for i in range(num_items)]
+        self.contents = [None for _ in range(num_items)]
         
     def __repr__(self):
         return 'DictRR(contents={%s})' % (repr(self.contents), )

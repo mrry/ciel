@@ -548,7 +548,7 @@ class SWRuntimeInterpreterTask:
         
         if self.result is None:
             if self.save_continuation:
-                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
+                save_cont_uri, _ = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
             else:
                 save_cont_uri = None
             master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri, self.replay_uuid_list)
@@ -556,7 +556,7 @@ class SWRuntimeInterpreterTask:
         
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
 
-        result_url, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
+        _, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
         if size_hint < 128:
             result_ref = SWDataValue(serializable_result)
         else:

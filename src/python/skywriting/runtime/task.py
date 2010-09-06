@@ -4,9 +4,7 @@ Created on 17 Aug 2010
 @author: dgm36
 '''
 import datetime
-from skywriting.runtime.references import SW2_FutureReference,\
-    SW2_ConcreteReference
-import uuid
+from skywriting.runtime.references import SW2_FutureReference
 import time
 
 TASK_CREATED = -1

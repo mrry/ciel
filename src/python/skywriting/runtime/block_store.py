@@ -33,7 +33,7 @@ import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, \
-    SWNoProvenance, SWTaskOutputProvenance, SW2_StreamReference,\
+    SWTaskOutputProvenance, SW2_StreamReference,\
     SW2_TombstoneReference
 import hashlib
 import contextlib

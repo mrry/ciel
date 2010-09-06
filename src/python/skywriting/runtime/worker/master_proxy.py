@@ -62,7 +62,7 @@ class MasterProxy(SimplePlugin):
     
     def backoff_request(self, url, method, payload=None, num_attempts=1, initial_wait=0):
         initial_wait = 5
-        for i in range(0, num_attempts):
+        for _ in range(0, num_attempts):
             if self.stop_event.is_set():
                 break
             try:
