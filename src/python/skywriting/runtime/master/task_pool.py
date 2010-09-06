@@ -108,7 +108,7 @@ class TaskPool(plugins.SimplePlugin):
                         current_saving_for_netloc = 0
                     netlocs[netloc] = current_saving_for_netloc + input.size_hint
             elif isinstance(input, SW2_ConcreteReference) and input.size_hint is not None:
-                for netloc in input.location_hints.keys():
+                for netloc in input.location_hints:
                     try:
                         current_saving_for_netloc = netlocs[netloc]
                     except KeyError:
@@ -304,7 +304,7 @@ class TaskPool(plugins.SimplePlugin):
             replay_task = producing_task.make_replay_task(self.generate_task_id(), input_ref)
 
         # Investigate the failure of the workers that should have provided this data.
-        for netloc in input_ref.location_hints.keys():
+        for netloc in input_ref.location_hints:
             worker = self.worker_pool.get_worker_at_netloc(netloc)
             print 'Investigating failure of worker:', worker
             if worker is not None:

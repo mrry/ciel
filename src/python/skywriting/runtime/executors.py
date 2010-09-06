@@ -15,7 +15,7 @@ from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWNoProvenance, ACCESS_SWBS, SWDataValue, SW2_StreamReference
+    SWNoProvenance, SWDataValue, SW2_StreamReference
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException
 import logging
@@ -237,7 +237,7 @@ class SWStdinoutExecutor(SWExecutor):
         
         # XXX: We fix the provenance in the caller.
         real_ref = SW2_ConcreteReference(self.output_ids[0], SWNoProvenance(), size_hint)
-        real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+        real_ref.add_location_hint(block_store.netloc)
         self.output_refs[0] = real_ref
         
     def _abort(self):
@@ -286,7 +286,7 @@ class EnvironmentExecutor(SWExecutor):
             _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: We fix the provenance in the caller.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
-            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
         
     def _abort(self):
@@ -351,7 +351,7 @@ class JavaExecutor(SWExecutor):
             _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
-            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
         cherrypy.engine.publish("worker_event", "Java: Finished storing outputs")
 
@@ -423,7 +423,7 @@ class DotNetExecutor(SWExecutor):
             _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
-            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
 
 class CExecutor(SWExecutor):
@@ -490,7 +490,7 @@ class CExecutor(SWExecutor):
             _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
-            real_ref.add_location_hint(block_store.netloc, ACCESS_SWBS)
+            real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
             
 class GrabURLExecutor(SWExecutor):
