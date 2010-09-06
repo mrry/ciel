@@ -114,8 +114,8 @@ class MasterProxy(SimplePlugin):
         message_url = urljoin(self.master_url, 'task/%s/commit' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
         
-    def failed_task(self, task_id, reason=None, details=None):
-        message_payload = simplejson.dumps((reason, details), cls=SWReferenceJSONEncoder)
+    def failed_task(self, task_id, reason=None, details=None, bindings={}):
+        message_payload = simplejson.dumps((reason, details, bindings), cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%s/failed' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
 

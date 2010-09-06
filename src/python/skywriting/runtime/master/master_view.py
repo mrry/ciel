@@ -253,8 +253,8 @@ class MasterTaskRoot:
             elif action == 'failed':
                 if cherrypy.request.method == 'POST':
                     task = self.task_pool.get_task_by_id(task_id)
-                    reason, details = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    cherrypy.engine.publish('task_failed', task, reason, details)
+                    failure_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                    cherrypy.engine.publish('task_failed', task, failure_payload)
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)

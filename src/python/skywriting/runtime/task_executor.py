@@ -34,7 +34,6 @@ import uuid
 import hashlib
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
-    SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
     SWTaskOutputProvenance, SW2_ConcreteReference,\
     SWSpawnedTaskProvenance, SWExecResultProvenance,\
@@ -234,7 +233,7 @@ class SWExecutorTaskExecutionRecord:
                 self.task_executor.master_proxy.failed_task(self.task_id)
         except MissingInputException as mie:
             cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', mie.ref)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
         except:
             cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')
@@ -274,7 +273,7 @@ class SWInterpreterTaskExecutionRecord:
         
         except MissingInputException as mie:
             cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', mie.ref)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
                 
         except:
             cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
@@ -464,7 +463,7 @@ class SWRuntimeInterpreterTask:
             return
             
         except MissingInputException as mie:
-            print "!!! ERROR: cannot retrieve input: %s" % (repr(mie.ref), )
+            print "!!! ERROR: cannot retrieve inputs: %s" % (repr(mie.bindings), )
             raise
 
         except Exception:
