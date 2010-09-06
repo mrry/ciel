@@ -23,6 +23,9 @@ class SWRealReference:
     def as_tuple(self):
         pass
 
+    def is_consumable(self):
+        return True
+
 class SWErrorReference(SWRealReference):
     
     def __init__(self, reason, details):
@@ -107,6 +110,12 @@ class SW2_FutureReference(SWFutureReference):
     def __init__(self, id, provenance=SWNoProvenance()):
         self.id = id
         self.provenance = provenance
+    
+    def is_consumable(self):
+        return False
+    
+    def as_future(self):
+        return self
     
     def as_tuple(self):
         return ('f2', str(self.id), self.provenance.as_tuple())
@@ -209,6 +218,9 @@ class SW2_TombstoneReference(SWRealReference):
         else:
             self.netlocs = set()
             
+    def is_consumable(self):
+        return False        
+    
     def add_netloc(self, netloc):
         self.netlocs.add(netloc)
         
@@ -302,7 +314,7 @@ def combine_references(original, update):
         return original
     
     if (isinstance(original, SW2_ConcreteReference) or isinstance(original, SW2_StreamReference)) and isinstance(update, SW2_TombstoneReference):
-        original.apply_deletions(update)
+        original.location_hints.difference_update(update.netlocs)
         if len(original.location_hints) == 0:
             return original.as_future()
         else:
