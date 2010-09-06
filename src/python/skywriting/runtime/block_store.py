@@ -321,7 +321,7 @@ class BlockStore:
                     alternative_netlocs.remove(netloc)
                 
             if len(alternative_netlocs) == 0:
-                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
+                raise MissingInputException({ ref.id : [SW2_TombstoneReference(ref.id, ref.location_hints)] })
         
         return result
         
@@ -369,7 +369,7 @@ class BlockStore:
                     alternative_netlocs.remove(netloc)
                     
             if len(alternative_netlocs) == 0:
-                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
+                raise MissingInputException({ ref.id : [SW2_TombstoneReference(ref.id, ref.location_hints)] })
         
         return result
         

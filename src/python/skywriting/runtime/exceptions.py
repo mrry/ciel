@@ -73,8 +73,8 @@ class SelectException(ExecutionInterruption):
         self.timeout = timeout
         
 class MissingInputException(RuntimeSkywritingError):
-    def __init__(self, ref):
-        self.ref = ref
+    def __init__(self, bindings):
+        self.bindings = bindings
         
     def __repr__(self):
         return 'MissingInputException(ref=%s)' % (repr(self.ref), )
