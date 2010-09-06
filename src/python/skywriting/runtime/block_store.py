@@ -359,15 +359,15 @@ class BlockStore:
         except:
             
             alternative_netlocs = ref.location_hints.copy()
-            del alternative_netlocs[netloc]
+            alternative_netlocs.remove(netloc)
             while len(alternative_netlocs) > 0:
                 netloc = self.choose_best_netloc(alternative_netlocs)
                 try:
                     result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
                     break
                 except:
-                    del alternative_netlocs[netloc]
-                
+                    alternative_netlocs.remove(netloc)
+                    
             if len(alternative_netlocs) == 0:
                 raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
         
