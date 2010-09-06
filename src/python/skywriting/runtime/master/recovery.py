@@ -11,8 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.references import SW2_ConcreteReference, SWNoProvenance,\
-    ACCESS_SWBS
+from skywriting.runtime.references import SW2_ConcreteReference, SWNoProvenance
 from cherrypy.process import plugins
 import urllib2
 from skywriting.runtime.block_store import BLOCK_LIST_RECORD_STRUCT,\
@@ -53,7 +52,7 @@ class RecoveryManager(plugins.SimplePlugin):
             for block_name, block_size in self.block_store.block_list_generator():
                 conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), 
                                                  block_size)
-                conc_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+                conc_ref.add_location_hint(self.block_store.netloc)
                 #cherrypy.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
                 self.task_pool.publish_single_ref(block_name, conc_ref)                
 
@@ -154,7 +153,7 @@ class RecoveryManager(plugins.SimplePlugin):
             block_name, block_size = BLOCK_LIST_RECORD_STRUCT.unpack(record)
             conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), 
                                              block_size)
-            conc_ref.add_location_hint(worker.netloc, ACCESS_SWBS)
+            conc_ref.add_location_hint(worker.netloc)
             
             #cherrypy.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
             self.task_pool.publish_single_ref(block_name, conc_ref)

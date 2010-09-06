@@ -32,7 +32,7 @@ import urlparse
 import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
-    SWErrorReference, SWNullReference, SWURLReference, ACCESS_SWBS,\
+    SWErrorReference, SWNullReference, SWURLReference, \
     SWNoProvenance, SWTaskOutputProvenance, SW2_StreamReference
 import hashlib
 import contextlib
@@ -248,7 +248,7 @@ class BlockStore:
         return ret
                 
     def is_available_locally(self, ref):
-        return self.netloc in ref.location_hints.keys() or (isinstance(ref, SW2_ConcreteReference) and os.path.exists(self.filename(ref.id)))
+        return self.netloc in ref.location_hints or (isinstance(ref, SW2_ConcreteReference) and os.path.exists(self.filename(ref.id)))
 
     def retrieve_filename_by_url(self, url, size_limit=None):
         """Returns the filename of a file containing the data at the given URL."""
@@ -305,18 +305,14 @@ class BlockStore:
         return filename
     
     def retrieve_filename_for_concrete_ref(self, ref):
-        netloc = self.choose_best_netloc(ref.location_hints.keys())
-        access_method = self.choose_best_access_method(ref.location_hints[netloc])
-        assert access_method == ACCESS_SWBS
+        netloc = self.choose_best_netloc(ref.location_hints)
         try:
             result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
         except:
-            
             alternative_netlocs = ref.location_hints.copy()
             del alternative_netlocs[netloc]
             while len(alternative_netlocs) > 0:
                 netloc = self.choose_best_netloc(alternative_netlocs)
-                access_method = self.choose_best_access_method(alternative_netlocs[netloc])
                 try:
                     result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
                     break
@@ -356,9 +352,7 @@ class BlockStore:
             raise
         
     def retrieve_object_for_concrete_ref(self, ref, decoder):
-        netloc = self.choose_best_netloc(ref.location_hints.keys())
-        access_method = self.choose_best_access_method(ref.location_hints[netloc])
-        assert access_method == ACCESS_SWBS
+        netloc = self.choose_best_netloc(ref.location_hints)
         try:
             result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
         except:
@@ -367,7 +361,6 @@ class BlockStore:
             del alternative_netlocs[netloc]
             while len(alternative_netlocs) > 0:
                 netloc = self.choose_best_netloc(alternative_netlocs)
-                access_method = self.choose_best_access_method(alternative_netlocs[netloc])
                 try:
                     result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
                     break
@@ -405,8 +398,7 @@ class BlockStore:
         
     def retrieve_range_for_ref(self, ref, start, chunk_size):
         assert isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_ConcreteReference)
-        netloc = self.choose_best_netloc(ref.location_hints.keys())
-        assert ACCESS_SWBS in ref.location_hints[netloc]
+        netloc = self.choose_best_netloc(ref.location_hints)
     
         fetch_url = 'http://%s/data/%s' % (netloc, ref.id)
         range_header = 'bytes=%d-%d' % (start, start + chunk_size - 1)
@@ -444,7 +436,7 @@ class BlockStore:
             # for it directly.
             id = parsed_url.path[1:]
             ref = SW2_ConcreteReference(id, SWTaskOutputProvenance(task_id, -1), None)
-            ref.add_location_hint(parsed_url.netloc, ACCESS_SWBS)
+            ref.add_location_hint(parsed_url.netloc)
         else:
             # URL is outside the cluster, so we have to fetch it. We use
             # content-based addressing to name the fetched data.
@@ -469,22 +461,15 @@ class BlockStore:
             _, size = self.store_file(fetch_filename, id, True)
             
             ref = SW2_ConcreteReference(id, SWTaskOutputProvenance(task_id, -1), size)
-            ref.add_location_hint(self.netloc, ACCESS_SWBS)
+            ref.add_location_hint(self.netloc)
         
         return ref
         
     def choose_best_netloc(self, netlocs):
-        if len(netlocs) == 1:
-            return netlocs[0]
-        else:
-            for netloc in netlocs:
-                if netloc == self.netloc:
-                    return netloc
-            return random.choice(netlocs)
-        
-    def choose_best_access_method(self, methods):
-        assert ACCESS_SWBS in methods
-        return ACCESS_SWBS
+        for netloc in netlocs:
+            if netloc == self.netloc:
+                return netloc
+        return random.choice(netlocs)
         
     def choose_best_url(self, urls):
         if len(urls) == 1:

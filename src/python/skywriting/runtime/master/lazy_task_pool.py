@@ -150,7 +150,7 @@ class LazyTaskPool(plugins.SimplePlugin):
         # We will re-reduce the graph for this task, ignoring the network
         # locations for which getting the input failed.
         assert isinstance(input_ref, SW2_ConcreteReference)
-        ignore_netlocs = input_ref.location_hints.keys()
+        ignore_netlocs = input_ref.location_hints
         
         self.do_graph_reduction(root_tasks=[task], ignore_netlocs=ignore_netlocs)
     
@@ -243,8 +243,8 @@ class LazyTaskPool(plugins.SimplePlugin):
             
                 # Delete the failed worker(s) from the combined reference.    
                 for netloc in ignore_netlocs:
-                    if ref.location_hints.has_key(netloc):
-                        del ref.location_hints[netloc]
+                    if netloc in ref.location_hints:
+                        ref.location_hints.remove(netloc)
             
                 if len(ref.location_hints) > 0:
                     # In this case, we got lucky because another task has

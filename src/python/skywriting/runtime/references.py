@@ -114,8 +114,6 @@ class SW2_FutureReference(SWFutureReference):
     def __repr__(self):
         return 'SW2_FutureReference(%s, %s)' % (repr(self.id), repr(self.provenance))
         
-ACCESS_SWBS = 'swbs'
-
 class SW2_ConcreteReference(SWRealReference):
         
     def __init__(self, id, provenance, size_hint=None, location_hints=None):
@@ -123,17 +121,12 @@ class SW2_ConcreteReference(SWRealReference):
         self.provenance = provenance
         self.size_hint = size_hint
         if location_hints is not None:
-            self.location_hints = location_hints
+            self.location_hints = set(location_hints)
         else:
-            self.location_hints = {}
+            self.location_hints = set()
         
-    def add_location_hint(self, netloc, access_method):
-        try:
-            hints_for_netloc = self.location_hints[netloc]
-        except KeyError:
-            hints_for_netloc = []
-            self.location_hints[netloc] = hints_for_netloc
-        hints_for_netloc.append(access_method)
+    def add_location_hint(self, netloc):
+        self.location_hints.add(netloc)
         
     def combine_with(self, ref):
         """Add the location hints from ref to this object."""
@@ -151,18 +144,13 @@ class SW2_ConcreteReference(SWRealReference):
                 self.size_hint = ref.size_hint
             
             # We calculate the union of the two sets of location hints.
-            for (netloc, access_methods) in ref.location_hints.items():
-                try:
-                    existing_access_methods = set(self.location_hints[netloc])
-                except KeyError:
-                    existing_access_methods = set()
-                self.location_hints[netloc] = list(set(access_methods) | existing_access_methods)
-        
+            self.location_hints.update(ref.location_hints)
+            
     def as_future(self):
         return SW2_FutureReference(self.id, self.provenance)
         
     def as_tuple(self):
-        return('c2', str(self.id), self.provenance.as_tuple(), self.size_hint, self.location_hints)
+        return('c2', str(self.id), self.provenance.as_tuple(), self.size_hint, list(self.location_hints))
         
     def __repr__(self):
         return 'SW2_ConcreteReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.size_hint), repr(self.location_hints))
@@ -173,17 +161,12 @@ class SW2_StreamReference(SWRealReference):
         self.id = id
         self.provenance = provenance
         if location_hints is not None:
-            self.location_hints = location_hints
+            self.location_hints = set(location_hints)
         else:
-            self.location_hints = {}
+            self.location_hints = set()
         
-    def add_location_hint(self, netloc, access_method):
-        try:
-            hints_for_netloc = self.location_hints[netloc]
-        except KeyError:
-            hints_for_netloc = []
-            self.location_hints[netloc] = hints_for_netloc
-        hints_for_netloc.append(access_method)
+    def add_location_hint(self, netloc):
+        self.location_hints.add(netloc)
 
     def combine_with(self, ref):
         """Add the location hints from ref to this object."""
@@ -212,7 +195,7 @@ class SW2_StreamReference(SWRealReference):
         return SW2_FutureReference(self.id, self.provenance)
         
     def as_tuple(self):
-        return('s2', str(self.id), self.provenance.as_tuple(), self.location_hints)
+        return('s2', str(self.id), self.provenance.as_tuple(), list(self.location_hints))
         
     def __repr__(self):
         return 'SW2_StreamReference(%s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
