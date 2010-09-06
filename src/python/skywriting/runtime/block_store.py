@@ -33,7 +33,8 @@ import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, \
-    SWNoProvenance, SWTaskOutputProvenance, SW2_StreamReference
+    SWNoProvenance, SWTaskOutputProvenance, SW2_StreamReference,\
+    SW2_TombstoneReference
 import hashlib
 import contextlib
 urlparse.uses_netloc.append("swbs")
@@ -310,17 +311,17 @@ class BlockStore:
             result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
         except:
             alternative_netlocs = ref.location_hints.copy()
-            del alternative_netlocs[netloc]
+            alternative_netlocs.remove(netloc)
             while len(alternative_netlocs) > 0:
                 netloc = self.choose_best_netloc(alternative_netlocs)
                 try:
                     result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
                     break
                 except:
-                    del alternative_netlocs[netloc]
+                    alternative_netlocs.remove(netloc)
                 
             if len(alternative_netlocs) == 0:
-                raise MissingInputException(ref)
+                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
         
         return result
         
@@ -358,17 +359,17 @@ class BlockStore:
         except:
             
             alternative_netlocs = ref.location_hints.copy()
-            del alternative_netlocs[netloc]
+            alternative_netlocs.remove(netloc)
             while len(alternative_netlocs) > 0:
                 netloc = self.choose_best_netloc(alternative_netlocs)
                 try:
                     result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
                     break
                 except:
-                    del alternative_netlocs[netloc]
-                
+                    alternative_netlocs.remove(netloc)
+                    
             if len(alternative_netlocs) == 0:
-                raise MissingInputException(ref)
+                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
         
         return result
         
@@ -469,7 +470,7 @@ class BlockStore:
         for netloc in netlocs:
             if netloc == self.netloc:
                 return netloc
-        return random.choice(netlocs)
+        return random.choice(list(netlocs))
         
     def choose_best_url(self, urls):
         if len(urls) == 1:
