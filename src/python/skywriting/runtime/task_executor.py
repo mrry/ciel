@@ -26,7 +26,7 @@ from skywriting.lang.visitors import \
 from skywriting.lang import ast
 from skywriting.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption,\
-    SelectException, MissingInputException
+    SelectException, MissingInputException, MasterNotRespondingException
 from threading import Lock
 import cherrypy
 import logging
@@ -274,6 +274,9 @@ class SWInterpreterTaskExecutionRecord:
         except MissingInputException as mie:
             cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
+              
+        except MasterNotRespondingException:
+            cherrypy.log.error('Could not commit task results to the master', 'SWI', logging.ERROR, True)
                 
         except:
             cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
