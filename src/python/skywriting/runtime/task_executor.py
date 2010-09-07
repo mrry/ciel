@@ -222,7 +222,7 @@ class SWExecutorTaskExecutionRecord:
                 parsed_args = self.fetch_executor_args(self.inputs)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Fetching executor")
-                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs)
+                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs, self.task_executor.master_proxy)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Executing")
                 self.executor.execute(self.task_executor.block_store, self.task_id)
@@ -696,7 +696,7 @@ class SWRuntimeInterpreterTask:
 
         _, output_ids = self.create_names_for_exec(executor_name, real_args, num_outputs)
 
-        self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
+        self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids, self.master_proxy)
         self.current_executor.execute(self.block_store, self.task_id)
         
         for ref in self.current_executor.output_refs:
