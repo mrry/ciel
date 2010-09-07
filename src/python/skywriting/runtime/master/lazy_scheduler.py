@@ -81,7 +81,7 @@ class LazyScheduler(AsynchronousExecutePlugin):
                         current_saving_for_netloc = 0
                     netlocs[netloc] = current_saving_for_netloc + input.size_hint
             elif isinstance(input, SW2_ConcreteReference) and input.size_hint is not None:
-                for netloc in input.location_hints.keys():
+                for netloc in input.location_hints:
                     try:
                         current_saving_for_netloc = netlocs[netloc]
                     except KeyError:

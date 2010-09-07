@@ -36,7 +36,7 @@ from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
-    SWTaskOutputProvenance, SW2_ConcreteReference, ACCESS_SWBS,\
+    SWTaskOutputProvenance, SW2_ConcreteReference,\
     SWSpawnedTaskProvenance, SWExecResultProvenance,\
     SWSpawnExecArgsProvenance
 
@@ -515,7 +515,7 @@ class SWRuntimeInterpreterTask:
                     spawned_cont_id = self.get_spawn_continuation_object_id(self.spawn_list[current_index].id)
                     _, size_hint = block_store.store_object(current_cont, 'pickle', spawned_cont_id)
                     spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, SWSpawnedTaskProvenance(self.original_task_id, current_index), size_hint)
-                    spawned_cont_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+                    spawned_cont_ref.add_location_hint(self.block_store.netloc)
                     self.spawn_list[current_index].task_descriptor['dependencies']['_cont'] = spawned_cont_ref
                     self.maybe_also_publish(spawned_cont_ref)
             
@@ -568,7 +568,7 @@ class SWRuntimeInterpreterTask:
             result_ref = SWDataValue(serializable_result)
         else:
             result_ref = SW2_ConcreteReference(self.expected_outputs[0], SWTaskOutputProvenance(self.original_task_id, 0), size_hint)
-            result_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+            result_ref.add_location_hint(self.block_store.netloc)
             
         commit_bindings[self.expected_outputs[0]] = [result_ref]        
         
@@ -695,7 +695,7 @@ class SWRuntimeInterpreterTask:
         _, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
         args_ref = SW2_ConcreteReference(args_id, SWSpawnExecArgsProvenance(self.original_task_id, self.spawn_exec_counter), size_hint)
         self.spawn_exec_counter += 1
-        args_ref.add_location_hint(self.block_store.netloc, ACCESS_SWBS)
+        args_ref.add_location_hint(self.block_store.netloc)
         self.maybe_also_publish(args_ref)
         
         inputs['_args'] = args_ref
