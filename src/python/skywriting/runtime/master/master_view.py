@@ -258,6 +258,12 @@ class MasterTaskRoot:
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)
+            elif action == 'publish':
+                if cherrypy.request.method == 'POST':
+                    task = self.task_pool.get_task_by_id(task_id)
+                    refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                    self.task_pool.publish_refs(task, refs)
+                
             elif action == 'abort':
                 self.task_pool.abort(task_id)
             elif action is None:

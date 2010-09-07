@@ -91,9 +91,9 @@ class MasterProxy(SimplePlugin):
         _, result = self.backoff_request(message_url, 'POST', message_payload)
         self.worker.id = simplejson.loads(result)
     
-    def publish_global_refs(self, global_id, refs):
+    def publish_refs(self, task_id, refs):
         message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'global_data/%d' % (global_id, ))
+        message_url = urljoin(self.master_url, 'task/%s/publish' % (task_id, ))
         self.backoff_request(message_url, "POST", message_payload)
         
     def spawn_tasks(self, parent_task_id, tasks):

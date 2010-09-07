@@ -370,6 +370,9 @@ class LazyTaskPoolAdapter:
     def get_task_by_id(self, id):
         return self.lazy_task_pool.get_task_by_id(id)
     
+    def publish_refs(self, task, refs):
+        self.lazy_task_pool.publish_refs(refs, task.job, True)
+    
     def spawn_child_tasks(self, parent_task, spawned_task_descriptors):
 
         if parent_task.is_replay_task():
