@@ -407,6 +407,10 @@ class JavaExecutor(SWExecutor):
             
         cherrypy.engine.publish("worker_event", "Java: Finished storing outputs")
 
+    def _cleanup(self, block_store):
+        if self.stream_output and not self.succeeded:
+            map(block_store.rollback_file, self.output_ids)
+
     def _abort(self):
         if self.proc is not None:
             self.proc.kill()
