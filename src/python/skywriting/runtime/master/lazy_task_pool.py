@@ -74,14 +74,14 @@ class LazyTaskPool(plugins.SimplePlugin):
         if task.task_id in self.tasks:
             return
         
-        self.tasks[task.task_id] = task
+        if task.task_id not in self.tasks:
+            self.tasks[task.task_id] = task
+        
         if is_root_task:
             self.job_outputs[task.expected_outputs[0]] = task.job
             self.register_job_interest_for_output(task.expected_outputs[0], task.job)
-        else:
-            # The task inherits the parent task's job.
-            # XXX: We should probably do this outside the lazy task pool.
-            task.job.add_task(task)
+        
+        task.job.add_task(task)
         
         # If any of the task outputs are being waited on, we should reduce this
         # task's graph. 
@@ -98,7 +98,7 @@ class LazyTaskPool(plugins.SimplePlugin):
         
         # Need to notify all of the consumers, which may make other tasks
         # runnable.
-        self.publish_refs(commit_bindings)
+        self.publish_refs(commit_bindings, task.job)
         self.bus.publish('worker_idle', worker)
         
     def get_task_queue(self):
@@ -112,7 +112,7 @@ class LazyTaskPool(plugins.SimplePlugin):
         worker = None
         should_notify_outputs = False
 
-        self.publish_refs(bindings)
+        self.publish_refs(bindings, task.job)
 
         with self._lock:
             if reason == 'WORKER_FAILED':
@@ -145,7 +145,7 @@ class LazyTaskPool(plugins.SimplePlugin):
         # which ought to be enough.
         if should_notify_outputs:
             for output in task.expected_outputs:
-                self._publish_ref(output, SWErrorReference(reason, details))
+                self._publish_ref(output, SWErrorReference(reason, details), task.job)
 
         if worker is not None:
             self.bus.publish('worker_idle', worker)
@@ -162,16 +162,19 @@ class LazyTaskPool(plugins.SimplePlugin):
         #      for the failed inputs.
         self.do_graph_reduction(root_tasks=[task])
     
-    def publish_single_ref(self, global_id, ref):
+    def publish_single_ref(self, global_id, ref, job, should_journal=True):
         with self._lock:
-            self._publish_ref(global_id, ref)
+            self._publish_ref(global_id, ref, job, should_journal)
     
-    def publish_refs(self, refs):
+    def publish_refs(self, refs, job, should_journal=True):
         with self._lock:
             for global_id, ref in refs.items():
-                self._publish_ref(global_id, ref)
+                self._publish_ref(global_id, ref, job, should_journal)
         
-    def _publish_ref(self, global_id, ref):
+    def _publish_ref(self, global_id, ref, job, should_journal=True):
+        
+        if should_journal:
+            job.add_reference(global_id, ref)
         
         # Record the name-to-concrete-reference mapping for this ref's name.
         try:
@@ -238,7 +241,7 @@ class LazyTaskPool(plugins.SimplePlugin):
         elif isinstance(ref, SW2_ConcreteReference):
             # We have a concrete reference for this name, but others may
             # be waiting on it, so publish it.
-            self._publish_ref(ref.id, ref)
+            self._publish_ref(ref.id, ref, task.job, True)
             return ref
         
         else:

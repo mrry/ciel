@@ -20,7 +20,7 @@ import logging
 import cherrypy
 import os
 import simplejson
-from skywriting.runtime.master.job_pool import TASK_DESCRIPTOR_LENGTH_STRUCT,\
+from skywriting.runtime.master.job_pool import RECORD_HEADER_STRUCT,\
     Job, JOB_ACTIVE
 from skywriting.runtime.task import build_taskpool_task_from_descriptor
 
@@ -54,7 +54,7 @@ class RecoveryManager(plugins.SimplePlugin):
                                                  block_size)
                 conc_ref.add_location_hint(self.block_store.netloc)
                 #cherrypy.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
-                self.task_pool.publish_single_ref(block_name, conc_ref)                
+                self.task_pool.publish_single_ref(block_name, conc_ref, None, False)                
 
     def recover_job_descriptors(self):
         root = self.job_pool.journal_root
@@ -74,8 +74,9 @@ class RecoveryManager(plugins.SimplePlugin):
                     
                 journal_path = os.path.join(job_dir, 'task_journal')
                 journal_file = open(journal_path, 'rb')
-                root_task_descriptor_length, = TASK_DESCRIPTOR_LENGTH_STRUCT.unpack(journal_file.read(TASK_DESCRIPTOR_LENGTH_STRUCT.size))
+                record_type, root_task_descriptor_length = RECORD_HEADER_STRUCT.unpack(journal_file.read(RECORD_HEADER_STRUCT.size))
                 root_task_descriptor_string = journal_file.read(root_task_descriptor_length)
+                assert record_type == 'T'
                 assert len(root_task_descriptor_string) == root_task_descriptor_length
                 root_task_descriptor = simplejson.loads(root_task_descriptor_string, object_hook=json_decode_object_hook)
                 root_task_id = root_task_descriptor['task_id']
@@ -85,14 +86,16 @@ class RecoveryManager(plugins.SimplePlugin):
                 if result is not None:
                     job.completed(result)
                 self.job_pool.add_job(job)
+                self.task_pool.add_task(root_task)
                 
                 if result is None:
                     self.load_other_tasks_defer(job, journal_file)
+                    cherrypy.log.error('Recovered job %s' % job_id, 'RECOVERY', logging.INFO, False)
+                    cherrypy.log.error('Recovered task %s for job %s' % (root_task_id, job_id), 'RECOVERY', logging.INFO, False)
                 else:
                     journal_file.close()
+                    cherrypy.log.error('Found information about job %s' % job_id, 'RECOVERY', logging.INFO, False)
                 
-                cherrypy.log.error('Recovered job %s' % job_id, 'RECOVERY', logging.INFO, False)
-                cherrypy.log.error('Recovered task %s for job %s' % (root_task_id, job_id), 'RECOVERY', logging.INFO, False)
                 
             except:
                 # We have lost critical data for the job, so we must fail it.
@@ -108,24 +111,30 @@ class RecoveryManager(plugins.SimplePlugin):
         '''
         try:
             while True:
-                td_length, = TASK_DESCRIPTOR_LENGTH_STRUCT.unpack(journal_file.read(TASK_DESCRIPTOR_LENGTH_STRUCT.size))
-                if td_length != TASK_DESCRIPTOR_LENGTH_STRUCT.size:
+                record_header = journal_file.read(RECORD_HEADER_STRUCT.size)
+                if len(record_header) != RECORD_HEADER_STRUCT.size:
                     cherrypy.log.error('Journal entry truncated for job %s' % job.id, 'RECOVERY', logging.WARNING, False)
                     break
-                td_string = journal_file.read(td_length)
-                if len(td_string) != td_length:
+                record_type, record_length = RECORD_HEADER_STRUCT.unpack(record_header)
+                record_string = journal_file.read(record_length)
+                if len(record_string) != record_length:
                     cherrypy.log.error('Journal entry truncated for job %s' % job.id, 'RECOVERY', logging.WARNING, False)
                     break
-                td = simplejson.loads(td_string, object_jook=json_decode_object_hook)
-                task_id = td['task_id']
-                parent_task = self.task_pool.get_task_by_id(td['parent'])
-                task = build_taskpool_task_from_descriptor(task_id, td, self.task_pool, parent_task)
-                task.job = job
-                task.parent.children.append(task)
-
-                cherrypy.log.error('Recovered task %s for job %s' % (task_id, job.id), 'RECOVERY', logging.INFO, False)
-                self.task_pool.add_task(task)
-
+                rec = simplejson.loads(record_string, object_hook=json_decode_object_hook)
+                if record_type == 'R':
+                    self.task_pool.publish_single_ref(rec['id'], rec['ref'], job, should_journal=False)
+                elif record_type == 'T':
+                    task_id = rec['task_id']
+                    parent_task = self.task_pool.get_task_by_id(rec['parent'])
+                    task = build_taskpool_task_from_descriptor(task_id, rec, self.task_pool, parent_task)
+                    task.job = job
+                    task.parent.children.append(task)
+    
+                    cherrypy.log.error('Recovered task %s for job %s' % (task_id, job.id), 'RECOVERY', logging.INFO, False)
+                    self.task_pool.add_task(task)
+                else:
+                    cherrypy.log.error('Got invalid record type in job %s' % job.id, 'RECOVERY', logging.WARNING, False)
+                
         except:
             cherrypy.log.error('Error recovering task_journal for job %s' % job.id, 'RECOVERY', logging.WARNING, True)
 
@@ -133,7 +142,7 @@ class RecoveryManager(plugins.SimplePlugin):
             journal_file.close()
             if job.state == JOB_ACTIVE:
                 cherrypy.log.error('Restarting recovered job %s' % job.id, 'RECOVERY', logging.INFO)
-            self.job_pool.start_job(job)
+            self.job_pool.restart_job(job)
 
     def fetch_block_list_defer(self, worker):
         self.deferred_worker.do_deferred(lambda: self.fetch_block_names_from_worker(worker))
@@ -156,7 +165,7 @@ class RecoveryManager(plugins.SimplePlugin):
             conc_ref.add_location_hint(worker.netloc)
             
             #cherrypy.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
-            self.task_pool.publish_single_ref(block_name, conc_ref)
+            self.task_pool.publish_single_ref(block_name, conc_ref, None, False)
 
         
         block_file.close()
