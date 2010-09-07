@@ -74,7 +74,7 @@ class MasterProxy(SimplePlugin):
                 else:
                     cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
                     cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
-                    raise RuntimeSkywritingError()
+                    raise MasterNotRespondingException()
             except:
                 cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
             self.stop_event.wait(initial_wait)
@@ -84,7 +84,7 @@ class MasterProxy(SimplePlugin):
             raise WorkerShutdownException()
         else:
             raise MasterNotRespondingException()
-    
+            
     def register_as_worker(self):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
         message_url = urljoin(self.master_url, 'worker/')
