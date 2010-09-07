@@ -77,7 +77,7 @@ class TaskPoolTask(Task):
             
         self.history = []
         
-        self.worker_id = None
+        self.worker = None
         self.saved_continuation_uri = None
 
         self.job = job
@@ -205,6 +205,8 @@ class TaskPoolTask(Task):
                       'expected_outputs': self.expected_outputs,
                       'inputs': self.inputs,
                       'event_index': self.event_index}
+
+        descriptor['parent'] = self.parent.task_id if self.parent is not None else None
         
         if long:
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
@@ -212,7 +214,6 @@ class TaskPoolTask(Task):
                 descriptor['worker_id'] = self.worker.id
             descriptor['saved_continuation_uri'] = self.saved_continuation_uri
             descriptor['state'] = TASK_STATE_NAMES[self.state]
-            descriptor['parent'] = self.parent.task_id if self.parent is not None else None
             descriptor['children'] = [x.task_id for x in self.children]
                     
         if self.select_result is not None:
