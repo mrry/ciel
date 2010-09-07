@@ -64,4 +64,3 @@ mkdir -p $1/journal
 mkdir -p $1/store
 #mkdir -p /mnt/store
 #ln -s /mnt/store /opt/skywriting/store
-
