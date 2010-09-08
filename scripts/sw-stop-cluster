@@ -44,23 +44,23 @@ done
 # main script
 
 I=0
-while read line
+cat $SOURCE | while myLine=`line`
 do
     echo -n "Stopping instance $I "
     if [ "$I" -eq "0" ]; then
 	echo "... (master)."
 	if [ $VERBOSE -eq 1 ]; then
-	    curl http://$line:8000/shutdown/
+	    curl http://$myLine:8000/shutdown/
 	else
-	    curl -s http://$line:8000/shutdown/
+	    curl -s http://$myLine:8000/shutdown/
 	fi
-	MASTER=$line
+	MASTER=$myLine
     else
 	echo "... (worker for $MASTER)"
 	if [ $VERBOSE -eq 1 ]; then
-	    curl http://$line:8001/kill/
+	    curl http://$myLine:8001/kill/
 	else
-	    curl -s http://$line:8001/kill/
+	    curl -s http://$myLine:8001/kill/
 	fi
     fi
     I=`expr $I + 1`

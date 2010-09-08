@@ -26,7 +26,7 @@ do
     -f)
       if [[ $2 = '--' ]]; then
          # STDIN input
-         SOURCE=''
+         SOURCE=/dev/stdin
       else
          # Cluster definition file
          SOURCE=$2
@@ -65,23 +65,23 @@ done
 # main script
 
 I=0
-while read line
+cat $SOURCE | while myLine=`line`
 do
     echo -n "Setting up instance $I "
     if [ "$I" -eq "0" ]; then
 	echo "... as a master."
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$line "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$line "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/" 1>&2 2>/dev/null
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/" 1>&2 2>/dev/null
 	fi
-	MASTER=$line
+	MASTER=$myLine
     else
 	echo "... as a worker for $MASTER"
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$line "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$line "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001" 1>&2 2>/dev/null
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001" 1>&2 2>/dev/null
 	fi
     fi
     I=`expr $I + 1`

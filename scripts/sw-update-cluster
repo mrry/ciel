@@ -65,15 +65,15 @@ done
 # main script
 
 I=0
-while read line
+cat $SOURCE | while myLine=`line`
 do
     echo -n "Updating instance $I: "
     if [[ $VERBOSE -eq 1 ]]; then
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$line "cd $SWROOT ; git pull"
+	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "cd $SWROOT ; git pull"
     else
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$line "cd $SWROOT ; git pull" 1>&2 2>/dev/null
+	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "cd $SWROOT ; git pull" 1>&2 2>/dev/null
     fi
-    echo $line
+    echo $myLine
     I=`expr $I + 1`
 done
 
