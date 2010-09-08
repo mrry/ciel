@@ -668,6 +668,8 @@ class BlockStore:
     def retrieve_filenames_for_refs(self, refs):
 
         fetch_ctx = StreamTransferSetContext()
+
+        print "Retr-files", refs
       
         # Step 1: Resolve from local cache
         resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
@@ -696,6 +698,9 @@ class BlockStore:
         
         easy_solutions = [self.try_retrieve_object_for_ref_without_transfer(ref, decoder) for ref in refs]
         fetch_urls = [self.get_fetch_urls_for_ref(ref) for ref in refs]
+
+        print "Ob-fetch refs", refs
+        print "Easy solutions", easy_solutions
 
         result_list = []
         request_list = []

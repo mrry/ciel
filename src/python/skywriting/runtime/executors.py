@@ -122,6 +122,8 @@ class SWStdinoutExecutor(SWExecutor):
 
     class CatThread:
         def __init__(self, filenames, stdin):
+            self.filenames = filenames
+            self.stdin = stdin
             pass
 
         def start(self):
@@ -129,11 +131,11 @@ class SWStdinoutExecutor(SWExecutor):
             self.thread.start()
             
         def cat_thread_main(self):
-            for filename in filenames:
+            for filename in self.filenames:
                 print 'Catting in', filename
                 with open(filename, 'r') as input_file:
-                    shutil.copyfileobj(input_file, stdin)
-            stdin.close()
+                    shutil.copyfileobj(input_file, self.stdin)
+            self.stdin.close()
 
     def _execute(self, block_store, task_id):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
@@ -143,7 +145,7 @@ class SWStdinoutExecutor(SWExecutor):
             # This hopefully avoids the race condition in subprocess.Popen()
             self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp)
 
-        cat_thread = CatThread(filenames, self.proc.stdin)
+        cat_thread = self.CatThread(filenames, self.proc.stdin)
         cat_thread.start()
 
         fetch_ctx.transfer_all()
@@ -237,11 +239,15 @@ class JavaExecutor(SWExecutor):
 
     def _execute(self, block_store, task_id):
         cherrypy.engine.publish("worker_event", "Java: fetching inputs")
+        print "Get fifos"
         file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
+        print "Got fifos"
         file_outputs = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
         
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
+        print "Jar fetch"
         jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
+        print "Jar fetch done"
 
 #        print "Input filenames:"
 #        for fn in file_inputs:

@@ -744,8 +744,21 @@ class SWRuntimeInterpreterTask:
     def lazy_dereference(self, ref):
         self.continuation.mark_as_dereferenced(ref)
         return SWDereferenceWrapper(ref)
-        
-    def eager_dereference(self, ref, fetches):
+
+    def eager_dereference(self, ref):
+        real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        if isinstance(real_ref, SWDataValue):
+            return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
+        elif isinstance(real_ref, SWURLReference):
+            value = self.block_store.retrieve_object_for_ref(real_ref, 'json')
+            dv_ref = SWDataValue(value)
+            self.continuation.rewrite_reference(ref.index, dv_ref)
+            return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
+        else:
+            self.continuation.mark_as_dereferenced(ref)
+            raise ReferenceUnavailableException(ref, self.continuation)
+
+    def eager_dereference_from_map(self, ref, fetches):
 
         # Any fetches needed by a URL reference should have been performed in advance
         # (see do_eager_thunks)
