@@ -27,9 +27,10 @@ import tempfile
 import cherrypy
 import logging
 import pycurl
+import select
 from datetime import datetime
 from cStringIO import StringIO
-from errno import EAGAIN
+from errno import EAGAIN, EPIPE, ENXIO
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -79,37 +80,45 @@ class TransferSetContext:
         self.curl_ctx = pycurl.CurlMulti()
         self.curl_ctx.setopt(pycurl.M_PIPELINING, 1)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
+        self.active_handles = 0
 
-    def register_handle(self, ctx):
-        self.handles.append(ctx)
-
-    def unregister_handle(self, ctx):
-        self.handles.remove(ctx)
-
-    def start_fetch(ctx):
+    def start_fetch(self, ctx):
+        self.active_handles += 1
         self.curl_ctx.add_handle(ctx.curl_ctx)
 
     def process(self):
+
         while 1:
-            # Will generate write_data callbacks as appropriate
-            ret, num_handles = self.curl_ctx.perform()
-            if ret != pycurl.E_CALL_MULTI_PERFORM:
-                break        
-        while 1:
-            num_q, ok_list, err_list = self.curl_ctx.info_read()
-            for c in ok_list:
-                self.curl_ctx.remove_handle(c)
-                c.ctx._success()
-            for c, errno, errmsg in err_list:
-                self.curl_ctx.remove_handle(c)
-                c.ctx._failure(errno, errmsg)
-            if num_q == 0:
+            go_again = False
+            while 1:
+                # Will generate write_data callbacks as appropriate
+                ret, num_handles = self.curl_ctx.perform()
+                if ret != pycurl.E_CALL_MULTI_PERFORM:
+                    break
+            while 1:
+                num_q, ok_list, err_list = self.curl_ctx.info_read()
+                if len(ok_list) != 0 or len(err_list) != 0:
+                    # We'll be making callbacks, which might schedule more work.
+                    # We should try processing again afterwards;
+                    # worst that happens, perform() will return OK right away and we'll drop out.
+                    go_again = True
+                for c in ok_list:
+                    self.curl_ctx.remove_handle(c)
+                    self.active_handles -= 1
+                    c.ctx._success()
+                for c, errno, errmsg in err_list:
+                    self.curl_ctx.remove_handle(c)
+                    self.active_handles -= 1
+                    c.ctx._failure(errno, errmsg)
+                if num_q == 0:
+                    break
+            if not go_again:
                 break
 
     def transfer_all(self):
-        while 1:
+        while self.active_handles > 0:
             self.process()
-            self.select(5.0)
+            self.curl_ctx.select(5.0)
 
     def cleanup(self):
         self.curl_ctx.close()
@@ -120,10 +129,10 @@ class StreamTransferSetContext(TransferSetContext):
         self.handles = []
 
     def writable_handles(self):
-        return filter(self.handles, lambda x: (not x.has_completed) and len(x.mem_buffer) > 0)
+        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0, self.handles)
 
     def dormant_handles(self):
-        return filter(self.handles, lambda x: x.dormant_until is not None)
+        return filter(lambda x: x.dormant_until is not None, self.handles)
 
     def process(self):
         TransferSetContext.process(self)
@@ -137,22 +146,27 @@ class StreamTransferSetContext(TransferSetContext):
     def select(self):
         (read, write, exn) = self.curl_ctx.fdset()
         for handle in self.writable_handles():
-            write.append(handle.fifo_fd)
+            if handle.fifo_fd != -1:
+                write.append(handle.fifo_fd)
         select.select(read, write, exn)
 
     def transfer_all(self):
         while 1:
+            print "Process"
             self.process()
-            self.select()
-            remaining_transfers = filter(self.handles, lambda x: not x.has_completed)
-            if len(remaining_transfers == 0):
+            remaining_transfers = filter(lambda x: not x.has_completed, self.handles)
+            print "Remaining transfers", remaining_transfers
+            if len(remaining_transfers) == 0:
+                print "Done"
                 return
+            print "Select"
+            self.select()
 
     def cleanup(self, block_store):
         for handle in self.handles:
             handle.save_result(block_store)
             handle.cleanup()
-        TransferSetContext.cleanup()
+        TransferSetContext.cleanup(self)
 
 class TransferContext:
 
@@ -173,9 +187,11 @@ class TransferContext:
     def start_fetch(self, url, range=None):
         if self.active:
             raise Exception("Bad state: tried to start_fetch a curl context which was already active")
-        self.curl_ctx.setopt(pycurl.URL, url)
+        self.active = True
+        print "Start fetch", url, range
+        self.curl_ctx.setopt(pycurl.URL, str(url))
         if range is not None:
-            self.curl_ctx.setopt(pycurl.HEADER, "Range: bytes=%d-%d" % range)
+            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
         self.multi.start_fetch(self)
             
     def _success(self):
@@ -198,7 +214,7 @@ class BufferTransferContext(TransferContext):
         self.failures = 0
         self.has_completed = False
         self.has_succeeded = False
-        self.start_fetch(self, self.urls[0])
+        self.start_fetch(self.urls[0])
 
     def write_data(self, str):
         self.buffer.write(str)
@@ -235,7 +251,8 @@ class FileTransferContext(TransferContext):
         self.failures = 0
         self.has_completed = False
         self.has_succeeded = False
-        self.start_fetch(self, self.urls[0])
+        self.save_id = save_id
+        self.start_fetch(self.urls[0])
 
     def write_data(self, str):
         self.sink_fp.write(str)
@@ -269,7 +286,7 @@ class FileTransferContext(TransferContext):
 class StreamTransferContext(TransferContext):
 
     def __init__(self, urls, save_id, multi):
-        TransferContext.__init__(self)
+        TransferContext.__init__(self, multi)
         self.mem_buffer = ""
         self.urls = urls
         self.failures = 0
@@ -281,7 +298,8 @@ class StreamTransferContext(TransferContext):
             self.sinkfile_name = sinkfile.name
             
         os.mkfifo(self.fifo_name)
-        self.fifo_fd = os.open(self.fifo_name, os.O_WRONLY | os.O_NONBLOCK)
+        self.fifo_fd = -1
+        self.fifo_broken = False
         self.sink_fp = open(self.sinkfile_name, "wb")
         self.current_start_byte = 0
         self.chunk_size = 1048576
@@ -289,34 +307,56 @@ class StreamTransferContext(TransferContext):
         self.response_had_stream = False
         self.dormant_until = None
 
-        self.ref = ref
+        self.save_id = save_id
         self.multi = multi
         multi.handles.append(self)
         self.start_next_fetch()
 
     def write_without_blocking(self, fd, str):
 
+        if self.fifo_broken:
+            # Silently swallow data; the other end is gone.
+            return len(str)
+        if self.fifo_fd == -1:
+            try: 
+                self.fifo_fd = os.open(self.fifo_name, os.O_WRONLY | os.O_NONBLOCK)
+            except OSError, e:
+                if e.errno == ENXIO:
+                    # We don't have a reader yet
+                    # XXX Problem here: what if the reader never opens the pipe?
+                    # We should keep fetching to create the sinkfile, but we'll never finish writing to the FIFO.
+                    # We need a way to differentiate "process has hung up" from "awaiting process"
+                    # This should probably be the executor taking greater part in the select loop,
+                    # i.e. push data until idle... we're idle because we're waiting for the fifo...
+                    # ah look, the process has returned... so hang up all the fifos.
+                    return 0
+                else:
+                    raise
         total_written = 0
         while len(str) > 0:
             try:
                 bytes_written = os.write(self.fifo_fd, str)
                 str = str[bytes_written:]
                 total_written += bytes_written
-            except OSError, errno:
-                if errno == EAGAIN:
+            except OSError, e:
+                if e.errno == EAGAIN:
                     return total_written
+                elif e.errno == EPIPE:
+                    # The writer has hung up. Discard data but keep writing to the sinkfile.
+                    self.fifo_broken = True
+                    return len(str) + total_written 
                 else:
                     raise
 
     def write_data(self, str):
         
         if len(self.mem_buffer) > 0:
-            self.mem_buffer.append(str)
+            self.mem_buffer += str
         else:
-            written = write_without_blocking(self, self.fifo_fd, str)
+            written = self.write_without_blocking(self.fifo_fd, str)
             if written < len(str):
-                self.mem_buffer.append(str[written:])
-        write(self.sink_fp, str)
+                self.mem_buffer += str[written:]
+        self.sink_fp.write(str)
         self.current_start_byte += len(str)
         self.have_written_to_process = True
 
@@ -327,7 +367,7 @@ class StreamTransferContext(TransferContext):
 
     def try_empty_buffer(self):
 
-        written = write_without_blocking(self, self.fifo_fd, self.mem_buffer)
+        written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
         self.mem_buffer = self.mem_buffer[written:]
         if len(self.mem_buffer) == 0:
             self.start_next_fetch()
@@ -356,7 +396,8 @@ class StreamTransferContext(TransferContext):
                 self.has_completed = True
                 self.has_succeeded = True
             else:
-                # Pause for 5 seconds
+                # We've got ahead of the producer.
+                # Pause for 5 seconds.
                 self.dormant_until = datetime.now() + timedelta(0, 5)
         else:
             if self.have_written_to_process:
@@ -548,13 +589,17 @@ class BlockStore:
             with open(self.filename(id), 'w') as obj_file:
                 self.encode_json(ref.value, obj_file)
             return self.filename(id)
-        elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamingReference):
+        elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
             for loc in ref.location_hints:
                 if loc == self.netloc:
                     return self.filename(ref.id)
             check_urls = ["swbs://%s/%s" % (loc_hint, str(ref.id)) for loc_hint in ref.location_hints]
             return find_first_cached(check_urls)
         elif isinstance(ref, SWURLReference):
+            for url in ref.urls:
+                parsed_url = urlparse.urlparse(url)
+                if parsed_url.scheme == "file":
+                    return parsed_url.path
             return find_first_cached(ref.urls)
 
     def try_retrieve_object_for_ref_without_transfer(self, ref, decoder):
@@ -575,7 +620,7 @@ class BlockStore:
 
     def get_fetch_urls_for_ref(self, ref):
 
-        if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamingReference)
+        if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SWURLReference):
             return map(sw_to_external_url, ref.urls)
@@ -590,7 +635,7 @@ class BlockStore:
         # Step 2: Build request descriptors
         def create_transfer_context(ref):
             urls = self.get_fetch_urls_for_ref(ref)
-            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamingReference):
+            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
@@ -608,7 +653,7 @@ class BlockStore:
 
         result_list = []
  
-        for resolution in resovled_refs:
+        for resolution in resolved_refs:
             if resolution is None:
                 next_req = request_list.pop(0)
                 next_req.cleanup()
@@ -630,7 +675,7 @@ class BlockStore:
         # Step 2: Build request descriptors
         def create_transfer_context(ref):
             urls = self.get_fetch_urls_for_ref(ref)
-            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamingReference):
+            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
@@ -657,23 +702,30 @@ class BlockStore:
         
         transfer_ctx = TransferSetContext()
 
-        for (solution, fetch_urls) in zip(easy_solutions, fetch_urls):
+        for (solution, this_fetch_urls) in zip(easy_solutions, fetch_urls):
             if solution is not None:
                 result_list.append(solution)
             else:
                 result_list.append(None)
-                request_list.append(BufferTransferContext(fetch_urls, transfer_ctx))
+                request_list.append(BufferTransferContext(this_fetch_urls, transfer_ctx))
+
+        print "Request list:", request_list
 
         transfer_ctx.transfer_all()
+
+        print "After transfer_all", request_list
 
         j = 0
         for i, res in enumerate(result_list):
             if res is None:
                 next_object = request_list[j]
+                print "Using object: success", next_object.has_succeeded, "completed", next_object.has_completed
                 j += 1
                 if next_object.has_succeeded:
                     next_object.buffer.seek(0)
                     result_list[i] = self.decoders[decoder](next_object.buffer)
+
+        print "Result list", result_list
 
         for req in request_list:
             req.cleanup()

@@ -79,11 +79,11 @@ class SWExecutor:
         return real_refs
 
     def get_filenames(self, block_store, refs):
-        real_refs = mark_and_test_refs(refs)
+        real_refs = self.mark_and_test_refs(refs)
         return block_store.retrieve_filenames_for_refs(real_refs)
 
     def get_filenames_eager(self, block_store, refs):
-        real_refs = mark_and_test_refs(refs)
+        real_refs = self.mark_and_test_refs(refs)
         return block_store.retrieve_filenames_for_refs_eager(real_refs)
 
     def get_filename(self, block_store, ref):
@@ -98,7 +98,6 @@ class SWExecutor:
         
     def cleanup(self):
         self._cleanup()
-        self.cleanup_fetchers()
     
     def _cleanup(self):
         pass
