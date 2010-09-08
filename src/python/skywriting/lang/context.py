@@ -102,7 +102,7 @@ class SimpleContext:
               
                 list_length = len(resume_record.base_lvalue)
                 if len(resume_record.base_lvalue) < index + 1:
-                    resume_record.base_lvalue.extend([None for i in range(0, index + 1 - list_length)])
+                    resume_record.base_lvalue.extend([None for _ in range(0, index + 1 - list_length)])
                     
                 resume_record.base_lvalue[index] = rvalue
                 

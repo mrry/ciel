@@ -20,6 +20,8 @@ import os
 import simplejson
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import struct
+import logging
+import cherrypy
 
 JOB_ACTIVE = 0
 JOB_COMPLETED = 1
@@ -33,7 +35,7 @@ JOB_STATE_NAMES = {}
 for (name, number) in JOB_STATES.items():
     JOB_STATE_NAMES[number] = name
 
-TASK_DESCRIPTOR_LENGTH_STRUCT = struct.Struct('!I')
+RECORD_HEADER_STRUCT = struct.Struct('!cI')
 
 class Job:
     
@@ -55,12 +57,8 @@ class Job:
         self._lock = Lock()
         self._condition = Condition(self._lock)
 
-        self.start_journalling()
-
-        if root_task is not None:
-            self.add_task(root_task, True)
-
     def completed(self, result_ref):
+        cherrypy.log.error('Job %s completed' % self.id, 'JOB', logging.INFO)
         self.state = JOB_COMPLETED
         self.result_ref = result_ref
         with self._lock:
@@ -77,19 +75,37 @@ class Job:
             self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
 
     def stop_journalling(self):
-        if self.task_journal_fp is not None:
-            self.task_journal_fp.close()
-            
+        with self._lock:
+            if self.task_journal_fp is not None:
+                self.task_journal_fp.close()
+            self.task_journal_fp = None
+                
         if self.job_dir is not None:
             with open(os.path.join(self.job_dir, 'result'), 'w') as result_file:
                 simplejson.dump(self.result_ref, result_file, cls=SWReferenceJSONEncoder)
+
+    def flush_journal(self):
+        with self._lock:
+            if self.task_journal_fp is not None:
+                self.task_journal_fp.flush()
+                os.fsync(self.task_journal_fp.fileno())
+
+    def add_reference(self, id, ref, should_sync=False):
+        with self._lock:
+            if self.task_journal_fp is not None:
+                ref_details = simplejson.dumps({'id': id, 'ref': ref}, cls=SWReferenceJSONEncoder)
+                self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('R', len(ref_details)))
+                self.task_journal_fp.write(ref_details)
+                if should_sync:
+                    self.task_journal_fp.flush()
+                    os.fsync(self.task_journal_fp.fileno())
 
     def add_task(self, task, should_sync=False):
         with self._lock:
             self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
             if self.task_journal_fp is not None:
                 task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
-                self.task_journal_fp.write(TASK_DESCRIPTOR_LENGTH_STRUCT.pack(len(task_details)))
+                self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('T', len(task_details)))
                 self.task_journal_fp.write(task_details)
                 if should_sync:
                     self.task_journal_fp.flush()
@@ -202,6 +218,11 @@ class JobPool(plugins.SimplePlugin):
     def start_job(self, job):
         job.start_journalling()
         self.task_pool.add_task(job.root_task, True)
+        
+    def restart_job(self, job):
+        job.start_journalling()
+        self.task_pool.register_job_interest_for_output(job.root_task.expected_outputs[0], job)
+        self.task_pool.do_graph_reduction(object_ids=job.root_task.expected_outputs)
 
     def wait_for_completion(self, job):
         with job._lock:

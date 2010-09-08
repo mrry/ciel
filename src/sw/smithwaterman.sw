@@ -32,6 +32,6 @@ for (i in range(1, num_rows)) {
 
 }
 
-ignore = exec("stdinout", {"inputs":[blocks[i][j][0]], "command_line":["cat"]}, 1);
+ignore = spawn_exec("sync", {"inputs":[blocks[i][j][0]]}, 1);
 
-return ignore;
+return *(ignore[0]);

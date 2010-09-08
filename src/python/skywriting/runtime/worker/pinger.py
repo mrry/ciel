@@ -58,7 +58,7 @@ class Pinger(plugins.SimplePlugin):
         self.ping_timeout = ping_timeout
                 
     def subscribe(self):
-        self.bus.subscribe('start', self.start)
+        self.bus.subscribe('start', self.start, 75)
         self.bus.subscribe('stop', self.stop)
         self.bus.subscribe('poke', self.poke)
         

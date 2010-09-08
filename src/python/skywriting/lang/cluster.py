@@ -73,7 +73,7 @@ def main():
     http = httplib2.Http()
     
     master_data_uri = urlparse.urljoin(master_uri, "/data/")
-    (response, content) = http.request(master_data_uri, "POST", pickle.dumps(cont))
+    (_, content) = http.request(master_data_uri, "POST", pickle.dumps(cont))
     continuation_uri, size_hint = simplejson.loads(content)
     
     print id, "SUBMITTED_CONT", now_as_timestamp()
@@ -83,7 +83,7 @@ def main():
     task_descriptor = {'dependencies': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi'}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
-    (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
+    (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
     
     print id, "SUBMITTED_JOB", now_as_timestamp() 
     
@@ -96,7 +96,7 @@ def main():
     print id, "JOB_URL", job_url
     
     #print "Blocking to get final result"
-    (response, content) = http.request(notify_url)
+    (_, content) = http.request(notify_url)
     completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
     if "error" in completion_result.keys():
         print id, "ERROR", completion_result["error"]

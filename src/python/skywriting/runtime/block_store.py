@@ -38,7 +38,7 @@ import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, \
-    SWNoProvenance, SWTaskOutputProvenance, SW2_StreamReference,\
+    SWTaskOutputProvenance, SW2_StreamReference,\
     SW2_TombstoneReference
 import hashlib
 import contextlib
@@ -496,7 +496,7 @@ class BlockStore:
                 return False, self.filename(id)
     
     def streaming_filename(self, id):
-        os.path.join(self.base_dir, '.%s' % id)
+        return os.path.join(self.base_dir, '.%s' % id)
     
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
@@ -540,32 +540,34 @@ class BlockStore:
         Called when an executor wants its output to be streamable.
         This method only prepares the block store, and
         '''
+        cherrypy.log.error('Prepublishing file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
         with self._lock:
             self.streaming_id_set.add(id)
             os.symlink(filename, self.streaming_filename(id))
                    
     def commit_file(self, filename, id, can_move=False):
+        cherrypy.log.error('Committing streamed file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
         if can_move:
             # Moving the file under the lock should be cheap.
             # N.B. We need to protect all operations because the streaming
             #      filename will be unlinked.
             with self._lock:
-                self.store_file(filename, id, True)
+                url, file_size = self.store_file(filename, id, True)
                 self.streaming_id_set.remove(id)
+                os.unlink(self.streaming_filename(id))
                 os.symlink(self.filename(id), self.streaming_filename(id))
         else:
             # A copy will be necessary, so do this outside the lock.
-            self.store_file(filename, id, False)
+            url, file_size = self.store_file(filename, id, False)
             with self._lock:
                 self.streaming_id_set.remove(id)
+                os.unlink(self.streaming_filename(id))
                 os.symlink(self.filename(id), self.streaming_filename(id))
             
-        url, file_size = self.store_file(filename, id, False)
-        
-        
         return url, file_size
 
     def rollback_file(self, id):
+        cherrypy.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
         with self._lock:
             self.streaming_id_set.remove(id)
             os.unlink(self.streaming_filename(id))
@@ -581,9 +583,9 @@ class BlockStore:
             return None
 
         if isinstance(ref, SWErrorReference):
-            raise
+            raise RuntimeSkywritingError()
         elif isinstance(ref, SWNullReference):
-            raise
+            raise RuntimeSkywritingError()
         elif isinstance(ref, SWDataValue):
             id = self.allocate_new_id()
             with open(self.filename(id), 'w') as obj_file:

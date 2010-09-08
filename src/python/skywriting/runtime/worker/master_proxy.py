@@ -62,7 +62,7 @@ class MasterProxy(SimplePlugin):
     
     def backoff_request(self, url, method, payload=None, num_attempts=1, initial_wait=0):
         initial_wait = 5
-        for i in range(0, num_attempts):
+        for _ in range(0, num_attempts):
             if self.stop_event.is_set():
                 break
             try:
@@ -74,7 +74,7 @@ class MasterProxy(SimplePlugin):
                 else:
                     cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
                     cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
-                    raise RuntimeSkywritingError()
+                    raise MasterNotRespondingException()
             except:
                 cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
             self.stop_event.wait(initial_wait)
@@ -84,16 +84,16 @@ class MasterProxy(SimplePlugin):
             raise WorkerShutdownException()
         else:
             raise MasterNotRespondingException()
-    
+            
     def register_as_worker(self):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
         message_url = urljoin(self.master_url, 'worker/')
         _, result = self.backoff_request(message_url, 'POST', message_payload)
         self.worker.id = simplejson.loads(result)
     
-    def publish_global_refs(self, global_id, refs):
+    def publish_refs(self, task_id, refs):
         message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'global_data/%d' % (global_id, ))
+        message_url = urljoin(self.master_url, 'task/%s/publish' % (task_id, ))
         self.backoff_request(message_url, "POST", message_payload)
         
     def spawn_tasks(self, parent_task_id, tasks):
@@ -114,8 +114,8 @@ class MasterProxy(SimplePlugin):
         message_url = urljoin(self.master_url, 'task/%s/commit' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
         
-    def failed_task(self, task_id, reason=None, details=None):
-        message_payload = simplejson.dumps((reason, details), cls=SWReferenceJSONEncoder)
+    def failed_task(self, task_id, reason=None, details=None, bindings={}):
+        message_payload = simplejson.dumps((reason, details, bindings), cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%s/failed' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
 

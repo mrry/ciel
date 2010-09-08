@@ -177,7 +177,7 @@ class WorkerPool(plugins.SimplePlugin):
             worker.failed = True
 
         if failed_task is not None:
-            self.bus.publish('task_failed', failed_task, 'WORKER_FAILED')
+            self.bus.publish('task_failed', failed_task, ('WORKER_FAILED', None, {}))
         
     def worker_idle(self, worker):
         with self._lock:
@@ -226,7 +226,7 @@ class WorkerPool(plugins.SimplePlugin):
     def investigate_worker_failure(self, worker):
         print 'In investigate_worker_failure for', worker
         try:
-            response, _ = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
+            _, _ = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
         except:
             print 'Worker', worker, 'has failed'
             self.bus.publish('worker_failed', worker)

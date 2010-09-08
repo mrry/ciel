@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# defaults
+KEY="sw-masterkey"
+SWUSER="root"
+SWROOT="/opt/skywriting"
+VERBOSE=0
+
+# ---------------------------------------------
+# option processing
+
+while [ $# -gt 0 ]
+do
+  case $1
+  in
+    -v)
+      VERBOSE=1
+      shift 1
+    ;;
+
+    -f)
+      if [[ $2 = '--' ]]; then
+         # STDIN input
+         SOURCE=''
+      else
+         # Cluster definition file
+         SOURCE=$2
+      fi
+      shift 2
+    ;;
+    
+    -h|*)
+      echo "usage: sw-stop-cluster [-f cluster-file|-v]"
+      echo "-f: the file listing the machines in the cluster, one per line."
+      echo "    If '--' is passed, STDIN is assumed."
+      echo "-v: verbose mode (don't surpress output from curl)"
+      shift 1
+      exit 0
+    ;;
+  esac
+done
+
+# ---------------------------------------------
+# main script
+
+I=0
+while read line
+do
+    echo -n "Stopping instance $I "
+    if [ "$I" -eq "0" ]; then
+	echo "... (master)."
+	if [ $VERBOSE -eq 1 ]; then
+	    curl http://$line:8000/shutdown/
+	else
+	    curl -s http://$line:8000/shutdown/
+	fi
+	MASTER=$line
+    else
+	echo "... (worker for $MASTER)"
+	if [ $VERBOSE -eq 1 ]; then
+	    curl http://$line:8001/kill/
+	else
+	    curl -s http://$line:8001/kill/
+	fi
+    fi
+    I=`expr $I + 1`
+done
+
+exit 0

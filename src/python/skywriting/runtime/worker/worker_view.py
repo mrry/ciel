@@ -128,6 +128,18 @@ class DataRoot:
             is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
             if is_streaming:
                 cherrypy.response.headers['Pragma'] = 'streaming'
+            try:
+                response_body = serve_file(filename)
+                return response_body
+            except:
+                # The streaming file might have been deleted between calls to maybe_streaming_filename
+                # and serve_file. Try again, because this time the non-streaming filename should be
+                # available.
+                is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
+                assert not is_streaming
+                del cherrypy.response.headers['Pragma']
+                return serve_file(filename)
+                
             return serve_file(filename)
         elif cherrypy.request.method == 'POST':
             url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)

@@ -26,7 +26,7 @@ from skywriting.lang.visitors import \
 from skywriting.lang import ast
 from skywriting.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption,\
-    SelectException, MissingInputException
+    SelectException, MissingInputException, MasterNotRespondingException
 from threading import Lock
 import cherrypy
 import logging
@@ -34,7 +34,6 @@ import uuid
 import hashlib
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
-    SWFutureReference,\
     SWErrorReference, SWNullReference, SW2_FutureReference,\
     SWTaskOutputProvenance, SW2_ConcreteReference,\
     SWSpawnedTaskProvenance, SWExecResultProvenance,\
@@ -213,7 +212,7 @@ class SWExecutorTaskExecutionRecord:
         for i, output_ref in enumerate(self.executor.output_refs):
             if isinstance(output_ref, SW2_ConcreteReference):
                 output_ref.provenance = SWTaskOutputProvenance(self.original_task_id, i)
-            commit_bindings[self.expected_outputs[i]] = [output_ref]
+            commit_bindings[self.expected_outputs[i]] = output_ref
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
     def execute(self):        
@@ -223,7 +222,7 @@ class SWExecutorTaskExecutionRecord:
                 parsed_args = self.fetch_executor_args(self.inputs)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Fetching executor")
-                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs)
+                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs, self.task_executor.master_proxy)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Executing")
                 self.executor.execute(self.task_executor.block_store, self.task_id)
@@ -234,7 +233,7 @@ class SWExecutorTaskExecutionRecord:
                 self.task_executor.master_proxy.failed_task(self.task_id)
         except MissingInputException as mie:
             cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', mie.ref)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
         except:
             cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')
@@ -274,7 +273,10 @@ class SWInterpreterTaskExecutionRecord:
         
         except MissingInputException as mie:
             cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', mie.ref)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
+              
+        except MasterNotRespondingException:
+            cherrypy.log.error('Could not commit task results to the master', 'SWI', logging.ERROR, True)
                 
         except:
             cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
@@ -470,7 +472,7 @@ class SWRuntimeInterpreterTask:
             return
             
         except MissingInputException as mie:
-            print "!!! ERROR: cannot retrieve input: %s" % (repr(mie.ref), )
+            print "!!! ERROR: cannot retrieve inputs: %s" % (repr(mie.bindings), )
             raise
 
         except Exception:
@@ -546,16 +548,11 @@ class SWRuntimeInterpreterTask:
         
         commit_bindings = {}
         for ref in self.additional_refs_to_publish:
-            try:
-                ref_list = commit_bindings[ref.id]
-            except KeyError:
-                ref_list = []
-                commit_bindings[ref.id] = ref_list
-            ref_list.append(ref)
+            commit_bindings[ref.id] = ref
         
         if self.result is None:
             if self.save_continuation:
-                save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
+                save_cont_uri, _ = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
             else:
                 save_cont_uri = None
             master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri, self.replay_uuid_list)
@@ -563,14 +560,14 @@ class SWRuntimeInterpreterTask:
         
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
 
-        result_url, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
+        _, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
         if size_hint < 128:
             result_ref = SWDataValue(serializable_result)
         else:
             result_ref = SW2_ConcreteReference(self.expected_outputs[0], SWTaskOutputProvenance(self.original_task_id, 0), size_hint)
             result_ref.add_location_hint(self.block_store.netloc)
             
-        commit_bindings[self.expected_outputs[0]] = [result_ref]        
+        commit_bindings[self.expected_outputs[0]] = result_ref
         
         if self.save_continuation:
             save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
@@ -725,7 +722,7 @@ class SWRuntimeInterpreterTask:
 
         _, output_ids = self.create_names_for_exec(executor_name, real_args, num_outputs)
 
-        self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids)
+        self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids, self.master_proxy)
         self.current_executor.execute(self.block_store, self.task_id)
         
         for ref in self.current_executor.output_refs:

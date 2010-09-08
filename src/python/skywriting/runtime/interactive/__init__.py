@@ -56,29 +56,29 @@ class SWInteractiveShell(cmd.Cmd):
         # 2. POST the updated local continuation.
         http = httplib2.Http()
         master_data_uri = urlparse.urljoin(self.master_uri, "/data/")
-        (response, content) = http.request(master_data_uri, "POST", pickle.dumps(self.local_continuation))
+        (_, content) = http.request(master_data_uri, "POST", pickle.dumps(self.local_continuation))
         continuation_uri, size_hint = simplejson.loads(content)
         
         # 3. Submit a new task with the updated local continuation.
         task_descriptor = {'dependencies': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi', 'save_continuation': True}
         master_task_submit_uri = urlparse.urljoin(self.master_uri, "/task/")
-        (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
+        (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
         submit_result = simplejson.loads(content)
         
         # 4. Block to get the final result.
         expected_output_id = submit_result['outputs'][0]
         notify_url = urlparse.urljoin(self.master_uri, "/global_data/%d/completion" % expected_output_id)
-        (response, result_content) = http.request(notify_url)
+        (_, result_content) = http.request(notify_url)
         completion_result = simplejson.loads(result_content, object_hook=json_decode_object_hook)
         if completion_result["exited"]:
             raise Exception("Server exited")
 
         # 5. Get updated local continuation. N.B. The originally-spawned task may have delegated, so we need to find the task from the actual producer of the expected output.
         task_for_output_url = urlparse.urljoin(self.master_uri, "/global_data/%d/task" % expected_output_id)
-        (response, content) = http.request(task_for_output_url, "GET")
+        (_, content) = http.request(task_for_output_url, "GET")
         end_task_descriptor = simplejson.loads(content, object_hook=json_decode_object_hook)
         saved_continuation_url = sw_to_external_url(end_task_descriptor['saved_continuation_uri'])
-        (response, content) = http.request(saved_continuation_url)
+        (_, content) = http.request(saved_continuation_url)
         self.local_continuation = pickle.loads(content)
         
         # 6. Dereference result.

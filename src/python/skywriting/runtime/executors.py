@@ -15,7 +15,7 @@ from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWNoProvenance, SWDataValue, SW2_StreamReference
+    SWNoProvenance, SWDataValue, SW2_StreamReference, SWTaskOutputProvenance
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException
 import logging
@@ -37,25 +37,28 @@ class ExecutionFeatures:
                           'java': JavaExecutor,
                           'dotnet': DotNetExecutor,
                           'c': CExecutor,
-                          'grab': GrabURLExecutor}
+                          'grab': GrabURLExecutor,
+                          'sync': SyncExecutor}
     
     def all_features(self):
         return self.executors.keys()
     
-    def get_executor(self, name, args, continuation, expected_output_ids, fetch_limit=None):
+    def get_executor(self, name, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
         try:
             Executor = self.executors[name]
         except KeyError:
             raise FeatureUnavailableException(name)
-        return Executor(args, continuation, expected_output_ids, fetch_limit)
+        return Executor(args, continuation, expected_output_ids, master_proxy, fetch_limit)
 
 class SWExecutor:
 
-    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
         self.continuation = continuation
         self.output_ids = expected_output_ids
         self.output_refs = [None for id in self.output_ids]
         self.fetch_limit = fetch_limit
+        self.master_proxy = master_proxy
+        self.succeeded = False
 
     def resolve_ref(self, ref):
         if self.continuation is not None:
@@ -93,13 +96,16 @@ class SWExecutor:
     def execute(self, block_store, task_id):
         try:
             self._execute(block_store, task_id)
+            self.succeeded = True
+        except:
+            raise
         finally:
-            self.cleanup()
+            self.cleanup(block_store)
         
-    def cleanup(self):
-        self._cleanup()
+    def cleanup(self, block_store):
+        self._cleanup(block_store)
     
-    def _cleanup(self):
+    def _cleanup(self, block_store):
         pass
         
     def abort(self):
@@ -110,14 +116,21 @@ class SWExecutor:
 
 class SWStdinoutExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
         assert len(expected_output_ids) == 1
         try:
             self.input_refs = args['inputs']
             self.command_line = args['command_line']
         except KeyError:
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
+        
+        try:
+            self.stream_output = args['stream_output']
+        except KeyError:
+            self.stream_output = False
+        
+        
         self.proc = None
 
     class CatThread:
@@ -140,11 +153,19 @@ class SWStdinoutExecutor(SWExecutor):
     def _execute(self, block_store, task_id):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
         temp_output = tempfile.NamedTemporaryFile(delete=False)
+
         filenames, fetch_ctx = self.get_filenames(block_store, self.input_refs)
+        
+        if self.stream_output:
+            block_store.prepublish_file(temp_output.name, self.output_ids[0])
+            stream_ref = SW2_StreamReference(self.output_ids[0], SWTaskOutputProvenance(task_id, 0))
+            stream_ref.add_location_hint(block_store.netloc)
+            self.master_proxy.publish_refs(task_id, {self.output_ids[0] : stream_ref})
+        
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
             self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp)
-
+    
         cat_thread = self.CatThread(filenames, self.proc.stdin)
         cat_thread.start()
 
@@ -154,16 +175,25 @@ class SWStdinoutExecutor(SWExecutor):
 
         fetch_ctx.cleanup(block_store)
 
+        self.proc = None
+
         if rc != 0:
             print rc
             raise OSError()
         
-        _, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
+        if self.stream_output:
+            _, size_hint = block_store.commit_file(temp_output.name, self.output_ids[0], can_move=True)
+        else:
+            _, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
         
         # XXX: We fix the provenance in the caller.
         real_ref = SW2_ConcreteReference(self.output_ids[0], SWNoProvenance(), size_hint)
         real_ref.add_location_hint(block_store.netloc)
         self.output_refs[0] = real_ref
+        
+    def _cleanup(self, block_store):
+        if self.stream_output and not self.succeeded:
+            block_store.rollback_file(self.output_ids[0])
         
     def _abort(self):
         if self.proc is not None:
@@ -172,8 +202,8 @@ class SWStdinoutExecutor(SWExecutor):
 
 class EnvironmentExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
         try:
             self.input_refs = args['inputs']
             self.command_line = args['command_line']
@@ -226,8 +256,8 @@ class EnvironmentExecutor(SWExecutor):
 
 class JavaExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
         self.continuation = continuation
         try:
             self.input_refs = args['inputs']
@@ -236,7 +266,12 @@ class JavaExecutor(SWExecutor):
             self.argv = args['argv']
         except KeyError:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
-
+        
+        try:
+            self.stream_output = args['stream_output']
+        except KeyError:
+            self.stream_output = False
+        
     def _execute(self, block_store, task_id):
         cherrypy.engine.publish("worker_event", "Java: fetching inputs")
         print "Get fifos"
@@ -248,6 +283,15 @@ class JavaExecutor(SWExecutor):
         print "Jar fetch"
         jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
         print "Jar fetch done"
+
+        if self.stream_output:
+            stream_refs = {}
+            for i, filename, id in enumerate(file_outputs):
+                block_store.prepublish_file(filename, self.output_ids[i])
+                stream_ref = SW2_StreamReference(self.output_ids[i], SWTaskOutputProvenance(task_id, i))
+                stream_ref.add_location_hint(block_store.netloc)
+                stream_refs[id] = stream_ref
+            self.master_proxy.publish_refs(task_id, stream_refs)
 
 #        print "Input filenames:"
 #        for fn in file_inputs:
@@ -287,12 +331,22 @@ class JavaExecutor(SWExecutor):
             raise OSError()
         cherrypy.engine.publish("worker_event", "Java: Storing outputs")
         for i, filename in enumerate(file_outputs):
-            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+                    
+            if self.stream_output:
+                _, size_hint = block_store.commit_file(filename, self.output_ids[i], can_move=True)
+            else:
+                _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
+            
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
             real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
+            
         cherrypy.engine.publish("worker_event", "Java: Finished storing outputs")
+
+    def _cleanup(self, block_store):
+        if self.stream_output and not self.succeeded:
+            map(block_store.rollback_file, self.output_ids)
 
     def _abort(self):
         if self.proc is not None:
@@ -446,8 +500,8 @@ class CExecutor(SWExecutor):
             
 class GrabURLExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, fetch_limit)
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
         try:
             self.urls = args['urls']
             self.version = args['version']
@@ -461,3 +515,16 @@ class GrabURLExecutor(SWExecutor):
         for i, url in enumerate(self.urls):
             ref = block_store.get_ref_for_url(url, self.version, task_id)
             self.output_refs[i] = SWDataValue(ref)
+            
+class SyncExecutor(SWExecutor):
+    
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        try:
+            self.inputs = args['inputs']
+        except KeyError:
+            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
+        assert len(expected_output_ids) == 1
+    
+    def _execute(self, block_store, task_id):
+        self.output_refs[0] = SWDataValue(True)
