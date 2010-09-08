@@ -98,6 +98,7 @@ class SWExecutor:
             self._execute(block_store, task_id)
             self.succeeded = True
         except:
+            cherrypy.log.error("Task execution failed", "EXEC", logging.ERROR, True)
             raise
         finally:
             self.cleanup(block_store)
@@ -286,11 +287,11 @@ class JavaExecutor(SWExecutor):
 
         if self.stream_output:
             stream_refs = {}
-            for i, filename, id in enumerate(file_outputs):
+            for i, filename in enumerate(file_outputs):
                 block_store.prepublish_file(filename, self.output_ids[i])
                 stream_ref = SW2_StreamReference(self.output_ids[i], SWTaskOutputProvenance(task_id, i))
                 stream_ref.add_location_hint(block_store.netloc)
-                stream_refs[id] = stream_ref
+                stream_refs[self.output_ids[i]] = stream_ref
             self.master_proxy.publish_refs(task_id, stream_refs)
 
 #        print "Input filenames:"

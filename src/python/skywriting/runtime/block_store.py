@@ -131,35 +131,43 @@ class StreamTransferSetContext(TransferSetContext):
     def writable_handles(self):
         return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0, self.handles)
 
+    def write_waitable_handles(self):
+        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0 and x.fifo_fd != -1 and not x.fifo_broken, self.handles)
+
     def dormant_handles(self):
         return filter(lambda x: x.dormant_until is not None, self.handles)
 
     def process(self):
-        TransferSetContext.process(self)
-        for handle in self.writable_handles():
-            handle.try_empty_buffer()
-        for handle in self.dormant_handles():
-            if datetime.now() > handle.dormant_until:
-                handle.dormant_until = None
-                handle.start_next_fetch()
+        while 1:
+            go_again = False
+            TransferSetContext.process(self)
+            for handle in self.writable_handles():
+                if handle.try_empty_buffer():
+                    go_again = True
+            for handle in self.dormant_handles():
+                if datetime.now() > handle.dormant_until:
+                    print "Resuming dormant handle"
+                    handle.dormant_until = None
+                    handle.start_next_fetch()
+                    go_again = True
+            if not go_again:
+                return
 
     def select(self):
+        # TODO: Need to timeout if a dormant handle should wake
+        # TODO: Need to timeout if we've got an unconnected FIFO with data
         (read, write, exn) = self.curl_ctx.fdset()
-        for handle in self.writable_handles():
-            if handle.fifo_fd != -1:
-                write.append(handle.fifo_fd)
+        for handle in self.write_waitable_handles():
+            write.append(handle.fifo_fd)
         select.select(read, write, exn)
 
     def transfer_all(self):
         while 1:
-            print "Process"
             self.process()
             remaining_transfers = filter(lambda x: not x.has_completed, self.handles)
-            print "Remaining transfers", remaining_transfers
             if len(remaining_transfers) == 0:
-                print "Done"
+                print "Transfer-all done"
                 return
-            print "Select"
             self.select()
 
     def cleanup(self, block_store):
@@ -196,7 +204,11 @@ class TransferContext:
             
     def _success(self):
         self.active = False
-        self.success()
+        response_code = self.curl_ctx.getinfo(pycurl.RESPONSE_CODE)
+        if str(response_code).startswith("2"):
+            self.success()
+        else:
+            self.failure(response_code, "")
 
     def _failure(self, errno, errmsg):
         self.active = False
@@ -306,6 +318,7 @@ class StreamTransferContext(TransferContext):
         self.have_written_to_process = False
         self.response_had_stream = False
         self.dormant_until = None
+        self.requests_paused = False
 
         self.save_id = save_id
         self.multi = multi
@@ -347,6 +360,7 @@ class StreamTransferContext(TransferContext):
                     return len(str) + total_written 
                 else:
                     raise
+        return total_written
 
     def write_data(self, str):
         
@@ -369,8 +383,12 @@ class StreamTransferContext(TransferContext):
 
         written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
         self.mem_buffer = self.mem_buffer[written:]
-        if len(self.mem_buffer) == 0:
+        if len(self.mem_buffer) == 0 and self.requests_paused:
+            print "Buffer drained, restarting fetch"
             self.start_next_fetch()
+            self.requests_paused = False
+            return True
+        return False
 
     def write_header_line(self, str):
         if str.find("Pragma") != -1 and str.find("streaming") != -1:
@@ -382,17 +400,21 @@ class StreamTransferContext(TransferContext):
 
     def success(self):
  
+        print "Fetch success"
+        
         if len(self.mem_buffer) == 0:
             self.start_next_fetch()
         else:
             # We should hold off on ordering another chunk until the process has consumed this one
             # The restart will happen when the buffer drains.
-            pass
+            print "Buffer non-empty, pausing fetch"
+            self.requests_paused = True
 
     def failure(self, errno, errmsg):
 
         if errno == 416:
             if not self.response_had_stream:
+                os.close(self.fifo_fd)
                 self.has_completed = True
                 self.has_succeeded = True
             else:
@@ -402,6 +424,7 @@ class StreamTransferContext(TransferContext):
         else:
             if self.have_written_to_process:
                 # Can't just fail-over; we've failed after having written bytes to a process.
+                os.close(self.fifo_fd)
                 self.has_completed = True
                 self.has_succeeded = False
             else:
@@ -410,12 +433,12 @@ class StreamTransferContext(TransferContext):
                     self.start_fetch(self.urls[self.failures], (0, self.chunk_size))
                 except IndexError:
                     # Run out of URLs to try
+                    os.close(self.fifo_fd)
                     self.has_completed = True
                     self.has_succeeded = False
 
     def cleanup(self):
         TransferContext.cleanup(self)
-        os.close(self.fifo_fd)
         self.sink_fp.close()
         os.unlink(self.fifo_name)
         os.rmdir(self.fifo_dir)
