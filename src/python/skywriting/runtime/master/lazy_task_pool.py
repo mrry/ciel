@@ -68,6 +68,16 @@ class LazyTaskPool(plugins.SimplePlugin):
     def get_task_by_id(self, task_id):
         return self.tasks[task_id]
         
+    def get_reference_info(self, id):
+        with self._lock:
+            ref = self.ref_for_output[id]
+            try:
+                consumers = self.consumers_for_output[id]
+            except KeyError:
+                consumers = []
+            task = self.task_for_output[id]
+            return {'ref': ref, 'consumers': list(consumers), 'task': task.as_descriptor()}
+        
     def add_task(self, task, is_root_task=False):
         # We don't add tasks multiple times (for example, when replaying a
         # failed task.
@@ -363,6 +373,9 @@ class LazyTaskPoolAdapter:
         #self.events.append(add_event)
 
         return task
+    
+    def get_reference_info(self, id):
+        return self.lazy_task_pool.get_reference_info(id)
     
     def generate_task_id(self):
         return str(uuid.uuid1())
