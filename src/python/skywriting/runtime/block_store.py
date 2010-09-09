@@ -28,6 +28,7 @@ import cherrypy
 import logging
 import pycurl
 import select
+import fcntl
 from datetime import datetime
 from cStringIO import StringIO
 from errno import EAGAIN, EPIPE, ENXIO
@@ -132,7 +133,7 @@ class StreamTransferSetContext(TransferSetContext):
         return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0, self.handles)
 
     def write_waitable_handles(self):
-        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0 and x.fifo_fd != -1 and not x.fifo_broken, self.handles)
+        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0 and x.fifo_fd != -1, self.handles)
 
     def dormant_handles(self):
         return filter(lambda x: x.dormant_until is not None, self.handles)
@@ -156,15 +157,15 @@ class StreamTransferSetContext(TransferSetContext):
                 return
 
     def drain_pipe(self, pipefd):
-        oldflags = fcntl.fcntl(pipefd, fcntl.GETFL)
-        newflags |= os.O_NONBLOCK
-        fcntl.fcntl(pipefd, fcntl.SETFL, newflags)
+        oldflags = fcntl.fcntl(pipefd, fcntl.F_GETFL)
+        newflags = oldflags | os.O_NONBLOCK
+        fcntl.fcntl(pipefd, fcntl.F_SETFL, newflags)
         try:
             while(os.read(pipefd, 1024) >= 0):
                 pass
         except OSError, e:
             if e.errno == EAGAIN:
-                return:
+                return
             else:
                 raise
 
@@ -175,7 +176,7 @@ class StreamTransferSetContext(TransferSetContext):
         read.append(death_pipe)
         read_ret, write_ret, exn_ret = select.select(read, write, exn)
         if death_pipe in read_ret:
-            drain_pipe(death_pipe)
+            self.drain_pipe(death_pipe)
             print "Process death: closing FIFOs"
             for handle in self.handles:
                 handle.fifo_closed()
@@ -343,10 +344,18 @@ class StreamTransferContext(TransferContext):
         multi.handles.append(self)
         self.start_next_fetch()
 
-    def fifo_closed(self):
+    def close_fifo(self):
+        if self.fifo_fd == -1:
+            return
         os.close(self.fifo_fd)
         self.fifo_fd = -1
         self.mem_buffer = ""
+
+    def fifo_closed(self):
+        self.close_fifo()
+        if self.requests_paused and not self.has_completed:
+            self.requests_paused = False
+            self.start_next_fetch()
 
     def write_without_blocking(self, fd, str):
 
@@ -419,7 +428,7 @@ class StreamTransferContext(TransferContext):
 
         if errno == 416:
             if not self.response_had_stream:
-                os.close(self.fifo_fd)
+                self.close_fifo()
                 self.has_completed = True
                 self.has_succeeded = True
             else:
@@ -429,7 +438,7 @@ class StreamTransferContext(TransferContext):
         else:
             if self.have_written_to_process:
                 # Can't just fail-over; we've failed after having written bytes to a process.
-                os.close(self.fifo_fd)
+                self.close_fifo()
                 self.has_completed = True
                 self.has_succeeded = False
             else:
@@ -438,7 +447,7 @@ class StreamTransferContext(TransferContext):
                     self.start_fetch(self.urls[self.failures], (0, self.chunk_size))
                 except IndexError:
                     # Run out of URLs to try
-                    os.close(self.fifo_fd)
+                    self.close_fifo()
                     self.has_completed = True
                     self.has_succeeded = False
 

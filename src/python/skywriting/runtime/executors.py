@@ -26,6 +26,7 @@ import os
 import cherrypy
 import threading
 from skywriting.runtime.block_store import STREAM_RETRY
+from errno import EPIPE
 
 class ExecutionFeatures:
     
@@ -56,11 +57,15 @@ class ProcessWaiter:
         self.proc = proc
         self.pipefd = pipefd
         self.has_terminated = False
+        self.lock = threading.Lock()
+        self.condvar = threading.Condition(self.lock)
         self.thread = threading.Thread(target=self.waiter_main)
         self.thread.start()
 
     def waiter_main(self):
+        print "Waiter thread start"
         rc = self.proc.wait()
+        print "Waiter thread process returned", rc        
         os.write(self.pipefd, "X")
         with self.lock:
             self.has_terminated = True
@@ -170,7 +175,13 @@ class SWStdinoutExecutor(SWExecutor):
             for filename in self.filenames:
                 print 'Catting in', filename
                 with open(filename, 'r') as input_file:
-                    shutil.copyfileobj(input_file, self.stdin)
+                    try:
+                        shutil.copyfileobj(input_file, self.stdin)
+                    except IOError, e:
+                        if e.errno == EPIPE:
+                            pass
+                        else:
+                            raise
             self.stdin.close()
 
     def _execute(self, block_store, task_id):
@@ -187,7 +198,7 @@ class SWStdinoutExecutor(SWExecutor):
         
         with open(temp_output.name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
-            self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp)
+            self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
     
         cat_thread = self.CatThread(filenames, self.proc.stdin)
         cat_thread.start()
@@ -198,7 +209,9 @@ class SWStdinoutExecutor(SWExecutor):
 
         fetch_ctx.transfer_all(read_pipe)
 
+        print "Going to wait on waiter thread"
         rc = self.waiter_thread.wait()
+        print "Wait finished"
 
         fetch_ctx.cleanup(block_store)
 
@@ -261,7 +274,7 @@ class EnvironmentExecutor(SWExecutor):
         environment = {'INPUT_FILES'  : input_filenames_name,
                        'OUTPUT_FILES' : output_filenames_name}
             
-        self.proc = subprocess.Popen(map(str, self.command_line), env=environment)
+        self.proc = subprocess.Popen(map(str, self.command_line), env=environment, close_fds=True)
 
         read_pipe, write_pipe = os.pipe()
         self.wait_thread = ProcessWaiter(self.proc, write_pipe)
@@ -345,7 +358,7 @@ class JavaExecutor(SWExecutor):
             process_args.append("file://" + x)
         print 'Command-line:', " ".join(process_args)
         
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=None, stderr=None)
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=None, stderr=None, close_fds=True)
         
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
@@ -431,7 +444,7 @@ class DotNetExecutor(SWExecutor):
             process_args.append(x)
         print 'Command-line:', " ".join(process_args)
         
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=dotnet_stdout, stderr=dotnet_stderr)
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=dotnet_stdout, stderr=dotnet_stderr, close_fds=True)
         
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
@@ -510,7 +523,7 @@ class CExecutor(SWExecutor):
             process_args.append(x)
         print 'Command-line:', " ".join(process_args)
         
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=c_stdout, stderr=c_stderr)
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=c_stdout, stderr=c_stderr, close_fds=True)
         
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
