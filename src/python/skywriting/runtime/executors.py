@@ -179,6 +179,7 @@ class SWStdinoutExecutor(SWExecutor):
                         shutil.copyfileobj(input_file, self.stdin)
                     except IOError, e:
                         if e.errno == EPIPE:
+                            print "Abandoning cat due to EPIPE"
                             pass
                         else:
                             raise
