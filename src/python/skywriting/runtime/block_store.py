@@ -140,6 +140,8 @@ class StreamTransferSetContext(TransferSetContext):
     def process(self):
         while 1:
             go_again = False
+            # go_again is set when cURL's handle-group might have changed, since the last perform(),
+            # so it's not safe to select() at this time.
             TransferSetContext.process(self)
             for handle in self.writable_handles():
                 if handle.try_empty_buffer():
@@ -153,22 +155,39 @@ class StreamTransferSetContext(TransferSetContext):
             if not go_again:
                 return
 
-    def select(self):
-        # TODO: Need to timeout if a dormant handle should wake
-        # TODO: Need to timeout if we've got an unconnected FIFO with data
+    def drain_pipe(self, pipefd):
+        oldflags = fcntl.fcntl(pipefd, fcntl.GETFL)
+        newflags |= os.O_NONBLOCK
+        fcntl.fcntl(pipefd, fcntl.SETFL, newflags)
+        try:
+            while(os.read(pipefd, 1024) >= 0):
+                pass
+        except OSError, e:
+            if e.errno == EAGAIN:
+                return:
+            else:
+                raise
+
+    def select(self, death_pipe):
         (read, write, exn) = self.curl_ctx.fdset()
         for handle in self.write_waitable_handles():
             write.append(handle.fifo_fd)
-        select.select(read, write, exn)
+        read.append(death_pipe)
+        read_ret, write_ret, exn_ret = select.select(read, write, exn)
+        if death_pipe in read_ret:
+            drain_pipe(death_pipe)
+            print "Process death: closing FIFOs"
+            for handle in self.handles:
+                handle.fifo_closed()
 
-    def transfer_all(self):
+    def transfer_all(self, death_pipe):
         while 1:
             self.process()
             remaining_transfers = filter(lambda x: not x.has_completed, self.handles)
             if len(remaining_transfers) == 0:
                 print "Transfer-all done"
                 return
-            self.select()
+            self.select(death_pipe)
 
     def cleanup(self, block_store):
         for handle in self.handles:
@@ -310,8 +329,7 @@ class StreamTransferContext(TransferContext):
             self.sinkfile_name = sinkfile.name
             
         os.mkfifo(self.fifo_name)
-        self.fifo_fd = -1
-        self.fifo_broken = False
+        self.fifo_fd = os.open(self.fifo_name, os.O_RDWR | os.O_NONBLOCK)
         self.sink_fp = open(self.sinkfile_name, "wb")
         self.current_start_byte = 0
         self.chunk_size = 1048576
@@ -325,26 +343,16 @@ class StreamTransferContext(TransferContext):
         multi.handles.append(self)
         self.start_next_fetch()
 
+    def fifo_closed(self):
+        os.close(self.fifo_fd)
+        self.fifo_fd = -1
+        self.mem_buffer = ""
+
     def write_without_blocking(self, fd, str):
 
-        if self.fifo_broken:
+        if self.fifo_fd == -1:
             # Silently swallow data; the other end is gone.
             return len(str)
-        if self.fifo_fd == -1:
-            try: 
-                self.fifo_fd = os.open(self.fifo_name, os.O_WRONLY | os.O_NONBLOCK)
-            except OSError, e:
-                if e.errno == ENXIO:
-                    # We don't have a reader yet
-                    # XXX Problem here: what if the reader never opens the pipe?
-                    # We should keep fetching to create the sinkfile, but we'll never finish writing to the FIFO.
-                    # We need a way to differentiate "process has hung up" from "awaiting process"
-                    # This should probably be the executor taking greater part in the select loop,
-                    # i.e. push data until idle... we're idle because we're waiting for the fifo...
-                    # ah look, the process has returned... so hang up all the fifos.
-                    return 0
-                else:
-                    raise
         total_written = 0
         while len(str) > 0:
             try:
@@ -352,12 +360,9 @@ class StreamTransferContext(TransferContext):
                 str = str[bytes_written:]
                 total_written += bytes_written
             except OSError, e:
+                # Note that we can't get EPIPE here, as we ourselves hold a read handle.
                 if e.errno == EAGAIN:
                     return total_written
-                elif e.errno == EPIPE:
-                    # The writer has hung up. Discard data but keep writing to the sinkfile.
-                    self.fifo_broken = True
-                    return len(str) + total_written 
                 else:
                     raise
         return total_written

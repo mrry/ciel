@@ -50,6 +50,29 @@ class ExecutionFeatures:
             raise FeatureUnavailableException(name)
         return Executor(args, continuation, expected_output_ids, master_proxy, fetch_limit)
 
+class ProcessWaiter:
+
+    def __init__(self, proc, pipefd):
+        self.proc = proc
+        self.pipefd = pipefd
+        self.has_terminated = False
+        self.thread = threading.Thread(target=self.waiter_main)
+        self.thread.start()
+
+    def waiter_main(self):
+        rc = self.proc.wait()
+        os.write(self.pipefd, "X")
+        with self.lock:
+            self.has_terminated = True
+            self.return_code = rc
+            self.condvar.notify_all()
+
+    def wait(self):
+        with self.lock:
+            while not self.has_terminated:
+                self.condvar.wait()
+            return self.return_code
+
 class SWExecutor:
 
     def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
@@ -131,7 +154,6 @@ class SWStdinoutExecutor(SWExecutor):
         except KeyError:
             self.stream_output = False
         
-        
         self.proc = None
 
     class CatThread:
@@ -170,11 +192,18 @@ class SWStdinoutExecutor(SWExecutor):
         cat_thread = self.CatThread(filenames, self.proc.stdin)
         cat_thread.start()
 
-        fetch_ctx.transfer_all()
+        read_pipe, write_pipe = os.pipe()
 
-        rc = self.proc.wait()
+        self.waiter_thread = ProcessWaiter(self.proc, write_pipe)
+
+        fetch_ctx.transfer_all(read_pipe)
+
+        rc = self.waiter_thread.wait()
 
         fetch_ctx.cleanup(block_store)
+
+        os.close(read_pipe)
+        os.close(write_pipe)
 
         self.proc = None
 
@@ -199,7 +228,7 @@ class SWStdinoutExecutor(SWExecutor):
     def _abort(self):
         if self.proc is not None:
             self.proc.kill()
-            self.proc.wait()
+            self.waiter_thread.wait()
 
 class EnvironmentExecutor(SWExecutor):
     
@@ -234,11 +263,17 @@ class EnvironmentExecutor(SWExecutor):
             
         self.proc = subprocess.Popen(map(str, self.command_line), env=environment)
 
-        fetch_ctx.transfer_all()
+        read_pipe, write_pipe = os.pipe()
+        self.wait_thread = ProcessWaiter(self.proc, write_pipe)
 
-        rc = self.proc.wait()
+        fetch_ctx.transfer_all(read_pipe)
+
+        rc = self.wait_thread.wait()
         
         fetch_ctx.cleanup(block_store)
+
+        os.close(read_pipe)
+        os.close(write_pipe)
 
         if rc != 0:
             print rc
@@ -253,7 +288,7 @@ class EnvironmentExecutor(SWExecutor):
     def _abort(self):
         if self.proc is not None:
             self.proc.kill()
-            self.proc.wait()
+            self.wait_thread.wait()
 
 class JavaExecutor(SWExecutor):
     
@@ -321,11 +356,17 @@ class JavaExecutor(SWExecutor):
             proc.stdin.write("%s\0" % x)
         proc.stdin.close()
 
-        transfer_ctx.transfer_all()
+        read_pipe, write_pipe = os.pipe()
+        waiter_thread = ProcessWaiter(proc, write_pipe)
 
-        rc = proc.wait()
+        transfer_ctx.transfer_all(read_pipe)
+
+        rc = waiter_thread.wait()
 #        print 'Return code', rc
         transfer_ctx.cleanup(block_store)
+
+        os.close(read_pipe)
+        os.close(write_pipe)
 
         cherrypy.engine.publish("worker_event", "Java: JVM finished")
         if rc != 0:
@@ -401,12 +442,18 @@ class DotNetExecutor(SWExecutor):
             proc.stdin.write("%s\0" % x)
         proc.stdin.close()
 
-        transfer_ctx.transfer_all()
+        read_pipe, write_pipe = os.pipe()
+        waiter_thread = ProcessWaiter(proc, write_pipe)
 
-        rc = proc.wait()
+        transfer_ctx.transfer_all(read_pipe)
+
+        rc = waiter_thread.wait()
         print 'Return code', rc
 
         transfer_ctx.cleanup(block_store)
+
+        os.close(read_pipe)
+        os.close(write_pipe)
 
         if rc != 0:
             with open(dotnet_stdout.name) as stdout_fp:
@@ -474,12 +521,18 @@ class CExecutor(SWExecutor):
             proc.stdin.write("%s\0" % x)
         proc.stdin.close()
 
-        transfer_ctx.transfer_all()
+        read_pipe, write_pipe = os.pipe()
+        waiter_thread = ProcessWaiter(proc, write_pipe)
 
-        rc = proc.wait()
+        transfer_ctx.transfer_all(read_pipe)
+
+        rc = waiter_thread.wait()
         print 'Return code', rc
 
         transfer_ctx.cleanup(block_store)
+
+        os.close(read_pipe)
+        os.close(write_pipe)
 
         if rc != 0:
             with open(c_stdout.name) as stdout_fp:
