@@ -29,7 +29,8 @@ import logging
 import pycurl
 import select
 import fcntl
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from cStringIO import StringIO
 from errno import EAGAIN, EPIPE, ENXIO
 
@@ -46,6 +47,8 @@ import contextlib
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
+
+length_regex = re.compile("^Content-Length:\s*([0-9]+)")
 
 class StreamRetry:
     pass
@@ -170,11 +173,23 @@ class StreamTransferSetContext(TransferSetContext):
                 raise
 
     def select(self, death_pipe):
+
+        shortest_timeout = 15.0
+
+        def td_secs(td):
+            return (float(td.microseconds) / 10**6) + float(td.seconds)
+
+        for handle in self.dormant_handles():
+            time_to_wait = td_secs(handle.dormant_until - datetime.now())
+            print "Found a dormant handle, time to wait", time_to_wait
+            if time_to_wait < shortest_timeout:
+                shortest_timeout = time_to_wait
         (read, write, exn) = self.curl_ctx.fdset()
         for handle in self.write_waitable_handles():
             write.append(handle.fifo_fd)
         read.append(death_pipe)
-        read_ret, write_ret, exn_ret = select.select(read, write, exn)
+        print "Selecting with timeout", shortest_timeout
+        read_ret, write_ret, exn_ret = select.select(read, write, exn, shortest_timeout)
         if death_pipe in read_ret:
             self.drain_pipe(death_pipe)
             print "Process death: closing FIFOs"
@@ -338,6 +353,7 @@ class StreamTransferContext(TransferContext):
         self.response_had_stream = False
         self.dormant_until = None
         self.requests_paused = False
+        self.request_length = None
 
         self.save_id = save_id
         self.multi = multi
@@ -405,19 +421,33 @@ class StreamTransferContext(TransferContext):
         return False
 
     def write_header_line(self, str):
-        if str.find("Pragma") != -1 and str.find("streaming") != -1:
+        if str.startswith("Pragma") != -1 and str.find("streaming") != -1:
             self.response_had_stream = True
+        match_obj = length_regex.match(str)
+        print "Trying to match", str, "match", match_obj
+        if match_obj is not None:
+            self.request_length = int(match_obj.group(1))
+            print "This request length", self.request_length
 
     def start_fetch(self, url, range):
         self.response_had_stream = False
         TransferContext.start_fetch(self, url, range)
+
+    def pause_for(self, secs):
+        self.dormant_until = datetime.now() + timedelta(0, secs)
+        print "Request overran the consumer. Dormant until", self.dormant_until
 
     def success(self):
  
         print "Fetch success"
         
         if len(self.mem_buffer) == 0:
-            self.start_next_fetch()
+            if self.request_length is not None and self.request_length < (self.chunk_size / 2):
+                print "Got", self.request_length, "bytes, pausing due to small packet"
+                self.pause_for(1)
+            else:
+                self.start_next_fetch()
+            self.request_length = None
         else:
             # We should hold off on ordering another chunk until the process has consumed this one
             # The restart will happen when the buffer drains.
@@ -433,8 +463,9 @@ class StreamTransferContext(TransferContext):
                 self.has_succeeded = True
             else:
                 # We've got ahead of the producer.
-                # Pause for 5 seconds.
-                self.dormant_until = datetime.now() + timedelta(0, 5)
+                # Pause for 1 seconds.
+                self.pause_for(1)
+
         else:
             if self.have_written_to_process:
                 # Can't just fail-over; we've failed after having written bytes to a process.

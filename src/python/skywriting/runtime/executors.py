@@ -187,17 +187,18 @@ class SWStdinoutExecutor(SWExecutor):
 
     def _execute(self, block_store, task_id):
         print "Executing stdinout with:", " ".join(map(str, self.command_line))
-        temp_output = tempfile.NamedTemporaryFile(delete=False)
+        with tempfile.NamedTemporaryFile(delete=False) as temp_output:
+            temp_output_name = temp_output.name
 
         filenames, fetch_ctx = self.get_filenames(block_store, self.input_refs)
         
         if self.stream_output:
-            block_store.prepublish_file(temp_output.name, self.output_ids[0])
+            block_store.prepublish_file(temp_output_name, self.output_ids[0])
             stream_ref = SW2_StreamReference(self.output_ids[0], SWTaskOutputProvenance(task_id, 0))
             stream_ref.add_location_hint(block_store.netloc)
             self.master_proxy.publish_refs(task_id, {self.output_ids[0] : stream_ref})
         
-        with open(temp_output.name, "w") as temp_output_fp:
+        with open(temp_output_name, "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
             self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
     
@@ -265,11 +266,11 @@ class EnvironmentExecutor(SWExecutor):
                 input_filenames_file.write('\n')
             input_filenames_name = input_filenames_file.name
             
-        output_filenames = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
         with tempfile.NamedTemporaryFile(delete=False) as output_filenames_file:
-            for filename in output_filenames:
-                output_filenames_file.write(filename)
-                output_filenames_file.write('\n')
+            for _ in self.output_refs:
+                with tempfile.NamedTemporaryFile(delete=False) as this_file:
+                    output_filenames_file.write(this_file.name)
+                    output_filenames_file.write('\n')
             output_filenames_name = output_filenames_file.name
             
         environment = {'INPUT_FILES'  : input_filenames_name,
@@ -327,7 +328,10 @@ class JavaExecutor(SWExecutor):
         print "Get fifos"
         file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
         print "Got fifos"
-        file_outputs = [tempfile.NamedTemporaryFile().name for i in range(len(self.output_refs))]
+        file_outputs = []
+        for i in range(len(self.output_refs)):
+            with tempfile.NamedTemporaryFile(delete=False) as this_file:
+                file_outputs.append(this_file.name)
         
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
         print "Jar fetch"
@@ -338,9 +342,11 @@ class JavaExecutor(SWExecutor):
             stream_refs = {}
             for i, filename in enumerate(file_outputs):
                 block_store.prepublish_file(filename, self.output_ids[i])
+                print "Publishing", filename, "-->", block_store.streaming_filename(self.output_ids[i]), "exists?", os.path.exists(block_store.streaming_filename(self.output_ids[i]))
                 stream_ref = SW2_StreamReference(self.output_ids[i], SWTaskOutputProvenance(task_id, i))
                 stream_ref.add_location_hint(block_store.netloc)
                 stream_refs[self.output_ids[i]] = stream_ref
+            print "Published refs"
             self.master_proxy.publish_refs(task_id, stream_refs)
 
 #        print "Input filenames:"

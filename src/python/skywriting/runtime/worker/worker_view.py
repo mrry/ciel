@@ -22,6 +22,8 @@ from skywriting.runtime.block_store import json_decode_object_hook
 import sys
 import simplejson
 import cherrypy
+import os
+import time
 
 class WorkerRoot:
     
@@ -127,6 +129,7 @@ class DataRoot:
         safe_id = id
         if cherrypy.request.method == 'GET':
             is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
+            print "Trying to retrieve", filename, "streaming", is_streaming
             if is_streaming:
                 cherrypy.response.headers['Pragma'] = 'streaming'
             try:
@@ -136,8 +139,20 @@ class DataRoot:
                 # The streaming file might have been deleted between calls to maybe_streaming_filename
                 # and serve_file. Try again, because this time the non-streaming filename should be
                 # available.
+                print he
                 if he.status == 404:
+                    print "File", filename, "exists?", os.path.exists(filename)
+                    attempts = 0
+                    while attempts < 100:
+                        time.sleep(0.2)
+                        attempts += 1
+                        if os.path.exists(filename):
+                            print "Exists"
+                            break
+                        else:
+                            print "Still doesn't exist"
                     is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
+                    print "Second try", filename, "streaming", is_streaming
                     assert not is_streaming
                     del cherrypy.response.headers['Pragma']
                     return serve_file(filename)
