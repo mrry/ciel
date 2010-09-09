@@ -173,8 +173,9 @@ class WorkerPool(plugins.SimplePlugin):
             self.event_condvar.notify_all()
             self.idle_set.discard(worker.id)
             failed_task = worker.current_task
-            del self.netlocs[worker.netloc]
             worker.failed = True
+            del self.netlocs[worker.netloc]
+            del self.workers[worker.id]
 
         if failed_task is not None:
             self.bus.publish('task_failed', failed_task, ('WORKER_FAILED', None, {}))

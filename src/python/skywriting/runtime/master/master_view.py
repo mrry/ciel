@@ -22,6 +22,7 @@ import tempfile
 import simplejson
 import cherrypy
 from skywriting.runtime.worker.worker_view import DataRoot
+from cherrypy.process.wspbus import bus
 
 class MasterRoot:
     
@@ -34,6 +35,7 @@ class MasterRoot:
         self.global_data = GlobalDataRoot(global_name_directory, task_pool, worker_pool)
         #self.cluster = ClusterDetailsRoot()
         self.shutdown = ShutdownRoot(worker_pool)
+        self.refs = ReferenceInfoRoot(task_pool)
 
     @cherrypy.expose
     def index(self):
@@ -263,7 +265,7 @@ class MasterTaskRoot:
                     task = self.task_pool.get_task_by_id(task_id)
                     refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
                     self.task_pool.publish_refs(task, refs)
-                
+                    cherrypy.engine.publish('schedule')
             elif action == 'abort':
                 self.task_pool.abort(task_id)
             elif action is None:
@@ -295,6 +297,18 @@ class MasterTaskRoot:
                 simplejson.dump(map(lambda x: x.as_descriptor(long=True), self.task_pool.tasks.values()), fp=task_file, cls=SWReferenceJSONEncoder)
                 task_file.close()
                 return serve_file(filename)
+            
+class ReferenceInfoRoot:
+    
+    def __init__(self, task_pool):
+        self.task_pool = task_pool
+        
+    @cherrypy.expose
+    def default(self, id):
+        try:
+            return simplejson.dumps(self.task_pool.get_reference_info(id), cls=SWReferenceJSONEncoder)
+        except KeyError:
+            raise HTTPError(404)
                 
 class GlobalDataRoot:
     

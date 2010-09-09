@@ -11,6 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+from skywriting.runtime.worker.upload_manager import UploadManager
 
 '''
 Created on 4 Feb 2010
@@ -56,6 +57,7 @@ class Worker(plugins.SimplePlugin):
         else:
             block_store_dir = options.blockstore
         self.block_store = BlockStore(self.hostname, self.port, block_store_dir)
+        self.upload_manager = UploadManager(self.block_store)
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
