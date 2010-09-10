@@ -181,14 +181,12 @@ class StreamTransferSetContext(TransferSetContext):
 
         for handle in self.dormant_handles():
             time_to_wait = td_secs(handle.dormant_until - datetime.now())
-            print "Found a dormant handle, time to wait", time_to_wait
             if time_to_wait < shortest_timeout:
                 shortest_timeout = time_to_wait
         (read, write, exn) = self.curl_ctx.fdset()
         for handle in self.write_waitable_handles():
             write.append(handle.fifo_fd)
         read.append(death_pipe)
-        print "Selecting with timeout", shortest_timeout
         read_ret, write_ret, exn_ret = select.select(read, write, exn, shortest_timeout)
         if death_pipe in read_ret:
             self.drain_pipe(death_pipe)
@@ -231,7 +229,6 @@ class TransferContext:
         if self.active:
             raise Exception("Bad state: tried to start_fetch a curl context which was already active")
         self.active = True
-        print "Start fetch", url, range
         self.curl_ctx.setopt(pycurl.URL, str(url))
         if range is not None:
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
@@ -414,7 +411,7 @@ class StreamTransferContext(TransferContext):
         written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
         self.mem_buffer = self.mem_buffer[written:]
         if len(self.mem_buffer) == 0 and self.requests_paused:
-            print "Buffer drained, restarting fetch"
+            print "Consumer buffer drained, restarting fetch"
             self.start_next_fetch()
             self.requests_paused = False
             return True
@@ -424,10 +421,8 @@ class StreamTransferContext(TransferContext):
         if str.startswith("Pragma") != -1 and str.find("streaming") != -1:
             self.response_had_stream = True
         match_obj = length_regex.match(str)
-        print "Trying to match", str, "match", match_obj
         if match_obj is not None:
             self.request_length = int(match_obj.group(1))
-            print "This request length", self.request_length
 
     def start_fetch(self, url, range):
         self.response_had_stream = False
@@ -439,11 +434,8 @@ class StreamTransferContext(TransferContext):
 
     def success(self):
  
-        print "Fetch success"
-        
         if len(self.mem_buffer) == 0:
             if self.request_length is not None and self.request_length < (self.chunk_size / 2):
-                print "Got", self.request_length, "bytes, pausing due to small packet"
                 self.pause_for(1)
             else:
                 self.start_next_fetch()
@@ -451,7 +443,7 @@ class StreamTransferContext(TransferContext):
         else:
             # We should hold off on ordering another chunk until the process has consumed this one
             # The restart will happen when the buffer drains.
-            print "Buffer non-empty, pausing fetch"
+            print "Consumer buffer non-empty, pausing fetch"
             self.requests_paused = True
 
     def failure(self, errno, errmsg):
@@ -739,8 +731,6 @@ class BlockStore:
 
         fetch_ctx = StreamTransferSetContext()
 
-        print "Retr-files", refs
-      
         # Step 1: Resolve from local cache
         resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
 
@@ -769,9 +759,6 @@ class BlockStore:
         easy_solutions = [self.try_retrieve_object_for_ref_without_transfer(ref, decoder) for ref in refs]
         fetch_urls = [self.get_fetch_urls_for_ref(ref) for ref in refs]
 
-        print "Ob-fetch refs", refs
-        print "Easy solutions", easy_solutions
-
         result_list = []
         request_list = []
         
@@ -784,23 +771,16 @@ class BlockStore:
                 result_list.append(None)
                 request_list.append(BufferTransferContext(this_fetch_urls, transfer_ctx))
 
-        print "Request list:", request_list
-
         transfer_ctx.transfer_all()
-
-        print "After transfer_all", request_list
 
         j = 0
         for i, res in enumerate(result_list):
             if res is None:
                 next_object = request_list[j]
-                print "Using object: success", next_object.has_succeeded, "completed", next_object.has_completed
                 j += 1
                 if next_object.has_succeeded:
                     next_object.buffer.seek(0)
                     result_list[i] = self.decoders[decoder](next_object.buffer)
-
-        print "Result list", result_list
 
         for req in request_list:
             req.cleanup()

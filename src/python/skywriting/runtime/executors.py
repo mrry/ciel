@@ -63,9 +63,8 @@ class ProcessWaiter:
         self.thread.start()
 
     def waiter_main(self):
-        print "Waiter thread start"
         rc = self.proc.wait()
-        print "Waiter thread process returned", rc        
+        print "Process terminated; returned", rc
         os.write(self.pipefd, "X")
         with self.lock:
             self.has_terminated = True
@@ -211,9 +210,7 @@ class SWStdinoutExecutor(SWExecutor):
 
         fetch_ctx.transfer_all(read_pipe)
 
-        print "Going to wait on waiter thread"
         rc = self.waiter_thread.wait()
-        print "Wait finished"
 
         fetch_ctx.cleanup(block_store)
 
@@ -325,28 +322,22 @@ class JavaExecutor(SWExecutor):
         
     def _execute(self, block_store, task_id):
         cherrypy.engine.publish("worker_event", "Java: fetching inputs")
-        print "Get fifos"
         file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
-        print "Got fifos"
         file_outputs = []
         for i in range(len(self.output_refs)):
             with tempfile.NamedTemporaryFile(delete=False) as this_file:
                 file_outputs.append(this_file.name)
         
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
-        print "Jar fetch"
         jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
-        print "Jar fetch done"
 
         if self.stream_output:
             stream_refs = {}
             for i, filename in enumerate(file_outputs):
                 block_store.prepublish_file(filename, self.output_ids[i])
-                print "Publishing", filename, "-->", block_store.streaming_filename(self.output_ids[i]), "exists?", os.path.exists(block_store.streaming_filename(self.output_ids[i]))
                 stream_ref = SW2_StreamReference(self.output_ids[i], SWTaskOutputProvenance(task_id, i))
                 stream_ref.add_location_hint(block_store.netloc)
                 stream_refs[self.output_ids[i]] = stream_ref
-            print "Published refs"
             self.master_proxy.publish_refs(task_id, stream_refs)
 
 #        print "Input filenames:"
