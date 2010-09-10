@@ -19,4 +19,5 @@ apt-get -qq -y install openjdk-6-jre 1>&2 2>/dev/null
 mkdir -p /opt
 cd /opt
 git clone -q http://github.com/mrry/skywriting.git
-
+mkdir -p /opt/skywriting/logs
+mkdir -p /opt/skywriting/journal
