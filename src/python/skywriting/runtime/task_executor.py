@@ -359,8 +359,9 @@ class SWRuntimeInterpreterTask:
             else:
                 parsed_inputs[int(local_id)] = ref
         
-        self.continuation = block_store.retrieve_object_for_ref(continuation_ref, 'pickle')
-        
+        self.continuation = self.block_store.retrieve_object_for_ref(continuation_ref, 'pickle')
+
+        fetch_objects = []
         for local_id, ref in parsed_inputs.items():
         
             if not self.is_running:
@@ -370,12 +371,17 @@ class SWRuntimeInterpreterTask:
                 if isinstance(ref, SWDataValue):
                     self.continuation.rewrite_reference(local_id, ref)
                 else:
-                    value = block_store.retrieve_object_for_ref(ref, 'json')
-                    self.continuation.rewrite_reference(local_id, SWDataValue(value))
+                    fetch_objects.append((local_id, ref))
             elif self.continuation.is_marked_as_execd(local_id):
                 self.continuation.rewrite_reference(local_id, ref)
             else:
                 assert False
+
+        fetch_refs = [ref for (local_id, ref) in fetch_objects]
+        fetched_objects = self.block_store.retrieve_objects_for_refs(fetch_refs, 'json')
+
+        for (id, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetched_objects):
+            self.continuation.rewrite_reference(id, SWDataValue(ob))
 
     def convert_tasklocal_to_real_reference(self, value):
         if isinstance(value, SWLocalReference):
@@ -607,7 +613,8 @@ class SWRuntimeInterpreterTask:
         return 'swi:%s' % task_id
     
     def spawn_func(self, spawn_expr, args):
-        args = map_leaf_values(self.check_no_thunk_mapper, args)        
+
+        args = self.do_eager_thunks(args)
 
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
@@ -637,18 +644,37 @@ class SWRuntimeInterpreterTask:
         # Return local reference to the interpreter.
         return ret
 
-    def check_no_thunk_mapper(self, leaf):
+    def check_for_eager_fetch(self, leaf):
         if isinstance(leaf, SWDereferenceWrapper):
-            return self.eager_dereference(leaf.ref)
+            real_ref = self.continuation.resolve_tasklocal_reference_with_ref(leaf.ref)
+            if isinstance(real_ref, SWURLReference):
+                return (leaf.ref.index, real_ref)
+            else:
+                return None
         else:
-            return leaf
-   
+            return None
+
+    def do_eager_thunks(self, args):
+
+        fetches_needed = accumulate_leaf_values(self.check_for_eager_fetch, args)
+        fetches_needed = filter(lambda x: x is not None, fetches_needed)
+        fetched_objects = self.block_store.retrieve_objects_for_refs([ref for (id, ref) in fetches_needed], "json")
+        id_to_result_map = dict(zip([id for (id, ref) in fetches_needed], fetched_objects))
+
+        def resolve_thunks_mapper(leaf):
+            if isinstance(leaf, SWDereferenceWrapper):
+                return self.eager_dereference(leaf.ref, id_to_result_map)
+            else:
+                return leaf
+
+        return map_leaf_values(resolve_thunks_mapper, args)
+
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
         
         new_task_id = self.create_spawned_task_name()
         inputs = {}
         
-        args = map_leaf_values(self.check_no_thunk_mapper, exec_args)
+        args = self.do_eager_thunks(exec_args)
 
         args_id, expected_output_ids = self.create_names_for_exec(executor_name, args, num_outputs)
         ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
@@ -692,7 +718,7 @@ class SWRuntimeInterpreterTask:
     
     def exec_func(self, executor_name, args, num_outputs):
         
-        real_args = map_leaf_values(self.check_no_thunk_mapper, args)
+        real_args = self.do_eager_thunks(args)
 
         _, output_ids = self.create_names_for_exec(executor_name, real_args, num_outputs)
 
@@ -715,13 +741,30 @@ class SWRuntimeInterpreterTask:
     def lazy_dereference(self, ref):
         self.continuation.mark_as_dereferenced(ref)
         return SWDereferenceWrapper(ref)
-        
+
     def eager_dereference(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
         elif isinstance(real_ref, SWURLReference):
             value = self.block_store.retrieve_object_for_ref(real_ref, 'json')
+            dv_ref = SWDataValue(value)
+            self.continuation.rewrite_reference(ref.index, dv_ref)
+            return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
+        else:
+            self.continuation.mark_as_dereferenced(ref)
+            raise ReferenceUnavailableException(ref, self.continuation)
+
+    def eager_dereference_from_map(self, ref, fetches):
+
+        # Any fetches needed by a URL reference should have been performed in advance
+        # (see do_eager_thunks)
+        
+        real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        if isinstance(real_ref, SWDataValue):
+            return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
+        elif isinstance(real_ref, SWURLReference):
+            value = fetches[ref.index]
             dv_ref = SWDataValue(value)
             self.continuation.rewrite_reference(ref.index, dv_ref)
             return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
@@ -812,3 +855,22 @@ def map_leaf_values(f, value):
         return ret
     else:
         return f(value)
+
+def accumulate_leaf_values(f, value):
+
+    def flatten_lofl(ls):
+        ret = []
+        for l in ls:
+            ret.extend(l)
+        return ret
+
+    if isinstance(value, list):
+        accumd_list = [accumulate_leaf_values(f, v) for v in value]
+        return flatten_lofl(accumd_list)
+    elif isinstance(value, dict):
+        accumd_keys = flatten_lofl([accumulate_leaf_values(f, v) for v in value.keys()])
+        accumd_values = flatten_lofl([accumulate_leaf_values(f, v) for v in value.values()])
+        accumd_keys.extend(accumd_values)
+        return accumd_keys
+    else:
+        return [f(value)]

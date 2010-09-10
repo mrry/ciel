@@ -1,5 +1,5 @@
 # Copyright (c) 2010 Derek Murray <derek.murray@cl.cam.ac.uk>
-#
+#                    Christopher Smowton <chris.smowton@cl.cam.ac.uk>
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
 # copyright notice and this permission notice appear in all copies.
@@ -26,6 +26,13 @@ import struct
 import tempfile
 import cherrypy
 import logging
+import pycurl
+import select
+import fcntl
+import re
+from datetime import datetime, timedelta
+from cStringIO import StringIO
+from errno import EAGAIN, EPIPE, ENXIO
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -41,6 +48,8 @@ from io import StringIO
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
+
+length_regex = re.compile("^Content-Length:\s*([0-9]+)")
 
 class StreamRetry:
     pass
@@ -70,6 +79,425 @@ def sw_to_external_url(url):
         return 'http://%s/data/%s' % (parsed_url.netloc, id)
     else:
         return url
+
+class TransferSetContext:
+    def __init__(self):
+        self.curl_ctx = pycurl.CurlMulti()
+        self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
+        self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
+        self.active_handles = 0
+
+    def start_fetch(self, ctx):
+        self.active_handles += 1
+        self.curl_ctx.add_handle(ctx.curl_ctx)
+
+    def process(self):
+
+        while 1:
+            go_again = False
+            while 1:
+                # Will generate write_data callbacks as appropriate
+                ret, num_handles = self.curl_ctx.perform()
+                if ret != pycurl.E_CALL_MULTI_PERFORM:
+                    break
+            while 1:
+                num_q, ok_list, err_list = self.curl_ctx.info_read()
+                if len(ok_list) != 0 or len(err_list) != 0:
+                    # We'll be making callbacks, which might schedule more work.
+                    # We should try processing again afterwards;
+                    # worst that happens, perform() will return OK right away and we'll drop out.
+                    go_again = True
+                for c in ok_list:
+                    self.curl_ctx.remove_handle(c)
+                    self.active_handles -= 1
+                    c.ctx._success()
+                for c, errno, errmsg in err_list:
+                    self.curl_ctx.remove_handle(c)
+                    self.active_handles -= 1
+                    cherrypy.log.error("Curl failure: %s, %s" % (str(errno), str(errmsg)), "CURL_FETCH", logging.INFO)
+                    c.ctx._failure(errno, errmsg)
+                if num_q == 0:
+                    break
+            if not go_again:
+                break
+
+    def transfer_all(self):
+        while self.active_handles > 0:
+            self.process()
+            self.curl_ctx.select(5.0)
+
+    def cleanup(self):
+        self.curl_ctx.close()
+
+class StreamTransferSetContext(TransferSetContext):
+    def __init__(self):
+        TransferSetContext.__init__(self)
+        self.handles = []
+
+    def writable_handles(self):
+        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0, self.handles)
+
+    def write_waitable_handles(self):
+        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0 and x.fifo_fd != -1, self.handles)
+
+    def dormant_handles(self):
+        return filter(lambda x: x.dormant_until is not None, self.handles)
+
+    def process(self):
+        while 1:
+            go_again = False
+            # go_again is set when cURL's handle-group might have changed, since the last perform(),
+            # so it's not safe to select() at this time.
+            TransferSetContext.process(self)
+            for handle in self.writable_handles():
+                if handle.try_empty_buffer():
+                    go_again = True
+            for handle in self.dormant_handles():
+                if datetime.now() > handle.dormant_until:
+                    handle.wake_up()
+                    go_again = True
+            if not go_again:
+                return
+
+    def drain_pipe(self, pipefd):
+        oldflags = fcntl.fcntl(pipefd, fcntl.F_GETFL)
+        newflags = oldflags | os.O_NONBLOCK
+        fcntl.fcntl(pipefd, fcntl.F_SETFL, newflags)
+        try:
+            while(os.read(pipefd, 1024) >= 0):
+                pass
+        except OSError, e:
+            if e.errno == EAGAIN:
+                return
+            else:
+                raise
+
+    def select(self, death_pipe):
+
+        shortest_timeout = 15.0
+
+        def td_secs(td):
+            return (float(td.microseconds) / 10**6) + float(td.seconds)
+
+        for handle in self.dormant_handles():
+            time_to_wait = td_secs(handle.dormant_until - datetime.now())
+            if time_to_wait < shortest_timeout:
+                shortest_timeout = time_to_wait
+        (read, write, exn) = self.curl_ctx.fdset()
+        for handle in self.write_waitable_handles():
+            write.append(handle.fifo_fd)
+        read.append(death_pipe)
+        read_ret, write_ret, exn_ret = select.select(read, write, exn, shortest_timeout)
+        if death_pipe in read_ret:
+            self.drain_pipe(death_pipe)
+            cherrypy.log.error("Closing fetch FIFOs due to process death", 'CURL_FETCH', logging.INFO)
+            for handle in self.handles:
+                handle.fifo_closed()
+
+    def transfer_all(self, death_pipe):
+        while 1:
+            self.process()
+            remaining_transfers = filter(lambda x: not x.has_completed, self.handles)
+            if len(remaining_transfers) == 0:
+                cherrypy.log.error("All transfers complete", 'CURL_FETCH', logging.INFO)
+                return
+            self.select(death_pipe)
+
+    def cleanup(self, block_store):
+        for handle in self.handles:
+            handle.save_result(block_store)
+            handle.cleanup()
+        TransferSetContext.cleanup(self)
+
+class TransferContext:
+
+    def __init__(self, multi):
+
+        self.multi = multi
+        self.curl_ctx = pycurl.Curl()
+        self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
+        self.curl_ctx.setopt(pycurl.MAXREDIRS, 5)
+        self.curl_ctx.setopt(pycurl.CONNECTTIMEOUT, 30)
+        self.curl_ctx.setopt(pycurl.TIMEOUT, 300)
+        self.curl_ctx.setopt(pycurl.NOSIGNAL, 1)
+        self.curl_ctx.setopt(pycurl.WRITEFUNCTION, self.write_data)
+        self.curl_ctx.setopt(pycurl.HEADERFUNCTION, self.write_header_line)
+        self.curl_ctx.ctx = self
+        self.active = False
+
+    def start_fetch(self, url, range=None):
+        if self.active:
+            raise Exception("Bad state: tried to start_fetch a curl context which was already active")
+        self.active = True
+        self.curl_ctx.setopt(pycurl.URL, str(url))
+        if range is not None:
+            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
+        self.multi.start_fetch(self)
+            
+    def _success(self):
+        self.active = False
+        response_code = self.curl_ctx.getinfo(pycurl.RESPONSE_CODE)
+        if str(response_code).startswith("2"):
+            self.success()
+        else:
+            self.failure(response_code, "")
+
+    def _failure(self, errno, errmsg):
+        self.active = False
+        self.failure(errno, errmsg)
+
+    def cleanup(self):
+        self.curl_ctx.close()
+
+class BufferTransferContext(TransferContext):
+
+    def __init__(self, urls, multi):
+        TransferContext.__init__(self, multi)
+        self.buffer = StringIO()
+        self.urls = urls
+        self.failures = 0
+        self.has_completed = False
+        self.has_succeeded = False
+        self.start_fetch(self.urls[0])
+
+    def write_data(self, str):
+        self.buffer.write(str)
+
+    def write_header_line(self, str):
+        pass
+
+    def success(self):
+        self.has_completed = True
+        self.has_succeeded = True
+
+    def failure(self):
+        self.failures += 1
+        try:
+            self.start_fetch(self.urls[self.failures])
+            self.buffer.close()
+            self.buffer = StringIO()
+        except IndexError:
+            self.has_completed = True
+            self.has_succeeded = False
+
+    def cleanup(self):
+        self.buffer.close()
+        TransferContext.cleanup(self)
+
+class FileTransferContext(TransferContext):
+
+    def __init__(self, urls, save_id, multi):
+        TransferContext.__init__(self, multi)
+        with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
+            self.sinkfile_name = sinkfile.name
+        self.sink_fp = open(self.sinkfile_name, "wb")
+        self.urls = urls
+        self.failures = 0
+        self.has_completed = False
+        self.has_succeeded = False
+        self.save_id = save_id
+        self.start_fetch(self.urls[0])
+
+    def write_data(self, str):
+        self.sink_fp.write(str)
+
+    def write_header_line(self, str):
+        pass
+
+    def success(self):
+        self.has_completed = True
+        self.has_succeeded = True
+
+    def failure(self):
+        self.failures += 1
+        try:
+            self.sink_fp.seek(0)
+            self.sink_fp.truncate(0)
+            self.start_fetch(self.urls[self.failures])
+            
+        except IndexError:
+            self.has_completed = True
+            self.has_succeeded = False
+
+    def cleanup(self):
+        self.sink_fp.close()
+        TransferContext.cleanup(self)
+
+    def save_result(self, block_store):
+        if self.has_completed:
+            block_store.store_file(self.sinkfile_name, self.save_id, True)
+
+class StreamTransferContext(TransferContext):
+
+    def __init__(self, urls, save_id, multi):
+        TransferContext.__init__(self, multi)
+        self.mem_buffer = ""
+        self.urls = urls
+        self.failures = 0
+        self.has_completed = False
+        self.has_succeeded = False
+        self.fifo_dir = tempfile.mkdtemp()
+        self.fifo_name = os.path.join(self.fifo_dir, 'fetch_fifo')
+        with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
+            self.sinkfile_name = sinkfile.name
+            
+        os.mkfifo(self.fifo_name)
+        self.fifo_fd = os.open(self.fifo_name, os.O_RDWR | os.O_NONBLOCK)
+        self.sink_fp = open(self.sinkfile_name, "wb")
+        self.current_start_byte = 0
+        self.chunk_size = 1048576
+        self.have_written_to_process = False
+        self.response_had_stream = False
+        self.dormant_until = None
+        self.requests_paused = False
+        self.request_length = None
+
+        self.save_id = save_id
+        self.multi = multi
+        self.description = self.urls[0]
+        multi.handles.append(self)
+        self.start_next_fetch()
+
+    def close_fifo(self):
+        if self.fifo_fd == -1:
+            return
+        os.close(self.fifo_fd)
+        self.fifo_fd = -1
+        self.mem_buffer = ""
+
+    def fifo_closed(self):
+        self.close_fifo()
+        if self.requests_paused and not self.has_completed:
+            self.requests_paused = False
+            self.consider_restart()
+
+    def write_without_blocking(self, fd, str):
+
+        if self.fifo_fd == -1:
+            # Silently swallow data; the other end is gone.
+            return len(str)
+        total_written = 0
+        while len(str) > 0:
+            try:
+                bytes_written = os.write(self.fifo_fd, str)
+                str = str[bytes_written:]
+                total_written += bytes_written
+            except OSError, e:
+                # Note that we can't get EPIPE here, as we ourselves hold a read handle.
+                if e.errno == EAGAIN:
+                    return total_written
+                else:
+                    raise
+        return total_written
+
+    def write_data(self, str):
+        
+        if len(self.mem_buffer) > 0:
+            self.mem_buffer += str
+        else:
+            written = self.write_without_blocking(self.fifo_fd, str)
+            if written < len(str):
+                self.mem_buffer += str[written:]
+        self.sink_fp.write(str)
+        self.current_start_byte += len(str)
+        self.have_written_to_process = True
+
+    def start_next_fetch(self):
+        cherrypy.log.error("Fetch %s offset %d" % (self.description, self.current_start_byte), 'CURL_FETCH', logging.INFO)
+        self.start_fetch(self.urls[self.failures], 
+                         (self.current_start_byte, 
+                          self.current_start_byte + self.chunk_size))
+
+    def consider_restart(self):
+        if self.dormant_until is None and not self.requests_paused:
+            self.start_next_fetch()
+
+    def wake_up(self):
+        self.dormant_until = None
+        cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 'CURL_FETCH', logging.INFO)
+        self.consider_restart()
+
+    def try_empty_buffer(self):
+
+        written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
+        self.mem_buffer = self.mem_buffer[written:]
+        if len(self.mem_buffer) == 0 and self.requests_paused:
+            cherrypy.log.error("Consumer buffer empty for %s, considering restart" % self.description, 'CURL_FETCH', logging.INFO)
+            self.requests_paused = False
+            self.consider_restart()
+            return True
+        return False
+
+    def write_header_line(self, str):
+        if str.startswith("Pragma") != -1 and str.find("streaming") != -1:
+            self.response_had_stream = True
+        match_obj = length_regex.match(str)
+        if match_obj is not None:
+            self.request_length = int(match_obj.group(1))
+
+    def start_fetch(self, url, range):
+        self.response_had_stream = False
+        TransferContext.start_fetch(self, url, range)
+
+    def pause_for(self, secs):
+        self.dormant_until = datetime.now() + timedelta(0, secs)
+        cherrypy.log.error("Pausing %s fetch due to producer buffer empty" % self.description, 'CURL_FETCH', logging.INFO)
+
+    def success(self):
+
+        cherrypy.log.error("Fetch %s succeeded (length %d)" % (self.description, self.request_length), "CURL_FETCH", logging.INFO)
+ 
+        if len(self.mem_buffer) == 0:
+            if self.request_length is not None and self.request_length < (self.chunk_size / 2):
+                self.pause_for(1)
+            else:
+                self.start_next_fetch()
+            self.request_length = None
+        else:
+            # We should hold off on ordering another chunk until the process has consumed this one
+            # The restart will happen when the buffer drains.
+            cherrypy.log.error("Pausing %s fetch consumer buffer full" % self.description, 'CURL_FETCH', logging.INFO)
+            self.requests_paused = True
+
+    def failure(self, errno, errmsg):
+
+        cherrypy.log.error("Fetch %s failed (error %s)" % (self.description, str(errno)), "CURL_FETCH", logging.INFO)
+
+        if errno == 416:
+            if not self.response_had_stream:
+                self.close_fifo()
+                self.has_completed = True
+                self.has_succeeded = True
+            else:
+                # We've got ahead of the producer.
+                # Pause for 1 seconds.
+                self.pause_for(1)
+
+        else:
+            if self.have_written_to_process:
+                # Can't just fail-over; we've failed after having written bytes to a process.
+                self.close_fifo()
+                self.has_completed = True
+                self.has_succeeded = False
+            else:
+                self.failures += 1
+                try:
+                    self.start_fetch(self.urls[self.failures], (0, self.chunk_size))
+                except IndexError:
+                    # Run out of URLs to try
+                    self.close_fifo()
+                    self.has_completed = True
+                    self.has_succeeded = False
+
+    def cleanup(self):
+        TransferContext.cleanup(self)
+        self.sink_fp.close()
+        os.unlink(self.fifo_name)
+        os.rmdir(self.fifo_dir)
+
+    def save_result(self, block_store):
+        if self.has_completed:
+            block_store.store_file(self.sinkfile_name, self.save_id, True)
 
 class BlockStore:
     
@@ -219,218 +647,165 @@ class BlockStore:
             self.streaming_id_set.remove(id)
             os.unlink(self.streaming_filename(id))
     
-    def retrieve_object_by_url(self, url, decoder):
-        """Returns the object referred to by the given URL."""
-        filename = self.find_url_in_cache(url)
-        if filename is None:
-            parsed_url = urlparse.urlparse(url)
-            if parsed_url.scheme == 'swbs':
-                id = parsed_url.path[1:]
-                if parsed_url.netloc == self.netloc:
-                    # Retrieve local object.
-                    try:
-                        return self.object_cache[id]
-                    except KeyError:
-                        with open(self.filename(id)) as object_file:
-                            return self.decoders[decoder](object_file)
-                else:
-                    # Retrieve remote in-system object.
-                    # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, id)
-    
-            else:
-                # Retrieve remote ex-system object.
-                fetch_url = url
-
-            object_file = urllib2.urlopen(fetch_url)
-        else:
-            object_file = open(filename, "r")
-
-        ret = self.decoders[decoder](object_file)
-        if(decoder != "handle"):
-            object_file.close()
-        return ret
-                
-    def is_available_locally(self, ref):
-        return self.netloc in ref.location_hints or (isinstance(ref, SW2_ConcreteReference) and os.path.exists(self.filename(ref.id)))
-
-    def retrieve_filename_by_url(self, url, size_limit=None):
-        """Returns the filename of a file containing the data at the given URL."""
-        filename = self.find_url_in_cache(url)
-        id = None
-        if filename is None:
-            parsed_url = urlparse.urlparse(url)
-            
-            if parsed_url.scheme == 'swbs':
-                id = parsed_url.path[1:]
-                if parsed_url.netloc == self.netloc:
-                    # Retrieve local object.
-                    cherrypy.engine.publish("worker_event", "Block store: SWBS target was local already")
-                    return self.filename(id)
-                else:
-                    # Retrieve remote in-system object.
-                    # XXX: should extract this magic string constant.
-                    fetch_url = 'http://%s/data/%s' % (parsed_url.netloc, id)
-            else:
-                # Retrieve remote ex-system object.
-                fetch_url = url
-            
-            headers = {}
-            if size_limit is not None:
-                headers['If-Match'] = str(size_limit)
-            
-            cherrypy.engine.publish("worker_event", "Block store: fetching " + fetch_url)
-            request = urllib2.Request(fetch_url, headers=headers)
-            
-            try:
-                response = urllib2.urlopen(request)
-            except HTTPError, ue:
-                if ue.code == 412:
-                    raise ExecutionInterruption()
-                else:
-                    raise
-            except URLError:
-                raise
-            
-            if id is None:
-                id = self.allocate_new_id()
-       
-            filename = self.filename(id)
-    
-            with open(filename, 'wb') as data_file:
-                shutil.copyfileobj(response, data_file)
- 
-            response.close()
- 
-            self.store_url_in_cache(url, filename)
-        else:
-            cherrypy.engine.publish("worker_event", "Block store: URL hit in cache")
-
-        return filename
-    
-    def retrieve_filename_for_concrete_ref(self, ref):
-        netloc = self.choose_best_netloc(ref.location_hints)
-        try:
-            result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
-        except:
-            alternative_netlocs = ref.location_hints.copy()
-            alternative_netlocs.remove(netloc)
-            while len(alternative_netlocs) > 0:
-                netloc = self.choose_best_netloc(alternative_netlocs)
-                try:
-                    result = self.retrieve_filename_by_url('swbs://%s/%s' % (netloc, str(ref.id)))
-                    break
-                except:
-                    alternative_netlocs.remove(netloc)
-                
-            if len(alternative_netlocs) == 0:
-                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
-        
-        return result
-        
-    def retrieve_filename_for_ref(self, ref):
+    def try_retrieve_filename_for_ref_without_transfer(self, ref):
         assert isinstance(ref, SWRealReference)
-        if isinstance(ref, SW2_ConcreteReference):
-            cherrypy.engine.publish("worker_event", "Block store: fetch SWBS")
-            return self.retrieve_filename_for_concrete_ref(ref)
-        elif isinstance(ref, SWURLReference):
-            for url in ref.urls:
+
+        def find_first_cached(urls):
+            for url in urls:
                 filename = self.find_url_in_cache(url)
                 if filename is not None:
-                    cherrypy.engine.publish("worker_event", "Block store: URL hit in cache")
                     return filename
-            chosen_url = self.choose_best_url(ref.urls)
-            cherrypy.engine.publish("worker_event", "Block store: fetch URL " + chosen_url)
-            return self.retrieve_filename_by_url(chosen_url)
+            return None
+
+        if isinstance(ref, SWErrorReference):
+            raise RuntimeSkywritingError()
+        elif isinstance(ref, SWNullReference):
+            raise RuntimeSkywritingError()
         elif isinstance(ref, SWDataValue):
-            cherrypy.engine.publish("worker_event", "Block store: writing datavalue to file")
             id = self.allocate_new_id()
             with open(self.filename(id), 'w') as obj_file:
                 self.encode_json(ref.value, obj_file)
             return self.filename(id)
-        elif isinstance(ref, SWErrorReference):
-            raise RuntimeSkywritingError()
-        elif isinstance(ref, SWNullReference):
-            raise RuntimeSkywritingError()
-        else:
-            raise
-        
-    def retrieve_object_for_concrete_ref(self, ref, decoder):
-        netloc = self.choose_best_netloc(ref.location_hints)
-        try:
-            result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
-        except:
-            
-            alternative_netlocs = ref.location_hints.copy()
-            alternative_netlocs.remove(netloc)
-            while len(alternative_netlocs) > 0:
-                netloc = self.choose_best_netloc(alternative_netlocs)
-                try:
-                    result = self.retrieve_object_by_url('swbs://%s/%s' % (netloc, str(ref.id)), decoder)
-                    break
-                except:
-                    alternative_netlocs.remove(netloc)
-                    
-            if len(alternative_netlocs) == 0:
-                raise MissingInputException({ ref.id : SW2_TombstoneReference(ref.id, ref.location_hints) })
-        
-        return result
-        
-    def retrieve_object_for_ref(self, ref, decoder):
-        assert isinstance(ref, SWRealReference)
-        if isinstance(ref, SW2_ConcreteReference):
-            return self.retrieve_object_for_concrete_ref(ref, decoder)
+        elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+            for loc in ref.location_hints:
+                if loc == self.netloc:
+                    return self.filename(ref.id)
+            check_urls = ["swbs://%s/%s" % (loc_hint, str(ref.id)) for loc_hint in ref.location_hints]
+            return find_first_cached(check_urls)
         elif isinstance(ref, SWURLReference):
             for url in ref.urls:
-                filename = self.find_url_in_cache(url)
-                if filename is not None:
-                    with open(filename) as f:
-                        ret = self.decoders[decoder](f)
-                    return ret
-            chosen_url = self.choose_best_url(ref.urls)
-            return self.retrieve_object_by_url(chosen_url, decoder)
-        elif isinstance(ref, SWDataValue):
-            if decoder == 'json':
-                return ref.value    
-            elif decoder == 'handle':
-                return StringIO(simplejson.dumps(ref.value, cls=SWReferenceJSONEncoder))
+                parsed_url = urlparse.urlparse(url)
+                if parsed_url.scheme == "file":
+                    return parsed_url.path
+            return find_first_cached(ref.urls)
+
+    def try_retrieve_object_for_ref_without_transfer(self, ref, decoder):
+
+        # Basically like the same task for files, but with the possibility of cached decoded forms
+        if isinstance(ref, SW2_ConcreteReference):
+            for loc in ref.location_hints:
+                if loc == self.netloc:
+                    try:
+                        return self.object_cache[ref.id]
+                    except:
+                        pass
+        cached_file = self.try_retrieve_filename_for_ref_without_transfer(ref)
+        if cached_file is not None:
+            with open(cached_file, "r") as f:
+                return self.decoders[decoder](f)
+        return None
+
+    def get_fetch_urls_for_ref(self, ref):
+
+        if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+            return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+        elif isinstance(ref, SWURLReference):
+            return map(sw_to_external_url, ref.urls)
+                
+    def retrieve_filenames_for_refs_eager(self, refs):
+
+        fetch_ctx = TransferSetContext()
+
+        # Step 1: Resolve from local cache
+        resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
+
+        # Step 2: Build request descriptors
+        def create_transfer_context(ref):
+            urls = self.get_fetch_urls_for_ref(ref)
+            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+                save_id = ref.id
             else:
-                raise Exception()
-        elif isinstance(ref, SWErrorReference):
-            raise RuntimeSkywritingError()
-        elif isinstance(ref, SWNullReference):
-            raise RuntimeSkywritingError()
-        else:
-            print ref
-            raise        
-        
-    def retrieve_range_for_ref(self, ref, start, chunk_size):
-        assert isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_ConcreteReference)
-        netloc = self.choose_best_netloc(ref.location_hints)
-    
-        fetch_url = 'http://%s/data/%s' % (netloc, ref.id)
-        range_header = 'bytes=%d-%d' % (start, start + chunk_size - 1)
-        headers = {'Range': range_header}
-        # TODO: Some event publishing.
-        request = urllib2.Request(fetch_url, headers=headers)
-            
-        try:
-            response = urllib2.urlopen(request)
-        except HTTPError, he:
-            if he.code == 416:
-                try:
-                    streaming = he.info()['Pragma']
-                    if streaming == 'streaming':
-                        return STREAM_RETRY
-                    else:
-                        return False
-                except KeyError:
-                    return False
+                save_id = self.allocate_new_id()
+            return FileTransferContext(urls, save_id, fetch_ctx)
+
+        request_list = []
+        for (ref, resolution) in zip(refs, resolved_refs):
+            if resolution is None:
+                request_list.append(create_transfer_context(ref))
+
+        fetch_ctx.transfer_all()
+
+        for req in request_list:
+            req.save_result(self)
+
+        result_list = []
+ 
+        for resolution in resolved_refs:
+            if resolution is None:
+                next_req = request_list.pop(0)
+                next_req.cleanup()
+                result_list.append(self.filename(next_req.save_id))
             else:
-                raise he
+                result_list.append(resolution)
+
+        fetch_ctx.cleanup()
+
+        return result_list
+
+    def retrieve_filenames_for_refs(self, refs):
+
+        fetch_ctx = StreamTransferSetContext()
+
+        # Step 1: Resolve from local cache
+        resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
+
+        # Step 2: Build request descriptors
+        def create_transfer_context(ref):
+            urls = self.get_fetch_urls_for_ref(ref)
+            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+                save_id = ref.id
+            else:
+                save_id = self.allocate_new_id()
+            return StreamTransferContext(urls, save_id, fetch_ctx)
+
+        result_list = []
+ 
+        for (ref, resolution) in zip(refs, resolved_refs):
+            if resolution is None:
+                ctx = create_transfer_context(ref)
+                result_list.append(ctx.fifo_name)
+            else:
+                result_list.append(resolution)
+
+        return (result_list, fetch_ctx)
+
+    def retrieve_objects_for_refs(self, refs, decoder):
         
-        return response.read()
-               
+        easy_solutions = [self.try_retrieve_object_for_ref_without_transfer(ref, decoder) for ref in refs]
+        fetch_urls = [self.get_fetch_urls_for_ref(ref) for ref in refs]
+
+        result_list = []
+        request_list = []
+        
+        transfer_ctx = TransferSetContext()
+
+        for (solution, this_fetch_urls) in zip(easy_solutions, fetch_urls):
+            if solution is not None:
+                result_list.append(solution)
+            else:
+                result_list.append(None)
+                request_list.append(BufferTransferContext(this_fetch_urls, transfer_ctx))
+
+        transfer_ctx.transfer_all()
+
+        j = 0
+        for i, res in enumerate(result_list):
+            if res is None:
+                next_object = request_list[j]
+                j += 1
+                if next_object.has_succeeded:
+                    next_object.buffer.seek(0)
+                    result_list[i] = self.decoders[decoder](next_object.buffer)
+
+        for req in request_list:
+            req.cleanup()
+        transfer_ctx.cleanup()
+
+        return result_list
+
+    def retrieve_object_for_ref(self, ref, decoder):
+        return self.retrieve_objects_for_refs([ref], decoder)[0]
+        
     def get_ref_for_url(self, url, version, task_id):
         """
         Returns a SW2_ConcreteReference for the data stored at the given URL.
