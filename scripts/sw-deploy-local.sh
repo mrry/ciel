@@ -12,7 +12,7 @@ apt-get -qq -y install git-core curl 1>&2 2>/dev/null
 echo sun-java6-jre shared/accepted-sun-dlj-v1-1 boolean true | debconf-set-selections
 
 # install more stuff
-apt-get -qq -y install python python-ply python-httplib2 python-simplejson python-cherrypy3 1>&2 2>/dev/null
+apt-get -qq -y install python python-ply python-httplib2 python-simplejson python-cherrypy3 python-pycurl 1>&2 2>/dev/null
 apt-get -qq -y install openjdk-6-jre 1>&2 2>/dev/null
 
 # git checkout
