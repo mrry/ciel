@@ -14,11 +14,10 @@
 from __future__ import with_statement
 from cherrypy.process import plugins
 from Queue import Queue
-from threading import Lock, Condition
+from threading import Condition, RLock
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import random
 import datetime
-import sys
 import simplejson
 import httplib2
 import uuid
@@ -74,7 +73,7 @@ class WorkerPool(plugins.SimplePlugin):
         self.workers = {}
         self.netlocs = {}
         self.idle_set = set()
-        self._lock = Lock()
+        self._lock = RLock()
         self.feature_queues = FeatureQueues()
         self.event_count = 0
         self.event_condvar = Condition(self._lock)
@@ -103,6 +102,12 @@ class WorkerPool(plugins.SimplePlugin):
             id = self.allocate_worker_id()
             worker = Worker(id, worker_descriptor, self.feature_queues)
             self.workers[id] = worker
+            try:
+                previous_worker_at_netloc = self.netlocs[worker.netloc]
+                cherrypy.log.error('Worker at netloc %s has reappeared' % worker.netloc, 'WORKER_POOL', logging.WARNING)
+                self.worker_failed(previous_worker_at_netloc)
+            except KeyError:
+                pass
             self.netlocs[worker.netloc] = worker
             self.idle_set.add(id)
             self.event_count += 1
@@ -146,8 +151,6 @@ class WorkerPool(plugins.SimplePlugin):
         try:
             httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
-            print sys.exc_info()
-            print 'Worker failed:', worker
             self.worker_failed(worker)
             
     def abort_task_on_worker(self, task):
@@ -163,18 +166,18 @@ class WorkerPool(plugins.SimplePlugin):
                 print 'Worker failed to abort a task:', worker 
                 self.worker_failed(worker)
         except:
-            print sys.exc_info()
-            print 'Worker failed:', worker
             self.worker_failed(worker)
     
     def worker_failed(self, worker):
+        cherrypy.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         with self._lock:
             self.event_count += 1
             self.event_condvar.notify_all()
             self.idle_set.discard(worker.id)
             failed_task = worker.current_task
-            del self.netlocs[worker.netloc]
             worker.failed = True
+            del self.netlocs[worker.netloc]
+            del self.workers[worker.id]
 
         if failed_task is not None:
             self.bus.publish('task_failed', failed_task, ('WORKER_FAILED', None, {}))
@@ -224,11 +227,12 @@ class WorkerPool(plugins.SimplePlugin):
             return self.event_count
 
     def investigate_worker_failure(self, worker):
-        print 'In investigate_worker_failure for', worker
+        cherrypy.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         try:
-            _, _ = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
+            _, content = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
+            id = simplejson.loads(content)
+            assert id == worker.id
         except:
-            print 'Worker', worker, 'has failed'
             self.bus.publish('worker_failed', worker)
 
     def get_random_worker(self):
@@ -251,7 +255,3 @@ class WorkerPool(plugins.SimplePlugin):
                     self.deferred_worker.do_deferred(lambda: self.investigate_worker_failure(failed_worker))
                     
             self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
-            
-    def fetch_blocks_from_worker(self, worker):
-        print 'Fetching blocks from worker:', worker
-        

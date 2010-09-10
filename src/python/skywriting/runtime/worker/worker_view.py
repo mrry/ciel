@@ -22,20 +22,24 @@ from skywriting.runtime.block_store import json_decode_object_hook
 import sys
 import simplejson
 import cherrypy
+import os
+import time
 
 class WorkerRoot:
     
     def __init__(self, worker):
+        self.worker = worker
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
         self.kill = KillRoot()
         self.log = LogRoot(worker)
+        self.upload = UploadRoot(worker.upload_manager)
     
     @cherrypy.expose
     def index(self):
-        return "Hello from the worker...."
+        return simplejson.dumps(self.worker.id)
 
 class KillRoot:
     
@@ -131,16 +135,17 @@ class DataRoot:
             try:
                 response_body = serve_file(filename)
                 return response_body
-            except:
+            except cherrypy.HTTPError as he:
                 # The streaming file might have been deleted between calls to maybe_streaming_filename
                 # and serve_file. Try again, because this time the non-streaming filename should be
                 # available.
-                is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-                assert not is_streaming
-                del cherrypy.response.headers['Pragma']
-                return serve_file(filename)
-                
-            return serve_file(filename)
+                if he.status == 404:
+                    is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
+                    assert not is_streaming
+                    del cherrypy.response.headers['Pragma']
+                    return serve_file(filename)
+                else:
+                    raise
         elif cherrypy.request.method == 'POST':
             url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
             return simplejson.dumps(url)
@@ -159,6 +164,24 @@ class DataRoot:
         
     # TODO: Also might investigate a way for us to have a spanning tree broadcast
     #       for common files.
+    
+class UploadRoot:
+    
+    def __init__(self, upload_manager):
+        self.upload_manager = upload_manager
+        
+    @cherrypy.expose
+    def default(self, id, start=None):
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        if start is None:
+            #upload_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+            self.upload_manager.start_upload(id)#, upload_descriptor)
+        elif start == 'commit':
+            self.upload_manager.commit_upload(id)
+        else:
+            start_index = int(start)
+            self.upload_manager.handle_chunk(id, start_index, cherrypy.request.body)
     
 class FeaturesRoot:
     
