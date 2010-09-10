@@ -28,6 +28,7 @@ import time
 class WorkerRoot:
     
     def __init__(self, worker):
+        self.worker = worker
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
@@ -38,7 +39,7 @@ class WorkerRoot:
     
     @cherrypy.expose
     def index(self):
-        return "Hello from the worker...."
+        return simplejson.dumps(self.worker.id)
 
 class KillRoot:
     

@@ -47,6 +47,7 @@ class Worker(plugins.SimplePlugin):
     
     def __init__(self, bus, hostname, port, options):
         plugins.SimplePlugin.__init__(self, bus)
+        self.id = None
         self.hostname = hostname
         self.port = port
         self.master_url = options.master
@@ -135,7 +136,6 @@ class Worker(plugins.SimplePlugin):
                 self.log_condition.wait()
             if self.stopping:
                 raise Exception("Worker stopping")
-            
 
 def worker_main(options):
     local_hostname = None
