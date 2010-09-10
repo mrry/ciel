@@ -33,6 +33,7 @@ def main():
         if options.json:
             obj = bs.retrieve_object_by_url(url, 'json')
             simplejson.dump(obj, sys.stdout, cls=SWReferenceJSONEncoder, indent=4)
+            print
         else:
             fh = bs.retrieve_object_by_url(url, 'handle')
             for line in fh:
