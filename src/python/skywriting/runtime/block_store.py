@@ -207,6 +207,16 @@ class StreamTransferSetContext(TransferSetContext):
             handle.save_result(block_store)
             handle.cleanup()
         TransferSetContext.cleanup(self)
+        
+    def get_failed_refs(self):
+        failure_bindings = {}
+        for handle in self.handles:
+            if not handle.has_succeeded:
+                failure_bindings[handle.ref.id] = SW2_TombstoneReference(handle.ref.id, handle.ref.location_hints)
+        if len(failure_bindings) > 0:
+            return failure_bindings
+        else:
+            return None
 
 class TransferContext:
 
@@ -323,14 +333,15 @@ class FileTransferContext(TransferContext):
         TransferContext.cleanup(self)
 
     def save_result(self, block_store):
-        if self.has_completed:
+        if self.has_completed and self.has_succeeded:
             block_store.store_file(self.sinkfile_name, self.save_id, True)
 
 class StreamTransferContext(TransferContext):
 
-    def __init__(self, urls, save_id, multi):
+    def __init__(self, ref, urls, save_id, multi):
         TransferContext.__init__(self, multi)
         self.mem_buffer = ""
+        self.ref = ref
         self.urls = urls
         self.failures = 0
         self.has_completed = False
@@ -495,7 +506,7 @@ class StreamTransferContext(TransferContext):
         os.rmdir(self.fifo_dir)
 
     def save_result(self, block_store):
-        if self.has_completed:
+        if self.has_completed and self.has_succeeded:
             block_store.store_file(self.sinkfile_name, self.save_id, True)
 
 class BlockStore:
@@ -755,7 +766,7 @@ class BlockStore:
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
-            return StreamTransferContext(urls, save_id, fetch_ctx)
+            return StreamTransferContext(ref, urls, save_id, fetch_ctx)
 
         result_list = []
  
@@ -783,24 +794,30 @@ class BlockStore:
                 result_list.append(solution)
             else:
                 result_list.append(None)
-                request_list.append(BufferTransferContext(this_fetch_urls, transfer_ctx))
+                request_list.append((ref, BufferTransferContext(this_fetch_urls, transfer_ctx)))
 
         transfer_ctx.transfer_all()
 
+        failure_bindings = {}
         j = 0
         for i, res in enumerate(result_list):
             if res is None:
-                next_object = request_list[j]
+                ref, next_object = request_list[j]
                 j += 1
                 if next_object.has_succeeded:
                     next_object.buffer.seek(0)
                     result_list[i] = self.decoders[decoder](next_object.buffer)
+                else:
+                    failure_bindings[ref.id] = SW2_TombstoneReference(ref.id, ref.location_hints)
 
-        for req in request_list:
+        for _, req in request_list:
             req.cleanup()
         transfer_ctx.cleanup()
-
-        return result_list
+        
+        if len(failure_bindings) > 0:
+            raise MissingInputException(failure_bindings)
+        else:
+            return result_list
 
     def retrieve_object_for_ref(self, ref, decoder):
         return self.retrieve_objects_for_refs([ref], decoder)[0]

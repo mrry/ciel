@@ -18,7 +18,7 @@ from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
     SWNoProvenance, SWDataValue, SW2_StreamReference, SWTaskOutputProvenance
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
-    ReferenceUnavailableException, BlameUserException
+    ReferenceUnavailableException, BlameUserException, MissingInputException
 import logging
 import shutil
 import subprocess
@@ -218,6 +218,10 @@ class SWStdinoutExecutor(SWExecutor):
         os.close(read_pipe)
         os.close(write_pipe)
 
+        failure_bindings = fetch_ctx.get_failed_refs()
+        if failure_bindings is not None:
+            raise MissingInputException(failure_bindings)
+
         self.proc = None
 
         if rc != 0:
@@ -380,6 +384,10 @@ class JavaExecutor(SWExecutor):
         os.close(read_pipe)
         os.close(write_pipe)
 
+        failure_bindings = transfer_ctx.get_failed_refs()
+        if failure_bindings is not None:
+            raise MissingInputException(failure_bindings)
+            
         cherrypy.engine.publish("worker_event", "Java: JVM finished")
         if rc != 0:
             raise OSError()
