@@ -44,7 +44,6 @@ from skywriting.runtime.references import SWRealReference,\
     SW2_TombstoneReference
 import hashlib
 import contextlib
-from io import StringIO
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -260,17 +259,17 @@ class BufferTransferContext(TransferContext):
         self.has_succeeded = False
         self.start_fetch(self.urls[0])
 
-    def write_data(self, str):
-        self.buffer.write(str)
+    def write_data(self, _str):
+        self.buffer.write(_str)
 
-    def write_header_line(self, str):
+    def write_header_line(self, _str):
         pass
 
     def success(self):
         self.has_completed = True
         self.has_succeeded = True
 
-    def failure(self):
+    def failure(self, errno, errmsg):
         self.failures += 1
         try:
             self.start_fetch(self.urls[self.failures])
@@ -298,17 +297,17 @@ class FileTransferContext(TransferContext):
         self.save_id = save_id
         self.start_fetch(self.urls[0])
 
-    def write_data(self, str):
-        self.sink_fp.write(str)
+    def write_data(self, _str):
+        self.sink_fp.write(_str)
 
-    def write_header_line(self, str):
+    def write_header_line(self, _str):
         pass
 
     def success(self):
         self.has_completed = True
         self.has_succeeded = True
 
-    def failure(self):
+    def failure(self, errno, errmsg):
         self.failures += 1
         try:
             self.sink_fp.seek(0)
@@ -371,16 +370,16 @@ class StreamTransferContext(TransferContext):
             self.requests_paused = False
             self.consider_restart()
 
-    def write_without_blocking(self, fd, str):
+    def write_without_blocking(self, fd, _str):
 
         if self.fifo_fd == -1:
             # Silently swallow data; the other end is gone.
-            return len(str)
+            return len(_str)
         total_written = 0
-        while len(str) > 0:
+        while len(_str) > 0:
             try:
-                bytes_written = os.write(self.fifo_fd, str)
-                str = str[bytes_written:]
+                bytes_written = os.write(self.fifo_fd, _str)
+                _str = _str[bytes_written:]
                 total_written += bytes_written
             except OSError, e:
                 # Note that we can't get EPIPE here, as we ourselves hold a read handle.
@@ -390,16 +389,16 @@ class StreamTransferContext(TransferContext):
                     raise
         return total_written
 
-    def write_data(self, str):
+    def write_data(self, _str):
         
         if len(self.mem_buffer) > 0:
-            self.mem_buffer += str
+            self.mem_buffer += _str
         else:
-            written = self.write_without_blocking(self.fifo_fd, str)
-            if written < len(str):
-                self.mem_buffer += str[written:]
-        self.sink_fp.write(str)
-        self.current_start_byte += len(str)
+            written = self.write_without_blocking(self.fifo_fd, _str)
+            if written < len(_str):
+                self.mem_buffer += _str[written:]
+        self.sink_fp.write(_str)
+        self.current_start_byte += len(_str)
         self.have_written_to_process = True
 
     def start_next_fetch(self):
@@ -428,10 +427,10 @@ class StreamTransferContext(TransferContext):
             return True
         return False
 
-    def write_header_line(self, str):
-        if str.startswith("Pragma") != -1 and str.find("streaming") != -1:
+    def write_header_line(self, _str):
+        if _str.startswith("Pragma") != -1 and _str.find("streaming") != -1:
             self.response_had_stream = True
-        match_obj = length_regex.match(str)
+        match_obj = length_regex.match(_str)
         if match_obj is not None:
             self.request_length = int(match_obj.group(1))
 
