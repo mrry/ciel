@@ -20,6 +20,7 @@ import math
 import random
 import uuid
 from skywriting.runtime.references import SW2_ConcreteReference, SWNoProvenance
+from skywriting.runtime.block_store import SWReferenceJSONEncoder
 
 def get_worker_netlocs(master_uri):
     http = httplib2.Http()
@@ -157,6 +158,22 @@ def upload_extent_to_targets(input_file, block_id, start, finish, targets, packe
     for h, target in zip(https, targets):
         h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
         
+def upload_string_to_targets(input, block_id, targets, packet_size):
+
+    https = [httplib2.Http() for _ in targets]
+        
+    for h, target in zip(https, targets):
+        h.request('http://%s/upload/%s' % (target, block_id), 'POST', 'start')
+        
+    for packet_start in range(0, len(input), packet_size):
+        slice = input[packet_start:min(packet_size, len(input) - packet_start)]
+        for h, target in zip(https, targets):
+            h.request('http://%s/upload/%s/%d' % (target, block_id, packet_start), 'POST', slice)
+        
+    for h, target in zip(https, targets):
+        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        
+        
 def main():
     parser = OptionParser()
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
@@ -179,6 +196,7 @@ def main():
     
     output_references = []
     
+    # Upload the data in extents.
     with open(input_filename, 'rb') as input_file:
         for i, (start, finish) in enumerate(extent_list):
             targets = select_targets(workers, options.replication)
@@ -187,7 +205,17 @@ def main():
             conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), finish - start, targets)
             output_references.append(conc_ref)
             
-    print output_references
+    # Upload the index object.
+    index = simplejson.dumps(output_references, cls=SWReferenceJSONEncoder)
+    index_targets = select_targets(workers, options.replication)
+    block_name = '%s:index' % name_prefix
+    upload_string_to_targets(index, block_name, index_targets, options.packet_size)
+    index_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), len(index), index_targets)
+    
+    print index_ref
+    print
+    for target in index_targets:
+        print 'swbs://%s/%s' % (target, block_name)
     
 if __name__ == '__main__':
     main()
