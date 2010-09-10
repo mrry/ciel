@@ -33,7 +33,7 @@ class StreamConsumer extends Thread {
 	    System.out.printf("Consumer %d start\n", this.id);
 	    while(!this.is_finished) {
 		long last_change_time = System.currentTimeMillis();
-		while(System.currentTimeMillis() < (last_change_time + 1000)) {
+		while((System.currentTimeMillis() < (last_change_time + 1000)) && !this.is_finished) {
 		    readSome();
 		}
 		flipCoin();
@@ -50,19 +50,20 @@ class StreamConsumer extends Thread {
 
     public void readSome() throws Exception {
 
-	if(this.active && !this.is_finished) {
-	    if(this.fis.read(buffer, 0, 1024) == -1) {
-		System.out.printf("Stream %d finished\n", this.id);
-		this.is_finished = true;
-	    }
+	if(this.fis.read(buffer, 0, 1024) == -1) {
+	    System.out.printf("Stream %d finished\n", this.id);
+	    this.is_finished = true;
 	}
 
     }
 
-    public void flipCoin() {
+    public void flipCoin() throws Exception {
 
-	this.active = this.rng.nextBoolean();
-	System.out.printf("Stream %d active: %b\n", this.id, this.active);
+	if(this.rng.nextBoolean()) {
+	    System.out.printf("Stream %d consumer sleeps\n", this.id);
+	    Thread.sleep(1000);
+	}
+
 
     }
 

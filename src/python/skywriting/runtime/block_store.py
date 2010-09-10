@@ -1,5 +1,5 @@
 # Copyright (c) 2010 Derek Murray <derek.murray@cl.cam.ac.uk>
-#
+#                    Christopher Smowton <chris.smowton@cl.cam.ac.uk>
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
 # copyright notice and this permission notice appear in all copies.
@@ -82,7 +82,7 @@ def sw_to_external_url(url):
 class TransferSetContext:
     def __init__(self):
         self.curl_ctx = pycurl.CurlMulti()
-        self.curl_ctx.setopt(pycurl.M_PIPELINING, 1)
+        self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
         self.active_handles = 0
 
@@ -113,6 +113,7 @@ class TransferSetContext:
                 for c, errno, errmsg in err_list:
                     self.curl_ctx.remove_handle(c)
                     self.active_handles -= 1
+                    cherrypy.log.error("Curl failure: %s, %s" % (str(errno), str(errmsg)), "CURL_FETCH", logging.INFO)
                     c.ctx._failure(errno, errmsg)
                 if num_q == 0:
                     break
@@ -152,9 +153,7 @@ class StreamTransferSetContext(TransferSetContext):
                     go_again = True
             for handle in self.dormant_handles():
                 if datetime.now() > handle.dormant_until:
-                    print "Resuming dormant handle"
-                    handle.dormant_until = None
-                    handle.start_next_fetch()
+                    handle.wake_up()
                     go_again = True
             if not go_again:
                 return
@@ -190,7 +189,7 @@ class StreamTransferSetContext(TransferSetContext):
         read_ret, write_ret, exn_ret = select.select(read, write, exn, shortest_timeout)
         if death_pipe in read_ret:
             self.drain_pipe(death_pipe)
-            print "Process death: closing FIFOs"
+            cherrypy.log.error("Closing fetch FIFOs due to process death", 'CURL_FETCH', logging.INFO)
             for handle in self.handles:
                 handle.fifo_closed()
 
@@ -199,7 +198,7 @@ class StreamTransferSetContext(TransferSetContext):
             self.process()
             remaining_transfers = filter(lambda x: not x.has_completed, self.handles)
             if len(remaining_transfers) == 0:
-                print "Transfer-all done"
+                cherrypy.log.error("All transfers complete", 'CURL_FETCH', logging.INFO)
                 return
             self.select(death_pipe)
 
@@ -354,6 +353,7 @@ class StreamTransferContext(TransferContext):
 
         self.save_id = save_id
         self.multi = multi
+        self.description = self.urls[0]
         multi.handles.append(self)
         self.start_next_fetch()
 
@@ -368,7 +368,7 @@ class StreamTransferContext(TransferContext):
         self.close_fifo()
         if self.requests_paused and not self.has_completed:
             self.requests_paused = False
-            self.start_next_fetch()
+            self.consider_restart()
 
     def write_without_blocking(self, fd, str):
 
@@ -402,18 +402,28 @@ class StreamTransferContext(TransferContext):
         self.have_written_to_process = True
 
     def start_next_fetch(self):
+        cherrypy.log.error("Fetch %s offset %d" % (self.description, self.current_start_byte), 'CURL_FETCH', logging.INFO)
         self.start_fetch(self.urls[self.failures], 
                          (self.current_start_byte, 
                           self.current_start_byte + self.chunk_size))
+
+    def consider_restart(self):
+        if self.dormant_until is None and not self.requests_paused:
+            self.start_next_fetch()
+
+    def wake_up(self):
+        self.dormant_until = None
+        cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 'CURL_FETCH', logging.INFO)
+        self.consider_restart()
 
     def try_empty_buffer(self):
 
         written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
         self.mem_buffer = self.mem_buffer[written:]
         if len(self.mem_buffer) == 0 and self.requests_paused:
-            print "Consumer buffer drained, restarting fetch"
-            self.start_next_fetch()
+            cherrypy.log.error("Consumer buffer empty for %s, considering restart" % self.description, 'CURL_FETCH', logging.INFO)
             self.requests_paused = False
+            self.consider_restart()
             return True
         return False
 
@@ -430,9 +440,11 @@ class StreamTransferContext(TransferContext):
 
     def pause_for(self, secs):
         self.dormant_until = datetime.now() + timedelta(0, secs)
-        print "Request overran the consumer. Dormant until", self.dormant_until
+        cherrypy.log.error("Pausing %s fetch due to producer buffer empty" % self.description, 'CURL_FETCH', logging.INFO)
 
     def success(self):
+
+        cherrypy.log.error("Fetch %s succeeded (length %d)" % (self.description, self.request_length), "CURL_FETCH", logging.INFO)
  
         if len(self.mem_buffer) == 0:
             if self.request_length is not None and self.request_length < (self.chunk_size / 2):
@@ -443,10 +455,12 @@ class StreamTransferContext(TransferContext):
         else:
             # We should hold off on ordering another chunk until the process has consumed this one
             # The restart will happen when the buffer drains.
-            print "Consumer buffer non-empty, pausing fetch"
+            cherrypy.log.error("Pausing %s fetch consumer buffer full" % self.description, 'CURL_FETCH', logging.INFO)
             self.requests_paused = True
 
     def failure(self, errno, errmsg):
+
+        cherrypy.log.error("Fetch %s failed (error %s)" % (self.description, str(errno)), "CURL_FETCH", logging.INFO)
 
         if errno == 416:
             if not self.response_had_stream:
