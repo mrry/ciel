@@ -37,6 +37,7 @@ from skywriting.runtime.references import SWRealReference,\
     SW2_TombstoneReference
 import hashlib
 import contextlib
+from io import StringIO
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -389,8 +390,12 @@ class BlockStore:
             chosen_url = self.choose_best_url(ref.urls)
             return self.retrieve_object_by_url(chosen_url, decoder)
         elif isinstance(ref, SWDataValue):
-            assert decoder == 'json'
-            return ref.value
+            if decoder == 'json':
+                return ref.value    
+            elif decoder == 'handle':
+                return StringIO(simplejson.dumps(ref.value, cls=SWReferenceJSONEncoder))
+            else:
+                raise Exception()
         elif isinstance(ref, SWErrorReference):
             raise RuntimeSkywritingError()
         elif isinstance(ref, SWNullReference):
