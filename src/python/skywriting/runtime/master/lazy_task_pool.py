@@ -68,6 +68,10 @@ class LazyTaskPool(plugins.SimplePlugin):
     def get_task_by_id(self, task_id):
         return self.tasks[task_id]
         
+    def get_ref_by_id(self, ref_id):
+        with self._lock:
+            return self.ref_for_output[ref_id]
+        
     def get_reference_info(self, id):
         with self._lock:
             ref = self.ref_for_output[id]
@@ -376,6 +380,9 @@ class LazyTaskPoolAdapter:
     
     def get_reference_info(self, id):
         return self.lazy_task_pool.get_reference_info(id)
+    
+    def get_ref_by_id(self, id):
+        return self.lazy_task_pool.get_ref_by_id(id)
     
     def generate_task_id(self):
         return str(uuid.uuid1())
