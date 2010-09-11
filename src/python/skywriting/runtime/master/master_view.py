@@ -22,7 +22,7 @@ import tempfile
 import simplejson
 import cherrypy
 from skywriting.runtime.worker.worker_view import DataRoot
-from cherrypy.process.wspbus import bus
+from skywriting.runtime.master.cluster_view import WebBrowserRoot
 
 class MasterRoot:
     
@@ -36,6 +36,7 @@ class MasterRoot:
         #self.cluster = ClusterDetailsRoot()
         self.shutdown = ShutdownRoot(worker_pool)
         self.refs = ReferenceInfoRoot(task_pool)
+        self.browse = WebBrowserRoot(job_pool, task_pool)
 
     @cherrypy.expose
     def index(self):
