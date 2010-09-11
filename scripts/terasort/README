@@ -1,0 +1,24 @@
+These are some scripts I wrote when doing the Terasort evaluation for the Skywriting paper mark 1. Here's a rough summary of what each is supposed to do:
+
+get_sw_runtime.py: Takes a JSON taskmap on stdin and calculates the total job runtime, taking the latest root task as the start time and the latest commit as the finish. Should be run like e.g. curl http://master:9000/task | get_sw_runtime.py.
+
+local_gensort.py: Downloads, compiles and runs the 'gensort' program that creates input data for Terasort, pushing data to localhost. Parameters:
+	1: first record to write
+	2: number of records to write
+Rather than writing one big file, it writes in chunks of the hard-coded size 2,500,000 records. Looking more closely that's an *integer* divide, so you'd better use chunks that're a multiple of that size! After a bunch of debug output it prints "Data---" followed by a bunch of data-refs, then "Sample---" followed by the sample refs. The samples are hard-coded as summing up to 1000 records between all the chunks for this node, and are used in the initial phase of Terasort.
+
+push_gensort_data.py: Downloads, compiles and runs 'gensort', pushing a chunk at a time to each node mentioned in a line-seperated list of nodes given as an argument. I used this in the early stages when the data sizes weren't too big; as this got too slow I moved on to pushing local_gensort.py to each worker and so having each node compute its own records. Parameters:
+	1: machine-list filename
+	2: number of map tasks to create
+	3: number of reduce tasks to create
+	4: number of records to generate for each mapper
+This script is for smaller jobs, so it creates one big input file (and corresponding small sample file) for each mapper. Its output is a fragment of Skywriting suitable for pasting into the terasort script.
+
+push_gensort_py.py: Pushes local_gensort.py to each machine given as a parameter.
+
+run_gensort_all.py: Runs local_gensort.py (as pushed by push_gensort_py.py) on each machine given on the command-line, having each machine generate 100,000,000 records. Writes the output from each local_gensort.py to /tmp/posted_stuff/machine_name.
+
+run_hadoop_eval.py: Runs the Hadoop Terasort for a variety of input sizes. This is currently hardcoded to use 100 nodes. Teragen stores stuff into HDFS, then terasort picks it up.
+
+runtimes_from_tars.py: Runs get_sw_runtime.py on a load of .tar.bz2'd master output. At the time I was running the eval by doing curl http://master:9000/task > /tmp/crap; tar cvjf ~/eval-run-x.tar.bz2 /tmp/crap. This just unpacks each tar in turn and measures it.
+
