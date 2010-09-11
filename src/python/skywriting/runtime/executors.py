@@ -104,7 +104,7 @@ class SWExecutor:
         for ref in real_refs:
             assert isinstance(ref, SWRealReference)
             if isinstance(ref, SW2_FutureReference):
-                print "Blocking because reference is", real_ref
+                print "Blocking because reference is", ref
                 # Data is not yet available, so 
                 raise ReferenceUnavailableException(ref, self.continuation)
         return real_refs
@@ -268,9 +268,11 @@ class EnvironmentExecutor(SWExecutor):
                 input_filenames_file.write('\n')
             input_filenames_name = input_filenames_file.name
             
+        output_filenames = []
         with tempfile.NamedTemporaryFile(delete=False) as output_filenames_file:
             for _ in self.output_refs:
                 with tempfile.NamedTemporaryFile(delete=False) as this_file:
+                    output_filenames.append(this_file.name)
                     output_filenames_file.write(this_file.name)
                     output_filenames_file.write('\n')
             output_filenames_name = output_filenames_file.name
