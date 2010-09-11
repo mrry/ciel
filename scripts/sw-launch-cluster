@@ -80,20 +80,20 @@ do
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ 2>&1 | tee $SWROOT/logs/master.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ 2>&1 | tee $SWROOT/logs/master.log"
 	else
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ 2>&1 | tee $SWROOT/logs/master.log" 1>&2 2>/dev/null
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ 2>&1 | tee $SWROOT/logs/master.log" 1>/dev/null
 	fi
 	MASTER=$myLine
     else
 	echo "... as a worker for $MASTER"
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 2>&1 | tee $SWROOT/logs/worker.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 2>&1 | tee $SWROOT/logs/worker.log"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 2>&1 | tee $SWROOT/logs/worker.log" 1>&2 2>/dev/null
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 2>&1 | tee $SWROOT/logs/worker.log" 1>/dev/null
 	fi
     fi
     I=`expr $I + 1`
