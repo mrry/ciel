@@ -155,8 +155,9 @@ class DataRoot:
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
-            url = self.block_store.store_raw_file(cherrypy.request.body, self.block_store.allocate_new_id())
-            return simplejson.dumps(url)
+            id = self.block_store.allocate_new_id()
+            self.block_store.store_raw_file(cherrypy.request.body, id)
+            return simplejson.dumps(id)
         elif cherrypy.request.method == 'GET':
             return serve_file(self.block_store.generate_block_list_file())
         else:
