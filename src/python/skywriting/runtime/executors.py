@@ -29,6 +29,22 @@ import threading
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
 
+running_children = {}
+
+def add_running_child(proc):
+    running_children[proc.pid] = proc
+
+def remove_running_child(proc):
+    del running_children[proc.pid]
+
+def kill_all_children():
+    for child in running_children.values():
+        try:
+            child.kill()
+            child.wait()
+        except:
+            pass
+        
 class ExecutionFeatures:
     
     def __init__(self):
@@ -202,6 +218,8 @@ class SWStdinoutExecutor(SWExecutor):
             # This hopefully avoids the race condition in subprocess.Popen()
             self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
     
+        add_running_child(self.proc)
+    
         cat_thread = self.CatThread(filenames, self.proc.stdin)
         cat_thread.start()
 
@@ -212,6 +230,8 @@ class SWStdinoutExecutor(SWExecutor):
         fetch_ctx.transfer_all(read_pipe)
 
         rc = self.waiter_thread.wait()
+
+        remove_running_child(self.proc)
 
         fetch_ctx.cleanup(block_store)
 
@@ -282,12 +302,18 @@ class EnvironmentExecutor(SWExecutor):
             
         self.proc = subprocess.Popen(map(str, self.command_line), env=environment, close_fds=True)
 
+        add_running_child(self.proc)
+
         read_pipe, write_pipe = os.pipe()
         self.wait_thread = ProcessWaiter(self.proc, write_pipe)
 
         fetch_ctx.transfer_all(read_pipe)
 
         rc = self.wait_thread.wait()
+        
+        remove_running_child(self.proc)
+        
+        self.proc = None
         
         fetch_ctx.cleanup(block_store)
 
@@ -365,6 +391,9 @@ class JavaExecutor(SWExecutor):
         
         proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=None, stderr=None, close_fds=True)
         
+        self.proc = proc
+        add_running_child(self.proc)
+        
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
             proc.stdin.write("%s\0" % x)
@@ -381,6 +410,10 @@ class JavaExecutor(SWExecutor):
 
         rc = waiter_thread.wait()
 #        print 'Return code', rc
+
+        remove_running_child(self.proc)
+        self.proc = None
+
         transfer_ctx.cleanup(block_store)
 
         os.close(read_pipe)
@@ -455,6 +488,9 @@ class DotNetExecutor(SWExecutor):
         
         proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=dotnet_stdout, stderr=dotnet_stderr, close_fds=True)
         
+        self.proc = proc
+        add_running_child(self.proc)
+        
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
             proc.stdin.write("%s\0" % x)
@@ -471,6 +507,9 @@ class DotNetExecutor(SWExecutor):
 
         rc = waiter_thread.wait()
         print 'Return code', rc
+
+        remove_running_child(self.proc)
+        self.proc = None
 
         transfer_ctx.cleanup(block_store)
 
@@ -534,6 +573,9 @@ class CExecutor(SWExecutor):
         
         proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=c_stdout, stderr=c_stderr, close_fds=True)
         
+        self.proc = proc
+        add_running_child(self.proc)
+        
         proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
         for x in file_inputs:
             proc.stdin.write("%s\0" % x)
@@ -550,6 +592,9 @@ class CExecutor(SWExecutor):
 
         rc = waiter_thread.wait()
         print 'Return code', rc
+
+        remove_running_child(self.proc)
+        self.proc = None
 
         transfer_ctx.cleanup(block_store)
 
