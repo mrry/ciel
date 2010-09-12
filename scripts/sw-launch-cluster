@@ -43,6 +43,11 @@ do
       SWUSER=$2
       shift 2
     ;;
+    
+    -w|--wipejournal)
+      WIPEJOURNAL=1
+      shift 1
+    ;;
 
     -h|*)
       echo "usage: sw-launch-cluster [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
@@ -55,6 +60,7 @@ do
       echo "-u|--swuser: the user name of the Skywriting user on the cluster"
       echo "             (defaults to 'root')"
       echo "-v: verbose mode (don't surpress output from remote machines)"
+      echo "-w|--wipejournal: wipe the job journal on the master before launching it"
       shift 1
       exit 0
     ;;
@@ -71,17 +77,23 @@ do
     if [ "$I" -eq "0" ]; then
 	echo "... as a master."
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/"
+	    if [[ $WIPEJOURNAL -eq 1 ]]; then
+		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
+	    fi
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ 2>&1 | tee $SWROOT/logs/master.log"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/" 1>&2 2>/dev/null
+	    if [[ $WIPEJOURNAL -eq 1 ]]; then
+		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
+	    fi
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ 2>&1 | tee $SWROOT/logs/master.log" 1>/dev/null
 	fi
 	MASTER=$myLine
     else
 	echo "... as a worker for $MASTER"
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 2>&1 | tee $SWROOT/logs/worker.log"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001" 1>&2 2>/dev/null
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 2>&1 | tee $SWROOT/logs/worker.log" 1>/dev/null
 	fi
     fi
     I=`expr $I + 1`
