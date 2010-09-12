@@ -94,7 +94,7 @@ def main():
     out = simplejson.loads(content)
     
     notify_url = urlparse.urljoin(master_uri, "/job/%s/completion" % out['job_id'])
-    job_url = urlparse.urljoin(master_uri, "/job/%s" % out['job_id'])
+    job_url = urlparse.urljoin(master_uri, "/browse/job/%s" % out['job_id'])
 
     print id, "JOB_URL", job_url
     
