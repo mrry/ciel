@@ -1,18 +1,15 @@
 num_mappers = 4;
 num_reducers = 2;
-//sample_records = 100000; // Sizes of sample_input_0...n must add to this
 
+// Helper function to grab URL references
 function grab(url) {
    return *(exec("grab", {"urls":[url], "version":0}, 1)[0]);
 }
 
 jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/swwordcount.jar")];
      
-// Until Skywriting gets input-slicing as a primitive
-input_refs = [grab("http://www.cl.cam.ac.uk/~ms705/sw/wc_input_0"), 
-	      grab("http://www.cl.cam.ac.uk/~ms705/sw/wc_input_1"),
-	      grab("http://www.cl.cam.ac.uk/~ms705/sw/wc_input_2"),
-	      grab("http://www.cl.cam.ac.uk/~ms705/sw/wc_input_3")];
+// Paste the reference returned by sw-load here
+input_refs = *ref("swbs://aosda-0.xeno.cl.cam.ac.uk:8001/upload:bd612580-c4a6-41cf-a3fc-a1f53cc268f6:index");
 
 map_outputs = [];
 for (i in range(0, num_mappers)) {

@@ -68,8 +68,9 @@ class PartialHashOutputCollector<K extends Writable, V extends Writable> impleme
 		Iterator<Map.Entry<K, V>> it = map.entrySet().iterator();
 	    while (it.hasNext()) {
 	        Map.Entry<K, V> pairs = it.next();
-	        System.out.println(pairs.getKey() + " = " + pairs.getValue());
-	        //os.write
+	        //System.out.println(pairs.getKey() + " = " + pairs.getValue());
+	        
+	        // Write to output stream
 	        pairs.getKey().write(os[mapID]);
 	        pairs.getValue().write(os[mapID]);
 	    }
