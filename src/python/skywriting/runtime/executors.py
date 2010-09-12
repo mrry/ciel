@@ -37,7 +37,7 @@ def add_running_child(proc):
 def remove_running_child(proc):
     del running_children[proc.pid]
 
-def kill_all_children():
+def kill_all_running_children():
     for child in running_children.values():
         try:
             child.kill()
