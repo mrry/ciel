@@ -20,7 +20,8 @@ Created on 15 Apr 2010
 from skywriting.lang.parser import \
     SWScriptParser
 from skywriting.runtime.task_executor import SWContinuation
-from skywriting.runtime.references import SWURLReference
+from skywriting.runtime.references import SWURLReference, SW2_ConcreteReference,\
+    SWNoProvenance
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
 from skywriting.lang.context import SimpleContext
 import time
@@ -73,14 +74,16 @@ def main():
     http = httplib2.Http()
     
     master_data_uri = urlparse.urljoin(master_uri, "/data/")
-    (_, content) = http.request(master_data_uri, "POST", pickle.dumps(cont))
-    continuation_uri, size_hint = simplejson.loads(content)
+    pickled_cont = pickle.dumps(cont)
+    (_, content) = http.request(master_data_uri, "POST", pickled_cont)
+    cont_id = simplejson.loads(content)
     
     print id, "SUBMITTED_CONT", now_as_timestamp()
     
     #print continuation_uri
     
-    task_descriptor = {'dependencies': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi'}
+    master_netloc = urlparse.urlparse(master_uri).netloc
+    task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, SWNoProvenance(), len(pickled_cont), [master_netloc])}, 'handler': 'swi'}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))

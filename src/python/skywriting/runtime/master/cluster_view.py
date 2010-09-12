@@ -55,6 +55,16 @@ class JobBrowserRoot:
         self.job_pool = job_pool
         
     @cherrypy.expose
+    def index(self):
+        jobs = self.job_pool.get_all_job_ids()
+        job_string = '<html><head><title>Job Browser</title></head>'
+        job_string += '<body><table>'
+        for job in jobs:
+            job_string += table_row('Job', job_link(self.job_pool.get_job_by_id(job)))
+        job_string += '</table></body></html>'
+        return job_string
+        
+    @cherrypy.expose
     def default(self, job_id):
         try:
             job = self.job_pool.get_job_by_id(job_id)
