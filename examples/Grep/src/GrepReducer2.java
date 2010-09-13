@@ -33,22 +33,23 @@ public class GrepReducer2 implements Task {
 		DataOutputStream[] dos = new DataOutputStream[nOutputs];
 		inputStreams = dis;
 		
-		for(int i = 0; i < nInputs; i++) {
-			dis[i] = new DataInputStream(new BufferedInputStream(inputs[i]));
-		}
-		
-		for(int i = 0; i < nOutputs; i++) {
-			dos[i] = new DataOutputStream(new BufferedOutputStream(outputs[i]));
-		}
-		
-		valHeads = new IntWritable[inputs.length];
-		wordHeads = new Text[inputs.length];
-		for (int i = 0; i < inputs.length; i++) {
-			valHeads[i] = new IntWritable();
-			wordHeads[i] = new Text();
-		}
-		
 		try {
+			for(int i = 0; i < nInputs; i++) {
+				dis[i] = new DataInputStream(new BufferedInputStream(inputs[i]));
+				if (dis[i].read() != 0) throw new IOException();
+			}
+			
+			for(int i = 0; i < nOutputs; i++) {
+				dos[i] = new DataOutputStream(new BufferedOutputStream(outputs[i]));
+			}
+			
+			valHeads = new IntWritable[inputs.length];
+			wordHeads = new Text[inputs.length];
+			for (int i = 0; i < inputs.length; i++) {
+				valHeads[i] = new IntWritable();
+				wordHeads[i] = new Text();
+			}
+			
 			// Initialise arrays
 			for (int i = 0; i < inputs.length; i++) {
 				try {
@@ -66,17 +67,17 @@ public class GrepReducer2 implements Task {
 			while ((pair = getNextPair(dis)) != null) {
 				pair.getLeft().write(dos[0]);
 				pair.getRight().write(dos[0]);
-				System.out.println(pair.getLeft() + ": " + pair.getRight());
+				//System.out.println(pair.getLeft() + ": " + pair.getRight());
 			}
 
 			for (DataOutputStream d : dos)
 				d.close();
 	
-			} catch (IOException e) {
-				System.out.println("IOException while running reducer");
-				e.printStackTrace();
-				System.exit(1);
-			}
+		} catch (IOException e) {
+			System.out.println("IOException while running reducer");
+			e.printStackTrace();
+			System.exit(1);
+		}
 
 	}
 	

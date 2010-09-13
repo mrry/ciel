@@ -17,7 +17,9 @@
  */
 
 import java.io.*;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 import uk.co.mrry.mercator.task.Task;
 
@@ -29,15 +31,17 @@ public class GrepReducer1 implements Task {
 		DataInputStream[] dis = new DataInputStream[nInputs];
 		DataOutputStream[] dos = new DataOutputStream[nOutputs];
 		
-		for(int i = 0; i < nInputs; i++) {
-			dis[i] = new DataInputStream(new BufferedInputStream(inputs[i]));
-		}
-		
-		for(int i = 0; i < nOutputs; i++) {
-			dos[i] = new DataOutputStream(new BufferedOutputStream(outputs[i]));
-		}
-
 		try {
+			for(int i = 0; i < nInputs; i++) {
+				dis[i] = new DataInputStream(new BufferedInputStream(inputs[i]));
+				if (dis[i].read() != 0) throw new IOException();
+			}
+			
+			for(int i = 0; i < nOutputs; i++) {
+				dos[i] = new DataOutputStream(new BufferedOutputStream(outputs[i]));
+				dos[i].write(0);
+			}
+
 			IncrementerCombiner comb = new IncrementerCombiner();
 			PartialHashOutputCollector<Text, IntWritable> outMap = new PartialHashOutputCollector<Text, IntWritable>(null, 1, Integer.MAX_VALUE, comb);
 			
@@ -52,18 +56,25 @@ public class GrepReducer1 implements Task {
 						break;
 					}
 
-					//System.out.println(word + " = " + value);
+					System.out.println(word + " = " + value);
 					outMap.collect(word, value);
 				}
 			}
 			
-			IdentityCombiner<Text> icomb = new IdentityCombiner<Text>();
-			SortedPartialHashOutputCollector<IntWritable, Text> sortedMap = new SortedPartialHashOutputCollector<IntWritable, Text>(dos, 1, icomb);
+			SetInsertCombiner<Text> icomb = new SetInsertCombiner<Text>();
+			SortedPartialHashOutputCollector<IntWritable, Set<Text>> sortedMap = new SortedPartialHashOutputCollector<IntWritable, Set<Text>>(icomb);
 			
-			for (Map.Entry<Text, IntWritable> entry : outMap) {
-				sortedMap.collect(entry.getValue(), entry.getKey());
+			for (Map.Entry<Text, IntWritable> entry : outMap){
+				System.out.println("SORTED " + entry.getValue() + " = " + entry.getKey());
+				sortedMap.collect(entry.getValue(), Collections.singleton(entry.getKey()));
 			}
-			sortedMap.flushAll();
+			
+			for (Map.Entry<IntWritable, Set<Text>> entry : sortedMap.descendingMap().entrySet()) {
+				for (Text t : entry.getValue()) {
+					entry.getKey().write(dos[0]);
+					t.write(dos[0]);
+				}
+			}
 			
 			for (DataOutputStream d : dos)
 				d.close();

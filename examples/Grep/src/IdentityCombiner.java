@@ -7,4 +7,11 @@ class IdentityCombiner<T> implements Combiner<T> {
 		
 	}
 	
+	
+	public T combineInit(T initVal) {
+		
+		return initVal;
+		
+	}
+	
 }

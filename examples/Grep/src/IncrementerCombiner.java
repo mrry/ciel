@@ -8,5 +8,12 @@ class IncrementerCombiner implements Combiner<IntWritable> {
 		
 		return newValue;
 	}
+
+	@Override
+	public IntWritable combineInit(IntWritable initVal) {
+		
+		return initVal;
+		
+	}
 	
 }

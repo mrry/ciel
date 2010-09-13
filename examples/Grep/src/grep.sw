@@ -1,4 +1,4 @@
-num_reducers = 17;
+num_reducers = 2;
 
 // Helper function to grab URL references
 function grab(url) {
@@ -10,12 +10,12 @@ jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/swgrep.jar")];
 // Paste the reference returned by sw-load here
 input_refs = *ref("swbs://lochain-0.xeno.cl.cam.ac.uk:8001/upload:99ab4e58-96a6-491b-98e1-edc21e949c75:index");
 
-//num_mappers = len(input_refs);
-num_mappers = 10;
+num_mappers = len(input_refs);
+//num_mappers = 4;
 
 map_outputs = [];
 for (i in range(0, num_mappers)) {
-    map_outputs[i] = spawn_exec("java", {"inputs": [input_refs[i]], "argv":["(Mac|Mc)[\\w]+"], "class":"GrepMapper", "lib":jar_lib}, num_reducers);
+    map_outputs[i] = spawn_exec("java", {"inputs": [input_refs[i]], "argv":["Steve"], "class":"GrepMapper", "lib":jar_lib}, num_reducers);
 }
 
 reduce_inputs = [];

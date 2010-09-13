@@ -16,8 +16,7 @@
  * limitations under the License.
  */
 
-import java.io.IOException;
-import java.util.StringTokenizer;
+import java.io.IOException;	
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.io.*;
@@ -43,12 +42,13 @@ public class GrepMapper implements Task {
 			dis[i] = new BufferedReader(new InputStreamReader(inputs[i]));
 		}
 		
-		for(int i = 0; i < nReducers; i++) {
-			dos[i] = new DataOutputStream(new BufferedOutputStream(outputs[i]));
-		}
-
-		String line;
 		try {
+			for(int i = 0; i < nReducers; i++) {
+				dos[i] = new DataOutputStream(new BufferedOutputStream(outputs[i]));
+				dos[i].write(0);
+			}
+
+			String line;
 			IncrementerCombiner comb = new IncrementerCombiner();
 			PartialHashOutputCollector<Text, IntWritable> outMap = new PartialHashOutputCollector<Text, IntWritable>(dos, nReducers, 1000, comb);
 			while ((line = dis[0].readLine()) != null) { 
