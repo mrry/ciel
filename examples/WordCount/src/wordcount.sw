@@ -9,7 +9,7 @@ function grab(url) {
 jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/swwordcount.jar")];
      
 // Paste the reference returned by sw-load here
-input_refs = *ref("swbs://aosda-0.xeno.cl.cam.ac.uk:8001/upload:bd612580-c4a6-41cf-a3fc-a1f53cc268f6:index");
+input_refs = *ref("swbs://breakout-0.xeno.cl.cam.ac.uk:8001/upload:5b63bd0c-800a-4de7-9c08-6184ad6bca4e:index");
 
 map_outputs = [];
 for (i in range(0, num_mappers)) {
