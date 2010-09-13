@@ -150,6 +150,16 @@ class SWContinuation:
     def resolve_tasklocal_reference_with_ref(self, ref):
         return self.reference_table[ref.index].reference
 
+class SafeLambdaFunction(LambdaFunction):
+    
+    def __init__(self, function, interpreter):
+        LambdaFunction.__init__(self, function)
+        self.interpreter = interpreter
+
+    def call(self, args_list, stack, stack_base, context):
+        safe_args = self.interpreter.do_eager_thunks(args_list)
+        return LambdaFunction.call(self, safe_args, stack, stack_base, context)
+
 class SWLocalReference:
     """
     A primitive object used in the interpreter, and returned from functions like
@@ -411,8 +421,8 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
         task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
-        task_context.bind_tasklocal_identifier("range", LambdaFunction(lambda x: range(*x)))
-        task_context.bind_tasklocal_identifier("len", LambdaFunction(lambda x: len(x[0])))
+        task_context.bind_tasklocal_identifier("range", SafeLambdaFunction(lambda x: range(*x), self))
+        task_context.bind_tasklocal_identifier("len", SafeLambdaFunction(lambda x: len(x[0]), self))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: self.make_reference(x)))
         task_context.bind_tasklocal_identifier("is_future", LambdaFunction(lambda x: self.is_future(x[0])))
@@ -663,7 +673,7 @@ class SWRuntimeInterpreterTask:
 
         def resolve_thunks_mapper(leaf):
             if isinstance(leaf, SWDereferenceWrapper):
-                return self.eager_dereference(leaf.ref, id_to_result_map)
+                return self.eager_dereference_from_map(leaf.ref, id_to_result_map)
             else:
                 return leaf
 

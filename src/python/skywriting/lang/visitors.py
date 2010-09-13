@@ -821,6 +821,10 @@ class FunctionDeclarationBindingVisitor(Visitor):
         for arg in node.args:
             self.visit(arg)
         
+    def visit_NamedFunctionDeclaration(self, node):
+        self.lvalue_object_identifiers.add(node.name)
+        self.visit_statement_list(node.body)
+        
     def visit_FunctionDeclaration(self, node):
         self.visit_statement_list(node.body)
         
