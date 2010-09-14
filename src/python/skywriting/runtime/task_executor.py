@@ -11,14 +11,9 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+from __future__ import with_statement
 from skywriting.lang.parser import CloudScriptParser
 import urlparse
-'''
-Created on 13 Apr 2010
-
-@author: dgm36
-'''
-from __future__ import with_statement
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from skywriting.lang.context import SimpleContext, TaskContext,\
     LambdaFunction
@@ -786,16 +781,19 @@ class SWRuntimeInterpreterTask:
             raise ReferenceUnavailableException(ref, self.continuation)
 
     def include_script(self, target_expr):
-        if isinstance(target_expr, str):
-            # Name is relative to the local stdlib.
+        if isinstance(target_expr, basestring):
+            # Name may be relative to the local stdlib.
             urlparse.urljoin('http://%s/stdlib/' % self.block_store.netloc, target_expr)
             target_ref = SWURLReference([target_expr])
         elif isinstance(target_expr, SWLocalReference):    
             target_ref = self.continuation.resolve_tasklocal_reference_with_ref(target_expr)
-        
+        else:
+            raise BlameUserException('Invalid object %s passed as the argument of include', 'INCLUDE', logging.ERROR)
+
         try:
             script = self.block_store.retrieve_object_for_ref(target_ref, 'script')
         except:
+            cherrypy.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
             raise BlameUserException('The included script did not parse successfully')
         return script
 
