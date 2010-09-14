@@ -8,7 +8,7 @@ function grab(url) {
 jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/swgrep.jar")];
      
 // Paste the reference returned by sw-load here
-input_refs = *ref("swbs://lochain-0.xeno.cl.cam.ac.uk:8001/upload:99ab4e58-96a6-491b-98e1-edc21e949c75:index");
+input_refs = *ref("swbs://heavenly.cl.cam.ac.uk:8081/upload:37a7814c-e1f3-433d-9fdd-f3f3974c0129:index");
 
 num_mappers = len(input_refs);
 //num_mappers = 4;
