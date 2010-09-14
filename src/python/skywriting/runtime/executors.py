@@ -341,12 +341,20 @@ class JavaExecutor(SWExecutor):
         SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
         self.continuation = continuation
         try:
-            self.input_refs = args['inputs']
             self.jar_refs = args['lib']
             self.class_name = args['class']
-            self.argv = args['argv']
         except KeyError:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
+
+        try:
+            self.input_refs = args['inputs']
+        except KeyError:
+            self.input_refs = []
+
+        try:
+            self.argv = args['argv']
+        except KeyError:
+            self.argv = []
         
         try:
             self.stream_output = args['stream_output']
