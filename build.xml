@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ====================================================================== 
+     14 Sep 2010 14:04:44                                                        
+
+     Skywriting-java    
+     Build script for Skywriting java components.
+                   
+     dgm36                                                                
+     ====================================================================== -->
+<project name="skywriting-java" default="default">
+    <description>
+ 		Build script for Skywriting java components.
+    </description>
+
+	<macrodef name="exampleJar">
+    	<attribute name="example"/>
+    	<sequential>
+        	<jar destfile="${dir.dist}/sky-eg-@{example}.jar">
+        	    <fileset dir="${dir.build}" includes="skywriting/examples/@{example}/**"/>            
+    	    </jar>
+    	</sequential>
+	</macrodef>
+
+	<target name="build-bindings">
+		<mkdir dir="${dir.dist}"/>
+		<sequential>
+			<jar destfile="${dir.dist}/skywriting.jar">
+			    <fileset dir="${dir.build}" includes="uk/co/mrry/mercator/task/**"/>
+			</jar>
+		</sequential>
+	</target>
+			
+	<target name="build-examples" depends="build-bindings">
+		<mkdir dir="${dir.dist}"/>
+		<exampleJar example="smithwaterman"/>
+		<exampleJar example="pi"/>
+		<exampleJar example="wordcount"/>
+		<exampleJar example="grep"/>
+		<exampleJar example="skyhout"/>
+	</target>
+
+	<target name="clean">
+	  <echo>=== CLEAN ===</echo>
+	  <delete failonerror="false">
+	    <fileset dir="${dir.dist}" includes="**/*"/>
+	  </delete>
+	</target>
+	
+    <target name="default" depends="build-bindings" description="Build script for Skywriting java components.">
+        
+    </target>
+
+
+</project>
