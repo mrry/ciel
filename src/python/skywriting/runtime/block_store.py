@@ -44,6 +44,7 @@ from skywriting.runtime.references import SWRealReference,\
     SW2_TombstoneReference
 import hashlib
 import contextlib
+from skywriting.lang.parser import CloudScriptParser
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -527,10 +528,12 @@ class BlockStore:
         self.url_cache_access_times = {}
         
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
-        self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle}
+        self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
     
     def decode_handle(self, file):
         return file
+    def decode_script(self, file):
+        return CloudScriptParser().parse(file.read())
     def encode_noop(self, obj, file):
         return file.write(obj)
     def decode_noop(self, file):

@@ -11,6 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+from skywriting.lang.parser import CloudScriptParser
+import urlparse
 '''
 Created on 13 Apr 2010
 
@@ -26,7 +28,8 @@ from skywriting.lang.visitors import \
 from skywriting.lang import ast
 from skywriting.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption,\
-    SelectException, MissingInputException, MasterNotRespondingException
+    SelectException, MissingInputException, MasterNotRespondingException,\
+    RuntimeSkywritingError, BlameUserException
 from threading import Lock
 import cherrypy
 import logging
@@ -781,6 +784,20 @@ class SWRuntimeInterpreterTask:
         else:
             self.continuation.mark_as_dereferenced(ref)
             raise ReferenceUnavailableException(ref, self.continuation)
+
+    def include_script(self, target_expr):
+        if isinstance(target_expr, str):
+            # Name is relative to the local stdlib.
+            urlparse.urljoin('http://%s/stdlib/' % self.block_store.netloc, target_expr)
+            target_ref = SWURLReference([target_expr])
+        elif isinstance(target_expr, SWLocalReference):    
+            target_ref = self.continuation.resolve_tasklocal_reference_with_ref(target_expr)
+        
+        try:
+            script = self.block_store.retrieve_object_for_ref(target_ref, 'script')
+        except:
+            raise BlameUserException('The included script did not parse successfully')
+        return script
 
     def is_future(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
