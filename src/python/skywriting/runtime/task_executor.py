@@ -421,8 +421,8 @@ class SWRuntimeInterpreterTask:
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
         task_context.bind_tasklocal_identifier("range", SafeLambdaFunction(lambda x: range(*x), self))
         task_context.bind_tasklocal_identifier("len", SafeLambdaFunction(lambda x: len(x[0]), self))
-        task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0]), self)
-        task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2]), self)
+        task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0], self))
+        task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("ref", LambdaFunction(lambda x: self.make_reference(x)))
         #task_context.bind_tasklocal_identifier("is_future", LambdaFunction(lambda x: self.is_future(x[0])))
@@ -785,7 +785,7 @@ class SWRuntimeInterpreterTask:
     def include_script(self, target_expr):
         if isinstance(target_expr, basestring):
             # Name may be relative to the local stdlib.
-            urlparse.urljoin('http://%s/stdlib/' % self.block_store.netloc, target_expr)
+            target_expr = urlparse.urljoin('http://%s/stdlib/' % self.block_store.netloc, target_expr)
             target_ref = SWURLReference([target_expr])
         elif isinstance(target_expr, SWLocalReference):    
             target_ref = self.continuation.resolve_tasklocal_reference_with_ref(target_expr)
