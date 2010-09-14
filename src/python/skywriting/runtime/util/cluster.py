@@ -41,6 +41,7 @@ def main():
     parser = OptionParser()
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
     parser.add_option("-i", "--id", action="store", dest="id", help="Job ID", metavar="ID", default="default")
+    parser.add_option("-e", "--env", action="store_true", dest="send_env", help="Set this flag to send the current environment with the script as _env", default=False)
     (options, args) = parser.parse_args()
    
     if not options.master:
@@ -70,6 +71,8 @@ def main():
         exit()
     
     cont = SWContinuation(script, SimpleContext())
+    if options.send_env:
+        cont.context.bind_identifier('env', os.environ)
     
     http = httplib2.Http()
     
