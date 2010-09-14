@@ -20,7 +20,7 @@ Created on 23 Feb 2010
 from skywriting.lang.resume import BinaryExpressionRR,\
     FunctionCallRR, ListRR, DictRR, StatementListRR, DoRR, IfRR, WhileRR, ForRR,\
     ListIndexRR, AssignmentRR, ReturnRR, PlusRR, LessThanOrEqualRR, EqualRR,\
-    StarRR, ForceEvalRR, PlusAssignmentRR
+    StarRR, ForceEvalRR, PlusAssignmentRR, IncludeRR
 from skywriting.lang.datatypes import map_leaf_values
 
 indent = 0
@@ -199,6 +199,30 @@ class StatementExecutorVisitor(Visitor):
         
         stack.pop()
         return ret
+    
+    def visit_Include(self, node, stack, stack_base):
+        
+        if node.included_script is None:
+        
+            if stack_base == len(stack):
+                resume_record = IncludeRR()
+                stack.append(resume_record)
+            else:
+                resume_record = stack[stack_base]
+            
+            try:
+                if resume_record.target_ref is None:
+                    resume_record.target_ref = ExpressionEvaluatorVisitor(self.context).visit_and_force_eval(node.target_expr, stack, stack_base + 1)
+                    
+                node.included_script = self.context.include_script(resume_record.target_ref)
+            
+            except:
+                raise
+            
+            stack.pop()
+            
+        self.visit(node.included_script, stack, stack_base)
+        
 
     def visit_For(self, node, stack, stack_base):
         if stack_base == len(stack):

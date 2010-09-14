@@ -99,6 +99,14 @@ class IfRR:
     def __repr__(self):
         return 'IfRR(condition=%s)' % (repr(self.condition), )
         
+class IncludeRR:
+    
+    def __init__(self):
+        self.target_ref = None
+        
+    def __repr__(self):
+        return 'IncludeRR(target_ref=%s)' % (repr(self.target_ref), )
+        
 class ForRR:
     
     def __init__(self):

@@ -49,7 +49,8 @@ class CloudScriptLexer:
                  'continue' : 'CONTINUE',
                  'true' : 'TRUE',
                  'false' : 'FALSE',
-                 'lambda' : 'LAMBDA' }
+                 'lambda' : 'LAMBDA',
+                 'include' : 'INCLUDE' }
     
     tokens = keywords.values() + \
         ['ID', 'INT_LITERAL', 

@@ -74,6 +74,7 @@ class CloudScriptParser:
                       | break_statement
                       | continue_statement
                       | return_statement
+                      | include_statement
                       | compound_statement
                       | named_function_decl
         """
@@ -98,6 +99,11 @@ class CloudScriptParser:
         """ continue_statement : CONTINUE SEMICOLON
         """
         p[0] = ast.Continue()
+        
+    def p_include_statement(self, p):
+        """ include_statement : INCLUDE expression SEMICOLON
+        """
+        p[0] = ast.Include(p[2])
         
     def p_return_statement_1(self, p):
         """ return_statement : RETURN SEMICOLON

@@ -95,6 +95,15 @@ class If(Statement):
         
     def __repr__(self):
         return 'If(condition=%s, true_body=%s, false_body=%s)' % (repr(self.condition), repr(self.true_body), repr(self.false_body))
+
+class Include(Statement):
+    
+    def __init__(self, target_expr, included_script=None):
+        self.target_expr = target_expr
+        self.included_script = None
+ 
+    def __repr__(self):
+        return 'Include(target_expr=%s, included_script=%s)' % (repr(self.target_expr), repr(self.included_script))
  
 class PlusAssignment(Statement):
     

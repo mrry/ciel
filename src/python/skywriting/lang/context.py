@@ -196,6 +196,9 @@ class TaskContext:
     def eager_dereference(self, reference):
         return self.task.eager_dereference(reference)
     
+    def include_script(self, target_ref):
+        return self.task.include_script(target_ref)
+    
     def update_value(self, lvalue, rvalue, stack, stack_base):
         return self.wrapped_context.update_value(lvalue, rvalue, stack, stack_base)
 
