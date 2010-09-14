@@ -1,7 +1,5 @@
-// Helper function to grab URL references
-function grab(url) {
-   return *(exec("grab", {"urls":[url], "version":0}, 1)[0]);
-}
+include "grab";
+include "mapreduce";
 
 jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
            grab("http://www.cl.cam.ac.uk/~dgm36/mahout-core-0.3.jar"),
@@ -12,32 +10,6 @@ jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
            grab("http://www.cl.cam.ac.uk/~dgm36/slf4j-jcl-1.5.8.jar"),
            grab("http://www.cl.cam.ac.uk/~dgm36/uncommons-maths-1.2.jar"),
            grab("http://www.cl.cam.ac.uk/~dgm36/hadoop-core-0.20.2.jar")];
-
-function map(f, list) {
-  outputs = [];
-  for (i in range(len(list))) {
-    outputs[i] = f(list[i]);
-  }
-  return outputs;
-}
-
-function shuffle(inputs, num_outputs) {
-  outputs = [];
-  for (i in range(num_outputs)) {
-    outputs[i] = [];
-    for (j in range(len(inputs))) {
-      outputs[i][j] = inputs[j][i];
-    }
-  }
-  return outputs;
-}
-
-function mapreduce(inputs, mapper, reducer, r) {
-  map_outputs = map(mapper, inputs);
-  reduce_inputs = shuffle(map_outputs, r);
-  reduce_outputs = map(reducer, reduce_inputs);
-  return reduce_outputs;
-}
 
 function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reducers) {
 
