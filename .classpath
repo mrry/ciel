@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="src" path="src/java"/>
+	<classpathentry kind="src" path="examples/skyhout/src/java"/>
+	<classpathentry kind="src" path="examples/tests/src/java"/>
+	<classpathentry kind="src" path="examples/Pi/src/java"/>
+	<classpathentry kind="src" path="examples/SmithWaterman/src/java"/>
+	<classpathentry kind="src" path="examples/Grep/src"/>
+	<classpathentry kind="src" path="examples/TeraSort/src"/>
+	<classpathentry kind="src" path="examples/WordCount/src"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="lib" path="/local/scratch/dgm36/mahout-0.3/mahout-collections-0.3.jar"/>
+	<classpathentry kind="lib" path="/local/scratch/dgm36/mahout-0.3/mahout-core-0.3.jar"/>
+	<classpathentry kind="lib" path="/local/scratch/dgm36/mahout-0.3/mahout-examples-0.3.jar"/>
+	<classpathentry kind="lib" path="/local/scratch/dgm36/mahout-0.3/mahout-math-0.3.jar"/>
+	<classpathentry kind="lib" path="/local/scratch/dgm36/mahout-0.3/mahout-utils-0.3.jar"/>
+	<classpathentry kind="lib" path="/local/scratch/dgm36/hadoop-0.21.0/hadoop-common-0.21.0.jar"/>
+	<classpathentry kind="lib" path="/local/scratch/dgm36/hadoop-0.21.0/hadoop-mapred-0.21.0.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
