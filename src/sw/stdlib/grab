@@ -1,0 +1,4 @@
+// Helper function to grab URL references
+function grab(url) {
+   return *(exec("grab", {"urls":[url], "version":0}, 1)[0]);
+}
