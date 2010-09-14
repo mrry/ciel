@@ -70,10 +70,15 @@ class Worker(plugins.SimplePlugin):
         self.log_lock = Lock()
         self.log_condition = Condition(self.log_lock)
 
-        self.cherrypy_conf = dict()
+        self.cherrypy_conf = {}
     
         if options.staticbase is not None:
             self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
+        if options.lib is not None:
+            print options.lib
+            self.cherrypy_conf["/stdlib"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.lib }
+
+
 
         self.subscribe()
 

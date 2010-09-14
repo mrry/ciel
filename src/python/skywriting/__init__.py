@@ -18,6 +18,7 @@ from optparse import OptionParser
 import socket
 import cherrypy
 import sys
+import os
 
 def set_port(port):
     cherrypy.config.update({'server.socket_port': port})
@@ -42,6 +43,7 @@ def main(default_role=None):
     parser.add_option("-j", "--journaldir", action="store", dest="journaldir", help="Path to the job journal directory (for masters)", metavar="PATH", default=None)
     parser.add_option("-b", "--blockstore", action="store", dest="blockstore", help="Path to the block store directory", metavar="PATH", default=None)
     parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
+    parser.add_option("-l", "--lib", action="store", dest="lib", help="Path to standard library of Skywriting scripts (for workers)", metavar="PATH", default=os.path.join(os.path.dirname(__file__), '../../sw/stdlib'))
     (options, _) = parser.parse_args()
    
     if options.role == 'master':
