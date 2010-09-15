@@ -118,6 +118,7 @@ class SWExecutor:
 
         real_refs = map(self.resolve_ref, refs)
         for ref in real_refs:
+            print ref
             assert isinstance(ref, SWRealReference)
             if isinstance(ref, SW2_FutureReference):
                 print "Blocking because reference is", ref
@@ -362,6 +363,7 @@ class JavaExecutor(SWExecutor):
             self.stream_output = False
         
     def _execute(self, block_store, task_id):
+        cherrypy.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         cherrypy.engine.publish("worker_event", "Java: fetching inputs")
         file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
         file_outputs = []
@@ -395,7 +397,7 @@ class JavaExecutor(SWExecutor):
         process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
         for x in jar_filenames:
             process_args.append("file://" + x)
-        print 'Command-line:', " ".join(process_args)
+        #print 'Command-line:', " ".join(process_args)
         
         proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=None, stderr=None, close_fds=True)
         
