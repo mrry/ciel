@@ -118,7 +118,6 @@ class SWExecutor:
 
         real_refs = map(self.resolve_ref, refs)
         for ref in real_refs:
-            print ref
             assert isinstance(ref, SWRealReference)
             if isinstance(ref, SW2_FutureReference):
                 print "Blocking because reference is", ref
