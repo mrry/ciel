@@ -4,19 +4,18 @@ import java.util.Set;
 import java.util.TreeSet;
 
 
-class SetInsertCombiner<T> implements Combiner<Set<T>> {
+class SetInsertCombiner<T> implements Combiner<Set<T>, T> {
 	
-	public Set<T> combine(Set<T> oldValue, Set<T> increment) {
-		oldValue.addAll(increment);
-			
+	public Set<T> combine(Set<T> oldValue, T increment) {
+		oldValue.add(increment);
 		return oldValue;
 	}
 	
 	
-	public Set<T> combineInit(Set<T> initVal) {
-		
-		return new TreeSet<T>(initVal);
-		
+	public Set<T> combineInit(T initVal) {
+		TreeSet<T> ret = new TreeSet<T>();
+		ret.add(initVal);
+		return ret;
 	}
 	
 }

@@ -5,7 +5,7 @@ import org.apache.mahout.clustering.kmeans.KMeansInfo;
 
 import skywriting.examples.skyhout.common.Combiner;
 
-public class KMeansCombiner implements Combiner<KMeansInfo> {
+public class KMeansCombiner implements Combiner<KMeansInfo, KMeansInfo> {
 	
 	@Override
 	public KMeansInfo combine(KMeansInfo oldValue, KMeansInfo newValue) {

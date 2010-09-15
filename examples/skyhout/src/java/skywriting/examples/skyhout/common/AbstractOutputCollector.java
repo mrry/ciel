@@ -7,45 +7,52 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Map.Entry;
 
-import org.apache.hadoop.mapred.OutputCollector;
+import org.apache.hadoop.mapreduce.Partitioner;
 
-public abstract class AbstractOutputCollector<K, V> implements OutputCollector<K, V>, Iterable<Map.Entry<K, V>> {
+public abstract class AbstractOutputCollector<K, V, C> implements ClosableOutputCollector<K, V>, Iterable<Map.Entry<K, C>> {
 
-	protected ArrayList<Map<K, V>> maps;
+	protected final int numOutputs;
+	protected final ArrayList<Map<K, C>> maps;
+	private final Partitioner<K, V> partitioner;
+	private final Combiner<C, V> comb;
+	
+	public AbstractOutputCollector(int numOutputs, Partitioner<K, V> partitioner, Combiner<C, V> combiner) {
+		this.numOutputs = numOutputs;
+		this.partitioner = partitioner;
+		this.comb = combiner;
+		this.maps = new ArrayList<Map<K, C>>(numOutputs);
+	}
 
+	public abstract void close() throws IOException;
+	
 	@Override
 	public void collect(K key, V value) throws IOException {
-		int nMaps = maps.size();
-		
-		// Work out which HashMap (partition) this word should go into
-		int hc = key.hashCode();
-		int targetMap = (hc < 0 ? -hc : hc) % nMaps;
-		//System.out.println(key + " goes into map " + targetMap);
-		Map<K, V> hmap = maps.get(targetMap);
+		this.collectWithIndex(key, value);
+	}
+	
+	public int collectWithIndex(K key, V value) throws IOException {
+		int partitionIndex = this.partitioner.getPartition(key, value, this.numOutputs);
+		Map<K, C> map = maps.get(partitionIndex);
 		
 		// Insert element into map
-		if (hmap.containsKey(key)) {
-			hmap.put(key, comb.combine(hmap.get(key), value));
+		if (map.containsKey(key)) {
+			map.put(key, comb.combine(map.get(key), value));
 		} else {
-			hmap.put(key, comb.combineInit(value));
+			map.put(key, comb.combineInit(value));
 		}
+		
+		return partitionIndex;
 	}
 
-	protected Combiner<V> comb;
-
-	public AbstractOutputCollector() {
-		super();
-	}
-
-	public Iterator<Entry<K, V>> iterator() {
+	public Iterator<Entry<K, C>> iterator() {
 		// 
 		return new MultiMapIterator();
 	}
 
-	class MultiMapIterator implements Iterator<Map.Entry<K, V>> {
+	class MultiMapIterator implements Iterator<Map.Entry<K, C>> {
 
 		private int index;
-		private Iterator<Map.Entry<K, V>> cur;
+		private Iterator<Map.Entry<K, C>> cur;
 		
 		public MultiMapIterator() {
 			index = 0;
@@ -72,7 +79,7 @@ public abstract class AbstractOutputCollector<K, V> implements OutputCollector<K
 		}
 
 		@Override
-		public Entry<K, V> next() {
+		public Entry<K, C> next() {
 			// 
 			if (!hasNext()) throw new NoSuchElementException();
 			else return cur.next();

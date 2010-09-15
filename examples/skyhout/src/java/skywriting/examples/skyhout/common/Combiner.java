@@ -1,10 +1,10 @@
 package skywriting.examples.skyhout.common;
 
-public interface Combiner<V> {
+public interface Combiner<C, V> {
 	
-	public V combine(V oldValue, V newValue);
+	public C combine(C oldValue, V newValue);
 	
-	public V combineInit(V initVal);
+	public C combineInit(V initVal);
 	
 }
 	

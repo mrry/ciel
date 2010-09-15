@@ -1,8 +1,5 @@
 package skywriting.examples.skyhout.kmeans;
 
-import java.io.BufferedWriter;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,11 +17,10 @@ import org.apache.hadoop.io.serializer.WritableSerialization;
 import org.apache.mahout.clustering.kmeans.Cluster;
 import org.apache.mahout.clustering.kmeans.KMeansInfo;
 import org.apache.mahout.common.distance.DistanceMeasure;
-import org.apache.mahout.common.distance.EuclideanDistanceMeasure;
 import org.apache.mahout.common.distance.SquaredEuclideanDistanceMeasure;
 
 import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
-import skywriting.examples.skyhout.common.SortedPartialHashOutputCollector;
+import skywriting.examples.skyhout.common.SortedOutputCollector;
 import uk.co.mrry.mercator.task.JarTaskLoader;
 import uk.co.mrry.mercator.task.Task;
 
@@ -53,11 +49,10 @@ public class KMeansReduceTask implements Task {
 			assert fs.numInputs() == 2;
 			assert fs.numOutputs() == 2;
 			
-			SortedPartialHashOutputCollector<Text, KMeansInfo> inputCollector = new SortedPartialHashOutputCollector<Text, KMeansInfo>(new KMeansCombiner());
+			SortedOutputCollector<Text, KMeansInfo, KMeansInfo> inputCollector = new SortedOutputCollector<Text, KMeansInfo, KMeansInfo>(new KMeansCombiner());
 	
 			HashMap<String, Cluster> oldClusterMap = new HashMap<String, Cluster>();
 			SequenceFile.Reader oldClusterReader = new SequenceFile.Reader(fs, new Path("/in/" + (fs.numInputs() - 1)), conf);
-
 
 			while (true) {
 
