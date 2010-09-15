@@ -1,5 +1,6 @@
 package skywriting.examples.skyhout.kmeans;
 
+import java.io.BufferedWriter;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
@@ -10,13 +11,21 @@ import java.io.OutputStreamWriter;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.serializer.Serialization;
+import org.apache.hadoop.io.serializer.WritableSerialization;
 import org.apache.mahout.clustering.kmeans.Cluster;
 import org.apache.mahout.clustering.kmeans.KMeansInfo;
 import org.apache.mahout.common.distance.DistanceMeasure;
 import org.apache.mahout.common.distance.EuclideanDistanceMeasure;
+import org.apache.mahout.common.distance.SquaredEuclideanDistanceMeasure;
 
+import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
 import skywriting.examples.skyhout.common.SortedPartialHashOutputCollector;
+import uk.co.mrry.mercator.task.JarTaskLoader;
 import uk.co.mrry.mercator.task.Task;
 
 public class KMeansReduceTask implements Task {
@@ -27,50 +36,56 @@ public class KMeansReduceTask implements Task {
 	public void invoke(InputStream[] fis, OutputStream[] fos,
 			String[] args) {
 
-		assert args.length == 1;
-		double convergenceDelta = Double.parseDouble(args[0]);
-
-		this.measure = new EuclideanDistanceMeasure();
-		
-		assert fis.length == 2;
-		
-		assert fis.length == 2;
-		DataInputStream[] reduceInputs = new DataInputStream[fis.length - 1]; 
-		for (int i = 0; i < reduceInputs.length; ++i) {
-			reduceInputs[i] = new DataInputStream(fis[i]);
-		}
-		
-		DataInputStream oldClustersInput = new DataInputStream(fis[fis.length - 1]);
-		
-		assert fos.length == 2;
-		DataOutputStream reduceOutput = new DataOutputStream(fos[0]);
-		OutputStreamWriter convergedOutput = new OutputStreamWriter(fos[1]);
-		
-		SortedPartialHashOutputCollector<Text, KMeansInfo> inputCollector = new SortedPartialHashOutputCollector<Text, KMeansInfo>(new KMeansCombiner());
-
-		
 		try {
-		
+				
+			assert args.length == 1;
+			double convergenceDelta = Double.parseDouble(args[0]);
+	
+			Configuration conf = new Configuration();
+			conf.setClassLoader(JarTaskLoader.CLASSLOADER);
+			conf.setClass("io.serializations", WritableSerialization.class, Serialization.class);
+			new WritableSerialization();
+
+			SkywritingTaskFileSystem fs = new SkywritingTaskFileSystem(fis, fos, conf);
+			
+			this.measure = new SquaredEuclideanDistanceMeasure();
+			
+			assert fs.numInputs() == 2;
+			assert fs.numOutputs() == 2;
+			
+			SortedPartialHashOutputCollector<Text, KMeansInfo> inputCollector = new SortedPartialHashOutputCollector<Text, KMeansInfo>(new KMeansCombiner());
+	
 			HashMap<String, Cluster> oldClusterMap = new HashMap<String, Cluster>();
+			SequenceFile.Reader oldClusterReader = new SequenceFile.Reader(fs, new Path("/in/" + (fs.numInputs() - 1)), conf);
+
+
 			while (true) {
+
+				Text id = new Text();
+				Cluster curr = new Cluster();
+				
 				try {
-					Cluster curr = new Cluster();
-					curr.readFields(oldClustersInput);
-					oldClusterMap.put(curr.getIdentifier(), curr);
+					boolean isMore = oldClusterReader.next(id, curr);
+					if (!isMore) break;
 				} catch (EOFException eofe) {
 					break;
 				}
+				oldClusterMap.put(curr.getIdentifier(), curr);
+				System.out.println("Putting cluster    " + curr.getIdentifier() + " in oldClusterMap");
 			}
-			oldClustersInput.close();
+				
+			oldClusterReader.close();
 			
-			Text currentReduceKey = new Text();
 			KMeansInfo currentReduceValue = new KMeansInfo();
 
-			for (int i = 0; i < reduceInputs.length; ++i) {
+			for (int i = 0; i < fis.length - 1; ++i) {
+				SequenceFile.Reader reduceInputReader = new SequenceFile.Reader(fs, new Path("/in/" + i), conf);
+				
 				while (true) {
+					Text currentReduceKey = new Text();
 					try {
-						currentReduceKey.readFields(reduceInputs[i]);
-						currentReduceValue.readFields(reduceInputs[i]);
+						boolean isMore = reduceInputReader.next(currentReduceKey, currentReduceValue);
+						if (!isMore) break;
 					} catch (EOFException eofe) {
 						break;
 					}
@@ -79,18 +94,19 @@ public class KMeansReduceTask implements Task {
 			}
 			
 			boolean allConverged = true;
+			SequenceFile.Writer reduceOutput = new SequenceFile.Writer(fs, conf, new Path("/out/0"), Text.class, Cluster.class);
 			for (Map.Entry<Text, KMeansInfo> inputEntry : inputCollector) {
+				System.out.println("Processing cluster " + inputEntry.getKey());
 				Cluster cluster = oldClusterMap.get(inputEntry.getKey().toString());
 				KMeansInfo value = inputEntry.getValue();
 				cluster.addPoints(value.getPoints(), value.getPointTotal());
 				boolean clusterConverged = cluster.computeConvergence(this.measure, convergenceDelta);
 				allConverged &= clusterConverged;
-				cluster.write(reduceOutput);
+				reduceOutput.append(inputEntry.getKey(), cluster);
 			}
 
+			OutputStreamWriter convergedOutput = new OutputStreamWriter(fos[1]);
 			convergedOutput.write(Boolean.toString(allConverged));
-			
-			reduceOutput.close();
 			convergedOutput.close();
 			
 		} catch (IOException ioe) {

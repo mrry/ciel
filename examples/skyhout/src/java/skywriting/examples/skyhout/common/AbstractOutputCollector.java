@@ -7,6 +7,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Map.Entry;
 
+import org.apache.hadoop.mapred.OutputCollector;
+
 public abstract class AbstractOutputCollector<K, V> implements OutputCollector<K, V>, Iterable<Map.Entry<K, V>> {
 
 	protected ArrayList<Map<K, V>> maps;

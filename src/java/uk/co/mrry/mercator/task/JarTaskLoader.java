@@ -18,6 +18,8 @@ import java.io.UnsupportedEncodingException;
 
 public class JarTaskLoader {
 
+	public static ClassLoader CLASSLOADER;
+	
     public static void main(String[] args) {
 
 	if(args.length < 2) {
@@ -39,9 +41,11 @@ public class JarTaskLoader {
 	}
 
 	URLClassLoader urlcl = new URLClassLoader(urls);
+	JarTaskLoader.CLASSLOADER = urlcl;
 	Class targetClass = null;
 	Object targetInstance = null;
 	Task targetTask = null;
+	
 	
 	try {
 	    targetClass = urlcl.loadClass(args[0]);

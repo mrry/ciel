@@ -1,26 +1,36 @@
 package skywriting.examples.skyhout.kmeans;
 
-import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.serializer.Serialization;
+import org.apache.hadoop.io.serializer.WritableSerialization;
+import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.mahout.clustering.kmeans.Cluster;
+import org.apache.mahout.clustering.kmeans.KMeansConfigKeys;
 import org.apache.mahout.clustering.kmeans.KMeansInfo;
+import org.apache.mahout.clustering.kmeans.KMeansMapper;
 import org.apache.mahout.common.distance.DistanceMeasure;
 import org.apache.mahout.common.distance.EuclideanDistanceMeasure;
+import org.apache.mahout.common.distance.SquaredEuclideanDistanceMeasure;
 import org.apache.mahout.math.Vector;
 import org.apache.mahout.math.VectorWritable;
 
-import skywriting.examples.skyhout.common.OutputCollector;
 import skywriting.examples.skyhout.common.PartialHashOutputCollector;
+import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
+import uk.co.mrry.mercator.task.JarTaskLoader;
 import uk.co.mrry.mercator.task.Task;
 
 public class KMeansMapTask implements Task {
@@ -52,59 +62,75 @@ public class KMeansMapTask implements Task {
 		}
 		// emit only clusterID
 		output.collect(new Text(nearestCluster.getIdentifier()), new KMeansInfo(1, point));
+		System.out.println("Emitting point to cluster " + nearestCluster.getIdentifier());
 	}
 	    
 	@Override
 	public void invoke(InputStream[] fis, OutputStream[] fos,
 			String[] args) {
 		
-		this.measure = new EuclideanDistanceMeasure();
-		
-		assert fis.length == 2;
-		DataInputStream mapInput = new DataInputStream(fis[0]);
-		DataInputStream clustersInput = new DataInputStream(fis[1]);
-		
-		DataOutputStream[] mapOutputs = new DataOutputStream[fos.length];
-		for (int i = 0; i < fos.length; ++i) {
-			mapOutputs[i] = new DataOutputStream(fos[i]);
-		}
+		this.measure = new SquaredEuclideanDistanceMeasure();
 		
 		try {
 		
-			List<Cluster> clusters = new ArrayList<Cluster>();
-			while (true) {
-				try {
-					Cluster curr = new Cluster();
-					curr.readFields(clustersInput);
-					clusters.add(curr);
-				} catch (EOFException eofe) {
-					break;
-				}
-			}
-			clustersInput.close();
+			Configuration conf = new Configuration();
+			conf.setClassLoader(JarTaskLoader.CLASSLOADER);
+			conf.setClass("io.serializations", WritableSerialization.class, Serialization.class);
+			new WritableSerialization();
+
+			SkywritingTaskFileSystem fs = new SkywritingTaskFileSystem(fis, fos, conf);
+
 			
-			PartialHashOutputCollector<Text, KMeansInfo> output = new PartialHashOutputCollector<Text, KMeansInfo>(mapOutputs, Integer.MAX_VALUE, new skywriting.examples.skyhout.kmeans.KMeansCombiner());
+			
+			List<Cluster> clusters = new ArrayList<Cluster>();
+			Text currentClusterID = new Text();
+			
+			for (int i = 1; i < fis.length; ++i) {
+				SequenceFile.Reader clusterReader = new SequenceFile.Reader(fs, new Path("/in/" + i), conf);
+				Cluster currentCluster = new Cluster();
+				while (true) {
+					try {
+						boolean isMore = clusterReader.next(currentClusterID, currentCluster);
+						if (!isMore) break;
+					} catch (EOFException eofe) {
+						break;
+					}
+					clusters.add(currentCluster);
+					currentCluster = new Cluster();
+  				}
+				clusterReader.close();
+			}
+				
+			PartialHashOutputCollector<Text, KMeansInfo> output = new PartialHashOutputCollector<Text, KMeansInfo>(fs, conf, Text.class, KMeansInfo.class, Integer.MAX_VALUE, new skywriting.examples.skyhout.kmeans.KMeansCombiner());
 			
 			Text currentID = new Text();
-			VectorWritable currentVector = new VectorWritable(); 
+			
+			SequenceFile.Reader mapReader = new SequenceFile.Reader(fs, new Path("/in/0"), conf);
+			
+			VectorWritable currentVector = mapReader.getValueClass().asSubclass(VectorWritable.class).newInstance(); 
+
 			while (true) {
 				try {
-					currentID.readFields(mapInput);
-					currentVector.readFields(mapInput);
+					boolean isMore = mapReader.next(currentID, currentVector);
+					if (!isMore) break;
 				} catch (EOFException eofe) {
 					break;
 				}
 				this.emitPointToNearestCluster(currentVector.get(), clusters, output);
 			}
+			mapReader.close();
 			output.flushAll();
-			
-			for (DataOutputStream mapOutput : mapOutputs) {
-				mapOutput.close();
-			}
-			
+			output.closeWriters();
+					
 		} catch (IOException ioe) {
 			ioe.printStackTrace();
 			throw new RuntimeException(ioe);
+		} catch (InstantiationException e) {
+			e.printStackTrace();
+			throw new RuntimeException(e);
+		} catch (IllegalAccessException e) {
+			e.printStackTrace();
+			throw new RuntimeException(e);
 		}
 		
 	}

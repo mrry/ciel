@@ -1,28 +1,33 @@
 package skywriting.examples.skyhout.common;
 
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.Writable;
 
 public class PartialHashOutputCollector<K extends Writable, V extends Writable> extends AbstractOutputCollector<K, V> {
 
-	int flushThresh;
-	DataOutputStream[] os;
-	public PartialHashOutputCollector(DataOutputStream[] out, int flushThreshold, Combiner<V> combiner) {
-		flushThresh = flushThreshold;
-		os = out;
-		comb = combiner;
-		
-		maps = new ArrayList<Map<K, V>>(out.length);
-		for (int i = 0; i < out.length; i++) 
-			maps.add(new HashMap<K, V>());
-	}
+	private int flushThresh;
+	private SequenceFile.Writer[] writers;
 	
+	public PartialHashOutputCollector(SkywritingTaskFileSystem fs, Configuration conf, Class<K> keyClass, Class<V> valueClass, int flushThreshold, Combiner<V> combiner) throws IOException {
+		this.flushThresh = flushThreshold;
+		this.comb = combiner;
+		
+		int numOutputs = fs.numOutputs();
+		maps = new ArrayList<Map<K, V>>(numOutputs);
+		writers = new SequenceFile.Writer[numOutputs];
+		for (int i = 0; i < numOutputs; i++) { 
+			maps.add(new HashMap<K, V>());
+			writers[i] = new SequenceFile.Writer(fs, conf, new Path("/out/" + i), keyClass, valueClass);
+		}
+	}
 	
 	@Override
 	public void collect(K key, V value) throws IOException {
@@ -57,6 +62,12 @@ public class PartialHashOutputCollector<K extends Writable, V extends Writable> 
 		hmap.clear();
 	}
 	
+	public void closeWriters() throws IOException {
+		for (SequenceFile.Writer w : this.writers) {
+			w.close();
+		}
+	}
+	
 	private void dump(int mapID) throws IOException {
 	    Map<K, V> map = maps.get(mapID);
 		Iterator<Map.Entry<K, V>> it = map.entrySet().iterator();
@@ -65,8 +76,7 @@ public class PartialHashOutputCollector<K extends Writable, V extends Writable> 
 	        //System.out.println(pairs.getKey() + " = " + pairs.getValue());
 	        
 	        // Write to output stream
-	        pairs.getKey().write(os[mapID]);
-	        pairs.getValue().write(os[mapID]);
+	        writers[mapID].append(pairs.getKey(), pairs.getValue());
 	    }
 	}
 
