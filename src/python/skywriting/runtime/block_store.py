@@ -86,10 +86,12 @@ class TransferSetContext:
         self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
         self.active_handles = 0
+        self._handles = []
 
     def start_fetch(self, ctx):
         self.active_handles += 1
         self.curl_ctx.add_handle(ctx.curl_ctx)
+        self._handles.append(ctx)
 
     def process(self):
 
@@ -128,6 +130,16 @@ class TransferSetContext:
 
     def cleanup(self):
         self.curl_ctx.close()
+
+    def get_failed_refs(self):
+        failure_bindings = {}
+        for handle in self._handles:
+            if not handle.has_succeeded:
+                failure_bindings[handle.ref.id] = SW2_TombstoneReference(handle.ref.id, handle.ref.location_hints)
+        if len(failure_bindings) > 0:
+            return failure_bindings
+        else:
+            return None
 
 class StreamTransferSetContext(TransferSetContext):
     def __init__(self):
@@ -752,6 +764,10 @@ class BlockStore:
                 result_list.append(resolution)
 
         fetch_ctx.cleanup()
+
+        failure_bindings = fetch_ctx.get_failed_refs()
+        if failure_bindings is not None:
+            raise MissingInputException(failure_bindings)
 
         return result_list
 
