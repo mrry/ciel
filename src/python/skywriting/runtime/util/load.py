@@ -63,6 +63,7 @@ def build_extent_list(filename, options):
                             f.seek(finish)
                             curr = f.read(1)
                             if curr == options.delimiter:
+                                finish += 1
                                 break
                             finish -= 1
                             
@@ -72,9 +73,10 @@ def build_extent_list(filename, options):
                             f.seek(finish)
                             while finish < file_size:
                                 curr = f.read(1)
+                                finish += 1              
                                 if curr == options.delimiter:
                                     break
-                                finish += 1                            
+              
                             
                         extents.append((start, finish))
                         start = finish 
@@ -104,6 +106,7 @@ def build_extent_list(filename, options):
                             f.seek(finish)
                             curr = f.read(1)
                             if curr == options.delimiter:
+                                finish += 1
                                 break
                             finish -= 1
                             
@@ -113,10 +116,10 @@ def build_extent_list(filename, options):
                             f.seek(finish)
                             while finish < file_size:
                                 curr = f.read(1)
+                                finish += 1                            
                                 if curr == options.delimiter:
                                     break
-                                finish += 1                            
-                            
+                                
                         extents.append((start, finish))
                         start = finish
                 extents.append((start, file_size))
