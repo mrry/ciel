@@ -680,9 +680,9 @@ class BlockStore:
                 self.encode_json(ref.value, obj_file)
             return self.filename(id)
         elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
-            for loc in ref.location_hints:
-                if loc == self.netloc:
-                    return self.filename(ref.id)
+            maybe_local_filename = self.filename(ref.id)
+            if os.path.exists(maybe_local_filename):
+                return maybe_local_filename
             check_urls = ["swbs://%s/%s" % (loc_hint, str(ref.id)) for loc_hint in ref.location_hints]
             return find_first_cached(check_urls)
         elif isinstance(ref, SWURLReference):
