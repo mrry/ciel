@@ -1,5 +1,6 @@
 include "grab";
 include "mapreduce";
+include "java";
 
 jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
            grab("http://www.cl.cam.ac.uk/~dgm36/mahout-core-0.3.jar"),
@@ -15,11 +16,19 @@ jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
 function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reducers) {
 
 	kmeans_map = function(input_chunk) {
-		return spawn_exec("java", {"inputs" : [input_chunk, old_clusters], "lib" : jar_lib, "class" : "skywriting.examples.skyhout.kmeans.KMeansMapTask", "args" : []}, num_reducers);
+		return java("skywriting.examples.skyhout.kmeans.KMeansMapTask",
+		            [input_chunk, old_clusters],
+		            [],
+		            jar_lib,
+		            num_reducers);
 	};
 	
 	kmeans_reduce = function(reduce_input) {
-		result = spawn_exec("java", {"inputs" : reduce_input + [old_clusters], "lib" : jar_lib, "class" : "skywriting.examples.skyhout.kmeans.KMeansReduceTask", "argv" : [convergenceDelta]}, 2);
+		result = java("skywriting.examples.skyhout.kmeans.KMeansReduceTask",
+		            reduce_input + [old_clusters],
+		            [convergenceDelta],
+		            jar_lib,
+		            2);
 		return {"cluster" : result[0], "converged" : *(result[1])}; 
 	};
 	
@@ -37,12 +46,20 @@ function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reduc
 }
 
 input_text = grab("http://archive.ics.uci.edu/ml/databases/synthetic_control/synthetic_control.data");
-num_maps = 1;
-input = spawn_exec("java", {"inputs" : [input_text], "lib" : jar_lib, "class" : "skywriting.examples.skyhout.input.VectorInputParserTask"}, num_maps);
+num_maps = 2;
+input = java("skywriting.examples.skyhout.input.VectorInputParserTask",
+			 [input_text],
+			 [],
+			 jar_lib,
+			 num_maps);
  
-k = 10;
+k = 50;
 
-init_clusters = spawn_exec("java", {"inputs" : input, "lib" : jar_lib, "class" : "skywriting.examples.skyhout.kmeans.KMeansSeedGenerator", "argv" : [k]}, 1)[0];
+init_clusters = java("skywriting.examples.skyhout.kmeans.KMeansSeedGenerator",
+                     input,
+                     [k],
+                     jar_lib,
+                     1)[0];
 
 measure_class = "";
 
