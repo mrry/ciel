@@ -69,7 +69,6 @@ class TaskPoolTask(Task):
         
         self.task_pool = task_pool
         
-        self.state = state
         
         self._blocking_dict = {}
         if select_group is not None:
@@ -77,10 +76,13 @@ class TaskPoolTask(Task):
             
         self.history = []
         
+        self.job = job
+        
+        self.set_state(state)
+        
         self.worker = None
         self.saved_continuation_uri = None
 
-        self.job = job
         
         self.event_index = 0
         self.current_attempt = 0
@@ -88,9 +90,9 @@ class TaskPoolTask(Task):
     def set_state(self, state):
         if self.job is not None:
             self.job.record_state_change(self.state, state)
+        self.record_event(TASK_STATE_NAMES[state])
         self.state = state
         
-
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
 
@@ -115,7 +117,6 @@ class TaskPoolTask(Task):
                 self.set_state(TASK_BLOCKING)
             else:
                 self.set_state(TASK_RUNNABLE)
-                self.record_event("RUNNABLE")
                 
         else:
             
@@ -138,14 +139,12 @@ class TaskPoolTask(Task):
                     self.set_state(TASK_SELECTING)
                 else:
                     self.set_state(TASK_RUNNABLE)
-                    self.record_event("RUNNABLE")
         
             else:
                 
                 # We are replaying a task that has previously returned from a call to select().
                 # TODO: We need to make sure we handle blocking/failure for this task correctly.
                 self.set_state(TASK_RUNNABLE)
-                self.record_event("RUNNABLE")
         
     def is_replay_task(self):
         return self.replay_ref is not None
@@ -175,7 +174,6 @@ class TaskPoolTask(Task):
                 self.inputs[local_id] = ref
             if len(self._blocking_dict) == 0:
                 self.set_state(TASK_RUNNABLE)
-                self.record_event("RUNNABLE")
         
     # Warning: called under worker_pool._lock
     def set_assigned_to_worker(self, worker):

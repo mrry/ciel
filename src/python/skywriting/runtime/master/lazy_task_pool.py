@@ -12,20 +12,18 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE,\
-    TASK_COMMITTED, build_taskpool_task_from_descriptor,\
-    TASK_QUEUED, TASK_FAILED
-import collections
-from skywriting.runtime.references import SW2_FutureReference,\
-    SW2_ConcreteReference, SWErrorReference, combine_references,\
-    SW2_StreamReference
-import uuid
-from threading import Lock
 from Queue import Queue
-from skywriting.runtime.master.job_pool import Job
-import cherrypy
 from cherrypy.process import plugins
+from skywriting.runtime.master.job_pool import Job
+from skywriting.runtime.references import SW2_FutureReference, \
+    SW2_ConcreteReference, SWErrorReference, combine_references, SW2_StreamReference
+from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
+    TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED
+from threading import Lock
+import cherrypy
+import collections
 import logging
+import uuid
 
 class LazyTaskPool(plugins.SimplePlugin):
     
@@ -125,6 +123,9 @@ class LazyTaskPool(plugins.SimplePlugin):
         cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
         worker = None
         should_notify_outputs = False
+
+        task.record_event(reason)
+
 
         self.publish_refs(bindings, task.job)
 

@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.master.job_pool import JOB_STATE_NAMES
 from cherrypy._cperror import HTTPError
-from skywriting.runtime.task import TASK_STATES
+from skywriting.runtime.task import TASK_STATES, TASK_STATE_NAMES
 import cherrypy
 import time
 from skywriting.runtime.references import SWURLReference, SWDataValue
@@ -101,6 +101,7 @@ class TaskBrowserRoot:
         task_string = '<html><head><title>Task Browser</title></head>'
         task_string += '<body><table>'
         task_string += table_row('ID', task.task_id)
+        task_string += table_row('State', TASK_STATE_NAMES[task.state])
         task_string += span_row('Dependencies')
         for local_id, ref in task.dependencies.items():
             task_string += table_row(local_id, ref_link(ref))
@@ -113,7 +114,7 @@ class TaskBrowserRoot:
         if len(task.children) > 0:
             task_string += span_row('Children')
             for i, child in enumerate(task.children):
-                task_string += table_row(i, task_link(child))
+                task_string += table_row(i, '%s</td><td>%s</td><td>%s' % (task_link(child), child.handler, TASK_STATE_NAMES[child.state]))
         task_string += '</table></body></html>'
         return task_string
 
