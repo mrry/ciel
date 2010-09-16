@@ -30,7 +30,6 @@ public class PageRankPartitionTask extends SkyhoutTask {
 				OutputCollector<Text, StringArrayWritable> output) throws IOException {
 			String[] splitLine = SPLIT_PATTERN.split(value.toString());
 			String[] outLinks = Arrays.copyOfRange(splitLine, 1, splitLine.length);
-			System.out.println("Mapping key: " + splitLine[0]);
 			output.collect(new Text(splitLine[0]), new StringArrayWritable(outLinks));
 		}
 		
