@@ -31,6 +31,7 @@ public class SortedPartitionedOutputCollector<K, V, C> extends
 		Iterator<Map.Entry<K, C>> it = map.entrySet().iterator();
 	    while (it.hasNext()) {
 	        Map.Entry<K, C> pairs = it.next();
+	        System.out.println("Outputting to partition " + mapID + ": " + pairs.getKey());
 	        writers[mapID].append(pairs.getKey(), pairs.getValue());
 	    }
 	}

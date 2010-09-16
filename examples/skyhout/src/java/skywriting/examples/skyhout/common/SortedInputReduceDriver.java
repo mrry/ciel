@@ -62,7 +62,7 @@ public class SortedInputReduceDriver<K extends WritableComparable<? super K>, V 
 				K currentHeadKey = this.keyHeads.get(i);
 				if (currentHeadKey == null) {
 					continue;
-				} else if (minHeadKey == null || minHeadKey.compareTo(currentHeadKey) < 0) {
+				} else if (minHeadKey == null || currentHeadKey.compareTo(minHeadKey) < 0) {
 					minHeadIndex = i;
 					minHeadKey = currentHeadKey;
 				}
@@ -70,8 +70,6 @@ public class SortedInputReduceDriver<K extends WritableComparable<? super K>, V 
 			if (minHeadIndex == -1) break;
 			
 			V currentValue = this.popInitialValueFromHead(minHeadIndex);
-			
-			System.out.println("Reducing key: " + minHeadKey);
 			
 			for (int i = minHeadIndex + 1; i < this.readers.length; ++i) {
 				K currentHeadKey = this.keyHeads.get(i);
