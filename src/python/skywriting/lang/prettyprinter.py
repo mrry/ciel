@@ -17,7 +17,7 @@ import collections
 import sys
 
 class Open:
-    def __init__(self, offset=2, consistent=False):
+    def __init__(self, offset=0, consistent=False):
         self.offset = offset
         self.consistent = consistent
 
@@ -52,6 +52,9 @@ class PrettyPrinterVisitor(Visitor):
         self.top = 0
         self.bottom = 0
         
+        self.left = 0
+        self.right = 0
+        
         self.tokens = []
         self.lengths = []
         self.scan_stack = collections.deque()
@@ -70,6 +73,7 @@ class PrettyPrinterVisitor(Visitor):
             self.indent(0)
         
         elif isinstance(symbol, Open):
+            print >>sys.stderr, '<Open:', self.left, self.right
             if len(self.scan_stack) == 0:
                 self.left_total = 1
                 self.right_total = 1
@@ -82,7 +86,9 @@ class PrettyPrinterVisitor(Visitor):
             self.scan_stack.append(len(self.tokens) - 1)
             
         elif symbol is CLOSE:
+            print >>sys.stderr, '<Close:', self.left, self.right
             if len(self.scan_stack) == 0:
+                print >>sys.stderr, 'RC Left:', self.left, self.right
                 self.print_symbol(symbol, 0)
             else:
                 self.right += 1
@@ -94,8 +100,8 @@ class PrettyPrinterVisitor(Visitor):
             if len(self.scan_stack) == 0:
                 self.left_total = 1
                 self.right_total = 1
-                self.left = 0
-                self.right = 0
+                #self.left = 0
+                #self.right = 0
             else:
                 self.right += 1
             self.check_stack(0)
@@ -107,6 +113,7 @@ class PrettyPrinterVisitor(Visitor):
             
         else:
             if len(self.scan_stack) == 0:
+                print >>sys.stderr, 'RS Left:', self.left, self.right
                 self.print_symbol(symbol, len(symbol))
             else:
                 self.right += 1
@@ -125,13 +132,14 @@ class PrettyPrinterVisitor(Visitor):
                 self.check_stream()
     
     def advance_left(self, symbol, l):            
-        if l >= 0:
+        if l >= 0 and self.left < self.right:
+            print >>sys.stderr, 'AL Left:', self.left, self.right
             self.print_symbol(symbol, l)
             if isinstance(symbol, Break):
                 self.left_total += symbol.blank_spaces
             elif isinstance(symbol, str):
                 self.left_total += l
-            if self.left != self.right:
+            if self.left < self.right:
                 self.left += 1
                 self.advance_left(self.tokens[self.left], self.lengths[self.left])
                 
@@ -203,42 +211,45 @@ class PrettyPrinterVisitor(Visitor):
                 raise Exception('Line too long')
             self.space -= l
             self.out_file.write(symbol)
+            #print >>sys.stderr, symbol
+                 
+    def open(self):
+        return self.receive(Open())
+    
+    def close(self):
+        return self.receive(CLOSE)
+    
+    def spc(self):
+        return self.receive(Break(1, 2))
+    
+    def cr(self, indent=0):
+        return self.receive(Break(100000, indent))
                     
     def visit(self, node, stack, stack_base):
         #print >>sys.stderr, 'Visiting %s' % node.__class__.__name__
         return getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
         
-    def visit_statement_list(self, statements, offset, stack, stack_base):
-        self.receive(Open(offset=offset))
+    def visit_statement_list(self, statements, stack, stack_base):
         for i, statement in enumerate(statements):
-            self.receive(Open(offset=2))
             self.visit(statement, stack, stack_base + 1)
-            self.receive(CLOSE)
             if i < len(statements) - 1:
-                self.receive(BLANK_NEWLINE)
-        self.receive(CLOSE)
-        self.receive(BLANK_NEWLINE)
-        
+                self.cr()
     
     def visit_Assignment(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lvalue, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('=')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rvalue, stack, stack_base + 1)
         self.receive(';')
-        self.receive(CLOSE)
     
     def visit_PlusAssignment(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lvalue, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('+=')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rvalue, stack, stack_base + 1)
         self.receive(';')
-        self.receive(CLOSE)
         
     def visit_Break(self, node, stack, stack_base):
         self.receive('break;')
@@ -247,118 +258,78 @@ class PrettyPrinterVisitor(Visitor):
         self.receive('continue;')
         
     def visit_Do(self, node, stack, stack_base):
-        self.receive(Open())
-        self.receive('do')
-        self.receive(BLANK)
-        self.receive('{')
-        self.receive(BLANK)
+        self.receive('do {')
+        self.cr(4)
         self.visit_statement_list(node.body, stack, stack_base + 1)
-        self.receive(BLANK)
-        self.receive('}')
-        self.receive(BLANK)
-        self.receive('while')
-        self.receive(BLANK)
-        self.receive(Open())
-        self.receive('(')
+        self.cr(-4)
+        self.receive('} while (')
         self.visit(node.condition, stack, stack_base + 1)
-        self.receive(')')
-        self.receive(CLOSE)
-        self.receive(';')
-        self.receive(CLOSE)
+        self.receive(');')
     
     def visit_If(self, node, stack, stack_base):
-        self.receive(Open())
-        self.receive('if')
-        self.receive(BLANK)
-        self.receive(Open())
-        self.receive('(')
+        self.receive('if (')
         self.visit(node.condition, stack, stack_base + 1)
-        self.receive(CLOSE)
-        self.receive(BLANK)
-        self.receive('{')
-        self.visit_statement_list(node.true_body, 4, stack, stack_base + 1)
+        self.receive(') {')
+        self.cr(4)
+        self.visit_statement_list(node.true_body, stack, stack_base + 1)
+        self.cr(-4)
         self.receive('}')
-        self.receive(BLANK)
         if node.false_body is not None:
-            self.receive('else')
-            self.receive(BLANK)
-            self.receive('{')
-            self.receive(BLANK)
-            self.visit_statement_list(node.false_body, 4, stack, stack_base + 1)
+            self.receive(' else {')
+            self.cr(4)
+            self.visit_statement_list(node.false_body, stack, stack_base + 1)
+            self.cr(-4)
             self.receive('}')
-            self.receive(BLANK)
-        self.receive(CLOSE)
         
     def visit_For(self, node, stack, stack_base):
-        self.receive(Open(offset=0))
-        self.receive('for')
-        self.receive(BLANK)
-        self.receive('(')
-        self.receive(Open(offset=0))
+        self.receive('for (')
         self.visit(node.indexer, stack, stack_base + 1)
-        self.receive(BLANK)
-        self.receive('in')
-        self.receive(BLANK)
+        self.receive(' in ')
         self.visit(node.iterator, stack, stack_base + 1)
-        self.receive(CLOSE)
-        self.receive(')')
-        self.receive(BLANK)
-        self.receive('{')
-        self.receive(BLANK_INDENT_NEWLINE)
-        self.visit_statement_list(node.body, 4, stack, stack_base + 1)
+        self.receive(') {')
+        self.cr(4)
+        self.visit_statement_list(node.body, stack, stack_base + 1)
+        self.cr(-4)
         self.receive('}')
-        self.receive(CLOSE)
         
     def visit_Return(self, node, stack, stack_base):
-        self.receive(Open())
-        self.receive('return')
-        self.receive(BLANK)
+        self.receive('return ')
         self.visit(node.expr, stack, stack_base + 1)
         self.receive(';')
-        self.receive(CLOSE)
         
     def visit_While(self, node, stack, stack_base):
-        self.receive(Open())
-        self.receive('while')
-        self.receive(BLANK)
-        self.receive(Open())
-        self.receive('(')
+        self.receive('while (')
         self.visit(node.condition, stack, stack_base + 1)
-        self.receive(')')
-        self.receive(CLOSE)
-        self.receive(BLANK)
+        self.receive(') {')
         self.receive('{')
-        self.receive(BLANK)
+        self.cr(4)
         self.visit_statement_list(node.body, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.cr(-4)
         self.receive('}')
-        self.receive(CLOSE)
             
     def visit_Script(self, node, stack, stack_base):
-        self.visit_statement_list(node.body, 0, stack, stack_base)
-        self.receive(BLANK_NEWLINE)
+        self.open()
+        self.visit_statement_list(node.body, stack, stack_base)
+        self.close()
 
     def visit_NamedFunctionDeclaration(self, node, stack, stack_base):
-        self.receive(Open())
         self.receive('function')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.name, stack, stack_base + 1)
-        self.receive(BLANK)
-        self.receive(Open())
+        self.spc()
         self.receive('(')
         for i, param in enumerate(node.formal_params):
             self.receive(param)
             if i < len(node.formal_params) - 1:
                 self.receive(',')
-                self.receive(BLANK)
+                self.spc()
         self.receive(')')
-        self.receive(CLOSE)
-        self.receive(BLANK)
+        self.spc()
         self.receive('{')
-        self.receive(BLANK_INDENT_NEWLINE)
-        self.visit_statement_list(node.body, 4, stack, stack_base + 1)
+        self.cr(4)
+        self.visit_statement_list(node.body, stack, stack_base + 1)
+        self.cr(-4)
         self.receive('}')
-        self.receive(CLOSE)
         
     def visit_IdentifierLValue(self, node, stack, stack_base):
         self.receive(node.identifier)
@@ -376,40 +347,34 @@ class PrettyPrinterVisitor(Visitor):
         self.receive(']')
         
     def visit_And(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('&&')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
         
     def visit_Constant(self, node, stack, stack_base):
-        self.receive(str(node.value))
+        self.receive(repr(node.value))
     
     def visit_Dereference(self, node, stack, stack_base):
         self.receive('*')
         self.visit(node.reference, stack, stack_base + 1)
     
     def visit_Dict(self, node, stack, stack_base):
-        self.receive(Open())
         self.receive('{')
         for i, kvp in enumerate(node.items):
             self.visit(kvp, stack, stack_base + 1)
             if i < len(node.items) - 1:
                 self.receive(',')
-                self.receive(BLANK)
+                self.spc()
         self.receive('}')
-        self.receive(CLOSE)    
             
     def visit_Equal(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('==')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_FieldReference(self, node, stack, stack_base):
         self.visit(node.object, stack, stack_base)
@@ -418,20 +383,16 @@ class PrettyPrinterVisitor(Visitor):
     
     def visit_SpawnedFunction(self, node, stack, stack_base):
         self.visit(node.function, stack, stack_base)
-        self.receive(Open())
         self.receive('(')
         for i, arg in enumerate(node.args):
             self.visit(arg, stack, stack_base)
             if i < len(node.args) - 1:
                 self.receive(',')
-                self.receive(BLANK)
+                self.spc()
         self.receive(')')
-        self.receive(CLOSE)
         
     def visit_FunctionCall(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.function, stack, stack_base + 1)
-        self.receive(Open())
         self.receive('(')
         for i, arg in enumerate(node.args):
             self.visit(arg, stack, stack_base + 1)
@@ -439,155 +400,120 @@ class PrettyPrinterVisitor(Visitor):
                 self.receive(',')
                 self.receive(BLANK)
         self.receive(')')
-        self.receive(CLOSE)
-        self.receive(CLOSE)
-        
+
     def visit_FunctionDeclaration(self, node, stack, stack_base):
-        self.receive('function')
-        self.receive(BLANK)
-        self.receive(Open())
-        self.receive('(')
+        self.receive('function (')
         for i, param in enumerate(node.formal_params):
             self.receive(param)
             if i < len(node.formal_params) - 1:
                 self.receive(',')
-                self.receive(BLANK)
-        self.receive(')')
-        self.receive(CLOSE)
-        self.receive(BLANK)
-        self.receive('{')
+                self.spc()
+        self.receive(') {')
+        self.cr(6)
         self.visit_statement_list(node.body, stack, stack_base + 1)
+        self.cr(-4)
         self.receive('}')
-        self.receive(BLANK)
     
     def visit_GreaterThan(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('>')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
         
     def visit_GreaterThanOrEqual(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('>=')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_Identifier(self, node, stack, stack_base):
         self.receive(str(node.identifier))
 
     def visit_KeyValuePair(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.key_expr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive(':')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.value_expr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_LambdaExpression(self, node, stack, stack_base):
         self.receive('lambda')
-        self.receive(BLANK)
-        self.receive(Open())
+        self.spc()
         for i, param in enumerate(node.variables):
             self.receive(param)
             if i < len(node.variables) - 1:
                 self.receive(',')
-                self.receive(BLANK)
-        self.receive(CLOSE)
+                self.spc()
         self.receive(':')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.expr, stack, stack_base + 1)
     
     def visit_LessThan(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('<')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_LessThanOrEqual(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('<=')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_List(self, node, stack, stack_base):
-        self.receive(Open())
         self.receive('[')
         for i, elem in enumerate(node.contents):
             self.visit(elem, stack, stack_base + 1)
             if i < len(node.contents) - 1:
                 self.receive(',')
-                self.receive(BLANK)
+                self.spc()
         self.receive(']')
-        self.receive(CLOSE)  
         
     def visit_ListIndex(self, node, stack, stack_base):
         self.visit(node.list_expr, stack, stack_base + 1)
-        self.receive(Open())
         self.receive('[')
         self.visit(node.index, stack, stack_base + 1)
         self.receive(']')
-        self.receive(CLOSE)
         
     def visit_Minus(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('-')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_Not(self, node, stack, stack_base):
-        self.receive(Open())
         self.receive('!')
         self.visit(node.expr, stack, stack_base)
-        self.receive(CLOSE)
         
     def visit_UnaryMinus(self, node, stack, stack_base):
-        self.receive(Open())
         self.receive('-')
         self.visit(node.expr, stack, stack_base)
-        self.receive(CLOSE)
         
     def visit_NotEqual(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('!=')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_Or(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('||')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
     
     def visit_Plus(self, node, stack, stack_base):
-        self.receive(Open())
         self.visit(node.lexpr, stack, stack_base + 1)
-        self.receive(BLANK)
+        self.spc()
         self.receive('+')
-        self.receive(BLANK)
+        self.spc()
         self.visit(node.rexpr, stack, stack_base + 1)
-        self.receive(CLOSE)
 
 if __name__ == '__main__':
     csp = CloudScriptParser()
@@ -596,6 +522,7 @@ if __name__ == '__main__':
     pp.visit(result, [], 0)
     pp.receive(EOF)
 
+    print >>sys.stderr, pp.tokens
 
     #print
     #print
