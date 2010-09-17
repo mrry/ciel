@@ -1,23 +1,28 @@
+// Library functions
+include "grab";
+include "java"
+
+// Configuration
+num_mappers = len(input_refs);
 num_reducers = 2;
 
-// Helper function to grab URL references
-function grab(url) {
-   return *(exec("grab", {"urls":[url], "version":0}, 1)[0]);
-}
-
-jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/swgrep.jar")];
-     
 // Paste the reference returned by sw-load here
 input_refs = *ref("swbs://heavenly.cl.cam.ac.uk:8081/upload:37a7814c-e1f3-433d-9fdd-f3f3974c0129:index");
 
-num_mappers = len(input_refs);
-//num_mappers = 4;
+// Change the regexp here
+regexp = "(Derek|Malte|Steve|Chris|Anil|Steven)";
 
+jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/swgrep.jar")];
+
+// -----------------------------------------
+
+// Map stage
 map_outputs = [];
 for (i in range(0, num_mappers)) {
-    map_outputs[i] = spawn_exec("java", {"inputs": [input_refs[i]], "argv":["Steve"], "class":"GrepMapper", "lib":jar_lib}, num_reducers);
+    map_outputs[i] = java("GrepMapper", [input_refs[i]], [regexp], jar_lib, num_reducers);
 }
 
+// Shuffle stage
 reduce_inputs = [];
 for(i in range(0, num_reducers)) {
       reduce_inputs[i] = [];
@@ -26,12 +31,16 @@ for(i in range(0, num_reducers)) {
       }
 }
 
+// Reduce stage 1
 reduce_outputs = [];
 for(i in range(0, num_reducers)) {
-      reduce_outputs[i] = spawn_exec("java", {"inputs": reduce_inputs[i], "argv":[], "class":"GrepReducer1", "lib":jar_lib}, 1)[0];
+      reduce_outputs[i] = java("GrepReducer1", reduce_inputs[i], [], jar_lib, 1)[0];
 }
 
-reduce_outputs2 = spawn_exec("java", {"inputs": reduce_outputs, "argv":[], "class":"GrepReducer2", "lib":jar_lib}, 1);
+// Reduce stage 2
+reduce_outputs2 = java("GrepReducer2", reduce_outputs, [], jar_lib, 1);
+
+// -----------------------------------------
 
 ignore = *(spawn_exec("sync", {"inputs" : reduce_outputs2}, 1)[0]);
 
