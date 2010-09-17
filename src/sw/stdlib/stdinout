@@ -1,0 +1,4 @@
+function stdinout(input_refs, cmd_line) {
+	return spawn_exec("stdinout", {"inputs" : input_refs, "command_line" : cmd_line}, 1)[0];
+}
+

@@ -1,0 +1,4 @@
+function environ(input_refs, cmd_line, num_outputs) {
+	return spawn_exec("environ", {"inputs" : input_refs, "command_line" : cmd_line}, num_outputs);
+}
+
