@@ -170,3 +170,7 @@ class RecoveryManager(plugins.SimplePlugin):
         
         block_file.close()
         
+        # Publishing recovered blocks may cause tasks to become QUEUED, so we
+        # must run the scheduler.
+        self.bus.publish('schedule')
+        
