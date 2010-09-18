@@ -45,7 +45,7 @@ def build_extent_list(filename, options):
     
     if options.size is not None:
         # Divide the input file into a variable number of fixed sized chunks.
-        if options.delimiter is None:
+        if options.delimiter is not None:
             # Use the delimiter, and the size is an upper bound.
             with open(filename, 'rb') as f:
                 start = 0
@@ -85,7 +85,7 @@ def build_extent_list(filename, options):
             for start in range(0, file_size, options.size):
                 extents.append((start, min(file_size, start + options.size)))
         
-    if options.count is not None:
+    elif options.count is not None:
         # Divide the input file into a fixed number of equal-sized chunks.
         if options.delimiter is not None:
             # Use the delimiter to divide chunks.
