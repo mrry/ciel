@@ -144,7 +144,7 @@ class DataRoot:
                 if he.status == 404:
                     is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
                     assert not is_streaming
-                    del cherrypy.response.headers['Pragma']
+                    cherrypy.response.headers.pop(['Pragma'], None)
                     return serve_file(filename)
                 else:
                     raise
