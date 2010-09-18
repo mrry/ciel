@@ -12,19 +12,17 @@ let init_vals t v rf n =
   let q = (drift -. d) /. (u -. d) in
   q, u, d, drift
 
-let calc_stkval n s u d =
-  let stkval = create float64 c_layout (n+1) (n+1) in
-  set stkval 0 0 s;
-  for i = 1 to n do
-    set stkval i 0 (get stkval (i-1) 0 *. u);
-    for j = 1 to i do
-      set stkval i j (get stkval (i-1) (j-1) *. d)
-    done
-  done;
-  stkval
+let c_stkval n s u d j =
+  s *. (u ** (n-.j)) *. (d ** j)
 
-let gen_initial_optvals stkval n k cp =
-  Array.init (n+1) (fun j -> max 0. (cp *. (get stkval n j -. k)))
+let gen_initial_optvals stkfn n k cp =
+  let rec fn = function
+    |(-1) -> ()
+    |j -> 
+       output_value stdout (max 0. (cp *. (stkfn (float j) -. k)));
+       flush stdout;
+       fn (j-1)
+  in fn n
 
 let eqn q drift a b =
   ((q *. a) +. (1.0 -. q) *. b) /. drift
@@ -45,6 +43,7 @@ let process_rows rowstart rowto q drift =
       let acc = match c with
       |hd::tl when rowstart-i >= (rowstart - rowto) ->
         output_value stdout hd;
+        flush stdout;
         tl
       |c -> c in
       fn (i-1) (List.rev acc)
@@ -57,16 +56,16 @@ let _ =
   let [s;k;t;v;rf;cp] = List.map float_arg [1;2;3;4;5;6] in
   let [n;chunk;start] = List.map int_arg [7;8;9] in
   let q,u,d,drift = init_vals t v rf n in
-  match start with 
+  (match start with 
   |1 -> 
-      let stkval = calc_stkval n s u d in
-      let x = List.rev (Array.to_list (gen_initial_optvals stkval n k cp)) in
+      let stkfn = c_stkval (float n) s u d in
       output_value stdout n;
-      List.iter (output_value stdout) x
+      gen_initial_optvals stkfn n k cp
   |_ ->
       let rowstart = input_value stdin in
       if rowstart = 0 then
-        printf "%14f\n%!" (input_value stdin)
+        printf "%.9f\n%!" (input_value stdin)
       else 
         let rowto = max 0 (rowstart - chunk) in
         process_rows rowstart rowto q drift
+  ); flush stdout; flush stderr
