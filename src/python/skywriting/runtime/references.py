@@ -189,17 +189,10 @@ class SW2_StreamReference(SWRealReference):
             
             # We attempt to upgrade the size hint if more information is
             # available from the merging reference.
-            if self.size_hint is None:
-                self.size_hint = ref.size_hint
             
             # We calculate the union of the two sets of location hints.
-            for (netloc, access_methods) in ref.location_hints.items():
-                try:
-                    existing_access_methods = set(self.location_hints[netloc])
-                except KeyError:
-                    existing_access_methods = set()
-                self.location_hints[netloc] = list(set(access_methods) | existing_access_methods)
-        
+            self.location_hints.update(ref.location_hints)
+            
     def as_future(self):
         return SW2_FutureReference(self.id, self.provenance)
         
