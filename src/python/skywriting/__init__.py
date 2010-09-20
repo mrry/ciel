@@ -44,6 +44,7 @@ def main(default_role=None):
     parser.add_option("-b", "--blockstore", action="store", dest="blockstore", help="Path to the block store directory", metavar="PATH", default=None)
     parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
     parser.add_option("-l", "--lib", action="store", dest="lib", help="Path to standard library of Skywriting scripts (for workers)", metavar="PATH", default=os.path.join(os.path.dirname(__file__), '../../sw/stdlib'))
+    parser.add_option("-x", "--ignore-blocks", action="store_true", dest="ignore_blocks", help="Flag to instruct the workers not to send existing blocks", default=False)
     (options, _) = parser.parse_args()
    
     if options.role == 'master':
