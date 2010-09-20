@@ -37,6 +37,7 @@ class WorkerRoot:
         self.kill = KillRoot()
         self.log = LogRoot(worker)
         self.upload = UploadRoot(worker.upload_manager)
+        self.admin = ManageRoot(worker.block_store)
     
     @cherrypy.expose
     def index(self):
@@ -185,6 +186,20 @@ class UploadRoot:
         else:
             start_index = int(start)
             self.upload_manager.handle_chunk(id, start_index, cherrypy.request.body)
+    
+class ManageRoot:
+    
+    def __init__(self, block_store):
+        self.block_store = block_store
+        
+    @cherrypy.expose
+    def default(self, action=None, id=None):
+        if action == 'flush':
+            self.block_store.flush_unpinned_blocks()
+        elif action == 'pin' and id is not None:
+            self.block_store.pin_ref_id(id)
+        elif action is None:
+            return simplejson.dumps(self.block_store.pin_set)
     
 class FeaturesRoot:
     
