@@ -13,8 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from threading import Lock
-from urllib2 import URLError, HTTPError
-from skywriting.runtime.exceptions import ExecutionInterruption,\
+from skywriting.runtime.exceptions import \
     MissingInputException, RuntimeSkywritingError
 import random
 import urllib2
@@ -32,7 +31,7 @@ import fcntl
 import re
 from datetime import datetime, timedelta
 from cStringIO import StringIO
-from errno import EAGAIN, EPIPE, ENXIO
+from errno import EAGAIN
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -524,11 +523,13 @@ class StreamTransferContext(TransferContext):
 
 class BlockStore:
     
-    def __init__(self, hostname, port, base_dir):
+    def __init__(self, hostname, port, base_dir, ignore_blocks=False):
         self._lock = Lock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
         self.object_cache = {}
+    
+        self.ignore_blocks = ignore_blocks
     
         # Maintains a set of block IDs that are currently being written.
         # (i.e. They are in the pre-publish/streamable state, and have not been
@@ -915,4 +916,4 @@ class BlockStore:
         return filename
 
     def is_empty(self):
-        return len(os.listdir(self.base_dir)) == 0
+        return self.ignore_blocks or len(os.listdir(self.base_dir)) == 0
