@@ -1,0 +1,89 @@
+// (c) Anil Madhavapeddy <anil@recoil.org>
+// In the public domain
+// Parallel binomial options parser for use with Skywriting
+
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <err.h>
+
+static double u,d,drift,q;
+static double s,k,t,v,rf,cp;
+static int n, chunk, start;
+
+void
+init_vals(void)
+{
+  double h = t / (double)n;
+  double xd = (rf - 0.5 * pow(v,2)) * h;
+  double xv = v * sqrt(h);
+  u = exp(xd + xv);
+  d = exp(xd - xv);
+  drift = exp(rf * h);
+  q = (drift - d) / (u - d);
+}  
+
+void
+gen_initial_optvals(void)
+{
+  double stkval;
+  for (int j=n; j>-1; j--) {
+    stkval = s * pow(u,(n-j)) * pow(d,j);
+    stkval = fmax(0, (cp * (stkval-k)));
+    write(STDOUT_FILENO, (void *)(&stkval), sizeof(stkval));
+  }
+}
+
+void process_rows(int rowstart, int rowto)
+{
+  write(STDOUT_FILENO, (void *)&rowto, sizeof(rowto));
+  int chunk = rowstart - rowto;
+  double *acc = malloc((chunk+1)*sizeof(double));
+  if (!acc) err(1, "malloc");
+  for (int pos=0; pos<=rowstart; pos++) {
+    double v,v2;
+    read(STDIN_FILENO, (void *)&v, sizeof(v));
+    v2=acc[0];
+    acc[0]=v;
+    int maxcol = chunk < pos ? chunk : pos;
+    for (int idx=1; idx<=maxcol; idx++) {
+      double nv = ((q * acc[idx-1]) + (1-q) * v2) / drift;
+      v2 = acc[idx];
+      acc[idx] = nv;
+    }
+    if (maxcol == chunk)
+      write(STDOUT_FILENO, (void *)&(acc[maxcol]), sizeof(double));
+  }
+}
+
+int 
+main(int argc, char **argv)
+{
+  s = strtod(argv[1], NULL); 
+  k = strtod(argv[2], NULL);
+  t = strtod(argv[3], NULL);
+  v = strtod(argv[4], NULL);
+  rf = strtod(argv[5], NULL);
+  cp = strtod(argv[6], NULL);
+  n = (int)strtod(argv[7], NULL);
+  chunk = (int)strtod(argv[8], NULL);
+  start = (int)strtod(argv[9], NULL);
+  init_vals();
+  if (start == 1) {
+    write(STDOUT_FILENO, (void *)&n, sizeof(n));
+    gen_initial_optvals();
+  } else {
+    int rowstart=0;
+    read(STDIN_FILENO, (void *)&rowstart, sizeof(rowstart));
+    if (rowstart==0) {
+      double v=0.0;
+      read(STDIN_FILENO, (void *)&v, sizeof(v));
+      printf("%.9f\n", v);
+    } else {
+      int rowto = (rowstart - chunk) > 0 ? (rowstart - chunk) : 0;
+      process_rows(rowstart, rowto);
+    }
+  }
+  return 0;
+}
