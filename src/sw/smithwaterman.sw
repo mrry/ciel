@@ -1,20 +1,33 @@
+// Library functions
+include "grab";
+//include "java";
+
+// Numbers of blocks
 num_rows = 10;
 num_cols = 10;
 
-horiz_source = ref("http://www.cl.cam.ac.uk/~dgm36/horizontal_string_random");
-vert_source = ref("http://www.cl.cam.ac.uk/~dgm36/vertical_string_random");
-java_lib = [ref("http://www.cl.cam.ac.uk/~dgm36/dp.jar")];
+// Java code
+java_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/dp.jar")];
 
-horiz_chunks = spawn_exec("java", {"inputs":[horiz_source], "lib":java_lib, "class":"tests.dp.PartitionInputString", "argv":[]}, num_cols);
-vert_chunks = spawn_exec("java", {"inputs":[vert_source], "lib":java_lib, "class":"tests.dp.PartitionInputString", "argv":[]}, num_rows);
+// Input data - MODIFY THIS FOR EACH RUN
+// Use sw-load to put http://www.cl.cam.ac.uk/~dgm36/horizontal_string_random
+// and http://www.cl.cam.ac.uk/~dgm36/vertical_string_random into the cluster
+// and paste references returned into here
+horiz_source = *ref("swbs://lochain-0.xeno.cl.cam.ac.uk:8001/upload:c9cfd34b-26b2-4497-a0c5-c0ea50cbf436:index");
+vert_source = *ref("swbs://lochain-0.xeno.cl.cam.ac.uk:8001/upload:853bbb00-fc8a-44cc-8387-7da01e631385:index");
+
+// -----------------------------------------
+
+horiz_chunks = java("tests.dp.PartitionInputString", horiz_source, [], java_lib, num_cols);
+vert_chunks = java("tests.dp.PartitionInputString", vert_source, [], java_lib, num_rows);
 
 blocks = [];
 
 blocks[0] = [];
 
-blocks[0][0] = spawn_exec("java", {"argv":["tl", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[0], vert_chunks[0]]}, 3);
+blocks[0][0] = java("tests.dp.SmithWaterman", [horiz_chunks[0], vert_chunks[0]], ["tl", -1, -1, -1, 2], java_lib, 3);
 for (j in range(1, num_cols)) {
-    blocks[0][j] = spawn_exec("java", {"argv":["t", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[j], vert_chunks[0], blocks[0][j-1][2]]}, 3);
+    blocks[0][j] = java("tests.dp.SmithWaterman", [horiz_chunks[j], vert_chunks[0], blocks[0][j-1][2]], ["t", -1, -1, -1, 2], java_lib, 3);
 }
 
 i = 0;
@@ -24,13 +37,15 @@ for (i in range(1, num_rows)) {
     
     blocks[i] = [];
 
-    blocks[i][0] = spawn_exec("java", {"argv":["l", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[0], vert_chunks[i], blocks[i-1][0][1]]}, 3);
+    blocks[i][0] = java("tests.dp.SmithWaterman", [horiz_chunks[0], vert_chunks[i], blocks[i-1][0][1]], ["l", -1, -1, -1, 2], java_lib, 3);
     
     for (j in range(1, num_cols)) {
-	blocks[i][j] = spawn_exec("java", {"argv":["i", -1, -1, -1, 2], "lib":java_lib, "class":"tests.dp.SmithWaterman", "inputs":[horiz_chunks[j], vert_chunks[i], blocks[i-1][j-1][0], blocks[i-1][j][1], blocks[i][j-1][2]]}, 3);
+       blocks[i][j] = java("tests.dp.SmithWaterman", [horiz_chunks[j], vert_chunks[i], blocks[i-1][j-1][0], blocks[i-1][j][1], blocks[i][j-1][2]], ["i", -1, -1, -1, 2], java_lib, 3);
     }
 
 }
+
+// -----------------------------------------
 
 ignore = spawn_exec("sync", {"inputs":[blocks[i][j][0]]}, 1);
 
