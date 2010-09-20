@@ -57,6 +57,9 @@ STREAM_RETRY = StreamRetry()
 def get_netloc_for_sw_url(url):
     return urlparse.urlparse(url).netloc
 
+def get_id_for_sw_url(url):
+    return urlparse.urlparse(url).path
+
 class SWReferenceJSONEncoder(simplejson.JSONEncoder):
 
     def default(self, obj):
@@ -529,6 +532,8 @@ class BlockStore:
         self.base_dir = base_dir
         self.object_cache = {}
     
+        self.pin_set = set()
+    
         self.ignore_blocks = ignore_blocks
     
         # Maintains a set of block IDs that are currently being written.
@@ -914,6 +919,21 @@ class BlockStore:
             for block_name, block_size in self.block_list_generator():
                 block_list_file.write(BLOCK_LIST_RECORD_STRUCT.pack(block_name, block_size))
         return filename
+
+    def pin_ref_id(self, id):
+        self.pin_set.add(id)
+
+    def flush_unpinned_blocks(self):
+        cherrypy.log.error('Flushing unpinned blocks', 'BLOCKSTORE', logging.INFO)
+        files_kept = 0
+        files_removed = 0
+        for block_name in os.listdir(self.base_dir):
+            if block_name not in self.pin_set:
+                os.remove(os.path.join(self.base_dir, block_name))
+                files_removed += 1
+            else:
+                files_kept += 1
+        cherrypy.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
 
     def is_empty(self):
         return self.ignore_blocks or len(os.listdir(self.base_dir)) == 0

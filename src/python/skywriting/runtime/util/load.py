@@ -160,6 +160,7 @@ def upload_extent_to_targets(input_file, block_id, start, finish, targets, packe
         
     for h, target in zip(https, targets):
         h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
 def upload_string_to_targets(input, block_id, targets, packet_size):
 
@@ -175,7 +176,7 @@ def upload_string_to_targets(input, block_id, targets, packet_size):
         
     for h, target in zip(https, targets):
         h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
-        
+        h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
 def main():
     parser = OptionParser()
