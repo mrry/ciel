@@ -12,6 +12,14 @@ static double u,d,drift,q;
 static double s,k,t,v,rf,cp;
 static int n, chunk, start;
 
+#define SAFE_IO(fn,fd,v) \
+  do { \
+     ssize_t r = fn(fd, (void *)(&(v)), sizeof((v))); \
+     if (r != (sizeof((v)))) err(1,#fn); \
+  } while(0)
+#define INPUT(v) SAFE_IO(read,STDIN_FILENO,v)
+#define OUTPUT(v) SAFE_IO(write,STDOUT_FILENO,v)
+
 void
 init_vals(void)
 {
@@ -31,19 +39,19 @@ gen_initial_optvals(void)
   for (int j=n; j>-1; j--) {
     stkval = s * pow(u,(n-j)) * pow(d,j);
     stkval = fmax(0, (cp * (stkval-k)));
-    write(STDOUT_FILENO, (void *)(&stkval), sizeof(stkval));
+    OUTPUT(stkval);
   }
 }
 
 void process_rows(int rowstart, int rowto)
 {
-  write(STDOUT_FILENO, (void *)&rowto, sizeof(rowto));
+  OUTPUT(rowto);
   int chunk = rowstart - rowto;
   double *acc = malloc((chunk+1)*sizeof(double));
   if (!acc) err(1, "malloc");
   for (int pos=0; pos<=rowstart; pos++) {
     double v,v2;
-    read(STDIN_FILENO, (void *)&v, sizeof(v));
+    INPUT(v);
     v2=acc[0];
     acc[0]=v;
     int maxcol = chunk < pos ? chunk : pos;
@@ -53,7 +61,7 @@ void process_rows(int rowstart, int rowto)
       acc[idx] = nv;
     }
     if (maxcol == chunk)
-      write(STDOUT_FILENO, (void *)&(acc[maxcol]), sizeof(double));
+      OUTPUT(acc[maxcol]);
   }
 }
 
@@ -71,14 +79,14 @@ main(int argc, char **argv)
   start = (int)strtod(argv[9], NULL);
   init_vals();
   if (start == 1) {
-    write(STDOUT_FILENO, (void *)&n, sizeof(n));
+    OUTPUT(n);
     gen_initial_optvals();
   } else {
     int rowstart=0;
-    read(STDIN_FILENO, (void *)&rowstart, sizeof(rowstart));
+    INPUT(rowstart);
     if (rowstart==0) {
-      double v=0.0;
-      read(STDIN_FILENO, (void *)&v, sizeof(v));
+      double v;
+      INPUT(v);
       printf("%.9f\n", v);
     } else {
       int rowto = (rowstart - chunk) > 0 ? (rowstart - chunk) : 0;
