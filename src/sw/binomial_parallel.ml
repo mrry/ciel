@@ -1,6 +1,4 @@
 open Printf
-open Bigarray
-open Bigarray.Array2
 
 let init_vals t v rf n =
   let h = t /. (float_of_int n) in
@@ -15,40 +13,35 @@ let init_vals t v rf n =
 let c_stkval n s u d j =
   s *. (u ** (n-.j)) *. (d ** j)
 
-let gen_initial_optvals stkfn n k cp =
-  let rec fn = function
-    |(-1) -> ()
-    |j -> 
-       output_value stdout (max 0. (cp *. (stkfn (float j) -. k)));
-       flush stdout;
-       fn (j-1)
-  in fn n
+let gen_initial_optvals n s u d k cp =
+  for j = n downto 0 do
+    let stkval = c_stkval (float n) s u d (float j) in
+    output_value stdout (max 0. (cp *. (stkval -. k)))
+  done
 
 let eqn q drift a b =
   ((q *. a) +. (1.0 -. q) *. b) /. drift
 
-let apply_column v acc q drift =
-  List.fold_left (fun a b ->
-    eqn q drift (List.hd a) b :: a
-  ) [v] acc
+let apply_column v v' acc pos chunk q drift =
+  v' := acc.(0);
+  acc.(0) <- v;
+  let maxcol = min chunk pos in
+  for idx = 1 to maxcol do
+    let nv' = eqn q drift acc.(idx-1) !v' in
+    v' := acc.(idx);
+    acc.(idx) <- nv';
+  done;
+  if maxcol = chunk then output_value stdout acc.(maxcol)
 
 let process_rows rowstart rowto q drift =
   output_value stdout rowto;
-  let rec fn num acc =
-    match num with
-    |(-1) -> ()
-    |i ->
-      let v = input_value stdin in
-      let c = apply_column v acc q drift in
-      let acc = match c with
-      |hd::tl when rowstart-i >= (rowstart - rowto) ->
-        output_value stdout hd;
-        flush stdout;
-        tl
-      |c -> c in
-      fn (i-1) (List.rev acc)
-  in
-  fn rowstart []
+  let chunk = rowstart - rowto in
+  let acc = Array.create (chunk+1) 0.0 in
+  let v' = ref 0. in
+  for pos = 0 to rowstart do
+    let v = input_value stdin in
+    apply_column v v' acc pos chunk q drift;
+  done
 
 let _ = 
   let float_arg x = float_of_string (Sys.argv.(x)) in
@@ -58,9 +51,8 @@ let _ =
   let q,u,d,drift = init_vals t v rf n in
   (match start with 
   |1 -> 
-      let stkfn = c_stkval (float n) s u d in
       output_value stdout n;
-      gen_initial_optvals stkfn n k cp
+      gen_initial_optvals n s u d k cp
   |_ ->
       let rowstart = input_value stdin in
       if rowstart = 0 then
