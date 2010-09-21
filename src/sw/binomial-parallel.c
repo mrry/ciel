@@ -6,19 +6,50 @@
 #include <math.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
 #include <err.h>
 
 static double u,d,drift,q;
 static double s,k,t,v,rf,cp;
 static int n, chunk, start;
 
+// function nabbed from openssh, copyright openbsd @ /usr/src/usr.bin/ssh/atomicio.c
+size_t
+atomicio(f, fd, _s, n)
+  ssize_t (*f) (int, void *, size_t);
+  int fd;
+  void *_s;
+  size_t n;
+{
+  char *s = _s;
+  size_t pos = 0;
+  ssize_t res;
+
+  while (n > pos) {
+    res = (f) (fd, s + pos, n - pos);
+    switch (res) {
+    case -1:
+      if (errno == EINTR || errno == EAGAIN)
+        continue;
+      return 0;
+    case 0:
+      errno = EPIPE;
+      return pos;
+    default:
+      pos += (size_t)res;
+    }
+  }
+  return pos;
+}
+
 #define SAFE_IO(fn,fd,v) \
   do { \
-     ssize_t r = fn(fd, (void *)(&(v)), sizeof((v))); \
+     ssize_t r = atomicio(fn,fd, (void *)(&(v)), sizeof((v))); \
      if (r != (sizeof((v)))) err(1,#fn); \
   } while(0)
+#define vwrite (ssize_t (*)(int, void *, size_t))write
 #define INPUT(v) SAFE_IO(read,STDIN_FILENO,v)
-#define OUTPUT(v) SAFE_IO(write,STDOUT_FILENO,v)
+#define OUTPUT(v) SAFE_IO(vwrite,STDOUT_FILENO,v)
 
 void
 init_vals(void)
