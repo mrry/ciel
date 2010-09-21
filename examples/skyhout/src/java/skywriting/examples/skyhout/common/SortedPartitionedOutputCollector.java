@@ -10,15 +10,25 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.mapreduce.Partitioner;
 
-public class SortedPartitionedOutputCollector<K, V, C> extends
-		AbstractOutputCollector<K, V, C> implements Closeable {
+public class SortedPartitionedOutputCollector<K, V, C, R> extends
+		AbstractOutputCollector<K, V, C, R> implements Closeable {
 
 	private SequenceFile.Writer[] writers;
 	
+	private Combiner<K, C, V, R> combiner;
+	
 	public SortedPartitionedOutputCollector(SkywritingTaskFileSystem fs,
-			Partitioner<K, V> partitioner, Combiner<C, V> combiner, Class<K> keyClass, Class<C> valueClass) throws IOException {
-		super(fs.numOutputs(), partitioner, combiner);
+			Partitioner<K, V> partitioner, Combiner<K, C, V, R> combiner, Class<K> keyClass, Class<R> valueClass) throws IOException {
+		this(fs, partitioner, combiner, keyClass, valueClass, fs.numOutputs());
+			
+	}
+	
+	
+	public SortedPartitionedOutputCollector(SkywritingTaskFileSystem fs,
+			Partitioner<K, V> partitioner, Combiner<K, C, V, R> combiner, Class<K> keyClass, Class<R> valueClass, int numOutputs) throws IOException {
+		super(numOutputs, partitioner, combiner);
 		
+		this.combiner = combiner;
 		this.writers = new SequenceFile.Writer[fs.numOutputs()];
 		for (int i = 0; i < numOutputs; ++i) {
 			this.maps.add(new TreeMap<K, C>());
@@ -31,8 +41,7 @@ public class SortedPartitionedOutputCollector<K, V, C> extends
 		Iterator<Map.Entry<K, C>> it = map.entrySet().iterator();
 	    while (it.hasNext()) {
 	        Map.Entry<K, C> pairs = it.next();
-	        System.out.println("Outputting to partition " + mapID + ": " + pairs.getKey());
-	        writers[mapID].append(pairs.getKey(), pairs.getValue());
+	        writers[mapID].append(pairs.getKey(), this.combiner.combineFinal(pairs.getKey(), pairs.getValue()));
 	    }
 	}
 

@@ -4,7 +4,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 
-class SetInsertCombiner<T> implements Combiner<Set<T>, T> {
+class SetInsertCombiner<K, T> implements Combiner<K, Set<T>, T, Set<T>> {
 	
 	public Set<T> combine(Set<T> oldValue, T increment) {
 		oldValue.add(increment);
@@ -17,5 +17,10 @@ class SetInsertCombiner<T> implements Combiner<Set<T>, T> {
 		ret.add(initVal);
 		return ret;
 	}
-	
+
+	@Override
+	public Set<T> combineFinal(K key, Set<T> oldValue) {
+		return oldValue;
+	}
+
 }
