@@ -352,7 +352,7 @@ class FileTransferContext(TransferContext):
             self.has_succeeded = False
 
     def cleanup(self):
-        cherrypy.log.error('Closing sink file for %s (wrote %d bytes)' % self.bytes_written)
+        cherrypy.log.error('Closing sink file for %s (wrote %d bytes)' % (self.save_id, self.bytes_written))
         self.sink_fp.close()
         TransferContext.cleanup(self)
 
