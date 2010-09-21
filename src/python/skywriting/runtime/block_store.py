@@ -48,6 +48,8 @@ urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
 
+PIN_PREFIX = '.__pin__:'
+
 length_regex = re.compile("^Content-Length:\s*([0-9]+)")
 
 class StreamRetry:
@@ -297,10 +299,12 @@ class BufferTransferContext(TransferContext):
     def failure(self, errno, errmsg):
         self.failures += 1
         try:
+            cherrypy.log.error('Failed to fetch from %s (%s, %s), retrying...' % (self.urls[self.failures-1], str(errno), errmsg), 'BLOCKSTORE', logging.WARNING)
             self.start_fetch(self.urls[self.failures])
             self.buffer.close()
             self.buffer = StringIO()
         except IndexError:
+            cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
             self.has_succeeded = False
 
@@ -321,9 +325,13 @@ class FileTransferContext(TransferContext):
         self.has_succeeded = False
         self.save_id = save_id
         self.start_fetch(self.urls[0])
+        self.bytes_written = 0
 
     def write_data(self, _str):
-        self.sink_fp.write(_str)
+        cherrypy.log.error("Fetching file syncly %s writing %d bytes" % (self.save_id, len(_str)), 'CURL_FETCH', logging.INFO)
+        self.bytes_written += len(_str)
+        ret = self.sink_fp.write(_str)
+        cherrypy.log.error("Now at position %d (result of write was %s)" % (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.INFO)
 
     def write_header_line(self, _str):
         pass
@@ -335,16 +343,19 @@ class FileTransferContext(TransferContext):
     def failure(self, errno, errmsg):
         self.failures += 1
         try:
+            cherrypy.log.error('Failed to fetch %s from %s (%s, %s), retrying...' % (self.save_id, self.urls[self.failures-1], str(errno), errmsg), 'BLOCKSTORE', logging.WARNING)
             self.sink_fp.seek(0)
             self.sink_fp.truncate(0)
             self.start_fetch(self.urls[self.failures])
-            
         except IndexError:
+            cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
             self.has_succeeded = False
 
     def cleanup(self):
+        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % (self.save_id, self.bytes_written, self.sink_fp.tell(), str(self.sink_fp.errors)), 'CURL_FETCH', logging.INFO)
         self.sink_fp.close()
+        cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.INFO)
         TransferContext.cleanup(self)
 
     def save_result(self, block_store):
@@ -600,6 +611,9 @@ class BlockStore:
                 return True, self.streaming_filename(id)
             else:
                 return False, self.filename(id)
+    
+    def pin_filename(self, id): 
+        return os.path.join(self.base_dir, PIN_PREFIX + id)
     
     def streaming_filename(self, id):
         return os.path.join(self.base_dir, '.%s' % id)
@@ -912,6 +926,15 @@ class BlockStore:
                 block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
                 yield block_name, block_size
     
+    def build_pin_set(self):
+        cherrypy.log.error('Building pin set', 'BLOCKSTORE', logging.INFO)
+        initial_size = len(self.pin_set)
+        for filename in os.listdir(self.base_dir):
+            if filename.startswith(PIN_PREFIX):
+                self.pin_set.add(filename[len(PIN_PREFIX):])
+                cherrypy.log.error('Pinning block %s' % filename[len(PIN_PREFIX):], 'BLOCKSTORE', logging.INFO)
+        cherrypy.log.error('Pinned %d new blocks' % (len(self.pin_set) - initial_size), 'BLOCKSTORE', logging.INFO)
+    
     def generate_block_list_file(self):
         cherrypy.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
@@ -921,19 +944,26 @@ class BlockStore:
         return filename
 
     def pin_ref_id(self, id):
+        open(self.pin_filename(id), 'w').close()
         self.pin_set.add(id)
-
-    def flush_unpinned_blocks(self):
+        cherrypy.log.error('Pinned block %s' % id, 'BLOCKSTORE', logging.INFO)
+        
+    def flush_unpinned_blocks(self, really=True):
         cherrypy.log.error('Flushing unpinned blocks', 'BLOCKSTORE', logging.INFO)
         files_kept = 0
         files_removed = 0
         for block_name in os.listdir(self.base_dir):
-            if block_name not in self.pin_set:
-                os.remove(os.path.join(self.base_dir, block_name))
+            if block_name not in self.pin_set and not block_name.startswith(PIN_PREFIX):
+                if really:
+                    os.remove(os.path.join(self.base_dir, block_name))
                 files_removed += 1
-            else:
+            elif not block_name.startswith(PIN_PREFIX):
                 files_kept += 1
-        cherrypy.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+        if really:
+            cherrypy.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+        else:
+            cherrypy.log.error('If we flushed block store, would keep %d blocks, remove %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+        return (files_kept, files_removed)
 
     def is_empty(self):
         return self.ignore_blocks or len(os.listdir(self.base_dir)) == 0

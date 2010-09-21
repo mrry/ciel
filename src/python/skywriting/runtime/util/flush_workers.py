@@ -21,6 +21,7 @@ def main():
     
     parser = OptionParser()
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
+    parser.add_option("-f", "--force", action="store_true", dest="force", help="Set this flag to really flush the blocks", default=False)
     (options, _) = parser.parse_args()
 
     h = httplib2.Http()
@@ -28,9 +29,15 @@ def main():
     workers = get_worker_netlocs(options.master)
     
     for netloc in workers:
-        response, _ = h.request('http://%s/admin/flush/' % (netloc), 'POST', 'pin')
-        assert response.status == 200
-        print >>sys.stderr, 'Flushed worker: %s' % netloc
+        if options.force:
+            response, content = h.request('http://%s/admin/flush/really' % (netloc), 'POST', 'flush')
+            assert response.status == 200
+            print >>sys.stderr, 'Flushed worker: %s' % netloc
+        else:
+            response, content = h.request('http://%s/admin/flush/' % (netloc), 'POST', 'flush')
+            assert response.status == 200
+            print >>sys.stderr, 'Worker: %s' % netloc
+        print '---', content
               
 if __name__ == '__main__':
     main()

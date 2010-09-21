@@ -373,6 +373,9 @@ class JavaExecutor(SWExecutor):
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
         jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
 
+        for jar in jar_filenames:
+            cherrypy.log.error('Input jar has size  = %d bytes' % os.path.getsize(jar), 'BLOCKSTORE', logging.INFO)
+
         if self.stream_output:
             stream_refs = {}
             for i, filename in enumerate(file_outputs):
