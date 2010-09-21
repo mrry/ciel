@@ -21,6 +21,7 @@ public class PageRankInitMergeTask extends SkyhoutTask {
 		public void reduce(IntWritable key, List<Integer> value,
 				OutputCollector<IntWritable, IntArrayWritable> output)
 				throws IOException {
+			//System.err.println("Merging initial " + key + ": " + value.size() + " outlinks");
 			output.collect(key, this.combineFinal(key, value));
 		}
 
@@ -38,7 +39,7 @@ public class PageRankInitMergeTask extends SkyhoutTask {
 				List<Integer> oldValue) throws IOException {
 			int[] arr = new int[oldValue.size()];
 			int i = 0;
-			for (int x : arr) {
+			for (int x : oldValue) {
 				arr[i++] = x;
 			}
 			return new IntArrayWritable(arr);
@@ -63,7 +64,7 @@ public class PageRankInitMergeTask extends SkyhoutTask {
 		
 		new SortedInputReduceDriver<IntWritable, IntArrayWritable, List<Integer>, IntWritable, IntArrayWritable>(fs,
 				new PageRankAdjacencyListReducer(),
-				IntWritable.class, IntArrayWritable.class, IntWritable.class, IntArrayWritable.class);
+				IntWritable.class, IntArrayWritable.class, IntWritable.class, IntArrayWritable.class).runReduce();
 		
 	}
 

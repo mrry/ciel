@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
@@ -26,13 +25,16 @@ public class PageRankInitTask extends SkyhoutTask {
 
 	private static class PageRankInitMapper implements Mapper<LongWritable, Text, IntWritable, IntWritable> {
 
-		private static final Pattern SPLIT_PATTERN = Pattern.compile("\t");
+		private static final Pattern SPLIT_PATTERN = Pattern.compile(",");
 		
 		@Override
 		public void map(LongWritable key, Text value,
 				OutputCollector<IntWritable, IntWritable> output) throws IOException {
 			String[] splitLine = SPLIT_PATTERN.split(value.toString());
-			output.collect(new IntWritable(Integer.parseInt(splitLine[0])), new IntWritable(Integer.parseInt(splitLine[1])));
+			if (splitLine.length != 2)
+				System.err.println("Discarding line: " + value);
+			else
+				output.collect(new IntWritable(Integer.parseInt(splitLine[0])), new IntWritable(Integer.parseInt(splitLine[1])));
 		}
 		
 	}

@@ -27,7 +27,8 @@ public class IntArrayWritable implements Writable {
 		int length = in.readInt();
 		this.arr = new int[length];
 		for (int i = 0; i < length; ++i) {
-			this.arr[i] = in.readInt();
+			int element = in.readInt();
+			this.arr[i] = element;
 		}
 	}
 

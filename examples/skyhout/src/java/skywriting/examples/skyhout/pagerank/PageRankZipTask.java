@@ -23,9 +23,9 @@ public class PageRankZipTask extends SkyhoutTask {
 		public void zip(IntWritable key, IntArrayWritable value1, DoubleWritable value2,
 				OutputCollector<IntWritable, DoubleWritable> output) throws IOException {
 
-			DoubleWritable distributedScore = new DoubleWritable(value2.get() / (double) value1.get().length);
+			double distributedScore = value2.get() / (double) value1.get().length;
 			for (int outLink : value1.get()) {
-				output.collect(new IntWritable(outLink), distributedScore);
+				output.collect(new IntWritable(outLink), new DoubleWritable(distributedScore));
 			}
 			
 		}

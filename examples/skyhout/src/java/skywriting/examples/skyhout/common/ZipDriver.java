@@ -40,7 +40,10 @@ public class ZipDriver<K extends Writable, V1 extends Writable, V2 extends Writa
 	}
 
 	public void runZip() throws IOException {
-		while (SequenceFileUtils.read(this.reader1, this.currentKey1, this.currentValue1) && SequenceFileUtils.read(this.reader2, this.currentKey2, this.currentValue2)) {
+		while (true) {
+			boolean gotRecord1 = SequenceFileUtils.read(this.reader1, this.currentKey1, this.currentValue1);
+			boolean gotRecord2 = SequenceFileUtils.read(this.reader2, this.currentKey2, this.currentValue2);
+			if (!gotRecord1 || !gotRecord2) break;
 			this.zipper.zip(this.currentKey1, this.currentValue1, this.currentValue2, this.output);
 		}
 		this.reader1.close();

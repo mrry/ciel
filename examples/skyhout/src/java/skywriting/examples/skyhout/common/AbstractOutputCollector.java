@@ -14,7 +14,7 @@ public abstract class AbstractOutputCollector<K, V, C, R> implements ClosableOut
 	private final Combiner<K, C, V, R> comb;
 	
 	public AbstractOutputCollector(int numOutputs, Partitioner<K, V> partitioner, Combiner<K, C, V, R> combiner) {
-		System.err.println("New AOC with " + numOutputs + " outputs");
+		//System.err.println("New AOC with " + numOutputs + " outputs");
 		this.numOutputs = numOutputs;
 		this.partitioner = partitioner;
 		this.comb = combiner;
@@ -30,7 +30,7 @@ public abstract class AbstractOutputCollector<K, V, C, R> implements ClosableOut
 	
 	public int collectWithIndex(K key, V value) throws IOException {
 		int partitionIndex = this.partitioner.getPartition(key, value, this.numOutputs);
-		System.err.println("Partition index: " + partitionIndex);
+		//System.err.println("Partition index: " + partitionIndex);
 		Map<K, C> map = maps.get(partitionIndex);
 		
 		// Insert element into map
