@@ -58,6 +58,7 @@ class Worker(plugins.SimplePlugin):
         else:
             block_store_dir = options.blockstore
         self.block_store = BlockStore(self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
+        self.block_store.build_pin_set()
         self.upload_manager = UploadManager(self.block_store)
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)

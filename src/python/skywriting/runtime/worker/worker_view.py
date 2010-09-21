@@ -195,7 +195,12 @@ class ManageRoot:
     @cherrypy.expose
     def default(self, action=None, id=None):
         if action == 'flush':
-            self.block_store.flush_unpinned_blocks()
+            if id == 'really':
+                kept, removed = self.block_store.flush_unpinned_blocks(True)
+                return 'Kept %d blocks, removed %d blocks' % (kept, removed)
+            else:
+                kept, removed = self.block_store.flush_unpinned_blocks(False)
+                return 'Would keep %d blocks, remove %d blocks' % (kept, removed)
         elif action == 'pin' and id is not None:
             self.block_store.pin_ref_id(id)
         elif action is None:
