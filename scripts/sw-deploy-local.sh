@@ -21,4 +21,6 @@ cd /opt
 git clone -q http://github.com/mrry/skywriting.git
 mkdir -p /opt/skywriting/logs
 mkdir -p /opt/skywriting/journal
-mkdir -p /opt/skywriting/store
+mkdir -p /mnt/store
+ln -s /mnt/store /opt/skywriting/store
+
