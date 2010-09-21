@@ -101,7 +101,7 @@ public class KMeansMapTask implements Task {
 				clusterReader.close();
 			}
 				
-			PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo> output = new PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo>(fs, conf, Text.class, KMeansInfo.class, Integer.MAX_VALUE, new skywriting.examples.skyhout.kmeans.KMeansCombiner());
+			PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo, KMeansInfo> output = new PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo, KMeansInfo>(fs, conf, Text.class, KMeansInfo.class, Integer.MAX_VALUE, new skywriting.examples.skyhout.kmeans.KMeansCombiner());
 			
 			Text currentID = new Text();
 			

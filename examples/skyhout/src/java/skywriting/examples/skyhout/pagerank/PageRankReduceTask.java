@@ -3,7 +3,7 @@ package skywriting.examples.skyhout.pagerank;
 import java.io.IOException;
 
 import org.apache.hadoop.io.DoubleWritable;
-import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.IntWritable;
 
 import skywriting.examples.skyhout.common.SkyhoutTask;
 import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
@@ -15,8 +15,8 @@ public class PageRankReduceTask extends SkyhoutTask {
 	public void invoke(SkywritingTaskFileSystem fs, String[] args)
 			throws IOException {
 		
-		SortedInputReduceDriver<Text, DoubleWritable, Text, DoubleWritable> reducer = 
-			new SortedInputReduceDriver<Text, DoubleWritable, Text, DoubleWritable>(fs, new PageRankCombinerReducer(), Text.class, DoubleWritable.class, Text.class, DoubleWritable.class);
+		SortedInputReduceDriver<IntWritable, DoubleWritable, DoubleWritable, IntWritable, DoubleWritable> reducer = 
+			new SortedInputReduceDriver<IntWritable, DoubleWritable, DoubleWritable, IntWritable, DoubleWritable>(fs, new PageRankCombinerReducer(), IntWritable.class, DoubleWritable.class, IntWritable.class, DoubleWritable.class);
 	
 		reducer.runReduce();
 		

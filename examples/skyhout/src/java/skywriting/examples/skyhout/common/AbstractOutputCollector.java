@@ -2,21 +2,19 @@ package skywriting.examples.skyhout.common;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Map.Entry;
 
 import org.apache.hadoop.mapreduce.Partitioner;
 
-public abstract class AbstractOutputCollector<K, V, C> implements ClosableOutputCollector<K, V>, Iterable<Map.Entry<K, C>> {
+public abstract class AbstractOutputCollector<K, V, C, R> implements ClosableOutputCollector<K, V> /*, Iterable<Map.Entry<K, R>>*/ {
 
 	protected final int numOutputs;
 	protected final ArrayList<Map<K, C>> maps;
 	private final Partitioner<K, V> partitioner;
-	private final Combiner<C, V> comb;
+	private final Combiner<K, C, V, R> comb;
 	
-	public AbstractOutputCollector(int numOutputs, Partitioner<K, V> partitioner, Combiner<C, V> combiner) {
+	public AbstractOutputCollector(int numOutputs, Partitioner<K, V> partitioner, Combiner<K, C, V, R> combiner) {
+		System.err.println("New AOC with " + numOutputs + " outputs");
 		this.numOutputs = numOutputs;
 		this.partitioner = partitioner;
 		this.comb = combiner;
@@ -32,6 +30,7 @@ public abstract class AbstractOutputCollector<K, V, C> implements ClosableOutput
 	
 	public int collectWithIndex(K key, V value) throws IOException {
 		int partitionIndex = this.partitioner.getPartition(key, value, this.numOutputs);
+		System.err.println("Partition index: " + partitionIndex);
 		Map<K, C> map = maps.get(partitionIndex);
 		
 		// Insert element into map
@@ -43,13 +42,13 @@ public abstract class AbstractOutputCollector<K, V, C> implements ClosableOutput
 		
 		return partitionIndex;
 	}
-
-	public Iterator<Entry<K, C>> iterator() {
+/*
+	public Iterator<Entry<K, R>> iterator() {
 		// 
 		return new MultiMapIterator();
 	}
 
-	class MultiMapIterator implements Iterator<Map.Entry<K, C>> {
+	class MultiMapIterator implements Iterator<Map.Entry<K, R>> {
 
 		private int index;
 		private Iterator<Map.Entry<K, C>> cur;
@@ -79,10 +78,10 @@ public abstract class AbstractOutputCollector<K, V, C> implements ClosableOutput
 		}
 
 		@Override
-		public Entry<K, C> next() {
+		public Entry<K, R> next() {
 			// 
 			if (!hasNext()) throw new NoSuchElementException();
-			else return cur.next();
+			else return AbstractOutputCollector.this.comb.combineFinal(cur.next());
 		}
 
 		@Override
@@ -99,6 +98,6 @@ public abstract class AbstractOutputCollector<K, V, C> implements ClosableOutput
 				return false;
 		}
 	}
-
+*/
 	
 }

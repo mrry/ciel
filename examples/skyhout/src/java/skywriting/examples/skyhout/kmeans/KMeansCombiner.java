@@ -1,11 +1,12 @@
 package skywriting.examples.skyhout.kmeans;
 
+import org.apache.hadoop.io.Text;
 import org.apache.mahout.clustering.kmeans.Cluster;
 import org.apache.mahout.clustering.kmeans.KMeansInfo;
 
 import skywriting.examples.skyhout.common.Combiner;
 
-public class KMeansCombiner implements Combiner<KMeansInfo, KMeansInfo> {
+public class KMeansCombiner implements Combiner<Text, KMeansInfo, KMeansInfo, KMeansInfo> {
 	
 	@Override
 	public KMeansInfo combine(KMeansInfo oldValue, KMeansInfo newValue) {
@@ -18,6 +19,10 @@ public class KMeansCombiner implements Combiner<KMeansInfo, KMeansInfo> {
 	@Override
 	public KMeansInfo combineInit(KMeansInfo initVal) {
 		return new KMeansInfo(initVal.getPoints(), initVal.getPointTotal());
+	}
+	
+	public KMeansInfo combineFinal(Text key, KMeansInfo oldVal) {
+		return oldVal;
 	}
 
 }

@@ -5,11 +5,11 @@ import java.util.TreeMap;
 
 import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
 
-public class SortedOutputCollector<K, V, C> extends AbstractOutputCollector<K, V, C> {
+public class SortedOutputCollector<K, V, C, R> extends AbstractOutputCollector<K, V, C, R> {
 
 	TreeMap<K, C> sortedMap;
 	
-	public SortedOutputCollector(Combiner<C, V> combiner) {
+	public SortedOutputCollector(Combiner<K, C, V, R> combiner) {
 		super(1, new HashPartitioner<K, V>(), combiner);
 		sortedMap = new TreeMap<K, C>();
 		this.maps.add(sortedMap);

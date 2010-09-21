@@ -12,20 +12,23 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
 
-public class PartialHashOutputCollector<K extends Writable, V, C extends Writable> extends AbstractOutputCollector<K, V, C> {
+public class PartialHashOutputCollector<K extends Writable, V, C, R extends Writable> extends AbstractOutputCollector<K, V, C, R> {
 
 	private int flushThresh;
 	private SequenceFile.Writer[] writers;
 	private int numOutputs;
+	private Combiner<K, C, V, R> combiner;
 	
-	public PartialHashOutputCollector(SkywritingTaskFileSystem fs, Configuration conf, Class<K> keyClass, Class<C> valueClass, int flushThreshold, Combiner<C, V> combiner) throws IOException {
+	public PartialHashOutputCollector(SkywritingTaskFileSystem fs, Configuration conf, Class<K> keyClass, Class<R> valueClass, int flushThreshold, Combiner<K, C, V, R> combiner) throws IOException {
 		this(fs, conf, keyClass, valueClass, flushThreshold, combiner, new HashPartitioner<K, V>());
 	}
 	
-	public PartialHashOutputCollector(SkywritingTaskFileSystem fs, Configuration conf, Class<K> keyClass, Class<C> valueClass, int flushThreshold, Combiner<C, V> combiner, Partitioner<K,V> partitioner) throws IOException {
+	public PartialHashOutputCollector(SkywritingTaskFileSystem fs, Configuration conf, Class<K> keyClass, Class<R> valueClass, int flushThreshold, Combiner<K, C, V, R> combiner, Partitioner<K,V> partitioner) throws IOException {
 		super(fs.numOutputs(), partitioner, combiner);
 		
+		this.numOutputs = fs.numOutputs();
 		this.flushThresh = flushThreshold;
+		this.combiner = combiner;
 		
 		this.writers = new SequenceFile.Writer[numOutputs];
 		for (int i = 0; i < numOutputs; i++) { 
@@ -74,7 +77,7 @@ public class PartialHashOutputCollector<K extends Writable, V, C extends Writabl
 		Iterator<Map.Entry<K, C>> it = map.entrySet().iterator();
 	    while (it.hasNext()) {
 	        Map.Entry<K, C> pairs = it.next();
-	        writers[mapID].append(pairs.getKey(), pairs.getValue());
+	        writers[mapID].append(pairs.getKey(), this.combiner.combineFinal(pairs.getKey(), pairs.getValue()));
 	    }
 	}
 
