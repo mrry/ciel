@@ -299,10 +299,12 @@ class BufferTransferContext(TransferContext):
     def failure(self, errno, errmsg):
         self.failures += 1
         try:
+            cherrypy.log.error('Failed to fetch from %s (%s, %s), retrying...' % (self.urls[self.failures-1], str(errno), errmsg), 'BLOCKSTORE', logging.WARNING)
             self.start_fetch(self.urls[self.failures])
             self.buffer.close()
             self.buffer = StringIO()
         except IndexError:
+            cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
             self.has_succeeded = False
 
@@ -338,11 +340,12 @@ class FileTransferContext(TransferContext):
     def failure(self, errno, errmsg):
         self.failures += 1
         try:
+            cherrypy.log.error('Failed to fetch %s from %s (%s, %s), retrying...' % (self.save_id, self.urls[self.failures-1], str(errno), errmsg), 'BLOCKSTORE', logging.WARNING)
             self.sink_fp.seek(0)
             self.sink_fp.truncate(0)
             self.start_fetch(self.urls[self.failures])
-            
         except IndexError:
+            cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
             self.has_succeeded = False
 
