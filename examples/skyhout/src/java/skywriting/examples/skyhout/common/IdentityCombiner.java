@@ -6,7 +6,6 @@ class IdentityCombiner<K, T> implements Combiner<K, T, T, T> {
 		return value;
 	}
 	
-	
 	public T combineInit(T initVal) {
 		return initVal;
 	}
