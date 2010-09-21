@@ -483,12 +483,11 @@ class SWRuntimeInterpreterTask:
             return
             
         except MissingInputException as mie:
-            print "!!! ERROR: cannot retrieve inputs: %s" % (repr(mie.bindings), )
+            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SWI', logging.WARNING)
             raise
 
         except Exception:
-            print "!!! WEIRD EXCEPTION"
-            print self.continuation.stack
+            cherrypy.log.error('Interpreter error.', 'SWI', logging.ERROR, True)
             self.save_continuation = True
             raise
 
@@ -721,8 +720,7 @@ class SWRuntimeInterpreterTask:
         sha = hashlib.sha1()
         self.hash_update_with_structure(sha, [real_args, num_outputs])
         prefix = '%s:%s:' % (executor_name, sha.hexdigest())
-        print '### [spawn_]exec output prefix:', prefix
-        
+                
         args_name = '%sargs' % (prefix, )
         output_names = ['%s%d' % (prefix, i) for i in range(num_outputs)]
         return args_name, output_names
