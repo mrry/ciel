@@ -20,6 +20,7 @@ import os
 import simplejson
 import httplib2
 from urlparse import urljoin
+from skywriting.runtime.references import SWURLReference
 
 def main():
     parser = OptionParser()
@@ -58,11 +59,12 @@ def main():
         
         for url in urls:
             if options.json:
-                obj = bs.retrieve_object_by_url(url, 'json')
+                obj = bs.retrieve_object_for_ref(SWURLReference([url]), 'json')
                 simplejson.dump(obj, sys.stdout, cls=SWReferenceJSONEncoder, indent=4)
                 print
             else:
-                fh = bs.retrieve_object_by_url(url, 'handle')
+                fh = bs.retrieve_object_for_ref(SWURLReference([url]), 'handle')
+                print fh
                 for line in fh:
                     sys.stdout.write(line)
                 fh.close()
