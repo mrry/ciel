@@ -36,7 +36,7 @@ public class PageRankZipTask extends SkyhoutTask {
 	public void invoke(SkywritingTaskFileSystem fs, String[] args)
 			throws IOException {
 
-		ClosableOutputCollector<IntWritable, DoubleWritable> output = new SortedPartitionedOutputCollector<IntWritable, DoubleWritable, DoubleWritable, DoubleWritable>(fs, new HashPartitioner<IntWritable, DoubleWritable>(), new PageRankCombinerReducer(), IntWritable.class, DoubleWritable.class);
+		ClosableOutputCollector<IntWritable, DoubleWritable> output = new SortedPartitionedOutputCollector<IntWritable, DoubleWritable, DoubleWritable, DoubleWritable>(fs, new HashPartitioner<IntWritable, DoubleWritable>(), new PageRankCombinerReducer<IntWritable>(), IntWritable.class, DoubleWritable.class);
 		new ZipDriver<IntWritable, IntArrayWritable, DoubleWritable, IntWritable, DoubleWritable>(fs, new PageRankZipper(), output, IntWritable.class, IntArrayWritable.class, DoubleWritable.class).runZip();
 		
 	}
