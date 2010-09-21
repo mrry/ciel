@@ -8,6 +8,7 @@ import org.apache.hadoop.io.IntWritable;
 import skywriting.examples.skyhout.common.SkyhoutTask;
 import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
 import skywriting.examples.skyhout.common.SortedInputReduceDriver;
+import skywriting.examples.skyhout.common.SortedInputSequenceFileOutputReduceDriver;
 
 public class PageRankReduceTask extends SkyhoutTask {
 
@@ -16,7 +17,7 @@ public class PageRankReduceTask extends SkyhoutTask {
 			throws IOException {
 		
 		SortedInputReduceDriver<IntWritable, DoubleWritable, DoubleWritable, IntWritable, DoubleWritable> reducer = 
-			new SortedInputReduceDriver<IntWritable, DoubleWritable, DoubleWritable, IntWritable, DoubleWritable>(fs, new PageRankCombinerReducer(), IntWritable.class, DoubleWritable.class, IntWritable.class, DoubleWritable.class);
+			new SortedInputSequenceFileOutputReduceDriver<IntWritable, DoubleWritable, DoubleWritable, IntWritable, DoubleWritable>(fs, new PageRankCombinerReducer<IntWritable>(), IntWritable.class, DoubleWritable.class, IntWritable.class, DoubleWritable.class);
 	
 		reducer.runReduce();
 		

@@ -11,7 +11,7 @@ import skywriting.examples.skyhout.common.CombinerReducer;
 import skywriting.examples.skyhout.common.IntArrayWritable;
 import skywriting.examples.skyhout.common.SkyhoutTask;
 import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
-import skywriting.examples.skyhout.common.SortedInputReduceDriver;
+import skywriting.examples.skyhout.common.SortedInputSequenceFileOutputReduceDriver;
 
 public class PageRankInitMergeTask extends SkyhoutTask {
 
@@ -62,7 +62,7 @@ public class PageRankInitMergeTask extends SkyhoutTask {
 	public void invoke(SkywritingTaskFileSystem fs, String[] args)
 			throws IOException {
 		
-		new SortedInputReduceDriver<IntWritable, IntArrayWritable, List<Integer>, IntWritable, IntArrayWritable>(fs,
+		new SortedInputSequenceFileOutputReduceDriver<IntWritable, IntArrayWritable, List<Integer>, IntWritable, IntArrayWritable>(fs,
 				new PageRankAdjacencyListReducer(),
 				IntWritable.class, IntArrayWritable.class, IntWritable.class, IntArrayWritable.class).runReduce();
 		

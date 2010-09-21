@@ -10,10 +10,9 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.mapred.OutputCollector;
 
-public class SortedInputReduceDriver<K extends WritableComparable, V extends Writable, C, K2 extends WritableComparable, V2 extends Writable> implements OutputCollector<K2, V2> {
+public abstract class SortedInputReduceDriver<K extends WritableComparable, V extends Writable, C, K2 extends WritableComparable, V2 extends Writable> implements OutputCollector<K2, V2> {
 
 	private SequenceFile.Reader[] readers;
-	private SequenceFile.Writer writer;
 	private CombinerReducer<K, V, C, K2, V2> combiner;
 	
 	private ArrayList<K> keyHeads;
@@ -37,8 +36,6 @@ public class SortedInputReduceDriver<K extends WritableComparable, V extends Wri
 		} catch (InstantiationException ie) {
 			throw new RuntimeException(ie);
 		}
-
-		this.writer = new SequenceFile.Writer(fs, fs.getConf(), new Path("/out/0"), outputKeyClass, outputValueClass);
 		this.combiner = combiner;
 	}
 	
@@ -85,9 +82,11 @@ public class SortedInputReduceDriver<K extends WritableComparable, V extends Wri
 			
 		} while (true);
 		
-		this.writer.close();
+		this.close();
 		
 	}
+	
+	protected abstract void close() throws IOException;
 	
 	private C popInitialValueFromHead(int i) throws IOException {
 		
@@ -115,9 +114,8 @@ public class SortedInputReduceDriver<K extends WritableComparable, V extends Wri
 		}
 	}
 
-	@Override
-	public void collect(K2 key, V2 value) throws IOException {
-		this.writer.append(key, value);
-	}
+	public abstract void collect(K2 key, V2 value) throws IOException;
+	
+	
 	
 }
