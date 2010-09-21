@@ -48,6 +48,8 @@ urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
 
+PIN_PREFIX = '.__pin__:'
+
 length_regex = re.compile("^Content-Length:\s*([0-9]+)")
 
 class StreamRetry:
@@ -601,6 +603,9 @@ class BlockStore:
             else:
                 return False, self.filename(id)
     
+    def pin_filename(self, id): 
+        return os.path.join(self.base_dir, PIN_PREFIX + id)
+    
     def streaming_filename(self, id):
         return os.path.join(self.base_dir, '.%s' % id)
     
@@ -912,6 +917,15 @@ class BlockStore:
                 block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
                 yield block_name, block_size
     
+    def build_pin_set(self):
+        cherrypy.log.error('Building pin set', 'BLOCKSTORE', logging.INFO)
+        initial_size = len(self.pin_set)
+        for filename in os.listdir(self.base_dir):
+            if filename.startswith(PIN_PREFIX):
+                self.pin_set.add(filename[len(PIN_PREFIX):])
+                cherrypy.log.error('Pinning block %s' % filename[len(PIN_PREFIX):], 'BLOCKSTORE', logging.INFO)
+        cherrypy.log.error('Pinned %d new blocks' % (len(self.pin_set) - initial_size), 'BLOCKSTORE', logging.INFO)
+    
     def generate_block_list_file(self):
         cherrypy.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
@@ -921,19 +935,26 @@ class BlockStore:
         return filename
 
     def pin_ref_id(self, id):
+        open(self.pin_filename(id), 'w').close()
         self.pin_set.add(id)
-
-    def flush_unpinned_blocks(self):
+        cherrypy.log.error('Pinned block %s' % id, 'BLOCKSTORE', logging.INFO)
+        
+    def flush_unpinned_blocks(self, really=True):
         cherrypy.log.error('Flushing unpinned blocks', 'BLOCKSTORE', logging.INFO)
         files_kept = 0
         files_removed = 0
         for block_name in os.listdir(self.base_dir):
-            if block_name not in self.pin_set:
-                os.remove(os.path.join(self.base_dir, block_name))
+            if block_name not in self.pin_set and not block_name.startswith(PIN_PREFIX):
+                if really:
+                    os.remove(os.path.join(self.base_dir, block_name))
                 files_removed += 1
-            else:
+            elif not block_name.startswith(PIN_PREFIX):
                 files_kept += 1
-        cherrypy.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+        if really:
+            cherrypy.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+        else:
+            cherrypy.log.error('If we flushed block store, would keep %d blocks, remove %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+        return (files_kept, files_removed)
 
     def is_empty(self):
         return self.ignore_blocks or len(os.listdir(self.base_dir)) == 0
