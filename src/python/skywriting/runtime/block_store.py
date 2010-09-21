@@ -325,9 +325,11 @@ class FileTransferContext(TransferContext):
         self.has_succeeded = False
         self.save_id = save_id
         self.start_fetch(self.urls[0])
+        self.bytes_written = 0
 
     def write_data(self, _str):
         cherrypy.log.error("Fetching file syncly %s writing %d bytes" % (self.save_id, len(_str)), 'CURL_FETCH', logging.INFO)
+        self.bytes_written += len(_str)
         self.sink_fp.write(_str)
 
     def write_header_line(self, _str):
@@ -350,6 +352,7 @@ class FileTransferContext(TransferContext):
             self.has_succeeded = False
 
     def cleanup(self):
+        cherrypy.log.error('Closing sink file for %s (wrote %d bytes)' % self.bytes_written)
         self.sink_fp.close()
         TransferContext.cleanup(self)
 
