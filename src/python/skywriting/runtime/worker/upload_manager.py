@@ -68,6 +68,8 @@ class UploadManager:
         try:
             self.block_store.retrieve_filenames_for_refs_eager(refs)
             self.current_fetches[session_id] = 200
+            for ref in refs:
+                self.block_store.pin_ref_id(ref.id)
         except:
             self.current_fetches[session_id] = 500
         cherrypy.log.error('Finished session %s, status = %d' % (session_id, self.current_fetches[session_id]), 'UPLOAD', logging.INFO)
