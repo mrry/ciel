@@ -12,6 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.worker.upload_manager import UploadManager
+from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 
 '''
 Created on 4 Feb 2010
@@ -59,7 +60,9 @@ class Worker(plugins.SimplePlugin):
             block_store_dir = options.blockstore
         self.block_store = BlockStore(self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.build_pin_set()
-        self.upload_manager = UploadManager(self.block_store)
+        self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
+        self.upload_deferred_work.subscribe()
+        self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
