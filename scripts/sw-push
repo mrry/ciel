@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# defaults
+KEY="sw-masterkey"
+SWUSER="root"
+SWROOT="/opt/skywriting"
+VERBOSE=0
+
+# ---------------------------------------------
+# option processing
+
+while [ $# -gt 0 ]
+do
+  case $1
+  in
+    -v)
+      VERBOSE=1
+      shift 1
+    ;;
+
+    -i|-k)
+      KEY=$2
+      shift 2
+    ;;
+
+    -f)
+      if [[ $2 = '--' ]]; then
+         # STDIN input
+         SOURCE=''
+      else
+         # Cluster definition file
+         SOURCE=$2
+      fi
+      shift 2
+    ;;
+    
+    -r|--swroot)
+      SWROOT=$2
+      shift 2
+    ;;
+    
+    -u|--swuser)
+      SWUSER=$2
+      shift 2
+    ;;
+    
+    -p|--pushfile)
+      PUSHFILE=$2
+      shift 2
+    ;;
+    
+    -t|--target)
+      TARGET=$2
+      shift 2
+    ;;
+
+    -h|*)
+      echo "usage: sw-update-cluster [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
+      echo "-f: the file listing the machines in the cluster, one per line."
+      echo "    If '--' is passed, STDIN is assumed."
+      echo "-i|-k: the private key to use for authentication to cluster machines"
+      echo "       (defaults to 'sw-masterkey')"
+      echo "-p|--pushfile: the file to push to the cluster"
+      echo "-t|--target: the target file name/path on the cluster"
+      echo "-r|--swroot: the root directory of the remote Skywriting installation"
+      echo "             (defaults to '/opt/skywriting')"
+      echo "-u|--swuser: the user name of the Skywriting user on the cluster"
+      echo "             (defaults to 'root')"
+      echo "-v: verbose mode (don't surpress output from remote machines)"
+      shift 1
+      exit 0
+    ;;
+  esac
+done
+
+# ---------------------------------------------
+# main script
+
+I=0
+cat $SOURCE | while myLine=`line`
+do
+    echo -n "Pushing to instance $I: "
+    if [[ $VERBOSE -eq 1 ]]; then
+	scp -o StrictHostKeyChecking=no -i $KEY $PUSHFILE $SWUSER@$myLine:$TARGET
+    else
+	scp -o StrictHostKeyChecking=no -i $KEY $PUSHFILE $SWUSER@$myLine:$TARGET
+    fi
+    echo $myLine
+    I=`expr $I + 1`
+done
+
+exit 0

@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# defaults
+KEY="sw-masterkey"
+SWUSER="root"
+SWROOT="/opt/skywriting"
+VERBOSE=0
+
+# ---------------------------------------------
+# option processing
+
+while [ $# -gt 0 ]
+do
+  case $1
+  in
+    -v)
+      VERBOSE=1
+      shift 1
+    ;;
+
+    -i|-k)
+      KEY=$2
+      shift 2
+    ;;
+
+    -f)
+      if [[ $2 = '--' ]]; then
+         # STDIN input
+         SOURCE=''
+      else
+         # Cluster definition file
+         SOURCE=$2
+      fi
+      shift 2
+    ;;
+    
+    -r|--swroot)
+      SWROOT=$2
+      shift 2
+    ;;
+    
+    -t|--target)
+      TARGET=$2
+      shift 2
+    ;;
+    
+    -u|--swuser)
+      SWUSER=$2
+      shift 2
+    ;;
+
+    -h|*)
+      echo "usage: sw-wipe-cluster [-f cluster-file|(-i|-k) key|-r swroot|-u swuser] -t target"
+      echo "-f: the file listing the machines in the cluster, one per line."
+      echo "    If '--' is passed, STDIN is assumed."
+      echo "-i|-k: the private key to use for authentication to cluster machines"
+      echo "       (defaults to 'sw-masterkey')"
+      echo "-r|--swroot: the root directory of the remote Skywriting installation"
+      echo "             (defaults to '/opt/skywriting')"
+      echo "-t|--target: target to move the block store to"
+      echo "-u|--swOAuser: the user name of the Skywriting user on the cluster"
+      echo "             (defaults to 'root')"
+      shift 1
+      exit 0
+    ;;
+  esac
+done
+
+# ---------------------------------------------
+# main script
+
+if [ $TARGET == "" ]; then
+    echo "must specify a target (-t)!"
+    exit 1
+fi
+
+I=0
+cat $SOURCE | while myLine=`line`
+do
+    echo -n "Moving store on instance $I: "
+#    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "mv $SWROOT/store $TARGET; ln -s $TARGET/store/ $SWROOT/store"
+    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm $SWROOT/store; ln -s $TARGET/store/ $SWROOT/store"
+    echo $myLine
+    I=`expr $I + 1`
+done
+
+exit 0
