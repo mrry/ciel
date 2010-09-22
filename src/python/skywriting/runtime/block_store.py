@@ -434,7 +434,8 @@ class StreamTransferContext(TransferContext):
             written = self.write_without_blocking(self.fifo_fd, _str)
             if written < len(_str):
                 self.mem_buffer += _str[written:]
-        self.sink_fp.write(_str)
+        ret = self.sink_fp.write(_str)
+        cherrypy.log.error("Now at position %d (result of write was %s)" % (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
         self.current_start_byte += len(_str)
         self.have_written_to_process = True
 
@@ -497,7 +498,6 @@ class StreamTransferContext(TransferContext):
 
     def failure(self, errno, errmsg):
 
-
         if errno == 416:
             if not self.response_had_stream:
                 self.close_fifo()
@@ -527,7 +527,10 @@ class StreamTransferContext(TransferContext):
 
     def cleanup(self):
         TransferContext.cleanup(self)
+        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % (self.save_id, self.current_start_byte, self.sink_fp.tell(), str(self.sink_fp.errors)), 'CURL_FETCH', logging.DEBUG)
+        self.sink_fp.flush()
         self.sink_fp.close()
+        cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
         os.unlink(self.fifo_name)
         os.rmdir(self.fifo_dir)
 
