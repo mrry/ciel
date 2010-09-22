@@ -21,7 +21,8 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-from skywriting.runtime.block_store import json_decode_object_hook
+from skywriting.runtime.block_store import json_decode_object_hook,\
+    SWReferenceJSONEncoder
 import sys
 import simplejson
 import cherrypy
@@ -229,8 +230,8 @@ class ManageRoot:
                 return 'Would keep %d blocks, remove %d blocks' % (kept, removed)
         elif action == 'pin' and id is not None:
             self.block_store.pin_ref_id(id)
-        elif action is None:
-            return simplejson.dumps(self.block_store.pin_set)
+        elif action == 'pin':
+            return simplejson.dumps(self.block_store.generate_pin_refs(), cls=SWReferenceJSONEncoder)
     
 class FeaturesRoot:
     
