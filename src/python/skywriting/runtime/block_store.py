@@ -40,7 +40,7 @@ from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, \
     SWTaskOutputProvenance, SW2_StreamReference,\
-    SW2_TombstoneReference
+    SW2_TombstoneReference, SW2_FetchReference, SWNoProvenance
 import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
@@ -120,7 +120,7 @@ class TransferSetContext:
                 for c, errno, errmsg in err_list:
                     self.curl_ctx.remove_handle(c)
                     self.active_handles -= 1
-                    cherrypy.log.error("Curl failure: %s, %s" % (str(errno), str(errmsg)), "CURL_FETCH", logging.INFO)
+                    cherrypy.log.error("Curl failure: %s, %s" % (str(errno), str(errmsg)), "CURL_FETCH", logging.WARNING)
                     c.ctx._failure(errno, errmsg)
                 if num_q == 0:
                     break
@@ -206,7 +206,7 @@ class StreamTransferSetContext(TransferSetContext):
         read_ret, write_ret, exn_ret = select.select(read, write, exn, shortest_timeout)
         if death_pipe in read_ret:
             self.drain_pipe(death_pipe)
-            cherrypy.log.error("Closing fetch FIFOs due to process death", 'CURL_FETCH', logging.INFO)
+            cherrypy.log.error("Closing fetch FIFOs due to process death", 'CURL_FETCH', logging.DEBUG)
             for handle in self.handles:
                 handle.fifo_closed()
 
@@ -215,7 +215,7 @@ class StreamTransferSetContext(TransferSetContext):
             self.process()
             remaining_transfers = filter(lambda x: not x.has_completed, self.handles)
             if len(remaining_transfers) == 0:
-                cherrypy.log.error("All transfers complete", 'CURL_FETCH', logging.INFO)
+                cherrypy.log.error("All transfers complete", 'CURL_FETCH', logging.DEBUG)
                 return
             self.select(death_pipe)
 
@@ -328,10 +328,10 @@ class FileTransferContext(TransferContext):
         self.bytes_written = 0
 
     def write_data(self, _str):
-        cherrypy.log.error("Fetching file syncly %s writing %d bytes" % (self.save_id, len(_str)), 'CURL_FETCH', logging.INFO)
+        cherrypy.log.error("Fetching file syncly %s writing %d bytes" % (self.save_id, len(_str)), 'CURL_FETCH', logging.DEBUG)
         self.bytes_written += len(_str)
         ret = self.sink_fp.write(_str)
-        cherrypy.log.error("Now at position %d (result of write was %s)" % (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.INFO)
+        cherrypy.log.error("Now at position %d (result of write was %s)" % (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
 
     def write_header_line(self, _str):
         pass
@@ -353,9 +353,9 @@ class FileTransferContext(TransferContext):
             self.has_succeeded = False
 
     def cleanup(self):
-        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % (self.save_id, self.bytes_written, self.sink_fp.tell(), str(self.sink_fp.errors)), 'CURL_FETCH', logging.INFO)
+        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % (self.save_id, self.bytes_written, self.sink_fp.tell(), str(self.sink_fp.errors)), 'CURL_FETCH', logging.DEBUG)
         self.sink_fp.close()
-        cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.INFO)
+        cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
         TransferContext.cleanup(self)
 
     def save_result(self, block_store):
@@ -439,7 +439,7 @@ class StreamTransferContext(TransferContext):
         self.have_written_to_process = True
 
     def start_next_fetch(self):
-        cherrypy.log.error("Fetch %s offset %d" % (self.description, self.current_start_byte), 'CURL_FETCH', logging.INFO)
+        cherrypy.log.error("Fetch %s offset %d" % (self.description, self.current_start_byte), 'CURL_FETCH', logging.DEBUG)
         self.start_fetch(self.urls[self.failures], 
                          (self.current_start_byte, 
                           self.current_start_byte + self.chunk_size))
@@ -450,7 +450,7 @@ class StreamTransferContext(TransferContext):
 
     def wake_up(self):
         self.dormant_until = None
-        cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 'CURL_FETCH', logging.INFO)
+        cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 'CURL_FETCH', logging.DEBUG)
         self.consider_restart()
 
     def try_empty_buffer(self):
@@ -458,7 +458,7 @@ class StreamTransferContext(TransferContext):
         written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
         self.mem_buffer = self.mem_buffer[written:]
         if len(self.mem_buffer) == 0 and self.requests_paused:
-            cherrypy.log.error("Consumer buffer empty for %s, considering restart" % self.description, 'CURL_FETCH', logging.INFO)
+            cherrypy.log.error("Consumer buffer empty for %s, considering restart" % self.description, 'CURL_FETCH', logging.DEBUG)
             self.requests_paused = False
             self.consider_restart()
             return True
@@ -477,11 +477,11 @@ class StreamTransferContext(TransferContext):
 
     def pause_for(self, secs):
         self.dormant_until = datetime.now() + timedelta(0, secs)
-        cherrypy.log.error("Pausing %s fetch due to producer buffer empty" % self.description, 'CURL_FETCH', logging.INFO)
+        cherrypy.log.error("Pausing %s fetch due to producer buffer empty" % self.description, 'CURL_FETCH', logging.DEBUG)
 
     def success(self):
 
-        cherrypy.log.error("Fetch %s succeeded (length %d)" % (self.description, self.request_length), "CURL_FETCH", logging.INFO)
+        cherrypy.log.error("Fetch %s succeeded (length %d)" % (self.description, self.request_length), "CURL_FETCH", logging.DEBUG)
  
         if len(self.mem_buffer) == 0:
             if self.request_length is not None and self.request_length < (self.chunk_size / 2):
@@ -492,12 +492,11 @@ class StreamTransferContext(TransferContext):
         else:
             # We should hold off on ordering another chunk until the process has consumed this one
             # The restart will happen when the buffer drains.
-            cherrypy.log.error("Pausing %s fetch consumer buffer full" % self.description, 'CURL_FETCH', logging.INFO)
+            cherrypy.log.error("Pausing %s fetch consumer buffer full" % self.description, 'CURL_FETCH', logging.DEBUG)
             self.requests_paused = True
 
     def failure(self, errno, errmsg):
 
-        cherrypy.log.error("Fetch %s failed (error %s)" % (self.description, str(errno)), "CURL_FETCH", logging.INFO)
 
         if errno == 416:
             if not self.response_had_stream:
@@ -510,6 +509,7 @@ class StreamTransferContext(TransferContext):
                 self.pause_for(1)
 
         else:
+            cherrypy.log.error("Fetch %s failed (error %s)" % (self.description, str(errno)), "CURL_FETCH", logging.WARNING)
             if self.have_written_to_process:
                 # Can't just fail-over; we've failed after having written bytes to a process.
                 self.close_fifo()
@@ -746,6 +746,8 @@ class BlockStore:
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SWURLReference):
             return map(sw_to_external_url, ref.urls)
+        elif isinstance(ref, SW2_FetchReference):
+            return [ref.url]
                 
     def retrieve_filenames_for_refs_eager(self, refs):
 
@@ -757,7 +759,7 @@ class BlockStore:
         # Step 2: Build request descriptors
         def create_transfer_context(ref):
             urls = self.get_fetch_urls_for_ref(ref)
-            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_FetchReference):
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
@@ -942,6 +944,12 @@ class BlockStore:
             for block_name, block_size in self.block_list_generator():
                 block_list_file.write(BLOCK_LIST_RECORD_STRUCT.pack(block_name, block_size))
         return filename
+
+    def generate_pin_refs(self):
+        ret = []
+        for id in self.pin_set:
+            ret.append(SW2_ConcreteReference(id, SWNoProvenance(), os.path.getsize(self.filename(id)), [self.netloc]))
+        return ret
 
     def pin_ref_id(self, id):
         open(self.pin_filename(id), 'w').close()

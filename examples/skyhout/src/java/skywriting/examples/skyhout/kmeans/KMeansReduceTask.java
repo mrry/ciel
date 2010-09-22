@@ -14,6 +14,7 @@ import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.serializer.Serialization;
 import org.apache.hadoop.io.serializer.WritableSerialization;
+import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
 import org.apache.mahout.clustering.kmeans.Cluster;
 import org.apache.mahout.clustering.kmeans.KMeansInfo;
 import org.apache.mahout.common.distance.DistanceMeasure;
@@ -21,6 +22,7 @@ import org.apache.mahout.common.distance.SquaredEuclideanDistanceMeasure;
 
 import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
 import skywriting.examples.skyhout.common.SortedOutputCollector;
+import skywriting.examples.skyhout.common.SortedPartitionedOutputCollector;
 import uk.co.mrry.mercator.task.JarTaskLoader;
 import uk.co.mrry.mercator.task.Task;
 
@@ -49,11 +51,11 @@ public class KMeansReduceTask implements Task {
 			assert fs.numInputs() == 2;
 			assert fs.numOutputs() == 2;
 			
-			SortedOutputCollector<Text, KMeansInfo, KMeansInfo> inputCollector = new SortedOutputCollector<Text, KMeansInfo, KMeansInfo>(new KMeansCombiner());
 	
 			HashMap<String, Cluster> oldClusterMap = new HashMap<String, Cluster>();
 			SequenceFile.Reader oldClusterReader = new SequenceFile.Reader(fs, new Path("/in/" + (fs.numInputs() - 1)), conf);
 
+			
 			while (true) {
 
 				Text id = new Text();
@@ -70,12 +72,16 @@ public class KMeansReduceTask implements Task {
 			}
 				
 			oldClusterReader.close();
+
+			
+			KMeansReducerCombiner kmrc = new KMeansReducerCombiner(oldClusterMap, measure, convergenceDelta);
+			SortedPartitionedOutputCollector<Text, KMeansInfo, KMeansInfo, Cluster> inputCollector = new SortedPartitionedOutputCollector<Text, KMeansInfo, KMeansInfo, Cluster>(fs, new HashPartitioner<Text, KMeansInfo>(), kmrc, Text.class, Cluster.class, 1);
+
 			
 			KMeansInfo currentReduceValue = new KMeansInfo();
 
 			for (int i = 0; i < fis.length - 1; ++i) {
 				SequenceFile.Reader reduceInputReader = new SequenceFile.Reader(fs, new Path("/in/" + i), conf);
-				
 				while (true) {
 					Text currentReduceKey = new Text();
 					try {
@@ -88,20 +94,9 @@ public class KMeansReduceTask implements Task {
 				}
 			}
 			
-			boolean allConverged = true;
-			SequenceFile.Writer reduceOutput = new SequenceFile.Writer(fs, conf, new Path("/out/0"), Text.class, Cluster.class);
-			for (Map.Entry<Text, KMeansInfo> inputEntry : inputCollector) {
-				System.out.println("Processing cluster " + inputEntry.getKey());
-				Cluster cluster = oldClusterMap.get(inputEntry.getKey().toString());
-				KMeansInfo value = inputEntry.getValue();
-				cluster.addPoints(value.getPoints(), value.getPointTotal());
-				boolean clusterConverged = cluster.computeConvergence(this.measure, convergenceDelta);
-				allConverged &= clusterConverged;
-				reduceOutput.append(inputEntry.getKey(), cluster);
-			}
-
+			inputCollector.close();
 			OutputStreamWriter convergedOutput = new OutputStreamWriter(fos[1]);
-			convergedOutput.write(Boolean.toString(allConverged));
+			convergedOutput.write(Boolean.toString(kmrc.areAllConverged()));
 			convergedOutput.close();
 			
 		} catch (IOException ioe) {

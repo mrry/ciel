@@ -19,8 +19,11 @@ import simplejson
 import math
 import random
 import uuid
-from skywriting.runtime.references import SW2_ConcreteReference, SWNoProvenance
+from skywriting.runtime.references import SW2_ConcreteReference, SWNoProvenance,\
+    SW2_FetchReference
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
+import sys
+import time
 
 def get_worker_netlocs(master_uri):
     http = httplib2.Http()
@@ -133,7 +136,9 @@ def build_extent_list(filename, options):
     return extents
     
 def select_targets(netlocs, num_replicas):
-    assert num_replicas <= len(netlocs)
+    if num_replicas > len(netlocs):
+        print 'Not enough replicas remain... exiting.'
+        sys.exit(-1)
     return random.sample(netlocs, num_replicas)
     
 def create_name_prefix(specified_name):
@@ -159,23 +164,21 @@ def upload_extent_to_targets(input_file, block_id, start, finish, targets, packe
             h.request('http://%s/upload/%s/%d' % (target, block_id, packet_start - start), 'POST', packet)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(finish - start))
         h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
-def upload_string_to_targets(input, block_id, targets, packet_size):
+def upload_string_to_targets(input, block_id, targets):
 
     https = [httplib2.Http() for _ in targets]
         
     for h, target in zip(https, targets):
         h.request('http://%s/upload/%s' % (target, block_id), 'POST', 'start')
         
-    for packet_start in range(0, len(input), packet_size):
-        slice = input[packet_start:min(packet_size, len(input) - packet_start)]
-        for h, target in zip(https, targets):
-            h.request('http://%s/upload/%s/%d' % (target, block_id, packet_start), 'POST', slice)
+    for h, target in zip(https, targets):
+        h.request('http://%s/upload/%s/%d' % (target, block_id, 0), 'POST', input)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
         h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
 def main():
@@ -186,38 +189,173 @@ def main():
     parser.add_option("-r", "--replication", action="store", dest="replication", help="Copies of each block", type="int", metavar="N", default=1)
     parser.add_option("-d", "--delimiter", action="store", dest="delimiter", help="Block delimiter character", metavar="CHAR", default=None)
     parser.add_option("-l", "--lines", action="store_const", dest="delimiter", const="\n", help="Use newline as block delimiter")
-    parser.add_option("-p", "--packet-size", action="store", dest="packet_size", help="Upload packet size in bytes", metavar="N", type="int",default=16384)
+    parser.add_option("-p", "--packet-size", action="store", dest="packet_size", help="Upload packet size in bytes", metavar="N", type="int",default=1048576)
     parser.add_option("-i", "--id", action="store", dest="name", help="Block name prefix", metavar="NAME", default=None)
+    parser.add_option("-u", "--urls", action="store_true", dest="urls", help="Treat files as containing lists of URLs", default=False)
     (options, args) = parser.parse_args()
     
     workers = get_worker_netlocs(options.master)
-    
-    input_filename = args[0]    
-    
-    extent_list = build_extent_list(input_filename, options)
     
     name_prefix = create_name_prefix(options.name)
     
     output_references = []
     
     # Upload the data in extents.
-    with open(input_filename, 'rb') as input_file:
-        for i, (start, finish) in enumerate(extent_list):
+    if not options.urls:
+        
+        if len(args) == 1:
+            input_filename = args[0] 
+            extent_list = build_extent_list(input_filename, options)
+        
+            with open(input_filename, 'rb') as input_file:
+                for i, (start, finish) in enumerate(extent_list):
+                    targets = select_targets(workers, options.replication)
+                    block_name = make_block_id(name_prefix, i)
+                    print >>sys.stderr, 'Uploading %s to (%s)' % (block_name, ",".join(targets))
+                    upload_extent_to_targets(input_file, block_name, start, finish, targets, options.packet_size)
+                    conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), finish - start, targets)
+                    output_references.append(conc_ref)
+                    
+        else:
+            
+            for i, input_filename in enumerate(args):
+                with open(input_filename, 'rb') as input_file:
+                    targets = select_targets(workers, options.replication)
+                    block_name = make_block_id(name_prefix, i)
+                    block_size = os.path.getsize(input_filename)
+                    print >>sys.stderr, 'Uploading %s to (%s)' % (input_filename, ",".join(targets))
+                    upload_extent_to_targets(input_file, block_name, 0, block_size, targets, options.packet_size)
+                    conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), block_size, targets)
+                    output_references.append(conc_ref)
+
+    else:
+        
+        urls = []
+        for filename in args:
+            with open(filename, 'r') as f:
+                for line in f:
+                    urls.append(line.strip())
+            
+        target_fetch_lists = {}
+                    
+        for i, url in enumerate(urls):
             targets = select_targets(workers, options.replication)
             block_name = make_block_id(name_prefix, i)
-            upload_extent_to_targets(input_file, block_name, start, finish, targets, options.packet_size)
-            conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), finish - start, targets)
+            ref = SW2_FetchReference(block_name, url, i)
+            for target in targets:
+                try:
+                    tfl = target_fetch_lists[target]
+                except KeyError:
+                    tfl = []
+                    target_fetch_lists[target] = tfl
+                tfl.append(ref)
+            h = httplib2.Http()
+            print >>sys.stderr, 'Getting size of %s' % url
+            response, _ = h.request(url, 'HEAD')
+            try:
+                size = int(response['content-length'])
+            except KeyError:
+                size = 1048576
+            conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), size, targets)
             output_references.append(conc_ref)
+
+        pending_targets = {}
+        failed_targets = set()
+        
+        for target, tfl in target_fetch_lists.items():
+            h2 = httplib2.Http()
+            print 'Uploading to', target
+            id = uuid.uuid4()
+            response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
+            if response.status != 202:
+                print 'Failed...', target
+                failed_targets.add(target)
+            else:
+                pending_targets[target] = id
+        
+        while True:
             
+            # Wait until we get a non-try-again response from all of the targets.
+            while len(pending_targets) > 0:
+                time.sleep(3)
+                for target, id in list(pending_targets.items()):
+                    try:
+                        response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'GET')
+                        if response.status == 408:
+                            print 'Continuing to wait for', target
+                            continue
+                        elif response.status == 200:
+                            print 'Succeded!', target
+                            del pending_targets[target]
+                        else:
+                            print 'Failed...', target
+                            del pending_targets[target]
+                            failed_targets.add(target)
+                    except:
+                        print 'Failed...', target
+                        del pending_targets[target]
+                        failed_targets.add(target)
+                        
+            if len(pending_targets) == 0 and len(failed_targets) == 0:
+                break
+                        
+            # All transfers have finished or failed, so check for failures.
+            if len(failed_targets) > 0:
+                
+                # Redistribute blocks to working workers.
+                redistribute_refs = {}
+                
+                for target in failed_targets:
+                    workers.remove(target)
+                    tfl = target_fetch_lists[target]
+                    for ref in tfl:
+                        redistribute_refs[ref.id] = ref
+                        conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), size, targets)
+                        output_references[ref.index] = conc_ref
+
+                target_fetch_lists = {}
+
+                for ref in redistribute_refs.values():
+                    targets = select_targets(workers, options.replication)
+                    for target in targets:
+                        try:
+                            tfl = target_fetch_lists[target]
+                        except KeyError:
+                            tfl = []
+                            target_fetch_lists[target] = tfl
+                        tfl.append(ref)
+            
+                for target, tfl in target_fetch_lists.items():
+                    print 'Retrying... uploading to', target
+                    h2 = httplib2.Http()
+                    id = uuid.uuid4()
+                    _, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
+                    pending_targets[target] = id
+                
+                failed_targets = set()
+
+
     # Upload the index object.
     index = simplejson.dumps(output_references, cls=SWReferenceJSONEncoder)
-    index_targets = select_targets(workers, options.replication)
     block_name = '%s:index' % name_prefix
-    upload_string_to_targets(index, block_name, index_targets, options.packet_size)
-    index_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), len(index), index_targets)
     
-    print index_ref
-    print
+    suffix = ''
+    i = 0
+    while os.path.exists(block_name + suffix):
+        i += 1
+        suffix = '.%d' % i
+    filename = block_name + suffix
+    with open(filename, 'w') as f:
+        simplejson.dump(output_references, f, cls=SWReferenceJSONEncoder)
+    print 'Wrote index to %s' % filename
+    
+    index_targets = select_targets(workers, options.replication)
+    upload_string_to_targets(index, block_name, index_targets)
+    
+    #index_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), len(index), index_targets)
+        
+    #print index_ref
+    #print
     for target in index_targets:
         print 'swbs://%s/%s' % (target, block_name)
     

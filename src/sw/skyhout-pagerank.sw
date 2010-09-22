@@ -15,13 +15,12 @@ jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
 
 input = *grab(env["GRAPH_INDEX_URL"]);
 
-num_partitions = 10;
+num_partitions = 99;
 
-links = mapreduce(input, lambda x: java("skywriting.examples.skyhout.pagerank.PageRankPartitionTask", [x], [], jar_lib, num_partitions),
-         	              lambda xs: java("skywriting.examples.skyhout.pagerank.PageRankPartitionMergeTask", xs, [], jar_lib, 1)[0], num_partitions);
-
-scores = mapreduce(input, lambda x: java("skywriting.examples.skyhout.pagerank.PageRankInitTask", [x], [], jar_lib, num_partitions),
+links = mapreduce(input, lambda x: java("skywriting.examples.skyhout.pagerank.PageRankInitTask", [x], [], jar_lib, num_partitions),
          	              lambda xs: java("skywriting.examples.skyhout.pagerank.PageRankInitMergeTask", xs, [], jar_lib, 1)[0], num_partitions);
+
+scores = map(lambda x: java("skywriting.examples.skyhout.pagerank.PageRankInitialScoreTask", [x], [], jar_lib, 1)[0], links);
 
 function zip(x, y) {
 	z = [];
@@ -37,4 +36,7 @@ for (i in range(10)) {
 	                                lambda xs: java("skywriting.examples.skyhout.pagerank.PageRankReduceTask", xs, [], jar_lib, num_partitions)[0], num_partitions);
 }
 
-return *(spawn_exec("sync", {"inputs" : scores}, 1)[0]);
+sorted_scores = mapreduce(scores, lambda x: java("skywriting.examples.skyhout.pagerank.PageRankSortMapTask", [x], [], jar_lib, 1),
+	      			  lambda xs: java("skywriting.examples.skyhout.pagerank.PageRankSortReduceTask", xs, [], jar_lib, 1)[0], 1); 
+
+return *(spawn_exec("sync", {"inputs" : sorted_scores}, 1)[0]);

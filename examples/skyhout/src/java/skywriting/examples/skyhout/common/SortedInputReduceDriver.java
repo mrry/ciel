@@ -10,17 +10,16 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.mapred.OutputCollector;
 
-public class SortedInputReduceDriver<K extends WritableComparable<? super K>, V extends Writable, K2 extends WritableComparable<? super K2>, V2 extends Writable> implements OutputCollector<K2, V2> {
+public abstract class SortedInputReduceDriver<K extends WritableComparable, V extends Writable, C, K2 extends WritableComparable, V2 extends Writable> implements OutputCollector<K2, V2> {
 
 	private SequenceFile.Reader[] readers;
-	private SequenceFile.Writer writer;
-	private CombinerReducer<K, V, K2, V2> combiner;
+	private CombinerReducer<K, V, C, K2, V2> combiner;
 	
 	private ArrayList<K> keyHeads;
 	private K spareKey;
 	private ArrayList<V> valueHeads;
 	
-	public SortedInputReduceDriver(SkywritingTaskFileSystem fs, CombinerReducer<K, V, K2, V2> combiner, Class<K> inputKeyClass, Class<V> inputValueClass, Class<K2> outputKeyClass, Class<V2> outputValueClass) throws IOException {
+	public SortedInputReduceDriver(SkywritingTaskFileSystem fs, CombinerReducer<K, V, C, K2, V2> combiner, Class<K> inputKeyClass, Class<V> inputValueClass, Class<K2> outputKeyClass, Class<V2> outputValueClass) throws IOException {
 		this.readers = new SequenceFile.Reader[fs.numInputs()];
 		this.keyHeads = new ArrayList<K>(readers.length);
 		this.valueHeads = new ArrayList<V>(readers.length);
@@ -37,8 +36,6 @@ public class SortedInputReduceDriver<K extends WritableComparable<? super K>, V 
 		} catch (InstantiationException ie) {
 			throw new RuntimeException(ie);
 		}
-
-		this.writer = new SequenceFile.Writer(fs, fs.getConf(), new Path("/out/0"), outputKeyClass, outputValueClass);
 		this.combiner = combiner;
 	}
 	
@@ -69,7 +66,7 @@ public class SortedInputReduceDriver<K extends WritableComparable<? super K>, V 
 			}
 			if (minHeadIndex == -1) break;
 			
-			V currentValue = this.popInitialValueFromHead(minHeadIndex);
+			C currentValue = this.popInitialValueFromHead(minHeadIndex);
 			
 			for (int i = minHeadIndex + 1; i < this.readers.length; ++i) {
 				K currentHeadKey = this.keyHeads.get(i);
@@ -85,14 +82,16 @@ public class SortedInputReduceDriver<K extends WritableComparable<? super K>, V 
 			
 		} while (true);
 		
-		this.writer.close();
+		this.close();
 		
 	}
 	
-	private V popInitialValueFromHead(int i) throws IOException {
+	protected abstract void close() throws IOException;
+	
+	private C popInitialValueFromHead(int i) throws IOException {
 		
 		// Get the head value.
-		V headValue = this.combiner.combineInit(this.valueHeads.get(i));
+		C headValue = this.combiner.combineInit(this.valueHeads.get(i));
 		
 		// We use a "spare key" to avoid instantiating too many Writable wrapper objects.
 		K temp = this.keyHeads.get(i);
@@ -115,9 +114,8 @@ public class SortedInputReduceDriver<K extends WritableComparable<? super K>, V 
 		}
 	}
 
-	@Override
-	public void collect(K2 key, V2 value) throws IOException {
-		this.writer.append(key, value);
-	}
+	public abstract void collect(K2 key, V2 value) throws IOException;
+	
+	
 	
 }

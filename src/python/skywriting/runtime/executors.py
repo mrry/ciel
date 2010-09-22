@@ -18,7 +18,8 @@ from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
     SWNoProvenance, SWDataValue, SW2_StreamReference, SWTaskOutputProvenance
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
-    ReferenceUnavailableException, BlameUserException, MissingInputException
+    ReferenceUnavailableException, BlameUserException, MissingInputException,\
+    RuntimeSkywritingError
 import logging
 import shutil
 import subprocess
@@ -81,7 +82,7 @@ class ProcessWaiter:
 
     def waiter_main(self):
         rc = self.proc.wait()
-        print "Process terminated; returned", rc
+        cherrypy.log.error("Process terminated; returned %d" % rc, 'EXEC', logging.INFO)
         os.write(self.pipefd, "X")
         with self.lock:
             self.has_terminated = True
@@ -120,7 +121,7 @@ class SWExecutor:
         for ref in real_refs:
             assert isinstance(ref, SWRealReference)
             if isinstance(ref, SW2_FutureReference):
-                print "Blocking because reference is", ref
+                cherrypy.log.error("Blocking because reference is %s" % repr(ref), 'EXEC', logging.INFO)
                 # Data is not yet available, so 
                 raise ReferenceUnavailableException(ref, self.continuation)
         return real_refs
@@ -189,20 +190,18 @@ class SWStdinoutExecutor(SWExecutor):
             
         def cat_thread_main(self):
             for filename in self.filenames:
-                print 'Catting in', filename
                 with open(filename, 'r') as input_file:
                     try:
                         shutil.copyfileobj(input_file, self.stdin)
                     except IOError, e:
                         if e.errno == EPIPE:
-                            print "Abandoning cat due to EPIPE"
-                            pass
+                            cherrypy.log.error('Abandoning cat due to EPIPE', 'EXEC', logging.WARNING)
                         else:
                             raise
             self.stdin.close()
 
     def _execute(self, block_store, task_id):
-        print "Executing stdinout with:", " ".join(map(str, self.command_line))
+        cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
         with tempfile.NamedTemporaryFile(delete=False) as temp_output:
             temp_output_name = temp_output.name
 
@@ -279,7 +278,7 @@ class EnvironmentExecutor(SWExecutor):
         self.proc = None
     
     def _execute(self, block_store, task_id):
-        print "Executing environ with:", " ".join(map(str, self.command_line))
+        cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
 
         input_filenames, fetch_ctx = self.get_filenames(block_store, self.input_refs)
         with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
@@ -372,9 +371,6 @@ class JavaExecutor(SWExecutor):
         
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
         jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
-
-        for jar in jar_filenames:
-            cherrypy.log.error('Input jar has size  = %d bytes' % os.path.getsize(jar), 'BLOCKSTORE', logging.INFO)
 
         if self.stream_output:
             stream_refs = {}
@@ -472,8 +468,8 @@ class DotNetExecutor(SWExecutor):
             self.class_name = args['class']
             self.argv = args['argv']
         except KeyError:
-            print "Incorrect arguments for stdinout executor"
-            raise
+            cherrypy.log.error("Incorrect arguments for dotnet executor", 'EXEC', logging.ERROR)
+            raise BlameUserException("Incorrect arguments for dotnet executor")
 
     def _execute(self, block_store, task_id):
         

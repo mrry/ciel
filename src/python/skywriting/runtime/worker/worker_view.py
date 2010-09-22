@@ -12,6 +12,8 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.executors import kill_all_running_children
+from skywriting.runtime.references import SW2_FetchReference
+import logging
 
 '''
 Created on 8 Feb 2010
@@ -19,7 +21,8 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-from skywriting.runtime.block_store import json_decode_object_hook
+from skywriting.runtime.block_store import json_decode_object_hook,\
+    SWReferenceJSONEncoder
 import sys
 import simplejson
 import cherrypy
@@ -38,6 +41,7 @@ class WorkerRoot:
         self.log = LogRoot(worker)
         self.upload = UploadRoot(worker.upload_manager)
         self.admin = ManageRoot(worker.block_store)
+        self.fetch = FetchRoot(worker.upload_manager)
     
     @cherrypy.expose
     def index(self):
@@ -182,11 +186,34 @@ class UploadRoot:
             #upload_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             self.upload_manager.start_upload(id)#, upload_descriptor)
         elif start == 'commit':
-            self.upload_manager.commit_upload(id)
+            size = int(simplejson.load(cherrypy.request.body))
+            self.upload_manager.commit_upload(id, size)
         else:
             start_index = int(start)
             self.upload_manager.handle_chunk(id, start_index, cherrypy.request.body)
     
+class FetchRoot:
+    
+    def __init__(self, upload_manager):
+        self.upload_manager = upload_manager
+        
+    @cherrypy.expose
+    def default(self, id=None):
+        if cherrypy.request.method != 'POST':
+            if id is None:
+                return simplejson.dumps(self.upload_manager.current_fetches)
+            else:
+                status = self.upload_manager.get_status_for_fetch(id)
+                if status != 200:
+                    raise cherrypy.HTTPError(status)
+                else:
+                    return
+                
+        refs = simplejson.load(cherrypy.request.body, object_hook=json_decode_object_hook)
+        self.upload_manager.fetch_refs(id, refs)
+        
+        cherrypy.response.status = '202 Accepted'
+        
 class ManageRoot:
     
     def __init__(self, block_store):
@@ -203,8 +230,8 @@ class ManageRoot:
                 return 'Would keep %d blocks, remove %d blocks' % (kept, removed)
         elif action == 'pin' and id is not None:
             self.block_store.pin_ref_id(id)
-        elif action is None:
-            return simplejson.dumps(self.block_store.pin_set)
+        elif action == 'pin':
+            return simplejson.dumps(self.block_store.generate_pin_refs(), cls=SWReferenceJSONEncoder)
     
 class FeaturesRoot:
     

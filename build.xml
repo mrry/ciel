@@ -37,6 +37,9 @@
 		<exampleJar example="wordcount"/>
 		<exampleJar example="grep"/>
 		<exampleJar example="skyhout"/>
+		<copy todir="/home/dgm36/public_html/">
+			<fileset dir="${dir.dist}" includes="*.jar"/>
+		</copy>
 	</target>
 
 	<target name="clean">
