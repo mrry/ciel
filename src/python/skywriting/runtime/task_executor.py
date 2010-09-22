@@ -390,6 +390,8 @@ class SWRuntimeInterpreterTask:
 
         for (id, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetched_objects):
             self.continuation.rewrite_reference(id, SWDataValue(ob))
+            
+        cherrypy.log.error('Fetched all task inputs', 'SWI', logging.INFO)
 
     def convert_tasklocal_to_real_reference(self, value):
         if isinstance(value, SWLocalReference):
