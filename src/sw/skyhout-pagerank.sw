@@ -15,7 +15,7 @@ jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
 
 input = *grab(env["GRAPH_INDEX_URL"]);
 
-num_partitions = 100;
+num_partitions = 99;
 
 links = mapreduce(input, lambda x: java("skywriting.examples.skyhout.pagerank.PageRankInitTask", [x], [], jar_lib, num_partitions),
          	              lambda xs: java("skywriting.examples.skyhout.pagerank.PageRankInitMergeTask", xs, [], jar_lib, 1)[0], num_partitions);

@@ -1,17 +1,24 @@
 // Library functions
 include "grab";
-include "java"
+//include "java";
 
-num_mappers = 4;
-num_reducers = 2;
+function java(class_name, input_refs, argv, jar_refs, num_outputs) {
+   f = env["FOO"];
+	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f}, num_outputs);
+}  
 
 // Input data - MODIFY THIS FOR EACH RUN
 // Use sw-load to put input data into the cluster
 // and paste the reference returned into here
-input_refs = *ref("swbs://breakout-0.xeno.cl.cam.ac.uk:8001/upload:5b63bd0c-800a-4de7-9c08-6184ad6bca4e:index");
+url = env["DATA_REF"];
+input_refs = *grab(url);
+
+
+num_mappers = len(input_refs);
+num_reducers = env["NUM_REDUCERS"];
 
 // Java code
-jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/swwordcount.jar")];
+jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/sky-eg-wordcount.jar")];
 
 // -----------------------------------------
 

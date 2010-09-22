@@ -98,7 +98,7 @@ do
     else
 	echo "... as a worker for $MASTER"
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/worker.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -x -p 8001 -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/worker.log"
 	else
 	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 -b $SWROOT/store/ 2>&1 2>$SWROOT/logs/worker.log"
 	fi
