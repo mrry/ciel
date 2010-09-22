@@ -25,7 +25,7 @@ public class PageRankInitTask extends SkyhoutTask {
 
 	private static class PageRankInitMapper implements Mapper<LongWritable, Text, IntWritable, IntWritable> {
 
-		private static final Pattern SPLIT_PATTERN = Pattern.compile(",");
+		private static final Pattern SPLIT_PATTERN = Pattern.compile(" ");
 		
 		@Override
 		public void map(LongWritable key, Text value,
