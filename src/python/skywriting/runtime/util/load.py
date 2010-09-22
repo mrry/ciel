@@ -23,8 +23,6 @@ from skywriting.runtime.references import SW2_ConcreteReference, SWNoProvenance,
     SW2_FetchReference
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import sys
-from Queue import Queue, Empty
-import threading
 import time
 
 def get_worker_netlocs(master_uri):
@@ -138,7 +136,9 @@ def build_extent_list(filename, options):
     return extents
     
 def select_targets(netlocs, num_replicas):
-    assert num_replicas <= len(netlocs)
+    if num_replicas > len(netlocs):
+        print 'Not enough replicas remain... exiting.'
+        sys.exit(-1)
     return random.sample(netlocs, num_replicas)
     
 def create_name_prefix(specified_name):
@@ -194,7 +194,6 @@ def main():
     parser.add_option("-p", "--packet-size", action="store", dest="packet_size", help="Upload packet size in bytes", metavar="N", type="int",default=1048576)
     parser.add_option("-i", "--id", action="store", dest="name", help="Block name prefix", metavar="NAME", default=None)
     parser.add_option("-u", "--urls", action="store_true", dest="urls", help="Treat files as containing lists of URLs", default=False)
-    parser.add_option("-t", "--threads", action="store", type="int", dest="threads", help="Number of threads to use for upload", metavar="N", default=10)
     (options, args) = parser.parse_args()
     
     workers = get_worker_netlocs(options.master)
@@ -244,7 +243,7 @@ def main():
         for i, url in enumerate(urls):
             targets = select_targets(workers, options.replication)
             block_name = make_block_id(name_prefix, i)
-            ref = SW2_FetchReference(block_name, url)
+            ref = SW2_FetchReference(block_name, url, i)
             for target in targets:
                 try:
                     tfl = target_fetch_lists[target]
@@ -261,38 +260,81 @@ def main():
             conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), size, targets)
             output_references.append(conc_ref)
 
-        work_queue = Queue()
-        for target in target_fetch_lists:
-            work_queue.put(target)
+        pending_targets = {}
+        failed_targets = set()
+        
+        for target, tfl in target_fetch_lists.items():
+            h2 = httplib2.Http()
+            print 'Uploading to', target
+            id = uuid.uuid4()
+            response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
+            if response.status != 202:
+                print 'Failed...', target
+                failed_targets.add(target)
+            else:
+                pending_targets[target] = id
+        
+        while True:
             
-        def initiate_fetches():
-            while True:
-                try:
-                    target = work_queue.get(block=False)
-                except Empty:
-                    return
-
-                print 'Uploading to', target
-                h2 = httplib2.Http()
-                id = uuid.uuid4()
-                _, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(target_fetch_lists[target], cls=SWReferenceJSONEncoder))
-                while True:
-                    time.sleep(3)
-                    response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'GET')
-                    if response.status != 408:
-                        break
-                    print 'Waiting for', target
-                if response.status == 200:
-                    print target, '... done.'
-                else:
-                    print target, '... failed.'
-
+            # Wait until we get a non-try-again response from all of the targets.
+            while len(pending_targets) > 0:
+                time.sleep(3)
+                for target, id in list(pending_targets.items()):
+                    try:
+                        response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'GET')
+                        if response.status == 408:
+                            print 'Continuing to wait for', target
+                            continue
+                        elif response.status == 200:
+                            print 'Succeded!', target
+                            del pending_targets[target]
+                        else:
+                            print 'Failed...', target
+                            del pending_targets[target]
+                            failed_targets.add(target)
+                    except:
+                        print 'Failed...', target
+                        del pending_targets[target]
+                        failed_targets.add(target)
+                        
+            if len(pending_targets) == 0 and len(failed_targets) == 0:
+                break
+                        
+            # All transfers have finished or failed, so check for failures.
+            if len(failed_targets) > 0:
                 
-        threads = [threading.Thread(target=initiate_fetches) for _ in range(options.threads)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+                # Redistribute blocks to working workers.
+                redistribute_refs = {}
+                
+                for target in failed_targets:
+                    workers.remove(target)
+                    tfl = target_fetch_lists[target]
+                    for ref in tfl:
+                        redistribute_refs[ref.id] = ref
+                        conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), size, targets)
+                        output_references[ref.index] = conc_ref
+
+                target_fetch_lists = {}
+
+                for ref in redistribute_refs.values():
+                    targets = select_targets(workers, options.replication)
+                    for target in targets:
+                        try:
+                            tfl = target_fetch_lists[target]
+                        except KeyError:
+                            tfl = []
+                            target_fetch_lists[target] = tfl
+                        tfl.append(ref)
+            
+                for target, tfl in target_fetch_lists.items():
+                    print 'Retrying... uploading to', target
+                    h2 = httplib2.Http()
+                    id = uuid.uuid4()
+                    _, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
+                    pending_targets[target] = id
+                
+                failed_targets = set()
+
 
     # Upload the index object.
     index = simplejson.dumps(output_references, cls=SWReferenceJSONEncoder)

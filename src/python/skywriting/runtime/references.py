@@ -225,9 +225,10 @@ class SW2_TombstoneReference(SWRealReference):
 
 class SW2_FetchReference(SWRealReference):
     
-    def __init__(self, id, url):
+    def __init__(self, id, url, index=None):
         self.id = id
         self.url = url
+        self.index = index
 
     def is_consumable(self):
         return False
