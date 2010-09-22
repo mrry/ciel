@@ -40,7 +40,7 @@ from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, \
     SWTaskOutputProvenance, SW2_StreamReference,\
-    SW2_TombstoneReference, SW2_FetchReference
+    SW2_TombstoneReference, SW2_FetchReference, SWNoProvenance
 import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
@@ -944,6 +944,12 @@ class BlockStore:
             for block_name, block_size in self.block_list_generator():
                 block_list_file.write(BLOCK_LIST_RECORD_STRUCT.pack(block_name, block_size))
         return filename
+
+    def generate_pin_refs(self):
+        ret = []
+        for id in self.pin_set:
+            ret.append(SW2_ConcreteReference(id, SWNoProvenance(), os.path.getsize(self.filename(id)), [self.netloc]))
+        return ret
 
     def pin_ref_id(self, id):
         open(self.pin_filename(id), 'w').close()
