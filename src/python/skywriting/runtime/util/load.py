@@ -306,7 +306,6 @@ def main():
                 redistribute_refs = {}
                 
                 for target in failed_targets:
-                    workers.remove(target)
                     tfl = target_fetch_lists[target]
                     for ref in tfl:
                         redistribute_refs[ref.id] = ref
@@ -315,6 +314,9 @@ def main():
 
                 target_fetch_lists = {}
 
+                # We refetch the worker list, in case any have failed in the mean time.
+                workers = get_worker_netlocs(options.master)
+    
                 for ref in redistribute_refs.values():
                     targets = select_targets(workers, options.replication)
                     for target in targets:
