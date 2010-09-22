@@ -397,7 +397,7 @@ class JavaExecutor(SWExecutor):
             process_args.append("file://" + x)
         #print 'Command-line:', " ".join(process_args)
         
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=None, stderr=None, close_fds=True)
+        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
         
         self.proc = proc
         add_running_child(self.proc)
@@ -413,6 +413,8 @@ class JavaExecutor(SWExecutor):
 
         read_pipe, write_pipe = os.pipe()
         waiter_thread = ProcessWaiter(proc, write_pipe)
+
+        _ = proc.stdout.read(1)
 
         transfer_ctx.transfer_all(read_pipe)
 

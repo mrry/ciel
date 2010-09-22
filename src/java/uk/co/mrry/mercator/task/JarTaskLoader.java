@@ -125,6 +125,7 @@ public class JarTaskLoader {
 	if(toks.countTokens() != 3) {
 
 	    System.err.println("First string argument must have format number,number,number (got " + inputStrings.get(0) + ")");
+		System.out.write('Q');
 	    System.exit(1);
 
 	}
@@ -141,12 +142,14 @@ public class JarTaskLoader {
 	catch(NoSuchElementException e) {
 	    
 	    System.err.println("Failed to tokenize the string " + inputStrings.get(0));
+		System.out.write('Q');
 	    System.exit(1);
 
 	}
 	catch(NumberFormatException e) {
 	    
 	    System.err.println("Failed to parse three integers from " + inputStrings.get(0));
+		System.out.write('Q');
 	    System.exit(1);
 
 	}
@@ -158,6 +161,7 @@ public class JarTaskLoader {
 	    while(it.hasNext()) {
 		System.err.println(it.next());
 	    }
+		System.out.write('Q');
 	    System.exit(1);
 
 	}
@@ -180,6 +184,7 @@ public class JarTaskLoader {
 	    }
 	    catch(Exception e) {
 		System.err.println("Failed to open a file for input: " + e.toString());
+		System.out.write('Q');
 		System.exit(1);
 	    }
 	}
@@ -192,10 +197,14 @@ public class JarTaskLoader {
 	    }
 	    catch(Exception e) {
 		System.err.println("Failed to open a file for output: " + e.toString());		
+		System.out.write('Q');
 		System.exit(1);
 	    }
 	}
 
+	System.out.write('S');
+	System.out.flush();
+	
 	try {
 	    targetTask.invoke(targetInputs, targetOutputs, targetArgs);
 	}
