@@ -185,7 +185,8 @@ class UploadRoot:
             #upload_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             self.upload_manager.start_upload(id)#, upload_descriptor)
         elif start == 'commit':
-            self.upload_manager.commit_upload(id)
+            size = int(simplejson.load(cherrypy.request.body))
+            self.upload_manager.commit_upload(id, size)
         else:
             start_index = int(start)
             self.upload_manager.handle_chunk(id, start_index, cherrypy.request.body)

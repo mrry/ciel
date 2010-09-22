@@ -164,7 +164,7 @@ def upload_extent_to_targets(input_file, block_id, start, finish, targets, packe
             h.request('http://%s/upload/%s/%d' % (target, block_id, packet_start - start), 'POST', packet)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(finish - start))
         h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
 def upload_string_to_targets(input, block_id, targets):
@@ -178,7 +178,7 @@ def upload_string_to_targets(input, block_id, targets):
         h.request('http://%s/upload/%s/%d' % (target, block_id, 0), 'POST', input)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
         h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
 def main():

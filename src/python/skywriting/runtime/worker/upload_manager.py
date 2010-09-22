@@ -16,6 +16,7 @@ import shutil
 from skywriting.runtime.master import deferred_work
 import cherrypy
 import logging
+import os
 
 class UploadSession:
     
@@ -31,7 +32,8 @@ class UploadSession:
             shutil.copyfileobj(body_file, output_file)
             self.current_pos = output_file.tell()
     
-    def commit(self, block_store):
+    def commit(self, block_store, size):
+        assert os.path.getsize(self.output_filename) == size
         block_store.store_file(self.output_filename, self.id, can_move=True)
     
     
@@ -51,9 +53,9 @@ class UploadManager:
         session = self.current_uploads[id]
         session.save_chunk(start_index, body_file)
         
-    def commit_upload(self, id):
+    def commit_upload(self, id, size):
         session = self.current_uploads[id]
-        session.commit(self.block_store)
+        session.commit(self.block_store, size)
         del self.current_uploads[id]
         
     def get_status_for_fetch(self, session_id):
