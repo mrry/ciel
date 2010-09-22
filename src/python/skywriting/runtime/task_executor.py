@@ -716,6 +716,10 @@ class SWRuntimeInterpreterTask:
         
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
         
+        if len(self.spawn_list) > 20:
+            self.spawn_all(self.block_store, self.master_proxy)
+            self.spawn_list = []
+        
         return ret
     
     def create_names_for_exec(self, executor_name, real_args, num_outputs):
