@@ -164,23 +164,21 @@ def upload_extent_to_targets(input_file, block_id, start, finish, targets, packe
             h.request('http://%s/upload/%s/%d' % (target, block_id, packet_start - start), 'POST', packet)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(finish - start))
         h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
-def upload_string_to_targets(input, block_id, targets, packet_size):
+def upload_string_to_targets(input, block_id, targets):
 
     https = [httplib2.Http() for _ in targets]
         
     for h, target in zip(https, targets):
         h.request('http://%s/upload/%s' % (target, block_id), 'POST', 'start')
         
-    for packet_start in range(0, len(input), packet_size):
-        slice = input[packet_start:min(packet_size, len(input) - packet_start)]
-        for h, target in zip(https, targets):
-            h.request('http://%s/upload/%s/%d' % (target, block_id, packet_start), 'POST', slice)
+    for h, target in zip(https, targets):
+        h.request('http://%s/upload/%s/%d' % (target, block_id, 0), 'POST', input)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', 'end')
+        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
         h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
 def main():
@@ -338,9 +336,21 @@ def main():
 
     # Upload the index object.
     index = simplejson.dumps(output_references, cls=SWReferenceJSONEncoder)
-    index_targets = select_targets(workers, options.replication)
     block_name = '%s:index' % name_prefix
-    upload_string_to_targets(index, block_name, index_targets, options.packet_size)
+    
+    suffix = ''
+    i = 0
+    while os.path.exists(block_name + suffix):
+        i += 1
+        suffix = '.%d' % i
+    filename = block_name + suffix
+    with open(filename, 'w') as f:
+        simplejson.dump(output_references, f, cls=SWReferenceJSONEncoder)
+    print 'Wrote index to %s' % filename
+    
+    index_targets = select_targets(workers, options.replication)
+    upload_string_to_targets(index, block_name, index_targets)
+    
     #index_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), len(index), index_targets)
         
     #print index_ref
