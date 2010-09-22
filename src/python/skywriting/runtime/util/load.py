@@ -250,6 +250,7 @@ def main():
                     target_fetch_lists[target] = tfl
                 tfl.append(ref)
             h = httplib2.Http()
+            print >>sys.stderr, 'Getting size of %s' % url
             response, _ = h.request(url, 'HEAD')
             try:
                 size = int(response['content-length'])
