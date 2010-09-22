@@ -6,7 +6,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.HashMap;
-import java.util.Map;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -21,7 +20,6 @@ import org.apache.mahout.common.distance.DistanceMeasure;
 import org.apache.mahout.common.distance.SquaredEuclideanDistanceMeasure;
 
 import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
-import skywriting.examples.skyhout.common.SortedOutputCollector;
 import skywriting.examples.skyhout.common.SortedPartitionedOutputCollector;
 import uk.co.mrry.mercator.task.JarTaskLoader;
 import uk.co.mrry.mercator.task.Task;
