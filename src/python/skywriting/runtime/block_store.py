@@ -40,7 +40,7 @@ from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWNullReference, SWURLReference, \
     SWTaskOutputProvenance, SW2_StreamReference,\
-    SW2_TombstoneReference
+    SW2_TombstoneReference, SW2_FetchReference
 import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
@@ -746,6 +746,8 @@ class BlockStore:
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SWURLReference):
             return map(sw_to_external_url, ref.urls)
+        elif isinstance(ref, SW2_FetchReference):
+            return [ref.url]
                 
     def retrieve_filenames_for_refs_eager(self, refs):
 
@@ -757,7 +759,7 @@ class BlockStore:
         # Step 2: Build request descriptors
         def create_transfer_context(ref):
             urls = self.get_fetch_urls_for_ref(ref)
-            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_FetchReference):
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()

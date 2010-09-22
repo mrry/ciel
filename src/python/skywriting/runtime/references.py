@@ -223,6 +223,21 @@ class SW2_TombstoneReference(SWRealReference):
     def __repr__(self):
         return 'SW2_TombstoneReference(%s, %s)' % (repr(self.id), repr(self.netlocs))
 
+class SW2_FetchReference(SWRealReference):
+    
+    def __init__(self, id, url):
+        self.id = id
+        self.url = url
+
+    def is_consumable(self):
+        return False
+    
+    def as_tuple(self):
+        return ('fetch2', str(self.id), str(self.url))
+    
+    def __repr__(self):
+        return 'SW2_FetchReference(%s, %s)' % (repr(self.id), repr(self.url))
+
 class SWURLReference(SWRealReference):
     """
     A reference to one or more URLs representing the same data.
@@ -287,6 +302,8 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_StreamReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3])
     elif ref_type == 't2':
         return SW2_TombstoneReference(reference_tuple[1], reference_tuple[2])
+    elif ref_type == 'fetch2':
+        return SW2_FetchReference(reference_tuple[1], reference_tuple[2])
     else:
         raise KeyError(ref_type)
     

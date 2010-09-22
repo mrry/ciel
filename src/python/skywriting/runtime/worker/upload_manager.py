@@ -13,6 +13,9 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import tempfile
 import shutil
+from skywriting.runtime.master import deferred_work
+import cherrypy
+import logging
 
 class UploadSession:
     
@@ -31,11 +34,15 @@ class UploadSession:
     def commit(self, block_store):
         block_store.store_file(self.output_filename, self.id, can_move=True)
     
+    
+    
 class UploadManager:
     
-    def __init__(self, block_store):
+    def __init__(self, block_store, deferred_work):
         self.block_store = block_store
         self.current_uploads = {}
+        self.current_fetches = {}
+        self.deferred_work = deferred_work
         
     def start_upload(self, id):
         self.current_uploads[id] = UploadSession(id)
@@ -48,3 +55,19 @@ class UploadManager:
         session = self.current_uploads[id]
         session.commit(self.block_store)
         del self.current_uploads[id]
+        
+    def get_status_for_fetch(self, session_id):
+        return self.current_fetches[session_id]
+        
+    def fetch_refs(self, session_id, refs):
+        self.current_fetches[session_id] = 408
+        self.deferred_work.do_deferred(lambda: self.fetch_refs_deferred(session_id, refs))
+        
+    def fetch_refs_deferred(self, session_id, refs):
+        cherrypy.log.error('Fetching session %s' % session_id, 'UPLOAD', logging.INFO)
+        try:
+            self.block_store.retrieve_filenames_for_refs_eager(refs)
+            self.current_fetches[session_id] = 200
+        except:
+            self.current_fetches[session_id] = 500
+        cherrypy.log.error('Finished session %s, status = %d' % (session_id, self.current_fetches[session_id]), 'UPLOAD', logging.INFO)
