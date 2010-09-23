@@ -415,6 +415,7 @@ class JavaExecutor(SWExecutor):
         waiter_thread = ProcessWaiter(proc, write_pipe)
 
         _ = proc.stdout.read(1)
+        #print 'Got byte back from Java'
 
         transfer_ctx.transfer_all(read_pipe)
 
