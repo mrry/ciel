@@ -1,6 +1,11 @@
 include "grab";
 include "mapreduce";
-include "java";
+//include "java";
+
+function java(class_name, input_refs, argv, jar_refs, num_outputs) {
+   f = env["FOO"];
+        return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f}, num_outputs);
+}  
 
 jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
            grab("http://www.cl.cam.ac.uk/~dgm36/mahout-core-0.3.jar"),
@@ -45,34 +50,22 @@ function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reduc
 	return {"converged" : converged, "clusters" : new_clusters[0]};
 }
 
-input_text = grab("http://archive.ics.uci.edu/ml/databases/synthetic_control/synthetic_control.data");
-num_maps = 2;
-input = java("skywriting.examples.skyhout.input.VectorInputParserTask",
-			 [input_text],
-			 [],
-			 jar_lib,
-			 num_maps);
- 
-k = 50;
+input_vectors = *grab(env["VECTOR_INPUT_URL"]);
 
-init_clusters = java("skywriting.examples.skyhout.kmeans.KMeansSeedGenerator",
-                     input,
-                     [k],
-                     jar_lib,
-                     1)[0];
+input_clusters = (*grab(env["CLUSTER_INPUT_URL"]))[0];
 
-measure_class = "";
-
-convergence_delta = "0.5";
+convergence_delta = "0.00000001";
 
 r = 1;
+i = 0;
 
-old_clusters = init_clusters;
+old_clusters = input_clusters;
 converged = false;
-while (!converged) {
-	result = kmeans_iteration(input, old_clusters, convergence_delta, r);
+while ((i < 10) && !converged) {
+	result = kmeans_iteration(input_vectors, old_clusters, convergence_delta, r);
 	converged = result["converged"];
-	old_clusters = result["clusters"]; 
+	old_clusters = result["clusters"];
+	i = i + 1; 
 }
 
 return old_clusters;
