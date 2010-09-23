@@ -50,14 +50,14 @@ public class SmithWaterman implements Task {
 				horizontalChunkBuffer.write(c);
 			}
 			byte[] horizontalChunk = horizontalChunkBuffer.toByteArray();
-//			System.err.printf("Horizontal chunk is length: %d\n", horizontalChunk.length);
+			System.err.printf("Horizontal chunk is length: %d\n", horizontalChunk.length);
 			
 			ByteArrayOutputStream verticalChunkBuffer = new ByteArrayOutputStream();
 			while ((c = fis[1].read()) != -1) {
 				verticalChunkBuffer.write(c);
 			}
 			byte[] verticalChunk = verticalChunkBuffer.toByteArray();
-//			System.err.printf("Vertical chunk is length: %d\n", verticalChunk.length);
+			System.err.printf("Vertical chunk is length: %d\n", verticalChunk.length);
 			
 			// Read input halos (where appropriate).
 			int[] leftHalo = new int[verticalChunk.length + 1];
@@ -172,6 +172,7 @@ public class SmithWaterman implements Task {
 			{
 				DataOutputStream bottomRightHaloOutputStream = new DataOutputStream(fos[0]);
 				bottomRightHaloOutputStream.writeInt(previousRow[horizontalChunk.length]);
+				bottomRightHaloOutputStream.flush();
 				bottomRightHaloOutputStream.close();
 			}
 			
@@ -180,6 +181,7 @@ public class SmithWaterman implements Task {
 				for (int j = 1; j <= horizontalChunk.length; ++j) {
 					bottomHaloOutputStream.writeInt(previousRow[j]);
 				}
+				bottomHaloOutputStream.flush();
 				bottomHaloOutputStream.close();
 			}
 			
@@ -188,6 +190,7 @@ public class SmithWaterman implements Task {
 				for (int i = 0; i < rightHalo.length; ++i) {
 					rightHaloOutputStream.writeInt(rightHalo[i]);
 				}
+				rightHaloOutputStream.flush();
 				rightHaloOutputStream.close();
 			}
 		} catch (Exception e) {

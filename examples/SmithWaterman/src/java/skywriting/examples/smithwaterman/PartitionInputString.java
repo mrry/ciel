@@ -38,6 +38,7 @@ public class PartitionInputString implements Task {
 				for (int j = 0; j < blockLength && currentPos < inputString.length; ++j, ++currentPos) {
 					fos[i].write(inputString[currentPos]);
 				}
+				fos[i].flush();
 				fos[i].close();
 			}
 		} catch (Exception e) {

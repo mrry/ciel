@@ -61,8 +61,9 @@ public class KMeansMapTask implements Task {
 			}
 		}
 		// emit only clusterID
+		//System.err.println("Emitting point to cluster " + nearestCluster.getIdentifier());
 		output.collect(new Text(nearestCluster.getIdentifier()), new KMeansInfo(1, point));
-		System.out.println("Emitting point to cluster " + nearestCluster.getIdentifier());
+		//System.err.println("Emitted point to cluster " + nearestCluster.getIdentifier());
 	}
 	    
 	@Override
@@ -110,12 +111,18 @@ public class KMeansMapTask implements Task {
 			VectorWritable currentVector = mapReader.getValueClass().asSubclass(VectorWritable.class).newInstance(); 
 
 			while (true) {
+				int i = 0;
 				try {
+					//System.err.println("About to read");
 					boolean isMore = mapReader.next(currentID, currentVector);
+					//System.err.println("Read");
 					if (!isMore) break;
 				} catch (EOFException eofe) {
 					break;
 				}
+				//System.err.println(currentID);
+				//System.err.println("Done a point: " + i);
+				i++;
 				this.emitPointToNearestCluster(currentVector.get(), clusters, output);
 			}
 			mapReader.close();

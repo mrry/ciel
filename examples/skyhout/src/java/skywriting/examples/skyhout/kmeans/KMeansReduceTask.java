@@ -66,7 +66,7 @@ public class KMeansReduceTask implements Task {
 					break;
 				}
 				oldClusterMap.put(curr.getIdentifier(), curr);
-				System.out.println("Putting cluster    " + curr.getIdentifier() + " in oldClusterMap");
+				//System.out.println("Putting cluster    " + curr.getIdentifier() + " in oldClusterMap");
 			}
 				
 			oldClusterReader.close();
