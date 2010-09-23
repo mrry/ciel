@@ -146,13 +146,15 @@ class DataRoot:
                 # The streaming file might have been deleted between calls to maybe_streaming_filename
                 # and serve_file. Try again, because this time the non-streaming filename should be
                 # available.
-                if he.status == 404:
+                pass
+            
+            if he.status == 404:
+                while is_streaming and he.status == 404:
                     is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-                    assert not is_streaming
                     cherrypy.response.headers.pop(['Pragma'], None)
                     return serve_file(filename)
-                else:
-                    raise
+                raise
+
         elif cherrypy.request.method == 'POST':
             url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
             return simplejson.dumps(url)
