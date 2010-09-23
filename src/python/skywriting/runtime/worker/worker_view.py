@@ -149,11 +149,11 @@ class DataRoot:
                 pass
             
             if he.status == 404:
-                while is_streaming and he.status == 404:
-                    is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-                    cherrypy.response.headers.pop(['Pragma'], None)
-                    return serve_file(filename)
-                raise
+                try:
+                    cherrypy.response.headers.pop('Pragma', None)
+                    serve_file(filename)
+                except:
+                    raise
 
         elif cherrypy.request.method == 'POST':
             url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
