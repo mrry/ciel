@@ -137,7 +137,6 @@ class DataRoot:
         safe_id = id
         if cherrypy.request.method == 'GET':
             is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-            print is_streaming, filename
             if is_streaming:
                 cherrypy.response.headers['Pragma'] = 'streaming'
             try:
