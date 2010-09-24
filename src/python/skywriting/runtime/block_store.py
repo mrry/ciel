@@ -29,6 +29,7 @@ import pycurl
 import select
 import fcntl
 import re
+import threading
 from datetime import datetime, timedelta
 from cStringIO import StringIO
 from errno import EAGAIN
@@ -84,48 +85,199 @@ def sw_to_external_url(url):
     else:
         return url
 
-class TransferSetContext:
+class pycURLFetchContext:
+
+    def __init__(self, callback_obj, url, range=None):
+
+        self.curl_ctx = pycurl.Curl()
+        self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
+        self.curl_ctx.setopt(pycurl.MAXREDIRS, 5)
+        self.curl_ctx.setopt(pycurl.CONNECTTIMEOUT, 30)
+        self.curl_ctx.setopt(pycurl.TIMEOUT, 300)
+        self.curl_ctx.setopt(pycurl.NOSIGNAL, 1)
+        self.curl_ctx.setopt(pycurl.WRITEFUNCTION, callback_obj.write_data)
+        self.curl_ctx.setopt(pycurl.HEADERFUNCTION, callback_obj.write_header_line)
+        self.curl_ctx.setopt(pycurl.URL, str(url))
+        self.curl_ctx.ctx = self
+        if range is not None:
+            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
+
+        self.callbacks = callback_obj
+            
+    def cleanup(self):
+        self.curl_ctx.close()
+
+class pycURLThread:
+
+    def set_fd_nonblocking(self, fd):
+        oldflags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        newflags = oldflags | os.O_NONBLOCK
+        fcntl.fcntl(fd, fcntl.F_SETFL, newflags)
+
     def __init__(self):
+        self.thread = None
+        self._lock = threading.Lock()
         self.curl_ctx = pycurl.CurlMulti()
         self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
-        self.active_handles = 0
-        self._handles = []
+        self.contexts = []
+        self.event_pipe_read, self.event_pipe_write = os.pipe()
+        self.set_fd_nonblocking(self.event_pipe_read)
+        self.set_fd_nonblocking(self.event_pipe_write)
+        self.event_queue = []
+        self.dying = False
 
-    def start_fetch(self, ctx):
-        self.active_handles += 1
-        self.curl_ctx.add_handle(ctx.curl_ctx)
-        self._handles.append(ctx)
+    def start(self):
+        self.thread = threading.Thread(target=self.pycurl_main_loop)
+        self.thread.start()
 
-    def process(self):
+    def drain_event_pipe(self):
+        try:
+            while(len(os.read(self.event_pipe_read, 1024)) >= 0):
+                pass
+        except OSError, e:
+            if e.errno == EAGAIN:
+                return
+            else:
+                raise
 
-        while 1:
-            go_again = False
-            while 1:
-                # Will generate write_data callbacks as appropriate
-                ret, num_handles = self.curl_ctx.perform()
-                if ret != pycurl.E_CALL_MULTI_PERFORM:
+    def notify_event(self):
+        try:
+            os.write(self.event_pipe_write, "X")
+        except OSError, e:
+            if e.errno == EAGAIN:
+                # Event pipe is full -- that's fine, the thread will wake next time it selects.
+                return
+            else:
+                raise
+
+    def post_event(self, ev):
+        with self._lock:
+            self.event_queue.append(ev)
+            self.notify_event()
+
+    def _add_fetch(self, callbacks, url, range):
+        new_context = pycURLFetchContext(callbacks, url, range)
+        self.curl_ctx.add_handle(new_context.curl_ctx)
+
+    def add_fetch(self, callbacks, url, range=None):
+        self.post_event(lambda: self._add_fetch(callbacks, url, range))
+
+    def _add_context(self, ctx):
+        self.contexts.append(ctx)
+
+    def add_context(self, ctx):
+        self.post_event(lambda: self._add_context(ctx))
+
+    def _remove_context(self, ctx):
+        self.contexts.remove(ctx)
+
+    def remove_context(self, ctx):
+        self.post_event(lambda: self._remove_context(ctx))
+
+    def _stop_thread(self):
+        self.dying = True
+    
+    def stop(self):
+        self.post_event(self._stop_thread)
+
+    def pycurl_main_loop(self):
+        while True:
+            # Curl-perform and process events until there's nothing left to do
+            while True:
+                go_again = False
+                # Perform until cURL has nothing left to do
+                while True:
+                    ret, num_handles = self.curl_ctx.perform()
+                    if ret != pycurl.E_CALL_MULTI_PERFORM:
+                        break
+                # Fire callbacks on completed fetches
+                while True:
+                    num_q, ok_list, err_list = self.curl_ctx.info_read()
+                    for c in ok_list:
+                        self.curl_ctx.remove_handle(c)
+                        response_code = c.getinfo(pycurl.RESPONSE_CODE)
+                        if str(response_code).startswith("2"):
+                            c.ctx.callbacks.success()
+                        else:
+                            c.ctx.callbacks.failure(response_code, "")
+                        c.cleanup()
+                    for c, errno, errmsg in err_list:
+                        self.curl_ctx.remove_handle(c)
+                        cherrypy.log.error("Curl failure: %s, %s" % 
+                                           (str(errno), str(errmsg)), "CURL_FETCH", logging.WARNING)
+                        c.ctx.callbacks.failure(errno, errmsg)
+                        c.cleanup()
+                    if num_q == 0:
+                        break
+                # Process events, both from out-of-thread and due to callbacks
+                with self._lock:
+                    if len(self.event_queue) > 0:
+                        go_again = True
+                        for event in self.event_queue:
+                            event()
+                        self.event_queue = []
+                    self.drain_event_pipe()
+                if self.dying:
+                    return
+                if not go_again:
                     break
-            while 1:
-                num_q, ok_list, err_list = self.curl_ctx.info_read()
-                if len(ok_list) != 0 or len(err_list) != 0:
-                    # We'll be making callbacks, which might schedule more work.
-                    # We should try processing again afterwards;
-                    # worst that happens, perform() will return OK right away and we'll drop out.
-                    go_again = True
-                for c in ok_list:
-                    self.curl_ctx.remove_handle(c)
-                    self.active_handles -= 1
-                    c.ctx._success()
-                for c, errno, errmsg in err_list:
-                    self.curl_ctx.remove_handle(c)
-                    self.active_handles -= 1
-                    cherrypy.log.error("Curl failure: %s, %s" % (str(errno), str(errmsg)), "CURL_FETCH", logging.WARNING)
-                    c.ctx._failure(errno, errmsg)
-                if num_q == 0:
-                    break
-            if not go_again:
-                break
+            if self.dying:
+                return
+            # Alright, all work appears to be done for now. Gather reasons to wake up.
+            # Reason #1: cURL has work to do.
+            read_fds, write_fds, exn_fds = self.curl_ctx.fdset()
+            # Reason #2: out-of-thread events arrived.
+            read_fds.append(self.event_pipe_read)
+            # Reason #3: one of our contexts has an interesting FD
+            for ctx in self.contexts:
+                ctx_read, ctx_write, ctx_exn = ctx.get_select_fds()
+                read_fds.extend(ctx_read)
+                write_fds.extend(ctx_write)
+                exn_fds.extend(ctx_exn)
+            # Reason #4: one of our contexts wants a callback after a timeout
+            select_timeout = None
+            def td_secs(td):
+                return (float(td.microseconds) / 10**6) + float(td.seconds)
+            for ctx in self.contexts:
+                ctx_timeout = ctx.get_timeout()
+                if ctx_timeout is not None:
+                    time_to_wait = td_secs(ctx_timeout - datetime.now())
+                    if select_timeout is None or time_to_wait < select_timeout:
+                        select_timeout = time_to_wait
+            active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds, select_timeout)
+            for ctx in self.contexts:
+                ctx.select_callback(active_read, active_write, active_exn)
+
+# Callbacks for a single fetch
+class pycURLFetchCallbacks:
+
+    def write_data(self, str):
+        pass
+
+    def write_header_line(self, str):
+        pass
+    
+    def success(self):
+        pass
+
+    def failure(self, errno, errstr):
+        pass
+
+# Callbacks for "contexts," things which add event sources for which I need a better name.
+class pycURLContextCallbacks:
+
+    def get_select_fds(self):
+        return [], [], []
+
+    def get_timeout(self):
+        return None
+
+    def select_callback(self, rd, wr, exn):
+        pass
+
+
+######## DO SOMETHING WITH THESE
 
     def transfer_all(self):
         while self.active_handles > 0:
@@ -144,6 +296,8 @@ class TransferSetContext:
             return failure_bindings
         else:
             return None
+
+######## DO SOMETHING WITH THESE
 
 class StreamTransferSetContext(TransferSetContext):
     def __init__(self):
@@ -235,132 +389,89 @@ class StreamTransferSetContext(TransferSetContext):
         else:
             return None
 
-class TransferContext:
+class RetryTransferContext(pycURLFetchCallbacks):
 
-    def __init__(self, multi):
-
-        self.multi = multi
-        self.curl_ctx = pycurl.Curl()
-        self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
-        self.curl_ctx.setopt(pycurl.MAXREDIRS, 5)
-        self.curl_ctx.setopt(pycurl.CONNECTTIMEOUT, 30)
-        self.curl_ctx.setopt(pycurl.TIMEOUT, 300)
-        self.curl_ctx.setopt(pycurl.NOSIGNAL, 1)
-        self.curl_ctx.setopt(pycurl.WRITEFUNCTION, self.write_data)
-        self.curl_ctx.setopt(pycurl.HEADERFUNCTION, self.write_header_line)
-        self.curl_ctx.ctx = self
-        self.active = False
-
-    def start_fetch(self, url, range=None):
-        if self.active:
-            raise Exception("Bad state: tried to start_fetch a curl context which was already active")
-        self.active = True
-        self.curl_ctx.setopt(pycurl.URL, str(url))
-        if range is not None:
-            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
-        self.multi.start_fetch(self)
-            
-    def _success(self):
-        self.active = False
-        response_code = self.curl_ctx.getinfo(pycurl.RESPONSE_CODE)
-        if str(response_code).startswith("2"):
-            self.success()
-        else:
-            self.failure(response_code, "")
-
-    def _failure(self, errno, errmsg):
-        self.active = False
-        self.failure(errno, errmsg)
-
-    def cleanup(self):
-        self.curl_ctx.close()
-
-class BufferTransferContext(TransferContext):
-
-    def __init__(self, urls, multi):
-        TransferContext.__init__(self, multi)
-        self.buffer = StringIO()
+    def __init__(self, urls, multi, done_callback):
         self.urls = urls
         self.failures = 0
         self.has_completed = False
         self.has_succeeded = False
-        self.start_fetch(self.urls[0])
+        self.bytes_written = 0
+        self.done_callback = done_callback
 
-    def write_data(self, _str):
-        self.buffer.write(_str)
-
-    def write_header_line(self, _str):
-        pass
+    def start(self):
+        multi.add_fetch(self, self.urls[0])
 
     def success(self):
         self.has_completed = True
         self.has_succeeded = True
+        self.done_callback()
 
     def failure(self, errno, errmsg):
         self.failures += 1
+        self.reset()
         try:
-            cherrypy.log.error('Failed to fetch from %s (%s, %s), retrying...' % (self.urls[self.failures-1], str(errno), errmsg), 'BLOCKSTORE', logging.WARNING)
-            self.start_fetch(self.urls[self.failures])
-            self.buffer.close()
-            self.buffer = StringIO()
+            multi.add_fetch(self.urls[self.failures])
         except IndexError:
             cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
             self.has_succeeded = False
+            self.done_callback()
 
-    def cleanup(self):
-        self.buffer.close()
-        TransferContext.cleanup(self)
+    def reset(self):
+        pass
 
-class FileTransferContext(TransferContext):
+class FileTransferContext(RetryTransferContext):
 
-    def __init__(self, urls, save_id, multi):
-        TransferContext.__init__(self, multi)
+    def __init__(self, urls, save_id, multi, callback):
+        RetryTransferContext.__init__(self, urls, multi, callback)
         with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
             self.sinkfile_name = sinkfile.name
         self.sink_fp = open(self.sinkfile_name, "wb")
-        self.urls = urls
-        self.failures = 0
-        self.has_completed = False
-        self.has_succeeded = False
         self.save_id = save_id
-        self.start_fetch(self.urls[0])
-        self.bytes_written = 0
 
     def write_data(self, _str):
-        cherrypy.log.error("Fetching file syncly %s writing %d bytes" % (self.save_id, len(_str)), 'CURL_FETCH', logging.DEBUG)
+        cherrypy.log.error("Fetching file syncly %s writing %d bytes" % 
+                           (self.save_id, len(_str)), 'CURL_FETCH', logging.DEBUG)
         self.bytes_written += len(_str)
         ret = self.sink_fp.write(_str)
-        cherrypy.log.error("Now at position %d (result of write was %s)" % (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
+        cherrypy.log.error("Now at position %d (result of write was %s)" % 
+                           (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
 
-    def write_header_line(self, _str):
-        pass
-
-    def success(self):
-        self.has_completed = True
-        self.has_succeeded = True
-
-    def failure(self, errno, errmsg):
-        self.failures += 1
-        try:
-            cherrypy.log.error('Failed to fetch %s from %s (%s, %s), retrying...' % (self.save_id, self.urls[self.failures-1], str(errno), errmsg), 'BLOCKSTORE', logging.WARNING)
-            self.sink_fp.seek(0)
-            self.sink_fp.truncate(0)
-            self.start_fetch(self.urls[self.failures])
-        except IndexError:
-            cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
-            self.has_completed = True
-            self.has_succeeded = False
+    def reset(self):
+        cherrypy.log.error('Failed to fetch %s from %s (%s, %s), retrying...' % 
+                           (self.save_id, self.urls[self.failures-1], str(errno), errmsg), 
+                           'BLOCKSTORE', logging.WARNING)
+        self.sink_fp.seek(0)
+        self.sink_fp.truncate(0)
 
     def cleanup(self):
-        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % (self.save_id, self.bytes_written, self.sink_fp.tell(), str(self.sink_fp.errors)), 'CURL_FETCH', logging.DEBUG)
+        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % 
+                           (self.save_id, self.bytes_written, self.sink_fp.tell(), str(self.sink_fp.errors)), 
+                           'CURL_FETCH', logging.DEBUG)
         self.sink_fp.close()
-        cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
-        TransferContext.cleanup(self)
+        cherrypy.log.error('File now closed (errors = %s)' % 
+                           self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
 
     def save_result(self, block_store):
         if self.has_completed and self.has_succeeded:
             block_store.store_file(self.sinkfile_name, self.save_id, True)
+
+class BufferTransferContext(RetryTransferContext):
+
+    def __init__(self, urls, multi, callback):
+        TransferContext.__init__(self, urls, multi, callback)
+        self.buffer = StringIO()
+
+    def write_data(self, _str):
+        self.buffer.write(_str)
+
+    def reset(self):
+        self.buffer.close()
+        self.buffer = StringIO()
+
+    def cleanup(self):
+        self.buffer.close()
 
 class StreamTransferContext(TransferContext):
 
