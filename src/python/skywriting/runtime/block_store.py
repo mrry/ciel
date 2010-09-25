@@ -276,29 +276,6 @@ class pycURLContextCallbacks:
     def select_callback(self, rd, wr, exn):
         pass
 
-
-######## DO SOMETHING WITH THESE
-
-    def transfer_all(self):
-        while self.active_handles > 0:
-            self.process()
-            self.curl_ctx.select(5.0)
-
-    def cleanup(self):
-        self.curl_ctx.close()
-
-    def get_failed_refs(self):
-        failure_bindings = {}
-        for handle in self._handles:
-            if not handle.has_succeeded:
-                failure_bindings[handle.ref.id] = SW2_TombstoneReference(handle.ref.id, handle.ref.location_hints)
-        if len(failure_bindings) > 0:
-            return failure_bindings
-        else:
-            return None
-
-######## DO SOMETHING WITH THESE
-
 class StreamTransferSetContext(TransferSetContext):
     def __init__(self):
         TransferSetContext.__init__(self)
@@ -473,10 +450,51 @@ class BufferTransferContext(RetryTransferContext):
     def cleanup(self):
         self.buffer.close()
 
-class StreamTransferContext(TransferContext):
+class WaitableTransferGroup:
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+        self.transfers_done = 0
+
+    def transfer_completed_callback(self):
+        with self._lock:
+            self.transfers_done += 1
+            self._cond.notify_all()
+
+    def wait_for_transfers(self, n):
+        with self._lock:
+            while self.transfers_done < n:
+                self._cond.wait()
+
+class StreamTransferContext(pycURLContextCallbacks):
+    # Represents a complete stream attempt which might involve many fetches
+
+    class StreamFetchContext(pycURLFetchCallbacks):
+        # Represents a single HTTP-fetch attempt in stream
+
+        def __init__(self, ctx):
+            self.ctx = ctx
+            self.response_had_stream = False
+            self.request_length = None
+        
+        def write_data(self, _str):
+            self.ctx.write_data(_str)
+
+        def write_header_line(self, _str):
+            if _str.startswith("Pragma") != -1 and _str.find("streaming") != -1:
+                self.response_had_stream = True
+            match_obj = length_regex.match(_str)
+            if match_obj is not None:
+                self.request_length = int(match_obj.group(1))
+
+        def success(self):
+            self.ctx.request_succeeded()
+
+        def failure(self, errno, errstr):
+            self.ctx.request_failed(errno, errstr)
 
     def __init__(self, ref, urls, save_id, multi):
-        TransferContext.__init__(self, multi)
         self.mem_buffer = ""
         self.ref = ref
         self.urls = urls
@@ -487,42 +505,27 @@ class StreamTransferContext(TransferContext):
         self.fifo_name = os.path.join(self.fifo_dir, 'fetch_fifo')
         with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
             self.sinkfile_name = sinkfile.name
-            
+
         os.mkfifo(self.fifo_name)
-        self.fifo_fd = os.open(self.fifo_name, os.O_RDWR | os.O_NONBLOCK)
+#        self.fifo_fd = os.open(self.fifo_name, os.O_RDWR | os.O_NONBLOCK)
+### MOVE THIS!
         self.sink_fp = open(self.sinkfile_name, "wb")
         self.current_start_byte = 0
         self.chunk_size = 1048576
         self.have_written_to_process = False
-        self.response_had_stream = False
+
+        self.current_request = None
         self.dormant_until = None
         self.requests_paused = False
-        self.request_length = None
 
         self.save_id = save_id
         self.multi = multi
         self.description = self.urls[0]
-        multi.handles.append(self)
+        multi.add_context(self)
         self.start_next_fetch()
-
-    def close_fifo(self):
-        if self.fifo_fd == -1:
-            return
-        os.close(self.fifo_fd)
-        self.fifo_fd = -1
-        self.mem_buffer = ""
-
-    def fifo_closed(self):
-        self.close_fifo()
-        if self.requests_paused and not self.has_completed:
-            self.requests_paused = False
-            self.consider_restart()
 
     def write_without_blocking(self, fd, _str):
 
-        if self.fifo_fd == -1:
-            # Silently swallow data; the other end is gone.
-            return len(_str)
         total_written = 0
         while len(_str) > 0:
             try:
@@ -537,18 +540,67 @@ class StreamTransferContext(TransferContext):
                     raise
         return total_written
 
-    def write_data(self, _str):
-        
-        if len(self.mem_buffer) > 0:
-            self.mem_buffer += _str
+    def try_empty_buffer(self):
+
+        written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
+        self.mem_buffer = self.mem_buffer[written:]
+        if len(self.mem_buffer) == 0 and self.requests_paused:
+            cherrypy.log.error("Consumer buffer empty for %s, considering restart" % self.description, 
+                               'CURL_FETCH', logging.DEBUG)
+            self.requests_paused = False
+
+    def get_select_fds(self):
+        if self.fifo_fd == -1 or len(self.mem_buffer == 0):
+            # We have no interest in writing to the fifo
+            return [], [], []
         else:
-            written = self.write_without_blocking(self.fifo_fd, _str)
+            return [], [self.fifo_fd], []
+
+    def get_timeout(self):
+        return self.dormant_until
+
+    def select_callback(self, rd, wr, exn):
+        # Reasons this callback could occur:
+        # 1. The FIFO is writable
+        # 2. It's time to retry a paused request.
+        if len(self.mem_buffer) > 0 and self.fifo_fd != -1:
+            if self.fifo_fd in wr:
+                self.try_empty_buffer()
+        if self.dormant_until is not None:
+            if datetime.now() > self.dormant_until:
+                self.dormant_until = None
+                cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 
+                                   'CURL_FETCH', logging.DEBUG)
+        if self.dormant_until is None and not self.requests_paused:
+            if self.state == PAUSED:
+                self.state = RUNNING
+                self.start_next_fetch()
+
+    def write_data(self, _str):
+        if len(self.ctx.mem_buffer) > 0:
+            self.ctx.mem_buffer += _str
+        else:
+            written = self.ctx.write_without_blocking(self.ctx.fifo_fd, _str)
             if written < len(_str):
                 self.mem_buffer += _str[written:]
-        ret = self.sink_fp.write(_str)
-        cherrypy.log.error("Now at position %d (result of write was %s)" % (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
-        self.current_start_byte += len(_str)
-        self.have_written_to_process = True
+            ret = self.ctx.sink_fp.write(_str)
+            cherrypy.log.error("Now at position %d (result of write was %s)" % 
+                               (self.ctx.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
+            self.ctx.current_start_byte += len(_str)
+            self.ctx.have_written_to_process = True
+
+    def close_fifo(self):
+        if self.fifo_fd == -1:
+            return
+        os.close(self.fifo_fd)
+        self.fifo_fd = -1
+        self.mem_buffer = ""
+
+    def fifo_closed(self):
+        self.close_fifo()
+        if self.requests_paused and not self.has_completed:
+            self.requests_paused = False
+            self.consider_restart()
 
     def start_next_fetch(self):
         cherrypy.log.error("Fetch %s offset %d" % (self.description, self.current_start_byte), 'CURL_FETCH', logging.DEBUG)
@@ -556,32 +608,8 @@ class StreamTransferContext(TransferContext):
                          (self.current_start_byte, 
                           self.current_start_byte + self.chunk_size))
 
-    def consider_restart(self):
-        if self.dormant_until is None and not self.requests_paused:
-            self.start_next_fetch()
-
     def wake_up(self):
-        self.dormant_until = None
-        cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 'CURL_FETCH', logging.DEBUG)
-        self.consider_restart()
 
-    def try_empty_buffer(self):
-
-        written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
-        self.mem_buffer = self.mem_buffer[written:]
-        if len(self.mem_buffer) == 0 and self.requests_paused:
-            cherrypy.log.error("Consumer buffer empty for %s, considering restart" % self.description, 'CURL_FETCH', logging.DEBUG)
-            self.requests_paused = False
-            self.consider_restart()
-            return True
-        return False
-
-    def write_header_line(self, _str):
-        if _str.startswith("Pragma") != -1 and _str.find("streaming") != -1:
-            self.response_had_stream = True
-        match_obj = length_regex.match(_str)
-        if match_obj is not None:
-            self.request_length = int(match_obj.group(1))
 
     def start_fetch(self, url, range):
         self.response_had_stream = False
@@ -865,7 +893,7 @@ class BlockStore:
                 
     def retrieve_filenames_for_refs_eager(self, refs):
 
-        fetch_ctx = TransferSetContext()
+        fetch_ctx = WaitableTransferGroup()
 
         # Step 1: Resolve from local cache
         resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
@@ -877,17 +905,24 @@ class BlockStore:
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
-            return FileTransferContext(urls, save_id, fetch_ctx)
+            return FileTransferContext(urls, save_id, self.fetch_thread, fetch_ctx)
 
         request_list = []
         for (ref, resolution) in zip(refs, resolved_refs):
             if resolution is None:
                 request_list.append(create_transfer_context(ref))
 
-        fetch_ctx.transfer_all()
+        fetch_ctx.wait_for_transfers(len(request_list))
 
         for req in request_list:
             req.save_result(self)
+
+        failure_bindings = {}
+        for req in request_list:
+            if not req.has_succeeded:
+                failure_bindings[req.ref.id] = SW2_TombstoneReference(req.ref.id, req.ref.location_hints)
+        if len(failure_bindings) > 0:
+            raise MissingInputException(failure_bindings)
 
         result_list = []
  
@@ -898,12 +933,6 @@ class BlockStore:
                 result_list.append(self.filename(next_req.save_id))
             else:
                 result_list.append(resolution)
-
-        fetch_ctx.cleanup()
-
-        failure_bindings = fetch_ctx.get_failed_refs()
-        if failure_bindings is not None:
-            raise MissingInputException(failure_bindings)
 
         return result_list
 
@@ -942,16 +971,16 @@ class BlockStore:
         result_list = []
         request_list = []
         
-        transfer_ctx = TransferSetContext()
+        transfer_ctx = WaitableTransferGroup()
 
         for (solution, this_fetch_urls) in zip(easy_solutions, fetch_urls):
             if solution is not None:
                 result_list.append(solution)
             else:
                 result_list.append(None)
-                request_list.append((ref, BufferTransferContext(this_fetch_urls, transfer_ctx)))
+                request_list.append((ref, BufferTransferContext(this_fetch_urls, self.fetch_thread, transfer_ctx)))
 
-        transfer_ctx.transfer_all()
+        transfer_ctx.wait_for_transfers(len(request_list))
 
         failure_bindings = {}
         j = 0
@@ -967,7 +996,6 @@ class BlockStore:
 
         for _, req in request_list:
             req.cleanup()
-        transfer_ctx.cleanup()
         
         if len(failure_bindings) > 0:
             raise MissingInputException(failure_bindings)
