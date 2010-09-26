@@ -388,7 +388,7 @@ class RetryTransferContext(pycURLFetchCallbacks):
         self.failures += 1
         self.reset()
         try:
-            multi.add_fetch(self.urls[self.failures])
+            multi.add_fetch(self, self.urls[self.failures])
         except IndexError:
             cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
@@ -467,6 +467,10 @@ class WaitableTransferGroup:
             while self.transfers_done < n:
                 self._cond.wait()
 
+STREAM_FIFO_UNCONNECTED = 0
+STREAM_FIFO_CONNECTED = 1
+STREAM_FIFO_DEAD = 2
+
 class StreamTransferContext(pycURLContextCallbacks):
     # Represents a complete stream attempt which might involve many fetches
 
@@ -494,8 +498,115 @@ class StreamTransferContext(pycURLContextCallbacks):
         def failure(self, errno, errstr):
             self.ctx.request_failed(errno, errstr)
 
+    class StreamFifoSink:
+        def __init__(self, fifo_name):
+            self.dummy_read_fd = os.open(self.fifo_name, os.O_RDONLY | os.O_NONBLOCK)
+            self.fifo_fd = os.open(self.fifo_name, os.O_WRONLY | os.O_NONBLOCK)
+            self.fifo_state = FIFO_UNCONNECTED
+            self.mem_buffer = ""
+            self.eof = False
+
+        def write_without_blocking(self, fd, _str):
+            total_written = 0
+            while len(_str) > 0:
+                try:
+                    bytes_written = os.write(self.fifo_fd, _str)
+                    _str = _str[bytes_written:]
+                    total_written += bytes_written
+                except OSError, e:
+                    if e.errno == EAGAIN:
+                        return total_written
+                    else:
+                        raise
+            return total_written
+
+        def try_empty_buffer(self):
+            assert self.fifo_state == FIFO_CONNECTED and len(self.mem_buffer) > 0
+            try:
+                written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
+                self.mem_buffer = self.mem_buffer[written:]
+                if len(self.mem_buffer) > 0 and self.eof:
+                    self.consumer_detatched()
+            except OSError, e:
+                if e.errno == EPIPE:
+                    self.consumer_detatched()
+                else:
+                    raise
+        
+        def write_data(self, _str):
+            if self.fifo_state == FIFO_DEAD:
+                return
+            elif self.fifo_state == FIFO_UNCONNECTED:
+                self.mem_buffer += _str
+            elif self.fifo_state == FIFO_CONNECTED:
+                if len(self.mem_buffer) > 0:
+                    self.try_empty_buffer()
+                if self.fifo_state == FIFO_CONNECTED:
+                    if len(self.mem_buffer) > 0:
+                        self.mem_buffer += _str
+                    else:
+                        written = self.write_without_blocking(self.fifo_fd, _str)
+                        if written < len(_str):
+                            self.mem_buffer += _str[written:]
+
+        def write_data_eof(self):
+            # If the FIFO is still unconnected we should wait for it to become connected.
+            # If it's connected already, just hang up.
+            self.eof = True
+            if self.fifo_state == FIFO_CONNECTED:
+                if len(self.mem_buffer) == 0:
+                    self.consumer_detatched()
+            elif self.fifo_state == FIFO_DEAD:
+                return
+            elif self.fifo_state == FIFO_UNCONNECTED:
+                return
+
+        def select_fds(self):
+            if self.fifo_state == FIFO_CONNECTED and len(self.mem_buffer) > 0:
+                return [], [self.fifo_fd], []
+            else:
+                return [], [], []
+
+        def select_callback(self, rd, wr, exn):
+            if self.fifo_state == FIFO_CONNECTED and len(self.mem_buffer) > 0 and self.fifo_fd in wr:
+                self.try_empty_buffer()
+                if self.fifo_state == FIFO_DEAD:
+                    return True
+                else:
+                    return (len(self.mem_buffer) == 0)
+            else:
+                return False
+
+        def is_overfull(self):
+            if self.fifo_state == FIFO_UNCONNECTED or self.fifo_state == FIFO_CONNECTED:
+                return (len(self.mem_buffer) > 0)
+            else:
+                return False
+
+        def consumer_attached(self):
+            assert self.fifo_state == FIFO_UNCONNECTED
+            self.fifo_state = FIFO_CONNECTED
+            os.close(self.dummy_read_fd)
+            self.dummy_read_fd = -1
+            if len(self.mem_buffer) > 0:
+                self.try_empty_buffer()
+
+        def consumer_detatched(self):
+            if self.fifo_state == FIFO_DEAD:
+                return
+            elif self.fifo_state == FIFO_UNCONNECTED:
+                os.close(self.fifo_fd)
+                os.close(self.dummy_read_fd)
+                self.fifo_fd = -1
+                self.dummy_read_fd = -1
+                self.mem_buffer = ""
+            elif self.fifo_state == FIFO_CONNECTED:
+                os.close(self.fifo_fd)
+                self.fifo_fd = -1
+                self.mem_buffer = ""
+            self.fifo_state = FIFO_DEAD
+            
     def __init__(self, ref, urls, save_id, multi):
-        self.mem_buffer = ""
         self.ref = ref
         self.urls = urls
         self.failures = 0
@@ -503,18 +614,15 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.has_succeeded = False
         self.fifo_dir = tempfile.mkdtemp()
         self.fifo_name = os.path.join(self.fifo_dir, 'fetch_fifo')
+        os.mkfifo(self.fifo_name)
+        self.fifo_sink = StreamFifoSink(fifo_name)
         with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
             self.sinkfile_name = sinkfile.name
-
-        os.mkfifo(self.fifo_name)
-#        self.fifo_fd = os.open(self.fifo_name, os.O_RDWR | os.O_NONBLOCK)
-### MOVE THIS!
         self.sink_fp = open(self.sinkfile_name, "wb")
         self.current_start_byte = 0
         self.chunk_size = 1048576
         self.have_written_to_process = False
-
-        self.current_request = None
+        self.current_fetch = None
         self.dormant_until = None
         self.requests_paused = False
 
@@ -524,107 +632,63 @@ class StreamTransferContext(pycURLContextCallbacks):
         multi.add_context(self)
         self.start_next_fetch()
 
-    def write_without_blocking(self, fd, _str):
-
-        total_written = 0
-        while len(_str) > 0:
-            try:
-                bytes_written = os.write(self.fifo_fd, _str)
-                _str = _str[bytes_written:]
-                total_written += bytes_written
-            except OSError, e:
-                # Note that we can't get EPIPE here, as we ourselves hold a read handle.
-                if e.errno == EAGAIN:
-                    return total_written
-                else:
-                    raise
-        return total_written
-
-    def try_empty_buffer(self):
-
-        written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
-        self.mem_buffer = self.mem_buffer[written:]
-        if len(self.mem_buffer) == 0 and self.requests_paused:
-            cherrypy.log.error("Consumer buffer empty for %s, considering restart" % self.description, 
-                               'CURL_FETCH', logging.DEBUG)
-            self.requests_paused = False
-
     def get_select_fds(self):
-        if self.fifo_fd == -1 or len(self.mem_buffer == 0):
-            # We have no interest in writing to the fifo
-            return [], [], []
-        else:
-            return [], [self.fifo_fd], []
+        return self.fifo_sink.select_fds()
 
     def get_timeout(self):
         return self.dormant_until
+
+    def consider_restart(self):
+        if self.dormant_until is None and not self.requests_paused:
+            self.start_next_fetch()
 
     def select_callback(self, rd, wr, exn):
         # Reasons this callback could occur:
         # 1. The FIFO is writable
         # 2. It's time to retry a paused request.
-        if len(self.mem_buffer) > 0 and self.fifo_fd != -1:
-            if self.fifo_fd in wr:
-                self.try_empty_buffer()
+        if self.fifo_sink.select_callback(rd, rw, exn):
+            self.consider_restart()
         if self.dormant_until is not None:
             if datetime.now() > self.dormant_until:
                 self.dormant_until = None
                 cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 
                                    'CURL_FETCH', logging.DEBUG)
-        if self.dormant_until is None and not self.requests_paused:
-            if self.state == PAUSED:
-                self.state = RUNNING
-                self.start_next_fetch()
+                self.consider_restart()
 
     def write_data(self, _str):
-        if len(self.ctx.mem_buffer) > 0:
-            self.ctx.mem_buffer += _str
-        else:
-            written = self.ctx.write_without_blocking(self.ctx.fifo_fd, _str)
-            if written < len(_str):
-                self.mem_buffer += _str[written:]
-            ret = self.ctx.sink_fp.write(_str)
-            cherrypy.log.error("Now at position %d (result of write was %s)" % 
-                               (self.ctx.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
-            self.ctx.current_start_byte += len(_str)
-            self.ctx.have_written_to_process = True
+        self.fifo_sink.write_data(_str)
+        ret = self.sink_fp.write(_str)
+        cherrypy.log.error("Now at position %d (result of write was %s)" % 
+                           (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
+        self.current_start_byte += len(_str)
+        self.have_written_to_process = True
 
-    def close_fifo(self):
-        if self.fifo_fd == -1:
-            return
-        os.close(self.fifo_fd)
-        self.fifo_fd = -1
-        self.mem_buffer = ""
-
-    def fifo_closed(self):
-        self.close_fifo()
-        if self.requests_paused and not self.has_completed:
-            self.requests_paused = False
-            self.consider_restart()
+    def start_fetch(self, url, range):
+        self.current_fetch = StreamFetchContext(self)
+        self.multi.add_fetch(self.current_fetch, url, range)
 
     def start_next_fetch(self):
-        cherrypy.log.error("Fetch %s offset %d" % (self.description, self.current_start_byte), 'CURL_FETCH', logging.DEBUG)
+        cherrypy.log.error("Fetch %s offset %d" % 
+                           (self.description, self.current_start_byte), 'CURL_FETCH', logging.DEBUG)
         self.start_fetch(self.urls[self.failures], 
                          (self.current_start_byte, 
                           self.current_start_byte + self.chunk_size))
 
-    def wake_up(self):
-
-
-    def start_fetch(self, url, range):
-        self.response_had_stream = False
-        TransferContext.start_fetch(self, url, range)
-
     def pause_for(self, secs):
+        assert self.dormant_until is None
         self.dormant_until = datetime.now() + timedelta(0, secs)
-        cherrypy.log.error("Pausing %s fetch due to producer buffer empty" % self.description, 'CURL_FETCH', logging.DEBUG)
+        cherrypy.log.error("Pausing %s fetch due to producer buffer empty" 
+                           % self.description, 'CURL_FETCH', logging.DEBUG)
 
     def success(self):
 
-        cherrypy.log.error("Fetch %s succeeded (length %d)" % (self.description, self.request_length), "CURL_FETCH", logging.DEBUG)
+        cherrypy.log.error("Fetch %s succeeded (length %d)" 
+                           % (self.description, self.request_length), 
+                           "CURL_FETCH", logging.DEBUG)
  
-        if len(self.mem_buffer) == 0:
-            if self.request_length is not None and self.request_length < (self.chunk_size / 2):
+        if not self.fifo_sink.is_overfull():
+            if self.current_fetch.request_length is not None and self.current_fetch.request_length < (self.chunk_size / 2):
+                # We're nearly ahead of the producer; pause to give it a chance to buffer more output.
                 self.pause_for(1)
             else:
                 self.start_next_fetch()
@@ -635,38 +699,49 @@ class StreamTransferContext(pycURLContextCallbacks):
             cherrypy.log.error("Pausing %s fetch consumer buffer full" % self.description, 'CURL_FETCH', logging.DEBUG)
             self.requests_paused = True
 
+    def report_completion(self, succeeded):
+        self.fifo_sink.write_data_eof()
+        self.has_completed = True
+        self.has_succeeded = succeeded
+
     def failure(self, errno, errmsg):
 
         if errno == 416:
-            if not self.response_had_stream:
-                self.close_fifo()
-                self.has_completed = True
-                self.has_succeeded = True
+            if not self.current_fetch.response_had_stream:
+                self.report_completion(True)
             else:
                 # We've got ahead of the producer.
                 # Pause for 1 seconds.
                 self.pause_for(1)
 
         else:
-            cherrypy.log.error("Fetch %s failed (error %s)" % (self.description, str(errno)), "CURL_FETCH", logging.WARNING)
+            cherrypy.log.error("Fetch %s failed (error %s)" % 
+                               (self.description, str(errno)), 
+                               "CURL_FETCH", logging.WARNING)
             if self.have_written_to_process:
                 # Can't just fail-over; we've failed after having written bytes to a process.
-                self.close_fifo()
-                self.has_completed = True
-                self.has_succeeded = False
+                self.report_completion(False)
             else:
                 self.failures += 1
                 try:
                     self.start_fetch(self.urls[self.failures], (0, self.chunk_size))
                 except IndexError:
                     # Run out of URLs to try
-                    self.close_fifo()
-                    self.has_completed = True
-                    self.has_succeeded = False
+                    self.report_completion(False)
+
+    def consumer_attached(self):
+        self.fifo_sink.consumer_attached()
+
+    def consumer_detatched(self):
+        self.fifo_sink.consumer_detatched()
+        if self.requests_paused and not self.has_completed:
+            self.requests_paused = False
+            self.consider_restart()
 
     def cleanup(self):
-        TransferContext.cleanup(self)
-        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % (self.save_id, self.current_start_byte, self.sink_fp.tell(), str(self.sink_fp.errors)), 'CURL_FETCH', logging.DEBUG)
+        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' 
+                           % (self.save_id, self.current_start_byte, self.sink_fp.tell(), str(self.sink_fp.errors)), 
+                           'CURL_FETCH', logging.DEBUG)
         self.sink_fp.flush()
         self.sink_fp.close()
         cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
