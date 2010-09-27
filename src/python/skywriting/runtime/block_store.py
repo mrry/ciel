@@ -404,6 +404,14 @@ class StreamTransferGroup(WaitableTransferGroup):
     def wait_for_transfers(self):
         self.wait_for_transfers(len(self.handles))
 
+    def consumers_attached(self):
+        for h in self.handles:
+            h.consumer_attached()
+
+    def consumers_detatched(self):
+        for h in self.handles:
+            h.consumer_detached()
+
     def cleanup(self, block_store):
         for handle in self.handles:
             handle.save_result(block_store)
@@ -732,6 +740,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
         os.unlink(self.fifo_name)
         os.rmdir(self.fifo_dir)
+        self.multi.remove_context(self)
 
     def save_result(self, block_store):
         # Called from arbitrary thread, but only after all cURL callbacks have completed
