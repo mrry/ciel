@@ -138,7 +138,7 @@ class ProcessRunningExecutor(SWExecutor):
 
     def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
         SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-         try:
+        try:
             self.input_refs = args['inputs']
         except KeyError:
             self.input_refs = []
@@ -165,19 +165,19 @@ class ProcessRunningExecutor(SWExecutor):
                 stream_refs[self.output_ids[i]] = stream_ref
             self.master_proxy.publish_refs(task_id, stream_refs)
 
-        self.proc = self.start_process(file_inputs, file_outputs, transfer_ctx)
+        self.proc = self.start_process(block_store, file_inputs, file_outputs, transfer_ctx)
         add_running_child(self.proc)
 
-        rc = self.await_process(file_inputs, file_outputs, transfer_ctx)
+        rc = self.await_process(block_store, file_inputs, file_outputs, transfer_ctx)
         remove_running_child(self.proc)
 
         self.proc = None
 
         cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
-        fetch_ctx.wait_for_transfers()
-        fetch_ctx.cleanup(block_store)
+        transfer_ctx.wait_for_all_transfers()
+        transfer_ctx.cleanup(block_store)
 
-        failure_bindings = fetch_ctx.get_failed_refs()
+        failure_bindings = transfer_ctx.get_failed_refs()
         if failure_bindings is not None:
             raise MissingInputException(failure_bindings)
 
@@ -198,10 +198,10 @@ class ProcessRunningExecutor(SWExecutor):
             
         cherrypy.engine.publish("worker_event", "Executor: Done")
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
         
-    def await_process(self, input_files, output_files, transfer_ctx):
+    def await_process(self, block_store, input_files, output_files, transfer_ctx):
         rc = self.proc.wait()
         transfer_ctx.consumers_detached()
         return rc
@@ -225,14 +225,14 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
         cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
 
         with open(output_files[0], "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
             return subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
 
-    def await_process(self, input_files, output_files, transfer_ctx):
+    def await_process(self, block_store, input_files, output_files, transfer_ctx):
 
         class list_with:
             def __init__(self, l):
@@ -270,7 +270,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
         cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
 
         with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
@@ -306,17 +306,17 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         except KeyError:
             self.argv = []
         
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
 
-        self.before_execute()
+        self.before_execute(block_store)
         cherrypy.engine.publish("worker_event", "Executor: running")
 
         proc = subprocess.Popen(self.get_process_args(), shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
         
-        proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
-        for x in file_inputs:
+        proc.stdin.write("%d,%d,%d\0" % (len(input_files), len(output_files), len(self.argv)))
+        for x in input_files:
             proc.stdin.write("%s\0" % x)
-        for x in file_outputs:
+        for x in output_files:
             proc.stdin.write("%s\0" % x)
         for x in self.argv:
             proc.stdin.write("%s\0" % x)
@@ -326,6 +326,8 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         #print 'Got byte back from Executor'
 
         transfer_ctx.consumers_attached()
+
+        return proc
 
     def get_process_args(self):
         raise Exception("Must override get_process_args subclassing FilenamesOnStdinExecutor")
@@ -340,7 +342,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
-    def before_execute(self):
+    def before_execute(self, block_store):
         cherrypy.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
         self.jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
@@ -348,8 +350,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
     def get_process_args(self):
         cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
         process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
-        for x in jar_filenames:
-            process_args.append("file://" + x)
+        process_args.extend(["file://" + x for x in self.jar_filenames])
         return process_args
         
 class DotNetExecutor(FilenamesOnStdinExecutor):
@@ -362,7 +363,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the dotnet executor: %s' % repr(args))
 
-    def before_execute(self):
+    def before_execute(self, block_store):
         cherrypy.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         cherrypy.engine.publish("worker_event", "Dotnet: fetching DLLs")
         self.dll_filenames = self.get_filenames_eager(block_store, self.dll_refs)
@@ -385,7 +386,7 @@ class CExecutor(FilenamesOnStdinExecutor):
         except KeyError:
             raise BlameUserException('Incorrect arguments to the C executor: %s' % repr(args))
 
-    def before_execute(self):
+    def before_execute(self, block_store):
         cherrypy.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         cherrypy.engine.publish("worker_event", "C-exec: fetching SOs")
         self.so_filenames = self.get_filenames_eager(block_store, self.so_refs)
@@ -395,7 +396,7 @@ class CExecutor(FilenamesOnStdinExecutor):
         c_loader = os.getenv('SW_C_LOADER_PATH', 
                              "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/c/src/loader")
         process_args = [c_loader, self.entry_point_name]
-        process_args.extend(x)
+        process_args.extend(self.so_filenames)
         return process_args
     
 class GrabURLExecutor(SWExecutor):

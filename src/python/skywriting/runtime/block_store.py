@@ -116,6 +116,7 @@ class SelectableEventQueue:
         fcntl.fcntl(fd, fcntl.F_SETFL, newflags)
 
     def __init__(self):
+        self._lock = threading.Lock()
         self.event_pipe_read, self.event_pipe_write = os.pipe()
         self.set_fd_nonblocking(self.event_pipe_read)
         self.set_fd_nonblocking(self.event_pipe_write)
@@ -162,12 +163,11 @@ class pycURLThread:
 
     def __init__(self):
         self.thread = None
-        self._lock = threading.Lock()
         self.curl_ctx = pycurl.CurlMulti()
         self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
         self.contexts = []
-        self.event_queue = SelectableEventQueue
+        self.event_queue = SelectableEventQueue()
         self.dying = False
 
     def start(self):
@@ -219,13 +219,13 @@ class pycURLThread:
                             c.ctx.callbacks.success()
                         else:
                             c.ctx.callbacks.failure(response_code, "")
-                        c.cleanup()
+                        c.ctx.cleanup()
                     for c, errno, errmsg in err_list:
                         self.curl_ctx.remove_handle(c)
                         cherrypy.log.error("Curl failure: %s, %s" % 
                                            (str(errno), str(errmsg)), "CURL_FETCH", logging.WARNING)
                         c.ctx.callbacks.failure(errno, errmsg)
-                        c.cleanup()
+                        c.ctx.cleanup()
                     if num_q == 0:
                         break
                 # Process events, both from out-of-thread and due to callbacks
@@ -296,6 +296,7 @@ class RetryTransferContext(pycURLFetchCallbacks):
 
     def __init__(self, urls, multi, done_callback):
         self.urls = urls
+        self.multi = multi
         self.failures = 0
         self.has_completed = False
         self.has_succeeded = False
@@ -303,7 +304,7 @@ class RetryTransferContext(pycURLFetchCallbacks):
         self.done_callback = done_callback
 
     def start(self):
-        multi.add_fetch(self, self.urls[0])
+        self.multi.add_fetch(self, self.urls[0])
 
     def success(self):
         self.has_completed = True
@@ -314,7 +315,7 @@ class RetryTransferContext(pycURLFetchCallbacks):
         self.failures += 1
         self.reset()
         try:
-            multi.add_fetch(self, self.urls[self.failures])
+            self.multi.add_fetch(self, self.urls[self.failures])
         except IndexError:
             cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
@@ -363,7 +364,7 @@ class FileTransferContext(RetryTransferContext):
 class BufferTransferContext(RetryTransferContext):
 
     def __init__(self, urls, multi, callback):
-        TransferContext.__init__(self, urls, multi, callback)
+        RetryTransferContext.__init__(self, urls, multi, callback)
         self.buffer = StringIO()
 
     def write_data(self, _str):
@@ -401,14 +402,14 @@ class StreamTransferGroup(WaitableTransferGroup):
     def add_handle(self, h):
         self.handles.append(h)
 
-    def wait_for_transfers(self):
+    def wait_for_all_transfers(self):
         self.wait_for_transfers(len(self.handles))
 
     def consumers_attached(self):
         for h in self.handles:
             h.consumer_attached()
 
-    def consumers_detatched(self):
+    def consumers_detached(self):
         for h in self.handles:
             h.consumer_detached()
 
@@ -416,7 +417,6 @@ class StreamTransferGroup(WaitableTransferGroup):
         for handle in self.handles:
             handle.save_result(block_store)
             handle.cleanup()
-        TransferSetContext.cleanup(self)
         
     def get_failed_refs(self):
         failure_bindings = {}
@@ -979,9 +979,7 @@ class BlockStore(plugins.SimplePlugin):
         # Step 2: Build request descriptors
         def create_transfer_context(ref):
             urls = self.get_fetch_urls_for_ref(ref)
-            if isinstance(ref, SW2_ConcreteReference) 
-            or isinstance(ref, SW2_StreamReference) 
-            or isinstance(ref, SW2_FetchReference):
+            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_FetchReference):
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
@@ -1058,7 +1056,7 @@ class BlockStore(plugins.SimplePlugin):
         
         transfer_ctx = WaitableTransferGroup()
 
-        for (solution, this_fetch_urls) in zip(easy_solutions, fetch_urls):
+        for (solution, this_fetch_urls, ref) in zip(easy_solutions, fetch_urls, refs):
             if solution is not None:
                 result_list.append(solution)
             else:
@@ -1067,7 +1065,7 @@ class BlockStore(plugins.SimplePlugin):
                                                 self.fetch_thread, 
                                                 transfer_ctx.transfer_completed_callback)
                 new_ctx.start()
-                request_list.append(new_ctx)
+                request_list.append((ref, new_ctx))
 
         transfer_ctx.wait_for_transfers(len(request_list))
 
