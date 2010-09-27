@@ -33,6 +33,7 @@ import threading
 from datetime import datetime, timedelta
 from cStringIO import StringIO
 from errno import EAGAIN
+from cherrypy.process import plugins
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -107,7 +108,7 @@ class pycURLFetchContext:
     def cleanup(self):
         self.curl_ctx.close()
 
-class pycURLThread:
+class SelectableEventQueue:
 
     def set_fd_nonblocking(self, fd):
         oldflags = fcntl.fcntl(fd, fcntl.F_GETFL)
@@ -115,21 +116,10 @@ class pycURLThread:
         fcntl.fcntl(fd, fcntl.F_SETFL, newflags)
 
     def __init__(self):
-        self.thread = None
-        self._lock = threading.Lock()
-        self.curl_ctx = pycurl.CurlMulti()
-        self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
-        self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
-        self.contexts = []
         self.event_pipe_read, self.event_pipe_write = os.pipe()
         self.set_fd_nonblocking(self.event_pipe_read)
         self.set_fd_nonblocking(self.event_pipe_write)
         self.event_queue = []
-        self.dying = False
-
-    def start(self):
-        self.thread = threading.Thread(target=self.pycurl_main_loop)
-        self.thread.start()
 
     def drain_event_pipe(self):
         try:
@@ -156,30 +146,58 @@ class pycURLThread:
             self.event_queue.append(ev)
             self.notify_event()
 
+    def dispatch_events(self):
+        with self._lock:
+            ret = (len(self.event_queue) > 0)
+            for event in self.event_queue:
+                event()
+            self.event_queue = []
+            self.drain_event_pipe()
+            return ret
+
+    def get_select_fds(self):
+        return [self.event_pipe_read], [], []
+
+class pycURLThread:
+
+    def __init__(self):
+        self.thread = None
+        self._lock = threading.Lock()
+        self.curl_ctx = pycurl.CurlMulti()
+        self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
+        self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
+        self.contexts = []
+        self.event_queue = SelectableEventQueue
+        self.dying = False
+
+    def start(self):
+        self.thread = threading.Thread(target=self.pycurl_main_loop)
+        self.thread.start()
+
     def _add_fetch(self, callbacks, url, range):
         new_context = pycURLFetchContext(callbacks, url, range)
         self.curl_ctx.add_handle(new_context.curl_ctx)
 
     def add_fetch(self, callbacks, url, range=None):
-        self.post_event(lambda: self._add_fetch(callbacks, url, range))
+        self.event_queue.post_event(lambda: self._add_fetch(callbacks, url, range))
 
     def _add_context(self, ctx):
         self.contexts.append(ctx)
 
     def add_context(self, ctx):
-        self.post_event(lambda: self._add_context(ctx))
+        self.event_queue.post_event(lambda: self._add_context(ctx))
 
     def _remove_context(self, ctx):
         self.contexts.remove(ctx)
 
     def remove_context(self, ctx):
-        self.post_event(lambda: self._remove_context(ctx))
+        self.event_queue.post_event(lambda: self._remove_context(ctx))
 
     def _stop_thread(self):
         self.dying = True
     
     def stop(self):
-        self.post_event(self._stop_thread)
+        self.event_queue.post_event(self._stop_thread)
 
     def pycurl_main_loop(self):
         while True:
@@ -211,13 +229,8 @@ class pycURLThread:
                     if num_q == 0:
                         break
                 # Process events, both from out-of-thread and due to callbacks
-                with self._lock:
-                    if len(self.event_queue) > 0:
-                        go_again = True
-                        for event in self.event_queue:
-                            event()
-                        self.event_queue = []
-                    self.drain_event_pipe()
+                if self.event_queue.dispatch_events():
+                    go_again = True
                 if self.dying:
                     return
                 if not go_again:
@@ -228,7 +241,10 @@ class pycURLThread:
             # Reason #1: cURL has work to do.
             read_fds, write_fds, exn_fds = self.curl_ctx.fdset()
             # Reason #2: out-of-thread events arrived.
-            read_fds.append(self.event_pipe_read)
+            ev_rfds, ev_wfds, ev_exfds = self.event_queue.get_select_fds()
+            read_fds.extend(ev_rfds)
+            write_fds.extend(ev_wfds)
+            exn_fds.extend(ev_exfds)
             # Reason #3: one of our contexts has an interesting FD
             for ctx in self.contexts:
                 ctx_read, ctx_write, ctx_exn = ctx.get_select_fds()
@@ -275,96 +291,6 @@ class pycURLContextCallbacks:
 
     def select_callback(self, rd, wr, exn):
         pass
-
-class StreamTransferSetContext(TransferSetContext):
-    def __init__(self):
-        TransferSetContext.__init__(self)
-        self.handles = []
-
-    def writable_handles(self):
-        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0, self.handles)
-
-    def write_waitable_handles(self):
-        return filter(lambda x: (not x.has_completed) and len(x.mem_buffer) > 0 and x.fifo_fd != -1, self.handles)
-
-    def dormant_handles(self):
-        return filter(lambda x: x.dormant_until is not None, self.handles)
-
-    def process(self):
-        while 1:
-            go_again = False
-            # go_again is set when cURL's handle-group might have changed, since the last perform(),
-            # so it's not safe to select() at this time.
-            TransferSetContext.process(self)
-            for handle in self.writable_handles():
-                if handle.try_empty_buffer():
-                    go_again = True
-            for handle in self.dormant_handles():
-                if datetime.now() > handle.dormant_until:
-                    handle.wake_up()
-                    go_again = True
-            if not go_again:
-                return
-
-    def drain_pipe(self, pipefd):
-        oldflags = fcntl.fcntl(pipefd, fcntl.F_GETFL)
-        newflags = oldflags | os.O_NONBLOCK
-        fcntl.fcntl(pipefd, fcntl.F_SETFL, newflags)
-        try:
-            while(os.read(pipefd, 1024) >= 0):
-                pass
-        except OSError, e:
-            if e.errno == EAGAIN:
-                return
-            else:
-                raise
-
-    def select(self, death_pipe):
-
-        shortest_timeout = 15.0
-
-        def td_secs(td):
-            return (float(td.microseconds) / 10**6) + float(td.seconds)
-
-        for handle in self.dormant_handles():
-            time_to_wait = td_secs(handle.dormant_until - datetime.now())
-            if time_to_wait < shortest_timeout:
-                shortest_timeout = time_to_wait
-        (read, write, exn) = self.curl_ctx.fdset()
-        for handle in self.write_waitable_handles():
-            write.append(handle.fifo_fd)
-        read.append(death_pipe)
-        read_ret, write_ret, exn_ret = select.select(read, write, exn, shortest_timeout)
-        if death_pipe in read_ret:
-            self.drain_pipe(death_pipe)
-            cherrypy.log.error("Closing fetch FIFOs due to process death", 'CURL_FETCH', logging.DEBUG)
-            for handle in self.handles:
-                handle.fifo_closed()
-
-    def transfer_all(self, death_pipe):
-        while 1:
-            self.process()
-            remaining_transfers = filter(lambda x: not x.has_completed, self.handles)
-            if len(remaining_transfers) == 0:
-                cherrypy.log.error("All transfers complete", 'CURL_FETCH', logging.DEBUG)
-                return
-            self.select(death_pipe)
-
-    def cleanup(self, block_store):
-        for handle in self.handles:
-            handle.save_result(block_store)
-            handle.cleanup()
-        TransferSetContext.cleanup(self)
-        
-    def get_failed_refs(self):
-        failure_bindings = {}
-        for handle in self.handles:
-            if not handle.has_succeeded:
-                failure_bindings[handle.ref.id] = SW2_TombstoneReference(handle.ref.id, handle.ref.location_hints)
-        if len(failure_bindings) > 0:
-            return failure_bindings
-        else:
-            return None
 
 class RetryTransferContext(pycURLFetchCallbacks):
 
@@ -467,6 +393,33 @@ class WaitableTransferGroup:
             while self.transfers_done < n:
                 self._cond.wait()
 
+class StreamTransferGroup(WaitableTransferGroup):
+    def __init__(self):
+        WaitableTransferGroup.__init__(self)
+        self.handles = []
+
+    def add_handle(self, h):
+        self.handles.append(h)
+
+    def wait_for_transfers(self):
+        self.wait_for_transfers(len(self.handles))
+
+    def cleanup(self, block_store):
+        for handle in self.handles:
+            handle.save_result(block_store)
+            handle.cleanup()
+        TransferSetContext.cleanup(self)
+        
+    def get_failed_refs(self):
+        failure_bindings = {}
+        for handle in self.handles:
+            if not handle.has_succeeded:
+                failure_bindings[handle.ref.id] = SW2_TombstoneReference(handle.ref.id, handle.ref.location_hints)
+        if len(failure_bindings) > 0:
+            return failure_bindings
+        else:
+            return None
+
 STREAM_FIFO_UNCONNECTED = 0
 STREAM_FIFO_CONNECTED = 1
 STREAM_FIFO_DEAD = 2
@@ -520,18 +473,23 @@ class StreamTransferContext(pycURLContextCallbacks):
                         raise
             return total_written
 
+        def buffer_empty(self):
+            return (len(self.mem_buffer) == 0)
+
         def try_empty_buffer(self):
-            assert self.fifo_state == FIFO_CONNECTED and len(self.mem_buffer) > 0
-            try:
-                written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
-                self.mem_buffer = self.mem_buffer[written:]
-                if len(self.mem_buffer) > 0 and self.eof:
-                    self.consumer_detatched()
-            except OSError, e:
-                if e.errno == EPIPE:
-                    self.consumer_detatched()
-                else:
-                    raise
+            assert self.fifo_state == FIFO_CONNECTED
+            if not self.buffer_empty():
+                try:
+                    written = self.write_without_blocking(self.fifo_fd, self.mem_buffer)
+                    self.mem_buffer = self.mem_buffer[written:]
+                except OSError, e:
+                    if e.errno == EPIPE:
+                        self.consumer_detatched()
+                    else:
+                        raise
+            if self.buffer_empty() and self.eof:
+                self.consumer_detatched()
+
         
         def write_data(self, _str):
             if self.fifo_state == FIFO_DEAD:
@@ -539,10 +497,9 @@ class StreamTransferContext(pycURLContextCallbacks):
             elif self.fifo_state == FIFO_UNCONNECTED:
                 self.mem_buffer += _str
             elif self.fifo_state == FIFO_CONNECTED:
-                if len(self.mem_buffer) > 0:
-                    self.try_empty_buffer()
+                self.try_empty_buffer()
                 if self.fifo_state == FIFO_CONNECTED:
-                    if len(self.mem_buffer) > 0:
+                    if not self.buffer_empty():
                         self.mem_buffer += _str
                     else:
                         written = self.write_without_blocking(self.fifo_fd, _str)
@@ -554,32 +511,34 @@ class StreamTransferContext(pycURLContextCallbacks):
             # If it's connected already, just hang up.
             self.eof = True
             if self.fifo_state == FIFO_CONNECTED:
-                if len(self.mem_buffer) == 0:
+                if self.buffer_empty():
                     self.consumer_detatched()
+                # Otherwise this will happen in try_empty_buffer
             elif self.fifo_state == FIFO_DEAD:
                 return
             elif self.fifo_state == FIFO_UNCONNECTED:
+                # EOF will be delivered in consumer_attached, by way of try_empty_buffer.
                 return
 
         def select_fds(self):
-            if self.fifo_state == FIFO_CONNECTED and len(self.mem_buffer) > 0:
+            if self.fifo_state == FIFO_CONNECTED and not self.buffer_empty():
                 return [], [self.fifo_fd], []
             else:
                 return [], [], []
 
         def select_callback(self, rd, wr, exn):
-            if self.fifo_state == FIFO_CONNECTED and len(self.mem_buffer) > 0 and self.fifo_fd in wr:
+            if self.fifo_state == FIFO_CONNECTED and (not self.buffer_empty()) and self.fifo_fd in wr:
                 self.try_empty_buffer()
                 if self.fifo_state == FIFO_DEAD:
                     return True
                 else:
-                    return (len(self.mem_buffer) == 0)
+                    return self.buffer_empty()
             else:
                 return False
 
         def is_overfull(self):
             if self.fifo_state == FIFO_UNCONNECTED or self.fifo_state == FIFO_CONNECTED:
-                return (len(self.mem_buffer) > 0)
+                return not self.buffer_empty()
             else:
                 return False
 
@@ -588,8 +547,7 @@ class StreamTransferContext(pycURLContextCallbacks):
             self.fifo_state = FIFO_CONNECTED
             os.close(self.dummy_read_fd)
             self.dummy_read_fd = -1
-            if len(self.mem_buffer) > 0:
-                self.try_empty_buffer()
+            self.try_empty_buffer()
 
         def consumer_detatched(self):
             if self.fifo_state == FIFO_DEAD:
@@ -606,7 +564,7 @@ class StreamTransferContext(pycURLContextCallbacks):
                 self.mem_buffer = ""
             self.fifo_state = FIFO_DEAD
             
-    def __init__(self, ref, urls, save_id, multi):
+    def __init__(self, ref, urls, save_id, multi, completion_callback):
         self.ref = ref
         self.urls = urls
         self.failures = 0
@@ -625,17 +583,28 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.current_fetch = None
         self.dormant_until = None
         self.requests_paused = False
+        self.event_queue = SelectableEventQueue()
 
         self.save_id = save_id
         self.multi = multi
         self.description = self.urls[0]
+        self.completion_callback = completion_callback
         multi.add_context(self)
+
+    def start(self):
         self.start_next_fetch()
 
     def get_select_fds(self):
-        return self.fifo_sink.select_fds()
+        # Called from cURL thread
+        read_fds, write_fds, exn_fds = self.fifo_sink.select_fds()
+        ev_rfds, ev_wfds, ev_exfds = self.event_queue.get_select_fds()
+        read_fds.extend(ev_rfds)
+        write_fds.extend(ev_wfds)
+        exn_fds.extend(ev_exfds)
+        return read_fds, write_fds, exn_fds
 
     def get_timeout(self):
+        # Called from cURL thread
         return self.dormant_until
 
     def consider_restart(self):
@@ -643,9 +612,11 @@ class StreamTransferContext(pycURLContextCallbacks):
             self.start_next_fetch()
 
     def select_callback(self, rd, wr, exn):
+        # Called from cURL thread
         # Reasons this callback could occur:
         # 1. The FIFO is writable
         # 2. It's time to retry a paused request.
+        # 3. An out-of-thread entity has pushed events into our event queue.
         if self.fifo_sink.select_callback(rd, rw, exn):
             self.consider_restart()
         if self.dormant_until is not None:
@@ -654,8 +625,10 @@ class StreamTransferContext(pycURLContextCallbacks):
                 cherrypy.log.error("Wakeup %s fetch; considering restart" % self.description, 
                                    'CURL_FETCH', logging.DEBUG)
                 self.consider_restart()
+        self.event_queue.dispatch_events()
 
     def write_data(self, _str):
+        # Called from cURL thread
         self.fifo_sink.write_data(_str)
         ret = self.sink_fp.write(_str)
         cherrypy.log.error("Now at position %d (result of write was %s)" % 
@@ -681,7 +654,7 @@ class StreamTransferContext(pycURLContextCallbacks):
                            % self.description, 'CURL_FETCH', logging.DEBUG)
 
     def success(self):
-
+        # Called from cURL thread
         cherrypy.log.error("Fetch %s succeeded (length %d)" 
                            % (self.description, self.request_length), 
                            "CURL_FETCH", logging.DEBUG)
@@ -703,9 +676,10 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.fifo_sink.write_data_eof()
         self.has_completed = True
         self.has_succeeded = succeeded
+        self.completion_callback()
 
     def failure(self, errno, errmsg):
-
+        # Called from cURL thread
         if errno == 416:
             if not self.current_fetch.response_had_stream:
                 self.report_completion(True)
@@ -729,16 +703,27 @@ class StreamTransferContext(pycURLContextCallbacks):
                     # Run out of URLs to try
                     self.report_completion(False)
 
-    def consumer_attached(self):
+    def _consumer_attached(self):
+        # Called from cURL thread
         self.fifo_sink.consumer_attached()
 
-    def consumer_detatched(self):
+    def consumer_attached(self):
+        # Called from arbitrary thread
+        self.event_queue.post_event(self._consumer_attached)
+
+    def _consumer_detatched(self):
+        # Called from cURL thread
         self.fifo_sink.consumer_detatched()
         if self.requests_paused and not self.has_completed:
             self.requests_paused = False
             self.consider_restart()
 
+    def consumer_detatched(self):
+        # Called from arbitrary thread
+        self.event_queue.post_event(self._consumer_detatched)
+
     def cleanup(self):
+        # Called from arbitrary thread, but only after all cURL callbacks have completed
         cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' 
                            % (self.save_id, self.current_start_byte, self.sink_fp.tell(), str(self.sink_fp.errors)), 
                            'CURL_FETCH', logging.DEBUG)
@@ -749,16 +734,22 @@ class StreamTransferContext(pycURLContextCallbacks):
         os.rmdir(self.fifo_dir)
 
     def save_result(self, block_store):
+        # Called from arbitrary thread, but only after all cURL callbacks have completed
         if self.has_completed and self.has_succeeded:
             block_store.store_file(self.sinkfile_name, self.save_id, True)
 
-class BlockStore:
-    
-    def __init__(self, hostname, port, base_dir, ignore_blocks=False):
+class BlockStore(plugins.SimplePlugin):
+
+    def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False):
+        plugins.SimplePlugin.__init__(self, bus)
         self._lock = Lock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
         self.object_cache = {}
+        self.bus = bus
+        self.bus.subscribe("stop", self.stop_thread, 10)
+        self.fetch_thread = pycURLThread()
+        self.fetch_thread.start()
     
         self.pin_set = set()
     
@@ -775,7 +766,10 @@ class BlockStore:
         
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
-    
+
+    def stop_thread(self):
+        self.fetch_thread.stop()
+
     def decode_handle(self, file):
         return file
     def decode_script(self, file):
@@ -976,11 +970,15 @@ class BlockStore:
         # Step 2: Build request descriptors
         def create_transfer_context(ref):
             urls = self.get_fetch_urls_for_ref(ref)
-            if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_FetchReference):
+            if isinstance(ref, SW2_ConcreteReference) 
+            or isinstance(ref, SW2_StreamReference) 
+            or isinstance(ref, SW2_FetchReference):
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
-            return FileTransferContext(urls, save_id, self.fetch_thread, fetch_ctx)
+            new_ctx = FileTransferContext(urls, save_id, self.fetch_thread, fetch_ctx.transfer_completed_callback)
+            new_ctx.start()
+            return new_ctx
 
         request_list = []
         for (ref, resolution) in zip(refs, resolved_refs):
@@ -1013,7 +1011,7 @@ class BlockStore:
 
     def retrieve_filenames_for_refs(self, refs):
 
-        fetch_ctx = StreamTransferSetContext()
+        fetch_ctx = StreamTransferGroup()
 
         # Step 1: Resolve from local cache
         resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
@@ -1025,7 +1023,10 @@ class BlockStore:
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
-            return StreamTransferContext(ref, urls, save_id, fetch_ctx)
+            ret = StreamTransferContext(ref, urls, save_id, self.fetch_thread, fetch_ctx.transfer_completed_callback)
+            fetch_ctx.add_handle(ret)
+            ret.start()
+            return ret
 
         result_list = []
  
@@ -1053,7 +1054,11 @@ class BlockStore:
                 result_list.append(solution)
             else:
                 result_list.append(None)
-                request_list.append((ref, BufferTransferContext(this_fetch_urls, self.fetch_thread, transfer_ctx)))
+                new_ctx = BufferTransferContext(this_fetch_urls, 
+                                                self.fetch_thread, 
+                                                transfer_ctx.transfer_completed_callback)
+                new_ctx.start()
+                request_list.append(new_ctx)
 
         transfer_ctx.wait_for_transfers(len(request_list))
 
