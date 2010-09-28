@@ -1,4 +1,23 @@
 #!/bin/bash
+# Copyright (c) 2010 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+# ----
+#
+# Skywriting/Ciel helper script to run a command on all machines in a cluster.
+#
+# usage: See sw-run-command -h
 
 # defaults
 KEY="sw-masterkey"
@@ -13,11 +32,6 @@ while [ $# -gt 0 ]
 do
   case $1
   in
-    -v)
-      VERBOSE=1
-      shift 1
-    ;;
-    
     -c)
       COMMAND=$2
       shift 2
@@ -49,8 +63,15 @@ do
       shift 2
     ;;
 
+    -v)
+      VERBOSE=1
+      shift 1
+    ;;
+    
     -h|*)
-      echo "usage: sw-update-cluster -c command [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
+      echo "Runs a given command on all machines in the cluster."
+      echo "usage: sw-run-command -c command [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
+      echo ""
       echo "-c: command to be run on the cluster machines"
       echo "-f: the file listing the machines in the cluster, one per line."
       echo "    If '--' is passed, STDIN is assumed."
@@ -69,6 +90,11 @@ done
 
 # ---------------------------------------------
 # main script
+
+if [[ $COMMAND == "" ]]; then
+   echo "command (-c) must be specified!"
+   exit 2
+fi
 
 I=0
 cat $SOURCE | while myLine=`line`

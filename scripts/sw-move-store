@@ -1,4 +1,25 @@
 #!/bin/bash
+# Copyright (c) 2010 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+# ----
+#
+# Skywriting/Ciel helper script to move the blocks store directory.
+# DEPRECATED: This should not be used any more; the setup scripts now set up
+# the block store in the correct location (/mnt/store)
+#
+# usage: See sw-move-store -h
 
 # defaults
 KEY="sw-masterkey"
@@ -13,11 +34,6 @@ while [ $# -gt 0 ]
 do
   case $1
   in
-    -v)
-      VERBOSE=1
-      shift 1
-    ;;
-
     -i|-k)
       KEY=$2
       shift 2
@@ -50,7 +66,8 @@ do
     ;;
 
     -h|*)
-      echo "usage: sw-wipe-cluster [-f cluster-file|(-i|-k) key|-r swroot|-u swuser] -t target"
+      echo "usage: sw-move-store [-f cluster-file|(-i|-k) key|-r swroot|-u swuser] -t target"
+      echo ""
       echo "-f: the file listing the machines in the cluster, one per line."
       echo "    If '--' is passed, STDIN is assumed."
       echo "-i|-k: the private key to use for authentication to cluster machines"
@@ -58,7 +75,7 @@ do
       echo "-r|--swroot: the root directory of the remote Skywriting installation"
       echo "             (defaults to '/opt/skywriting')"
       echo "-t|--target: target to move the block store to"
-      echo "-u|--swOAuser: the user name of the Skywriting user on the cluster"
+      echo "-u|--swuser: the user name of the Skywriting user on the cluster"
       echo "             (defaults to 'root')"
       shift 1
       exit 0
@@ -78,8 +95,7 @@ I=0
 cat $SOURCE | while myLine=`line`
 do
     echo -n "Moving store on instance $I: "
-#    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "mv $SWROOT/store $TARGET; ln -s $TARGET/store/ $SWROOT/store"
-    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm $SWROOT/store; ln -s $TARGET/store/ $SWROOT/store"
+    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "mv $SWROOT/store $TARGET; ln -s $TARGET/store/ $SWROOT/store"
     echo $myLine
     I=`expr $I + 1`
 done

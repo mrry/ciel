@@ -16,25 +16,15 @@
 # ----
 #
 # Evaluation/benchmarking helper script. Performs iterative runs of the
-# BOPM benchmark for given parameters.
+# GREP benchmark on Hadoop.
 #
-# usage: run-binoptions.sh after editing parameters
+# usage: run-grep-hadoop.sh after editing parameters
 
-#!/bin/bash
-N=100000
-MASTER=""
-SWROOT="/opt/skywriting"
+HADOOP_HOME="/usr/lib/hadoop"
+HADOOP_VER="0.20.2+320"
+INPUT="<HDFS reference>"
 
 for i in 1 2 3 4 5; do
-   for c in 6668; do
-   #for c in 10000 5000 2500 2000; do
-       tasks=`expr $N / $c`
-       echo "Running for chunk size $c ($tasks tasks): "
-       export CHUNKSIZE=$c
-       export TOTAL=$N
-       export FOO=`date +%s`
-       $SWROOT/scripts/sw-flush-workers -m $MASTER -f
-       time $SWROOT/scripts/sw-job -m $MASTER -e $SWROOT/src/sw/binomialoptions.sw 2>&1
-   done
+    echo "Running iteration $i: "
+    time hadoop jar $HADOOP_HOME/hadoop-$HADOOP_VER-examples.jar grep $INPUT /user/root/grep-out/run$i "A27"
 done
-

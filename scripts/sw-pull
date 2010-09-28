@@ -15,10 +15,10 @@
 #
 # ----
 #
-# Skywriting/Ciel helper script to pull files or directories off all machines
-# in a cluster to a local target.
+# Skywriting/Ciel helper script to push local files or directories to all 
+# machines in a cluster.
 #
-# usage: See sw-push -h
+# usage: See sw-pull -h
 
 # defaults
 KEY="sw-masterkey"
@@ -65,8 +65,8 @@ do
       shift 2
     ;;
     
-    -p|--pushfile)
-      PUSHFILE=$2
+    -p|--pullfile)
+      PULLFILE=$2
       shift 2
     ;;
     
@@ -81,18 +81,18 @@ do
     ;;
 
     -h|*)
-      echo "Pushes a local file or directory to all machines in a cluster."
-      echo "usage: sw-push [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
+      echo "Pulls files or directories from a cluster and stores them locally."
+      echo "usage: sw-pull -p source -t target [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
       echo ""
       echo "-f: the file listing the machines in the cluster, one per line."
       echo "    If '--' is passed, STDIN is assumed."
       echo "-i|-k: the private key to use for authentication to cluster machines"
       echo "       (defaults to 'sw-masterkey')"
-      echo "-p|--pushfile: the file to push to the cluster"
-      echo "-t|--target: the target file name/path on the cluster"
+      echo "-p|--pullfile: the file to pull from the cluster"
+      echo "-t|--target: the local target path (new per-worker directories will be created here)"
       echo "-r|--swroot: the root directory of the remote Skywriting installation"
       echo "             (defaults to '/opt/skywriting')"
-      echo "--recursive: recursively push data"
+      echo "--recursive: pull recursively"
       echo "-u|--swuser: the user name of the Skywriting user on the cluster"
       echo "             (defaults to 'root')"
       echo "-v: verbose mode (don't surpress output from remote machines)"
@@ -113,12 +113,9 @@ fi
 I=0
 cat $SOURCE | while myLine=`line`
 do
-    echo -n "Pushing to instance $I: "
-    if [[ $VERBOSE -eq 1 ]]; then
-	scp $RECURSIVE -o StrictHostKeyChecking=no -i $KEY $PUSHFILE $SWUSER@$myLine:$TARGET
-    else
-	scp -q $RECURSIVE -o StrictHostKeyChecking=no -i $KEY $PUSHFILE $SWUSER@$myLine:$TARGET
-    fi
+    echo -n "Pulling from to instance $I: "
+    mkdir -p $TARGET/$myLine/
+    scp $RECURSIVE -o StrictHostKeyChecking=no -i $KEY $SWUSER@$myLine:$PULLFILE $TARGET/$myLine/
     echo $myLine
     I=`expr $I + 1`
 done

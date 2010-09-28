@@ -15,14 +15,11 @@
 #
 # ----
 #
-# Skywriting/Ciel cluster update script.
+# Helper script to power off the local test cluster.
 #
-# usage: See sw-update-cluster -h
+# usage: See srgcluster-boot.sh -h
 
 # defaults
-KEY="sw-masterkey"
-SWUSER="root"
-SWROOT="/opt/skywriting"
 VERBOSE=0
 
 # ---------------------------------------------
@@ -32,9 +29,9 @@ while [ $# -gt 0 ]
 do
   case $1
   in
-    -i|-k)
-      KEY=$2
-      shift 2
+    -v)
+      VERBOSE=1
+      shift 1
     ;;
 
     -f)
@@ -47,36 +44,14 @@ do
       fi
       shift 2
     ;;
-    
-    -r|--swroot)
-      SWROOT=$2
-      shift 2
-    ;;
-    
-    -u|--swuser)
-      SWUSER=$2
-      shift 2
-    ;;
-
-    -v)
-      VERBOSE=1
-      shift 1
-    ;;
 
     -h|*)
-      echo "Updates the Skywriting/Ciel distribution on a cluster by pulling from"
-      echo "the git repository."
-      echo "usage: sw-update-cluster [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
+      echo "Turns power to the local test cluster machines off."
+      echo "usage: srgcluster-shutdown [-f cluster-file|-v]"
       echo ""
       echo "-f: the file listing the machines in the cluster, one per line."
       echo "    If '--' is passed, STDIN is assumed."
-      echo "-i|-k: the private key to use for authentication to cluster machines"
-      echo "       (defaults to 'sw-masterkey')"
-      echo "-r|--swroot: the root directory of the remote Skywriting installation"
-      echo "             (defaults to '/opt/skywriting')"
-      echo "-u|--swuser: the user name of the Skywriting user on the cluster"
-      echo "             (defaults to 'root')"
-      echo "-v: verbose mode (don't surpress output from remote machines)"
+      echo "-v: verbose mode (don't surpress output from xenuse)"
       shift 1
       exit 0
     ;;
@@ -89,11 +64,11 @@ done
 I=0
 cat $SOURCE | while myLine=`line`
 do
-    echo -n "Updating instance $I: "
+    echo -n "Turning off instance $I: "
     if [[ $VERBOSE -eq 1 ]]; then
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "cd $SWROOT ; git pull"
+	echo $myLine | cut -d \- -f 1 | xargs xenuse --off 
     else
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "cd $SWROOT ; git pull" 1>&2 2>/dev/null
+	echo $myLine | cut -d \- -f 1 | xargs xenuse --off 1>&2 2>/dev/null
     fi
     echo $myLine
     I=`expr $I + 1`

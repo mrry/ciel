@@ -1,4 +1,23 @@
 #!/bin/bash
+# Copyright (c) 2010 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+# ----
+#
+# Skywriting/Ciel cluster launch script.
+#
+# usage: See sw-launch-cluster -h
 
 # defaults
 KEY="sw-masterkey"
@@ -6,6 +25,9 @@ SWUSER="root"
 SWROOT="/opt/skywriting"
 VERBOSE=0
 SKIPMASTER=0
+WORKER_PORT=8001
+MASTER_PORT=8000
+LOG_OPERATOR=">"
 
 # ---------------------------------------------
 # option processing
@@ -14,8 +36,8 @@ while [ $# -gt 0 ]
 do
   case $1
   in
-    -v)
-      VERBOSE=1
+    --al)
+      LOG_OPERATOR=">>"
       shift 1
     ;;
 
@@ -35,6 +57,11 @@ do
       shift 2
     ;;
     
+    --mp)
+      MASTER_PORT=$2
+      shift 2
+    ;;
+
     -r|--swroot)
       SWROOT=$2
       shift 2
@@ -44,10 +71,20 @@ do
       SWUSER=$2
       shift 2
     ;;
-    
+
+    -v)
+      VERBOSE=1
+      shift 1
+    ;;
+
     -w|--wipejournal)
       WIPEJOURNAL=1
       shift 1
+    ;;
+
+    --wp)
+      WORKER_PORT=$2
+      shift 2
     ;;
 
     --skip-master)
@@ -56,18 +93,25 @@ do
     ;;
 
     -h|*)
+      echo "Launches a Skywriting/Ciel cluster given a list of machines. The master is "
+      echo "lauched on the first machine in the list unless --skip-master is specified."
+      echo ""
       echo "usage: sw-launch-cluster [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
+      echo "--al: appends to the log file instead of overwriting it (default: off)."
+      echo "      Ignored if -v is set."
       echo "-f: the file listing the machines in the cluster, one per line."
       echo "    If '--' is passed, STDIN is assumed."
       echo "-i|-k: the private key to use for authentication to cluster machines"
       echo "       (defaults to 'sw-masterkey')"
+      echo "--mp: allows specification of a master port (default: 8000)"
       echo "-r|--swroot: the root directory of the remote Skywriting installation"
       echo "             (defaults to '/opt/skywriting')"
+      echo "--skip-master: do not restart the master (ignore the first line of input)"
       echo "-u|--swuser: the user name of the Skywriting user on the cluster"
       echo "             (defaults to 'root')"
       echo "-v: verbose mode (don't surpress output from remote machines)"
       echo "-w|--wipejournal: wipe the job journal on the master before launching it"
-      echo "--skip-master: do not restart the master (ignore the first line of input)"
+      echo "--wp: allows specification of a worker port (default: 8001)"
       shift 1
       exit 0
     ;;
@@ -87,20 +131,20 @@ do
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/master.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/master.log"
 	elif [[ $SKIPMASTER -eq 0 ]]; then
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p 8000 -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 2>$SWROOT/logs/master.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/master.log"
 	fi
 	MASTER=$myLine
     else
 	echo "... as a worker for $MASTER"
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -x -p 8001 -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/worker.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -x -p ${WORKER_PORT} -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/worker.log"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:8000' -p 8001 -b $SWROOT/store/ 2>&1 2>$SWROOT/logs/worker.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -p ${WORKER_PORT} -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/worker.log"
 	fi
     fi
     I=`expr $I + 1`
