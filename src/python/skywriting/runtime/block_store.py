@@ -188,12 +188,14 @@ class pycURLThread:
         self.event_queue.post_event(callback_obj)
 
     def _add_context(self, ctx):
+        cherrypy.log.error("Event source registered", "CURL_FETCH", logging.INFO)
         self.contexts.append(ctx)
 
     def add_context(self, ctx):
         self.event_queue.post_event(lambda: self._add_context(ctx))
 
     def _remove_context(self, ctx):
+        cherrypy.log.error("Event source unregistered", "CURL_FETCH", logging.INFO)
         self.contexts.remove(ctx)
 
     def remove_context(self, ctx):
@@ -695,6 +697,7 @@ class StreamTransferContext(pycURLContextCallbacks):
             self.requests_paused = True
 
     def report_completion(self, succeeded):
+        cherrypy.log.error("%s reporting EOF to client" % self.description, "CURL_FETCH", logging.INFO)
         self.fifo_sink.write_data_eof()
         self.has_completed = True
         self.has_succeeded = succeeded
@@ -727,6 +730,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def _consumer_attached(self):
         # Called from cURL thread
+        cherrypy.log.error("Client process for %s attached" % self.description, "CURL_FETCH", logging.INFO)
         self.fifo_sink.consumer_attached()
 
     def consumer_attached(self):
@@ -735,6 +739,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def _consumer_detached(self):
         # Called from cURL thread
+        cherrypy.log.error("Client process for %s detached" % self.description, "CURL_FETCH", logging.INFO)
         self.fifo_sink.consumer_detached()
         if self.requests_paused and not self.has_completed:
             self.requests_paused = False
