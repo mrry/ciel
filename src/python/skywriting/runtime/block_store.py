@@ -101,7 +101,6 @@ class pycURLFetchContext:
         self.curl_ctx.setopt(pycurl.WRITEFUNCTION, callback_obj.write_data)
         self.curl_ctx.setopt(pycurl.HEADERFUNCTION, callback_obj.write_header_line)
         self.curl_ctx.setopt(pycurl.URL, str(url))
-        self.curl_ctx.setopt(pycurl.VERBOSE, 1)
         self.curl_ctx.ctx = self
         if range is not None:
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
