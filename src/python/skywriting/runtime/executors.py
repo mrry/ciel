@@ -27,6 +27,7 @@ import tempfile
 import os
 import cherrypy
 import threading
+import time
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
 
@@ -305,11 +306,19 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             self.argv = args['argv']
         except KeyError:
             self.argv = []
+        try:
+            self.debug_opts = args['debug_options']
+        except KeyError:
+            self.debug_opts = []
         
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
 
         self.before_execute(block_store)
         cherrypy.engine.publish("worker_event", "Executor: running")
+
+        if "go_slow" in self.debug_opts:
+            cherrypy.log.error("DEBUG: Executor sleep(3)'ing", "EXEC", logging.DEBUG)
+            time.sleep(3)
 
         proc = subprocess.Popen(self.get_process_args(), shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
         
