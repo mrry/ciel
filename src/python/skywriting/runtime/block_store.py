@@ -32,7 +32,7 @@ import re
 import threading
 from datetime import datetime, timedelta
 from cStringIO import StringIO
-from errno import EAGAIN
+from errno import EAGAIN, EPIPE
 from cherrypy.process import plugins
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
@@ -170,6 +170,7 @@ class pycURLThread:
         self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
         self.contexts = []
+        self.active_fetches = []
         self.event_queue = SelectableEventQueue()
         self.dying = False
 
@@ -179,6 +180,7 @@ class pycURLThread:
 
     def _add_fetch(self, callbacks, url, range):
         new_context = pycURLFetchContext(callbacks, url, range)
+        self.active_fetches.append(new_context)
         self.curl_ctx.add_handle(new_context.curl_ctx)
 
     def add_fetch(self, callbacks, url, range=None):
@@ -221,26 +223,25 @@ class pycURLThread:
                     for c in ok_list:
                         self.curl_ctx.remove_handle(c)
                         response_code = c.getinfo(pycurl.RESPONSE_CODE)
-                        cherrypy.log.error("Curl success: %s -- %s" % (c.ctx.description, str(response_code)))
+#                        cherrypy.log.error("Curl success: %s -- %s" % (c.ctx.description, str(response_code)))
                         if str(response_code).startswith("2"):
                             c.ctx.callbacks.success()
                         else:
                             c.ctx.callbacks.failure(response_code, "")
                         c.ctx.cleanup()
+                        self.active_fetches.remove(c.ctx)
                     for c, errno, errmsg in err_list:
                         self.curl_ctx.remove_handle(c)
                         cherrypy.log.error("Curl failure: %s, %s" % 
                                            (str(errno), str(errmsg)), "CURL_FETCH", logging.WARNING)
                         c.ctx.callbacks.failure(errno, errmsg)
                         c.ctx.cleanup()
+                        self.active_fetches.remove(c.ctx)
                     if num_q == 0:
                         break
                 # Process events, both from out-of-thread and due to callbacks
-                cherrypy.log.error("---EVENTS START---")
                 if self.event_queue.dispatch_events():
-                    cherrypy.log.error("Going around")
                     go_again = True
-                cherrypy.log.error("---EVENTS END---")
                 if self.dying:
                     return
                 if not go_again:
