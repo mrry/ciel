@@ -77,3 +77,4 @@ ssh -o StrictHostKeyChecking=no -f -i $PRIVKEY $SWUSER@$TARGETHOST "~$SWUSER/sw-
 
 # output
 echo "done!"
+
