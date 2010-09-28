@@ -54,6 +54,8 @@ public class JitteryProducer implements Task {
 	Random rng = new Random();
 	List<StreamFeeder> streams = new LinkedList<StreamFeeder>();
 
+	int seconds_to_run = Integer.parseInt(args[0]);
+
 	for (int i = 0; i < fos.length; i++) {
 
 	    streams.add(new StreamFeeder(fos[i], rng, i));
@@ -64,7 +66,7 @@ public class JitteryProducer implements Task {
 	    long seconds_elapsed = 0;
 	    long last_number_written = 0;
 	    System.out.printf("Producer start\n");
-	    while(seconds_elapsed < 10) {
+	    while(seconds_elapsed < seconds_to_run) {
 		long last_change_time = System.currentTimeMillis();
 		while(System.currentTimeMillis() < (last_change_time + 1000)) {
 		    for(StreamFeeder stream : streams) {
