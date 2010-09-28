@@ -53,6 +53,7 @@ BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
 PIN_PREFIX = '.__pin__:'
 
 length_regex = re.compile("^Content-Length:\s*([0-9]+)")
+http_response_regex = re.compile("^HTTP/1.1 ([0-9]+)")
 
 class StreamRetry:
     pass
@@ -452,12 +453,21 @@ class StreamTransferContext(pycURLContextCallbacks):
             self.ctx = ctx
             self.response_had_stream = False
             self.request_length = None
+            self.first_header = True
+            self.response_code = None
             self.description = description
         
         def write_data(self, _str):
-            self.ctx.write_data(_str)
+            # Don't write error-documents to our client process
+            if self.response_code is not None and self.response_code < 300:
+                self.ctx.write_data(_str)
 
         def write_header_line(self, _str):
+            if self.first_header:
+                self.first_header = False
+                match_obj = http_response_regex.match(_str)
+                if match_obj is not None:
+                    self.response_code = int(match_obj.group(1))
             if _str.startswith("Pragma") != -1 and _str.find("streaming") != -1:
                 self.response_had_stream = True
             match_obj = length_regex.match(_str)
