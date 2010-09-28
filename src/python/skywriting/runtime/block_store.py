@@ -90,6 +90,8 @@ class pycURLFetchContext:
 
     def __init__(self, callback_obj, url, range=None):
 
+        self.description = url
+
         self.curl_ctx = pycurl.Curl()
         self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
         self.curl_ctx.setopt(pycurl.MAXREDIRS, 5)
@@ -99,6 +101,7 @@ class pycURLFetchContext:
         self.curl_ctx.setopt(pycurl.WRITEFUNCTION, callback_obj.write_data)
         self.curl_ctx.setopt(pycurl.HEADERFUNCTION, callback_obj.write_header_line)
         self.curl_ctx.setopt(pycurl.URL, str(url))
+        self.curl_ctx.setopt(pycurl.VERBOSE, 1)
         self.curl_ctx.ctx = self
         if range is not None:
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
@@ -179,7 +182,8 @@ class pycURLThread:
         self.curl_ctx.add_handle(new_context.curl_ctx)
 
     def add_fetch(self, callbacks, url, range=None):
-        self.event_queue.post_event(lambda: self._add_fetch(callbacks, url, range))
+        callback_obj = lambda: self._add_fetch(callbacks, url, range)
+        self.event_queue.post_event(callback_obj)
 
     def _add_context(self, ctx):
         self.contexts.append(ctx)
@@ -212,9 +216,12 @@ class pycURLThread:
                 # Fire callbacks on completed fetches
                 while True:
                     num_q, ok_list, err_list = self.curl_ctx.info_read()
+                    if len(ok_list) > 0 or len(err_list) > 0:
+                        go_again = True
                     for c in ok_list:
                         self.curl_ctx.remove_handle(c)
                         response_code = c.getinfo(pycurl.RESPONSE_CODE)
+                        cherrypy.log.error("Curl success: %s -- %s" % (c.ctx.description, str(response_code)))
                         if str(response_code).startswith("2"):
                             c.ctx.callbacks.success()
                         else:
@@ -229,8 +236,11 @@ class pycURLThread:
                     if num_q == 0:
                         break
                 # Process events, both from out-of-thread and due to callbacks
+                cherrypy.log.error("---EVENTS START---")
                 if self.event_queue.dispatch_events():
+                    cherrypy.log.error("Going around")
                     go_again = True
+                cherrypy.log.error("---EVENTS END---")
                 if self.dying:
                     return
                 if not go_again:
@@ -682,7 +692,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def request_failed(self, errno, errmsg):
         # Called from cURL thread
-        if errno == 416:
+        if errno == 418:
             if not self.current_fetch.response_had_stream:
                 self.report_completion(True)
             else:

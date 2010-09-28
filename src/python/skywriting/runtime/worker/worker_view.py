@@ -151,7 +151,15 @@ class DataRoot:
                         raise
                     cherrypy.response.headers.pop('Pragma', None)
                     is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-                    serve_file(filename)
+                    try:
+                        serve_file(filename)
+                    except cherrypy.HTTPError as he:
+                        if he.status == 416:
+                            raise cherrypy.HTTPError(418)
+                        else:
+                            raise
+                elif he.status == 416:
+                    raise cherrypy.HTTPError(418)
                 else:
                     raise
                 
