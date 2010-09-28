@@ -166,7 +166,7 @@ class pycURLThread:
     def __init__(self):
         self.thread = None
         self.curl_ctx = pycurl.CurlMulti()
-        self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
+        self.curl_ctx.setopt(pycurl.M_PIPELINING, 1)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
         self.contexts = []
         self.active_fetches = []
