@@ -16,7 +16,8 @@ class StreamConsumer extends Thread {
     private Random rng;
     private int id;
     private byte[] buffer;
-
+    
+    public int bytes_read;
     public boolean is_finished;
 
     public StreamConsumer(InputStream fis2, int id) {
@@ -27,6 +28,7 @@ class StreamConsumer extends Thread {
 	this.id = id;
 	this.buffer = new byte[1024];
 	this.is_finished = false;
+	this.bytes_read = 0;
 
     }
 
@@ -53,9 +55,13 @@ class StreamConsumer extends Thread {
 
     public void readSome() throws Exception {
 
-	if(this.fis.read(buffer, 0, 1024) == -1) {
+	int ret = this.fis.read(buffer, 0, 1024);
+	if(ret == -1) {
 	    System.out.printf("Stream %d finished\n", this.id);
 	    this.is_finished = true;
+	}
+	else {
+	    this.bytes_read += ret;
 	}
 
     }
@@ -97,8 +103,11 @@ public class JitteryConsumer implements Task {
 	    }
 	    
 	    System.out.printf("Consumer: all threads in, dying\n");
-
-	    fos[0].write(65);
+	    int total_bytes_read = 0;
+	    for(StreamConsumer stream : streams) {
+		total_bytes_read += stream.bytes_read;
+	    }
+	    fos[0].write(Integer.toString(total_bytes_read).getBytes("US-ASCII"));
 
 	}
 	
