@@ -89,7 +89,7 @@ public class JitteryProducer implements Task {
 	    for(StreamFeeder stream : streams) {
 		total_bytes_written += stream.bytes_written;
 	    }
-	    fos[10].write(Integer.toString(total_bytes_written).getBytes("US-ASCII"));
+	    fos[fos.length - 1].write(Integer.toString(total_bytes_written).getBytes("US-ASCII"));
 	}
 	catch(Exception e) {
 	    System.out.printf("JitteryProducer epic fail: %s\n", e.toString());

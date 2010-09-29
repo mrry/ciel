@@ -271,9 +271,13 @@ class pycURLThread:
             for ctx in self.contexts:
                 ctx_timeout = ctx.get_timeout()
                 if ctx_timeout is not None:
-                    time_to_wait = td_secs(ctx_timeout - datetime.now())
-                    if select_timeout is None or time_to_wait < select_timeout:
-                        select_timeout = time_to_wait
+                    time_now = datetime.now()
+                    if ctx_timeout < time_now:
+                        select_timeout = 0
+                    else:
+                        time_to_wait = td_secs(ctx_timeout - datetime.now())
+                        if select_timeout is None or time_to_wait < select_timeout:
+                            select_timeout = time_to_wait
             active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds, select_timeout)
             for ctx in self.contexts:
                 ctx.select_callback(active_read, active_write, active_exn)
