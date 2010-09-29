@@ -21,9 +21,7 @@ from cherrypy.process import plugins
 from threading import Condition, RLock
 from skywriting.runtime.references import \
     SWURLReference, SWErrorReference, SW2_ConcreteReference,\
-    SWTaskOutputProvenance, SWSpawnedTaskProvenance,\
-    SWTaskContinuationProvenance, SWExecResultProvenance,\
-    SWSpawnExecArgsProvenance, SW2_FutureReference
+    SW2_FutureReference
 from skywriting.runtime.task import TASK_RUNNABLE, TASK_ABORTED,\
     TASK_COMMITTED, TASK_ASSIGNED, TASK_FAILED,\
     build_taskpool_task_from_descriptor, TASK_QUEUED

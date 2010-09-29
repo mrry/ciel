@@ -11,16 +11,28 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+import struct
 
-'''
-Created on 20 Apr 2010
-
-@author: dgm36
-'''
+# Binary representation helper functions.
+REF_TYPE_STRUCT = struct.Struct("2s")
+INT_STRUCT = struct.Struct("!I")
+PORT_STRUCT = struct.Struct("!H")
+def reftype_to_packed(reftype):
+    return REF_TYPE_STRUCT.pack(reftype)
+def id_to_packed(id):
+    return INT_STRUCT.pack(len(id)) + id
+def netloc_to_packed(netloc):
+    colon_index = netloc.index(':')
+    hostname = netloc[:colon_index]
+    port = int(netloc[colon_index + 1:])
+    return INT_STRUCT.pack(len(hostname)) + PORT_STRUCT.pack(port)
 
 class SWRealReference:
     
     def as_tuple(self):
+        pass
+    
+    def as_binrepr(self):
         pass
 
     def is_consumable(self):
@@ -43,73 +55,16 @@ class SWNullReference(SWRealReference):
     def as_tuple(self):
         return ('null',)
     
-class SWFutureReference(SWRealReference):
-    pass
 
-class SWProvenance:
-    
-    def as_tuple(self):
-        pass
-    
-class SWNoProvenance(SWProvenance):
-    
-    def as_tuple(self):
-        return ('na', )
-    
-class SWTaskOutputProvenance(SWProvenance):
-    
-    def __init__(self, task_id, index):
-        self.task_id = task_id
-        self.index = index
-    
-    def as_tuple(self):
-        return ('out', str(self.task_id), self.index)
-
-class SWSpawnedTaskProvenance(SWProvenance):
-    
-    def __init__(self, task_id, spawn_list_index):
-        self.task_id = task_id
-        self.index = spawn_list_index
-
-    def as_tuple(self):
-        return ('spawn', str(self.task_id), self.index)
-
-class SWTaskContinuationProvenance(SWProvenance):
-    
-    def __init__(self, task_id):
-        self.task_id = task_id
-        
-    def as_tuple(self):
-        return ('cont', str(self.task_id))
-
-class SWExecResultProvenance(SWProvenance):
-    
-    def __init__(self, task_id, exec_result_index):
-        self.task_id = task_id
-        self.exec_result_index = exec_result_index
-        
-    def as_tuple(self):
-        return ('exec', str(self.task_id), self.exec_result_index)
-
-class SWSpawnExecArgsProvenance(SWProvenance):
-    
-    def __init__(self, task_id, spawn_exec_index):
-        self.task_id = task_id
-        self.spawn_exec_index = spawn_exec_index
-        
-    def as_tuple(self):
-        return ('se_args', str(self.task_id), self.spawn_exec_index)
-
-class SW2_FutureReference(SWFutureReference):
+class SW2_FutureReference(SWRealReference):
     """
     Used as a reference to a task that hasn't completed yet. The identifier is in a
     system-global namespace, and may be passed to other tasks or returned from
     tasks.
     """
         
-    def __init__(self, id, provenance=SWNoProvenance()):
+    def __init__(self, id):
         self.id = id
-        self.provenance = provenance
     
     def is_consumable(self):
         return False
@@ -117,17 +72,19 @@ class SW2_FutureReference(SWFutureReference):
     def as_future(self):
         return self
     
+    def as_binrepr(self):
+        return 
+    
     def as_tuple(self):
-        return ('f2', str(self.id), self.provenance.as_tuple())
+        return ('f2', str(self.id))
 
     def __repr__(self):
-        return 'SW2_FutureReference(%s, %s)' % (repr(self.id), repr(self.provenance))
+        return 'SW2_FutureReference(%s)' % (repr(self.id), )
         
 class SW2_ConcreteReference(SWRealReference):
         
-    def __init__(self, id, provenance, size_hint=None, location_hints=None):
+    def __init__(self, id, size_hint=None, location_hints=None):
         self.id = id
-        self.provenance = provenance
         self.size_hint = size_hint
         if location_hints is not None:
             self.location_hints = set(location_hints)
@@ -141,11 +98,6 @@ class SW2_ConcreteReference(SWRealReference):
         """Add the location hints from ref to this object."""
         if isinstance(ref, SW2_ConcreteReference):
             assert ref.id == self.id
-
-            # We attempt to upgrade the provenance if more information is 
-            # available from the merging reference. 
-            if isinstance(self.provenance, SWNoProvenance):
-                self.provenance = ref.provenance
             
             # We attempt to upgrade the size hint if more information is
             # available from the merging reference.
@@ -156,19 +108,18 @@ class SW2_ConcreteReference(SWRealReference):
             self.location_hints.update(ref.location_hints)
             
     def as_future(self):
-        return SW2_FutureReference(self.id, self.provenance)
+        return SW2_FutureReference(self.id)
         
     def as_tuple(self):
-        return('c2', str(self.id), self.provenance.as_tuple(), self.size_hint, list(self.location_hints))
+        return('c2', str(self.id), self.size_hint, list(self.location_hints))
         
     def __repr__(self):
-        return 'SW2_ConcreteReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.size_hint), repr(self.location_hints))
+        return 'SW2_ConcreteReference(%s, %s, %s)' % (repr(self.id), repr(self.size_hint), repr(self.location_hints))
         
 class SW2_StreamReference(SWRealReference):
     
-    def __init__(self, id, provenance, location_hints=None):
+    def __init__(self, id, location_hints=None):
         self.id = id
-        self.provenance = provenance
         if location_hints is not None:
             self.location_hints = set(location_hints)
         else:
@@ -181,11 +132,6 @@ class SW2_StreamReference(SWRealReference):
         """Add the location hints from ref to this object."""
         if isinstance(ref, SW2_StreamReference):
             assert ref.id == self.id
-
-            # We attempt to upgrade the provenance if more information is 
-            # available from the merging reference. 
-            if isinstance(self.provenance, SWNoProvenance):
-                self.provenance = ref.provenance
             
             # We attempt to upgrade the size hint if more information is
             # available from the merging reference.
@@ -194,13 +140,13 @@ class SW2_StreamReference(SWRealReference):
             self.location_hints.update(ref.location_hints)
             
     def as_future(self):
-        return SW2_FutureReference(self.id, self.provenance)
+        return SW2_FutureReference(self.id)
         
     def as_tuple(self):
-        return('s2', str(self.id), self.provenance.as_tuple(), list(self.location_hints))
+        return('s2', str(self.id), list(self.location_hints))
         
     def __repr__(self):
-        return 'SW2_StreamReference(%s, %s, %s)' % (repr(self.id), repr(self.provenance), repr(self.location_hints))
+        return 'SW2_StreamReference(%s, %s)' % (repr(self.id), repr(self.location_hints))
                 
 class SW2_TombstoneReference(SWRealReference):
     
@@ -268,23 +214,6 @@ class SWDataValue(SWRealReference):
     def __repr__(self):
         return 'SWDataValue(%s)' % (repr(self.value), )
 
-def build_provenance_from_tuple(provenance_tuple):
-    p_type = provenance_tuple[0]
-    if p_type == 'na':
-        return SWNoProvenance()
-    elif p_type == 'out':
-        return SWTaskOutputProvenance(provenance_tuple[1], provenance_tuple[2])
-    elif p_type == 'spawn':
-        return SWSpawnedTaskProvenance(provenance_tuple[1], provenance_tuple[2])
-    elif p_type == 'cont':
-        return SWTaskContinuationProvenance(provenance_tuple[1])
-    elif p_type == 'se_args':
-        return SWSpawnExecArgsProvenance(provenance_tuple[1], provenance_tuple[2])
-    elif p_type == 'exec':
-        return SWExecResultProvenance(provenance_tuple[1], provenance_tuple[2])
-    else:
-        raise KeyError(p_type)
-
 def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
     if ref_type == 'urls':
@@ -296,11 +225,11 @@ def build_reference_from_tuple(reference_tuple):
     elif ref_type == 'null':
         return SWNullReference()
     elif ref_type == 'f2':
-        return SW2_FutureReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]))
+        return SW2_FutureReference(reference_tuple[1])
     elif ref_type == 'c2':
-        return SW2_ConcreteReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3], reference_tuple[4])
+        return SW2_ConcreteReference(reference_tuple[1], reference_tuple[2], reference_tuple[3])
     elif ref_type == 's2':
-        return SW2_StreamReference(reference_tuple[1], build_provenance_from_tuple(reference_tuple[2]), reference_tuple[3])
+        return SW2_StreamReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 't2':
         return SW2_TombstoneReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'fetch2':
