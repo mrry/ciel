@@ -32,7 +32,7 @@ import uuid
 import hashlib
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
-    SWErrorReference, SWNullReference, SW2_FutureReference,\
+    SWErrorReference, SW2_FutureReference,\
     SW2_ConcreteReference
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
@@ -384,8 +384,8 @@ class SWRuntimeInterpreterTask:
         fetch_refs = [ref for (local_id, ref) in fetch_objects]
         fetched_objects = self.block_store.retrieve_objects_for_refs(fetch_refs, 'json')
 
-        for (id, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetched_objects):
-            self.continuation.rewrite_reference(id, SWDataValue(ob))
+        for (id, ref, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetch_refs, fetched_objects):
+            self.continuation.rewrite_reference(id, SWDataValue(ref.id, ob))
             
         cherrypy.log.error('Fetched all task inputs', 'SWI', logging.INFO)
 
@@ -437,7 +437,7 @@ class SWRuntimeInterpreterTask:
             # XXX: This is for the unusual case that we have a task fragment that runs to completion without returning anything.
             #      Could maybe use an ErrorRef here, but this might not be erroneous if, e.g. the interactive shell is used.
             if self.result is None:
-                self.result = SWNullReference()
+                self.result = SWErrorReference('NO_RETURN_VALUE', 'null')
             
         except SelectException, se:
             
@@ -570,7 +570,7 @@ class SWRuntimeInterpreterTask:
 
         _, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
         if size_hint < 128:
-            result_ref = SWDataValue(serializable_result)
+            result_ref = SWDataValue(self.expected_outputs[0], serializable_result)
         else:
             result_ref = SW2_ConcreteReference(self.expected_outputs[0], size_hint)
             result_ref.add_location_hint(self.block_store.netloc)
@@ -755,11 +755,6 @@ class SWRuntimeInterpreterTask:
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
-        elif isinstance(real_ref, SWURLReference):
-            value = self.block_store.retrieve_object_for_ref(real_ref, 'json')
-            dv_ref = SWDataValue(value)
-            self.continuation.rewrite_reference(ref.index, dv_ref)
-            return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
         else:
             self.continuation.mark_as_dereferenced(ref)
             raise ReferenceUnavailableException(ref, self.continuation)
@@ -772,11 +767,6 @@ class SWRuntimeInterpreterTask:
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
-        elif isinstance(real_ref, SWURLReference):
-            value = fetches[ref.index]
-            dv_ref = SWDataValue(value)
-            self.continuation.rewrite_reference(ref.index, dv_ref)
-            return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
         else:
             self.continuation.mark_as_dereferenced(ref)
             raise ReferenceUnavailableException(ref, self.continuation)
@@ -860,8 +850,6 @@ class SWRuntimeInterpreterTask:
         elif isinstance(value, SWDataValue):
             hash.update('ref*')
             self.hash_update_with_structure(hash, value.value)
-        elif isinstance(value, SWNullReference):
-            hash.update('refnull')
         else:
             hash.update(str(value))
 

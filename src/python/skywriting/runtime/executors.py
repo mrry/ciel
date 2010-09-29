@@ -641,7 +641,7 @@ class GrabURLExecutor(SWExecutor):
         
         for i, url in enumerate(self.urls):
             ref = block_store.get_ref_for_url(url, self.version, task_id)
-            self.output_refs[i] = SWDataValue(ref)
+            self.output_refs[i] = SWDataValue(self.output_ids[i], ref)
             
 class SyncExecutor(SWExecutor):
     
@@ -654,4 +654,4 @@ class SyncExecutor(SWExecutor):
         assert len(expected_output_ids) == 1
     
     def _execute(self, block_store, task_id):
-        self.output_refs[0] = SWDataValue(True)
+        self.output_refs[0] = SWDataValue(self.output_ids[0], True)

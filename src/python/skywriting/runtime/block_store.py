@@ -38,12 +38,13 @@ import urlparse
 import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
-    SWErrorReference, SWNullReference, SWURLReference, \
+    SWErrorReference, SWURLReference, \
     SW2_StreamReference,\
-    SW2_TombstoneReference, SW2_FetchReference
+    SW2_TombstoneReference, SW2_FetchReference, SWReferenceJSONEncoder
 import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
+import skywriting
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -61,14 +62,6 @@ def get_netloc_for_sw_url(url):
 
 def get_id_for_sw_url(url):
     return urlparse.urlparse(url).path
-
-class SWReferenceJSONEncoder(simplejson.JSONEncoder):
-
-    def default(self, obj):
-        if isinstance(obj, SWRealReference):
-            return {'__ref__': obj.as_tuple()}
-        else:
-            return simplejson.JSONEncoder.default(self, obj)
 
 def json_decode_object_hook(dict_):
         if '__ref__' in dict_:
@@ -707,10 +700,8 @@ class BlockStore:
 
         if isinstance(ref, SWErrorReference):
             raise RuntimeSkywritingError()
-        elif isinstance(ref, SWNullReference):
-            raise RuntimeSkywritingError()
         elif isinstance(ref, SWDataValue):
-            id = self.allocate_new_id()
+            id = ref.id
             with open(self.filename(id), 'w') as obj_file:
                 self.encode_json(ref.value, obj_file)
             return self.filename(id)

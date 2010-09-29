@@ -12,20 +12,36 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import struct
+import simplejson
+
+class SWReferenceJSONEncoder(simplejson.JSONEncoder):
+
+    def default(self, obj):
+        if isinstance(obj, SWRealReference):
+            return {'__ref__': obj.as_tuple()}
+        else:
+            return simplejson.JSONEncoder.default(self, obj)
 
 # Binary representation helper functions.
 REF_TYPE_STRUCT = struct.Struct("2s")
 INT_STRUCT = struct.Struct("!I")
 PORT_STRUCT = struct.Struct("!H")
+SIZE_STRUCT = struct.Struct("!Q")
 def reftype_to_packed(reftype):
     return REF_TYPE_STRUCT.pack(reftype)
+def string_to_packed(_str):
+    return INT_STRUCT.pack(len(_str)) + _str
 def id_to_packed(id):
-    return INT_STRUCT.pack(len(id)) + id
+    return string_to_packed(id)
 def netloc_to_packed(netloc):
     colon_index = netloc.index(':')
     hostname = netloc[:colon_index]
     port = int(netloc[colon_index + 1:])
     return INT_STRUCT.pack(len(hostname)) + PORT_STRUCT.pack(port)
+def netloc_set_to_packed(netlocs):
+    return INT_STRUCT.pack(len(netlocs)) + "".join([netloc_to_packed(x) for x in netlocs])
+def size_to_packed(size):
+    return SIZE_STRUCT.pack(size)
 
 class SWRealReference:
     
@@ -40,21 +56,16 @@ class SWRealReference:
 
 class SWErrorReference(SWRealReference):
     
-    def __init__(self, reason, details):
+    def __init__(self, id, reason, details):
+        self.id = id
         self.reason = reason
         self.details = details
 
-    def as_tuple(self):
-        return ('err', self.reason, self.details)
+    def as_binrepr(self):
+        return reftype_to_packed('xx') + id_to_packed(self.id) + string_to_packed(self.reason) + string_to_packed(self.details)
 
-class SWNullReference(SWRealReference):
-    
-    def __init__(self):
-        pass
-    
     def as_tuple(self):
-        return ('null',)
-    
+        return ('err', self.id, self.reason, self.details)
 
 class SW2_FutureReference(SWRealReference):
     """
@@ -73,7 +84,7 @@ class SW2_FutureReference(SWRealReference):
         return self
     
     def as_binrepr(self):
-        return 
+        return reftype_to_packed('f2') + id_to_packed(self.id)
     
     def as_tuple(self):
         return ('f2', str(self.id))
@@ -110,6 +121,9 @@ class SW2_ConcreteReference(SWRealReference):
     def as_future(self):
         return SW2_FutureReference(self.id)
         
+    def as_binrepr(self):
+        return reftype_to_packed('c2') + id_to_packed(self.id) + size_to_packed(self.size_hint) + netloc_set_to_packed(self.location_hints)
+        
     def as_tuple(self):
         return('c2', str(self.id), self.size_hint, list(self.location_hints))
         
@@ -142,6 +156,9 @@ class SW2_StreamReference(SWRealReference):
     def as_future(self):
         return SW2_FutureReference(self.id)
         
+    def as_binrepr(self):
+        return reftype_to_packed('s2') + id_to_packed(self.id) + netloc_set_to_packed(self.location_hints)
+        
     def as_tuple(self):
         return('s2', str(self.id), list(self.location_hints))
         
@@ -163,6 +180,9 @@ class SW2_TombstoneReference(SWRealReference):
     def add_netloc(self, netloc):
         self.netlocs.add(netloc)
         
+    def as_binrepr(self):
+        return reftype_to_packed('t2') + id_to_packed(self.id) + netloc_set_to_packed(self.netlocs)
+        
     def as_tuple(self):
         return ('t2', str(self.id), list(self.netlocs))
     
@@ -178,6 +198,9 @@ class SW2_FetchReference(SWRealReference):
 
     def is_consumable(self):
         return False
+    
+    def as_binrepr(self):
+        return reftype_to_packed('fx') + id_to_packed(self.id) + string_to_packed(self.url)
     
     def as_tuple(self):
         return ('fetch2', str(self.id), str(self.url))
@@ -205,25 +228,27 @@ class SWDataValue(SWRealReference):
     Used to store data that has been dereferenced and loaded into the environment.
     """
     
-    def __init__(self, value):
+    def __init__(self, id, value):
+        self.id = id
         self.value = value
         
     def as_tuple(self):
-        return ('val', self.value)
+        return ('val', self.id, self.value)
+    
+    def as_binrepr(self):
+        return reftype_to_packed('dv') + id_to_packed(self.id) + string_to_packed(simplejson.dumps(self.value, cls=SWReferenceJSONEncoder))
     
     def __repr__(self):
-        return 'SWDataValue(%s)' % (repr(self.value), )
+        return 'SWDataValue(%s, %s)' % (repr(self.id), repr(self.value))
 
 def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
     if ref_type == 'urls':
         return SWURLReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'val':
-        return SWDataValue(reference_tuple[1])
+        return SWDataValue(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'err':
-        return SWErrorReference(reference_tuple[1], reference_tuple[2])
-    elif ref_type == 'null':
-        return SWNullReference()
+        return SWErrorReference(reference_tuple[1], reference_tuple[2], reference_tuple[3])
     elif ref_type == 'f2':
         return SW2_FutureReference(reference_tuple[1])
     elif ref_type == 'c2':

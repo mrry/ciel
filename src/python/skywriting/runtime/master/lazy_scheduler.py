@@ -13,6 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.references import SWURLReference, SW2_ConcreteReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
+from skywriting.runtime.task import TASK_QUEUED
 
 '''
 Created on 15 Apr 2010
@@ -21,7 +22,6 @@ Created on 15 Apr 2010
 '''
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from Queue import Empty
-from skywriting.runtime.master.task_pool import TASK_QUEUED
 
 class LazyScheduler(AsynchronousExecutePlugin):
     
