@@ -25,10 +25,10 @@
 #
 
 # list of packages to be installed (space-delimited)
-$PACKAGES="python python-ply python-httplib2 python-simplejson python-cherrypy3 python-pycurl"
+PACKAGES="python python-ply python-httplib2 python-simplejson python-cherrypy3 python-pycurl"
 
 # the JDK to install
-$JDK="openjdk-6-jre"
+JDK="openjdk-6-jre"
 
 if [[ $1 == '' ]]; then
     SWROOT='/opt/skywriting'
