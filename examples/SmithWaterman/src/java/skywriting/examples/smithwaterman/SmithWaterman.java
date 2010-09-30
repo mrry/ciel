@@ -19,7 +19,7 @@ public class SmithWaterman implements Task {
 		try { 
 			
 			/**
-			 * args: mode          -- one of l, t, tl or i.
+			 * args: mode           -- one of l, t, tl or i.
 			 *       insertionScore -- integer score for inserting a character.
 			 *       deletionScore  -- integer score for deleting a character.
 			 *       mismatchScore  -- integer score for a mismatch.
@@ -125,7 +125,9 @@ public class SmithWaterman implements Task {
 			}
 
 			int[] currentRow = new int[previousRow.length];
-			int[] rightHalo = new int[verticalChunk.length];
+			//int[] rightHalo = new int[verticalChunk.length];
+
+			DataOutputStream rightHaloOutputStream = new DataOutputStream(fos[2]);
 			
 			for (int i = 1; i <= verticalChunk.length; ++i) {
 				previousRow[0] = leftHalo[i-1];
@@ -150,7 +152,9 @@ public class SmithWaterman implements Task {
 					}
 				}
 				
-				rightHalo[i-1] = currentRow[horizontalChunk.length];
+				//rightHalo[i-1] = currentRow[horizontalChunk.length];
+				rightHaloOutputStream.writeInt(currentRow[horizontalChunk.length]);
+				
 				int[] temp;
 				temp = currentRow;
 				currentRow = previousRow;
@@ -186,10 +190,6 @@ public class SmithWaterman implements Task {
 			}
 			
 			{
-				DataOutputStream rightHaloOutputStream = new DataOutputStream(fos[2]);
-				for (int i = 0; i < rightHalo.length; ++i) {
-					rightHaloOutputStream.writeInt(rightHalo[i]);
-				}
 				rightHaloOutputStream.flush();
 				rightHaloOutputStream.close();
 			}
