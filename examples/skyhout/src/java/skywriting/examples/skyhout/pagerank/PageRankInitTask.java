@@ -30,7 +30,9 @@ public class PageRankInitTask extends SkyhoutTask {
 		@Override
 		public void map(LongWritable key, Text value,
 				OutputCollector<IntWritable, IntWritable> output) throws IOException {
+			if (value.toString().startsWith("#")) return;
 			String[] splitLine = SPLIT_PATTERN.split(value.toString());
+
 			if (splitLine.length != 2)
 				System.err.println("Discarding line: " + value);
 			else
