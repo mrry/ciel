@@ -64,7 +64,7 @@ class LazyScheduler(AsynchronousExecutePlugin):
             attempt_count += 1
 
     # Based on TaskPool.compute_best_worker_for_task()
-    def compute_best_worker_for_task(self, task):
+    def compute_good_workers_for_task(self, task):
         netlocs = {}
         for input in task.inputs.values():
             if isinstance(input, SWURLReference):
@@ -90,15 +90,15 @@ class LazyScheduler(AsynchronousExecutePlugin):
         ranked_netlocs = [(saving, netloc) for (netloc, saving) in netlocs.items()]
         filtered_ranked_netlocs = filter(lambda (saving, netloc) : self.worker_pool.get_worker_at_netloc(netloc) is not None, ranked_netlocs)
         if len(filtered_ranked_netlocs) > 0:
-            ret = self.worker_pool.get_worker_at_netloc(max(filtered_ranked_netlocs)[1])
-            return ret
-        else:
-            return None
-    
+            max_saving = max(filtered_ranked_netlocs)[0]
+            for saving, netloc in filtered_ranked_netlocs:
+                print saving
+                if saving > (0.9 * max_saving):
+                    yield self.worker_pool.get_worker_at_netloc(netloc) 
+            
     # Based on TaskPool.add_task_to_queues()
     def add_task_to_worker_queues(self, task):
-        best_worker = self.compute_best_worker_for_task(task)
-        if best_worker is not None:
-            best_worker.local_queue.put(task)
+        for good_worker in self.compute_good_workers_for_task(task):
+            good_worker.local_queue.put(task) 
         handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
         handler_queue.put(task)
