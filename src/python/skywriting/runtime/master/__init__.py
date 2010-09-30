@@ -21,9 +21,7 @@ from skywriting.runtime.master.data_store import GlobalNameDirectory
 from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.block_store import BlockStore
 from skywriting.runtime.task_executor import TaskExecutorPlugin
-from skywriting.runtime.master.task_pool import TaskPool
 import skywriting
-from skywriting.runtime.master.scheduler import Scheduler
 import simplejson
 import logging
 import urllib2

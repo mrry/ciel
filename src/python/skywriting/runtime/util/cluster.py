@@ -20,8 +20,7 @@ Created on 15 Apr 2010
 from skywriting.lang.parser import \
     SWScriptParser
 from skywriting.runtime.task_executor import SWContinuation
-from skywriting.runtime.references import SWURLReference, SW2_ConcreteReference,\
-    SWNoProvenance
+from skywriting.runtime.references import SW2_ConcreteReference
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
 from skywriting.lang.context import SimpleContext
 import time
@@ -86,7 +85,7 @@ def main():
     #print continuation_uri
     
     master_netloc = urlparse.urlparse(master_uri).netloc
-    task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, SWNoProvenance(), len(pickled_cont), [master_netloc])}, 'handler': 'swi'}
+    task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])}, 'handler': 'swi'}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))

@@ -38,12 +38,13 @@ import urlparse
 import simplejson
 from skywriting.runtime.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
-    SWErrorReference, SWNullReference, SWURLReference, \
-    SWTaskOutputProvenance, SW2_StreamReference,\
-    SW2_TombstoneReference, SW2_FetchReference, SWNoProvenance
+    SWErrorReference, SWURLReference, \
+    SW2_StreamReference,\
+    SW2_TombstoneReference, SW2_FetchReference, SWReferenceJSONEncoder
 import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
+import skywriting
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -61,14 +62,6 @@ def get_netloc_for_sw_url(url):
 
 def get_id_for_sw_url(url):
     return urlparse.urlparse(url).path
-
-class SWReferenceJSONEncoder(simplejson.JSONEncoder):
-
-    def default(self, obj):
-        if isinstance(obj, SWRealReference):
-            return {'__ref__': obj.as_tuple()}
-        else:
-            return simplejson.JSONEncoder.default(self, obj)
 
 def json_decode_object_hook(dict_):
         if '__ref__' in dict_:
@@ -707,10 +700,8 @@ class BlockStore:
 
         if isinstance(ref, SWErrorReference):
             raise RuntimeSkywritingError()
-        elif isinstance(ref, SWNullReference):
-            raise RuntimeSkywritingError()
         elif isinstance(ref, SWDataValue):
-            id = self.allocate_new_id()
+            id = ref.id
             with open(self.filename(id), 'w') as obj_file:
                 self.encode_json(ref.value, obj_file)
             return self.filename(id)
@@ -878,7 +869,7 @@ class BlockStore:
             # URL is in a Skywriting Block Store, so we can make a reference
             # for it directly.
             id = parsed_url.path[1:]
-            ref = SW2_ConcreteReference(id, SWTaskOutputProvenance(task_id, -1), None)
+            ref = SW2_ConcreteReference(id, None)
             ref.add_location_hint(parsed_url.netloc)
         else:
             # URL is outside the cluster, so we have to fetch it. We use
@@ -903,7 +894,7 @@ class BlockStore:
             id = 'urlfetch:%s' % hash.hexdigest()
             _, size = self.store_file(fetch_filename, id, True)
             
-            ref = SW2_ConcreteReference(id, SWTaskOutputProvenance(task_id, -1), size)
+            ref = SW2_ConcreteReference(id, size)
             ref.add_location_hint(self.netloc)
         
         return ref
@@ -951,7 +942,7 @@ class BlockStore:
     def generate_pin_refs(self):
         ret = []
         for id in self.pin_set:
-            ret.append(SW2_ConcreteReference(id, SWNoProvenance(), os.path.getsize(self.filename(id)), [self.netloc]))
+            ret.append(SW2_ConcreteReference(id, os.path.getsize(self.filename(id)), [self.netloc]))
         return ret
 
     def pin_ref_id(self, id):

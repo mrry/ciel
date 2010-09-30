@@ -16,7 +16,7 @@ from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWNoProvenance, SWDataValue, SW2_StreamReference, SWTaskOutputProvenance
+    SWDataValue, SW2_StreamReference
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException, MissingInputException,\
     RuntimeSkywritingError
@@ -209,7 +209,7 @@ class SWStdinoutExecutor(SWExecutor):
         
         if self.stream_output:
             block_store.prepublish_file(temp_output_name, self.output_ids[0])
-            stream_ref = SW2_StreamReference(self.output_ids[0], SWTaskOutputProvenance(task_id, 0))
+            stream_ref = SW2_StreamReference(self.output_ids[0])
             stream_ref.add_location_hint(block_store.netloc)
             self.master_proxy.publish_refs(task_id, {self.output_ids[0] : stream_ref})
         
@@ -251,9 +251,8 @@ class SWStdinoutExecutor(SWExecutor):
             _, size_hint = block_store.commit_file(temp_output.name, self.output_ids[0], can_move=True)
         else:
             _, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
-        
-        # XXX: We fix the provenance in the caller.
-        real_ref = SW2_ConcreteReference(self.output_ids[0], SWNoProvenance(), size_hint)
+
+        real_ref = SW2_ConcreteReference(self.output_ids[0], size_hint)
         real_ref.add_location_hint(block_store.netloc)
         self.output_refs[0] = real_ref
         
@@ -324,8 +323,7 @@ class EnvironmentExecutor(SWExecutor):
             raise OSError()
         for i, filename in enumerate(output_filenames):
             _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            # XXX: We fix the provenance in the caller.
-            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
             real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
         
@@ -376,7 +374,7 @@ class JavaExecutor(SWExecutor):
             stream_refs = {}
             for i, filename in enumerate(file_outputs):
                 block_store.prepublish_file(filename, self.output_ids[i])
-                stream_ref = SW2_StreamReference(self.output_ids[i], SWTaskOutputProvenance(task_id, i))
+                stream_ref = SW2_StreamReference(self.output_ids[i])
                 stream_ref.add_location_hint(block_store.netloc)
                 stream_refs[self.output_ids[i]] = stream_ref
             self.master_proxy.publish_refs(task_id, stream_refs)
@@ -445,8 +443,7 @@ class JavaExecutor(SWExecutor):
             else:
                 _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             
-            # XXX: fix provenance.
-            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
             real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
             
@@ -540,8 +537,7 @@ class DotNetExecutor(SWExecutor):
         
         for i, filename in enumerate(file_outputs):
             _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            # XXX: fix provenance.
-            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
             real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
 
@@ -625,8 +621,7 @@ class CExecutor(SWExecutor):
         
         for i, filename in enumerate(file_outputs):
             _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            # XXX: fix provenance.
-            real_ref = SW2_ConcreteReference(self.output_ids[i], SWNoProvenance(), size_hint)
+            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
             real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
             
@@ -646,7 +641,7 @@ class GrabURLExecutor(SWExecutor):
         
         for i, url in enumerate(self.urls):
             ref = block_store.get_ref_for_url(url, self.version, task_id)
-            self.output_refs[i] = SWDataValue(ref)
+            self.output_refs[i] = SWDataValue(self.output_ids[i], ref)
             
 class SyncExecutor(SWExecutor):
     
@@ -659,4 +654,4 @@ class SyncExecutor(SWExecutor):
         assert len(expected_output_ids) == 1
     
     def _execute(self, block_store, task_id):
-        self.output_refs[0] = SWDataValue(True)
+        self.output_refs[0] = SWDataValue(self.output_ids[0], True)

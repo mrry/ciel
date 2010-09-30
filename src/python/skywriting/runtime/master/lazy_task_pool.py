@@ -328,10 +328,7 @@ class LazyTaskPool(plugins.SimplePlugin):
                     
                     # We may need to recursively check the inputs on the
                     # producing task for this reference.
-                    try:
-                        producing_task = self.task_for_output[ref.id]
-                    except KeyError:
-                        producing_task = self.tasks[ref.provenance.task_id]
+                    producing_task = self.task_for_output[ref.id]
                     
                     # The producing task is inactive, so recursively visit it.                    
                     if producing_task.state in (TASK_CREATED, TASK_COMMITTED):

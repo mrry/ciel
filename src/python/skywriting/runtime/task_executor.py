@@ -32,10 +32,8 @@ import uuid
 import hashlib
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
-    SWErrorReference, SWNullReference, SW2_FutureReference,\
-    SWTaskOutputProvenance, SW2_ConcreteReference,\
-    SWSpawnedTaskProvenance, SWExecResultProvenance,\
-    SWSpawnExecArgsProvenance
+    SWErrorReference, SW2_FutureReference,\
+    SW2_ConcreteReference
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -218,8 +216,6 @@ class SWExecutorTaskExecutionRecord:
     def commit(self):
         commit_bindings = {}
         for i, output_ref in enumerate(self.executor.output_refs):
-            if isinstance(output_ref, SW2_ConcreteReference):
-                output_ref.provenance = SWTaskOutputProvenance(self.original_task_id, i)
             commit_bindings[self.expected_outputs[i]] = output_ref
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
@@ -388,8 +384,8 @@ class SWRuntimeInterpreterTask:
         fetch_refs = [ref for (local_id, ref) in fetch_objects]
         fetched_objects = self.block_store.retrieve_objects_for_refs(fetch_refs, 'json')
 
-        for (id, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetched_objects):
-            self.continuation.rewrite_reference(id, SWDataValue(ob))
+        for (id, ref, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetch_refs, fetched_objects):
+            self.continuation.rewrite_reference(id, SWDataValue(ref.id, ob))
             
         cherrypy.log.error('Fetched all task inputs', 'SWI', logging.INFO)
 
@@ -441,7 +437,7 @@ class SWRuntimeInterpreterTask:
             # XXX: This is for the unusual case that we have a task fragment that runs to completion without returning anything.
             #      Could maybe use an ErrorRef here, but this might not be erroneous if, e.g. the interactive shell is used.
             if self.result is None:
-                self.result = SWNullReference()
+                self.result = SWErrorReference('NO_RETURN_VALUE', 'null')
             
         except SelectException, se:
             
@@ -528,7 +524,7 @@ class SWRuntimeInterpreterTask:
                 if current_cont is not None:
                     spawned_cont_id = self.get_spawn_continuation_object_id(self.spawn_list[current_index].id)
                     _, size_hint = block_store.store_object(current_cont, 'pickle', spawned_cont_id)
-                    spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, SWSpawnedTaskProvenance(self.original_task_id, current_index), size_hint)
+                    spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
                     spawned_cont_ref.add_location_hint(self.block_store.netloc)
                     self.spawn_list[current_index].task_descriptor['dependencies']['_cont'] = spawned_cont_ref
                     self.maybe_also_publish(spawned_cont_ref)
@@ -574,9 +570,9 @@ class SWRuntimeInterpreterTask:
 
         _, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
         if size_hint < 128:
-            result_ref = SWDataValue(serializable_result)
+            result_ref = SWDataValue(self.expected_outputs[0], serializable_result)
         else:
-            result_ref = SW2_ConcreteReference(self.expected_outputs[0], SWTaskOutputProvenance(self.original_task_id, 0), size_hint)
+            result_ref = SW2_ConcreteReference(self.expected_outputs[0], size_hint)
             result_ref.add_location_hint(self.block_store.netloc)
             
         commit_bindings[self.expected_outputs[0]] = result_ref
@@ -638,7 +634,7 @@ class SWRuntimeInterpreterTask:
         expected_output_id = self.create_spawn_output_name(new_task_id)
         
         # Match up the output with a new tasklocal reference.
-        ret = self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_id, SWTaskOutputProvenance(new_task_id, 0)))
+        ret = self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_id))
         
         task_descriptor = {'task_id': new_task_id,
                            'handler': 'swi',
@@ -689,7 +685,7 @@ class SWRuntimeInterpreterTask:
         args = self.do_eager_thunks(exec_args)
 
         args_id, expected_output_ids = self.create_names_for_exec(executor_name, args, num_outputs)
-        ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i], SWTaskOutputProvenance(new_task_id, i))) for i in range(num_outputs)]
+        ret = [self.continuation.create_tasklocal_reference(SW2_FutureReference(expected_output_ids[i])) for i in range(num_outputs)]
 
         def args_check_mapper(leaf):
             if isinstance(leaf, SWLocalReference):
@@ -702,7 +698,7 @@ class SWRuntimeInterpreterTask:
         
         transformed_args = map_leaf_values(args_check_mapper, args)
         _, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
-        args_ref = SW2_ConcreteReference(args_id, SWSpawnExecArgsProvenance(self.original_task_id, self.spawn_exec_counter), size_hint)
+        args_ref = SW2_ConcreteReference(args_id, size_hint)
         self.spawn_exec_counter += 1
         args_ref.add_location_hint(self.block_store.netloc)
         self.maybe_also_publish(args_ref)
@@ -741,8 +737,6 @@ class SWRuntimeInterpreterTask:
         self.current_executor.execute(self.block_store, self.task_id)
         
         for ref in self.current_executor.output_refs:
-            if isinstance(ref, SW2_ConcreteReference):
-                ref.provenance = SWExecResultProvenance(self.original_task_id, self.exec_result_counter)
             self.exec_result_counter += 1
             self.maybe_also_publish(ref)
         
@@ -761,11 +755,6 @@ class SWRuntimeInterpreterTask:
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
-        elif isinstance(real_ref, SWURLReference):
-            value = self.block_store.retrieve_object_for_ref(real_ref, 'json')
-            dv_ref = SWDataValue(value)
-            self.continuation.rewrite_reference(ref.index, dv_ref)
-            return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
         else:
             self.continuation.mark_as_dereferenced(ref)
             raise ReferenceUnavailableException(ref, self.continuation)
@@ -778,11 +767,6 @@ class SWRuntimeInterpreterTask:
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
-        elif isinstance(real_ref, SWURLReference):
-            value = fetches[ref.index]
-            dv_ref = SWDataValue(value)
-            self.continuation.rewrite_reference(ref.index, dv_ref)
-            return map_leaf_values(self.convert_real_to_tasklocal_reference, value)
         else:
             self.continuation.mark_as_dereferenced(ref)
             raise ReferenceUnavailableException(ref, self.continuation)
@@ -866,8 +850,6 @@ class SWRuntimeInterpreterTask:
         elif isinstance(value, SWDataValue):
             hash.update('ref*')
             self.hash_update_with_structure(hash, value.value)
-        elif isinstance(value, SWNullReference):
-            hash.update('refnull')
         else:
             hash.update(str(value))
 

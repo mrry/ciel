@@ -19,8 +19,7 @@ import simplejson
 import math
 import random
 import uuid
-from skywriting.runtime.references import SW2_ConcreteReference, SWNoProvenance,\
-    SW2_FetchReference
+from skywriting.runtime.references import SW2_ConcreteReference, SW2_FetchReference
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import sys
 import time
@@ -213,7 +212,7 @@ def main():
                     block_name = make_block_id(name_prefix, i)
                     print >>sys.stderr, 'Uploading %s to (%s)' % (block_name, ",".join(targets))
                     upload_extent_to_targets(input_file, block_name, start, finish, targets, options.packet_size)
-                    conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), finish - start, targets)
+                    conc_ref = SW2_ConcreteReference(block_name, finish - start, targets)
                     output_references.append(conc_ref)
                     
         else:
@@ -225,7 +224,7 @@ def main():
                     block_size = os.path.getsize(input_filename)
                     print >>sys.stderr, 'Uploading %s to (%s)' % (input_filename, ",".join(targets))
                     upload_extent_to_targets(input_file, block_name, 0, block_size, targets, options.packet_size)
-                    conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), block_size, targets)
+                    conc_ref = SW2_ConcreteReference(block_name, block_size, targets)
                     output_references.append(conc_ref)
 
     else:
@@ -256,7 +255,7 @@ def main():
                 size = int(response['content-length'])
             except KeyError:
                 size = 1048576
-            conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), size, targets)
+            conc_ref = SW2_ConcreteReference(block_name, size, targets)
             output_references.append(conc_ref)
 
         pending_targets = {}
@@ -309,7 +308,7 @@ def main():
                     tfl = target_fetch_lists[target]
                     for ref in tfl:
                         redistribute_refs[ref.id] = ref
-                        conc_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), size, targets)
+                        conc_ref = SW2_ConcreteReference(block_name, size, targets)
                         output_references[ref.index] = conc_ref
 
                 target_fetch_lists = {}
@@ -354,7 +353,7 @@ def main():
     index_targets = select_targets(workers, options.replication)
     upload_string_to_targets(index, block_name, index_targets)
     
-    #index_ref = SW2_ConcreteReference(block_name, SWNoProvenance(), len(index), index_targets)
+    #index_ref = SW2_ConcreteReference(block_name, len(index), index_targets)
         
     #print index_ref
     #print
