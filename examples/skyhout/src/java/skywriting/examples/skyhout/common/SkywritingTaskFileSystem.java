@@ -1,5 +1,6 @@
 package skywriting.examples.skyhout.common;
 
+import java.io.BufferedInputStream;
 import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -109,10 +110,9 @@ public class SkywritingTaskFileSystem extends FileSystem {
 		/*
 		 *  XXX: We don't perform any sanity-checking on the path name.
 		 *  	 We should really verify that the filename looks like "/in/*".
-		 *       Also, we shouldn't ignore bufferSize.
 		 */
 		int index = Integer.parseInt(path.getName());
-		return new FSDataInputStream(new FakeSeekable(this.inputs[index]));
+		return new FSDataInputStream(new FakeSeekable(new BufferedInputStream(this.inputs[index], bufferSize)));
 	}
 
 	@Override
