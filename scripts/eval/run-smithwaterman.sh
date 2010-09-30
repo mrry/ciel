@@ -1,11 +1,12 @@
 #!/bin/bash
 NUM_ROWS=10
 NUM_COLS=10
-MASTER="http://bombjack-0.xeno.cl.cam.ac.uk:8000"
+MASTER="http://localhost:9000"
 SWROOT="../.."
 
-export INPUT1
-export INPUT2
+export PYTHONPATH=$SWROOT/src/python/
+export INPUT1=`$SWROOT/scripts/sw-load -m $MASTER horizontal_string_random | tr -d '\n'`
+export INPUT2=`$SWROOT/scripts/sw-load -m $MASTER vertical_string_random | tr -d '\n'`
 export NUM_ROWS
 export NUM_COLS
 

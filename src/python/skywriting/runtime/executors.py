@@ -28,6 +28,7 @@ import os
 import cherrypy
 import threading
 import time
+from datetime import datetime
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
 
@@ -310,7 +311,21 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             self.debug_opts = args['debug_options']
         except KeyError:
             self.debug_opts = []
-        
+        self.last_event_time = None
+        self.current_state = 0
+        self.state_times = dict()
+
+    def change_state(self, new_state):
+        time_now = datetime.now()
+        old_state_time = time_now - self.last_event_time
+        old_state_secs = float(old_state_time.seconds) + (float(old_state_time.microseconds) / 10**6)
+        if self.current_state not in self.state_times:
+            self.state_times[self.current_state] = old_state_secs
+        else:
+            self.state_times[self.current_state] += old_state_secs
+        self.last_event_time = time_now
+        self.current_state = new_state
+
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
 
         self.before_execute(block_store)
@@ -321,6 +336,8 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             time.sleep(3)
 
         proc = subprocess.Popen(self.get_process_args(), shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
+        self.last_event_time = datetime.now()
+        self.change_state(0)
         
         proc.stdin.write("%d,%d,%d\0" % (len(input_files), len(output_files), len(self.argv)))
         for x in input_files:
@@ -330,6 +347,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         for x in self.argv:
             proc.stdin.write("%s\0" % x)
         proc.stdin.close()
+        self.change_state(1)
 
         _ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
@@ -337,6 +355,43 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         transfer_ctx.consumers_attached()
 
         return proc
+
+    def await_process(self, block_store, input_files, output_files, transfer_ctx):
+        self.change_state(2)
+        while True:
+            try:
+                message = ""
+                while True:
+                    c = self.proc.stdout.read(1)
+                    if c == ",":
+                        if message == "C":
+                            self.change_state(2)
+                        elif message[0] == "I":
+                            try:
+                                stream_id = int(message[1:])
+                            except NumberFormatError:
+                                cherrypy.log.error("Malformed data from stdout: %s" % message)
+                                raise
+                            self.change_state(100 + stream_id)
+                        else:
+                            cherrypy.log.error("Malformed data from stdout: %s" % message)
+                            raise Exception("Malformed stuff")
+                        break
+                    elif c == "":
+                        raise Exception("Stdout closed")
+                    else:
+                        message = message + c
+            except:
+                cherrypy.log.error("Stdout closed or bad data")
+                break
+        self.change_state(3)
+        rc = self.proc.wait()
+        self.change_state(0)
+        transfer_ctx.consumers_detached()
+        cherrypy.log.error("Process terminated. Stats:", "EXEC", logging.INFO)
+        for key, value in self.state_times.items():
+            cherrypy.log.error("Time in state %s: %s seconds" % (key, value), "EXEC", logging.INFO)
+        return rc
 
     def get_process_args(self):
         raise Exception("Must override get_process_args subclassing FilenamesOnStdinExecutor")

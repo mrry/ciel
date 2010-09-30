@@ -263,11 +263,11 @@ def main():
         
         for target, tfl in target_fetch_lists.items():
             h2 = httplib2.Http()
-            print 'Uploading to', target
+            print >>sys.stderr, 'Uploading to %s' % target
             id = uuid.uuid4()
             response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
             if response.status != 202:
-                print 'Failed...', target
+                print >>sys.stderr, 'Failed... %s' % target
                 failed_targets.add(target)
             else:
                 pending_targets[target] = id
@@ -281,17 +281,17 @@ def main():
                     try:
                         response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'GET')
                         if response.status == 408:
-                            print 'Continuing to wait for', target
+                            print >>sys.stderr, 'Continuing to wait for %s' % target
                             continue
                         elif response.status == 200:
-                            print 'Succeded!', target
+                            print >>sys.stderr, 'Succeded! %s' % target
                             del pending_targets[target]
                         else:
-                            print 'Failed...', target
+                            print >>sys.stderr, 'Failed... %s' % target
                             del pending_targets[target]
                             failed_targets.add(target)
                     except:
-                        print 'Failed...', target
+                        print >>sys.stderr, 'Failed... %s' % target
                         del pending_targets[target]
                         failed_targets.add(target)
                         
@@ -327,7 +327,7 @@ def main():
                         tfl.append(ref)
             
                 for target, tfl in target_fetch_lists.items():
-                    print 'Retrying... uploading to', target
+                    print >>sys.stderr, 'Retrying... uploading to %s' % target
                     h2 = httplib2.Http()
                     id = uuid.uuid4()
                     _, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
@@ -348,7 +348,7 @@ def main():
     filename = block_name + suffix
     with open(filename, 'w') as f:
         simplejson.dump(output_references, f, cls=SWReferenceJSONEncoder)
-    print 'Wrote index to %s' % filename
+    print >>sys.stderr, 'Wrote index to %s' % filename
     
     index_targets = select_targets(workers, options.replication)
     upload_string_to_targets(index, block_name, index_targets)

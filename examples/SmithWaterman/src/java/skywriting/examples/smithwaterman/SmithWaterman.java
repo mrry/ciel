@@ -12,6 +12,16 @@ import uk.co.mrry.mercator.task.Task;
 
 public class SmithWaterman implements Task {
 
+    public void changeState(boolean compute_bound, int ios) {
+	if(compute_bound) {
+	    System.out.printf("C,");
+	}
+	else {
+	    System.out.printf("I%d,", ios);
+	}
+	System.out.flush();
+    }
+
 	@Override
 	public void invoke(InputStream[] fis, OutputStream[] fos, String[] args) {
 		
@@ -22,7 +32,7 @@ public class SmithWaterman implements Task {
 			 *       insertionScore -- integer score for inserting a character.
 			 *       deletionScore  -- integer score for deleting a character.
 			 *       mismatchScore  -- integer score for a mismatch.
-             *       matchScore     -- integer score for a match.
+			 *       matchScore     -- integer score for a match.
 			 */
 			
 			// mode is one of l (left-hand edge), t (top edge), tl (top left-hand corner) or i
@@ -45,16 +55,20 @@ public class SmithWaterman implements Task {
 			int c;
 			
 			ByteArrayOutputStream horizontalChunkBuffer = new ByteArrayOutputStream();
+			changeState(false, 0);
 			while ((c = fis[0].read()) != -1) {
 				horizontalChunkBuffer.write(c);
 			}
+			changeState(true, 0);
 			byte[] horizontalChunk = horizontalChunkBuffer.toByteArray();
 			System.err.printf("Horizontal chunk is length: %d\n", horizontalChunk.length);
 			
 			ByteArrayOutputStream verticalChunkBuffer = new ByteArrayOutputStream();
+			changeState(false, 1);
 			while ((c = fis[1].read()) != -1) {
 				verticalChunkBuffer.write(c);
 			}
+			changeState(true, 0);
 			byte[] verticalChunk = verticalChunkBuffer.toByteArray();
 			System.err.printf("Vertical chunk is length: %d\n", verticalChunk.length);
 			
@@ -63,40 +77,51 @@ public class SmithWaterman implements Task {
 			int left = 0;
 			int[] previousRow = new int[horizontalChunk.length + 1];
 			
+			int leftHaloIndex = 0;
 			DataInputStream leftHaloInputStream;
 			
 			if (mode.equals("i")) {
 				DataInputStream topLeftHaloInputStream = new DataInputStream(fis[2]);
+				changeState(false, 2);
 				previousRow[0] = topLeftHaloInputStream.readInt();
+				changeState(true, 0);
 				left = previousRow[0];
 				topLeftHaloInputStream.close();
 				
 				DataInputStream topHaloInputStream = new DataInputStream(fis[3]);
+				changeState(false, 3);
 				for (int j = 1; j <= horizontalChunk.length; ++j) {
 					previousRow[j] = topHaloInputStream.readInt();
 				}
+				changeState(true, 0);
 				topHaloInputStream.close();
 
 				leftHaloInputStream = new DataInputStream(fis[4]);
+				leftHaloIndex = 4;
 				
 			} else if (mode.equals("l")) {
 				
 				DataInputStream topHaloInputStream = new DataInputStream(fis[2]);
+				changeState(false, 2);
 				for (int j = 1; j <= horizontalChunk.length; ++j) {
 					previousRow[j] = topHaloInputStream.readInt();
 				}
+				changeState(true, 0);
 				topHaloInputStream.close();
 				
 				leftHaloInputStream = new DataInputStream(new ZeroInputStream());
+				leftHaloIndex = 0;
 				
 			} else if (mode.equals("t")) {
 
 				leftHaloInputStream = new DataInputStream(fis[2]);
+				leftHaloIndex = 2;
 				
 			} else if (mode.equals("tl")) {
 
 				// Arrays are zero-initialized by default.
 				leftHaloInputStream = new DataInputStream(new ZeroInputStream());
+				leftHaloIndex = 0;
 			
 			} else {
 				throw new IllegalArgumentException("Illegal mode specified: " + mode);
@@ -108,7 +133,11 @@ public class SmithWaterman implements Task {
 			
 			for (int i = 1; i <= verticalChunk.length; ++i) {
 				int aboveLeft = left;
+				if(leftHaloIndex != 0)
+				    changeState(false, leftHaloIndex);
 				left = leftHaloInputStream.readInt();
+				if(leftHaloIndex != 0)
+				    changeState(true, 0);
 				
 				previousRow[0] = aboveLeft;
 				currentRow[0] = left;

@@ -12,7 +12,7 @@ num_rows = int(env["NUM_ROWS"]);
 num_cols = int(env["NUM_COLS"]);
 
 // Java code
-java_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/sky-eg-smithwaterman.jar")];
+java_lib = [grab("file:///home/chris/skywriting/examples/SmithWaterman/src/java/skywriting/examples/smithwaterman/SmithWaterman.jar")];
 
 // Input data
 url1 = env["INPUT1"];
