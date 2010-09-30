@@ -353,8 +353,8 @@ class FileTransferContext(RetryTransferContext):
                            (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
 
     def reset(self):
-        cherrypy.log.error('Failed to fetch %s from %s (%s, %s), retrying...' % 
-                           (self.save_id, self.urls[self.failures-1], str(errno), errmsg), 
+        cherrypy.log.error('Failed to fetch %s from %s, retrying...' % 
+                           (self.save_id, self.urls[self.failures-1]), 
                            'BLOCKSTORE', logging.WARNING)
         self.sink_fp.seek(0)
         self.sink_fp.truncate(0)
