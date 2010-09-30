@@ -92,7 +92,6 @@ class LazyScheduler(AsynchronousExecutePlugin):
         if len(filtered_ranked_netlocs) > 0:
             max_saving = max(filtered_ranked_netlocs)[0]
             for saving, netloc in filtered_ranked_netlocs:
-                print saving
                 if saving > (0.9 * max_saving):
                     yield self.worker_pool.get_worker_at_netloc(netloc) 
             

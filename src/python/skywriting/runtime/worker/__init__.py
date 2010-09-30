@@ -79,7 +79,6 @@ class Worker(plugins.SimplePlugin):
         if options.staticbase is not None:
             self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
         if options.lib is not None:
-            print options.lib
             self.cherrypy_conf["/stdlib"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.lib }
 
 
