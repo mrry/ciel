@@ -4,12 +4,12 @@ include "grab";
 
 function java(class_name, input_refs, argv, jar_refs, num_outputs) {
    f = env["FOO"];
-	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f}, num_outputs);
+	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f, "stream_output": true}, num_outputs);
 }  
 
 // Numbers of blocks
-num_rows = env["NUM_ROWS"];
-num_cols = env["NUM_COLS"];
+num_rows = int(env["NUM_ROWS"]);
+num_cols = int(env["NUM_COLS"]);
 
 // Java code
 java_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/sky-eg-smithwaterman.jar")];
