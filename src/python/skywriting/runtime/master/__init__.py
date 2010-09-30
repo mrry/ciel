@@ -62,7 +62,7 @@ def master_main(options):
     else:
         block_store_dir = options.blockstore
 
-    block_store = BlockStore(local_hostname, local_port, block_store_dir)
+    block_store = BlockStore(cherrypy.engine, local_hostname, local_port, block_store_dir)
     block_store.build_pin_set()
 
     recovery_manager = RecoveryManager(cherrypy.engine, job_pool, lazy_task_pool, block_store, deferred_worker)

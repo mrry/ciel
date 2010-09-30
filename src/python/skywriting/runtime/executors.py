@@ -27,6 +27,7 @@ import tempfile
 import os
 import cherrypy
 import threading
+import time
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
 
@@ -68,32 +69,6 @@ class ExecutionFeatures:
         except KeyError:
             raise FeatureUnavailableException(name)
         return Executor(args, continuation, expected_output_ids, master_proxy, fetch_limit)
-
-class ProcessWaiter:
-
-    def __init__(self, proc, pipefd):
-        self.proc = proc
-        self.pipefd = pipefd
-        self.has_terminated = False
-        self.lock = threading.Lock()
-        self.condvar = threading.Condition(self.lock)
-        self.thread = threading.Thread(target=self.waiter_main)
-        self.thread.start()
-
-    def waiter_main(self):
-        rc = self.proc.wait()
-        cherrypy.log.error("Process terminated; returned %d" % rc, 'EXEC', logging.INFO)
-        os.write(self.pipefd, "X")
-        with self.lock:
-            self.has_terminated = True
-            self.return_code = rc
-            self.condvar.notify_all()
-
-    def wait(self):
-        with self.lock:
-            while not self.has_terminated:
-                self.condvar.wait()
-            return self.return_code
 
 class SWExecutor:
 
@@ -160,216 +135,28 @@ class SWExecutor:
     def _abort(self):
         pass
 
-class SWStdinoutExecutor(SWExecutor):
-    
+class ProcessRunningExecutor(SWExecutor):
+
     def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
         SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        assert len(expected_output_ids) == 1
-        try:
-            self.input_refs = args['inputs']
-            self.command_line = args['command_line']
-        except KeyError:
-            raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
-        
-        try:
-            self.stream_output = args['stream_output']
-        except KeyError:
-            self.stream_output = False
-        
-        self.proc = None
-
-    class CatThread:
-        def __init__(self, filenames, stdin):
-            self.filenames = filenames
-            self.stdin = stdin
-            pass
-
-        def start(self):
-            self.thread = threading.Thread(target=self.cat_thread_main)
-            self.thread.start()
-            
-        def cat_thread_main(self):
-            for filename in self.filenames:
-                with open(filename, 'r') as input_file:
-                    try:
-                        shutil.copyfileobj(input_file, self.stdin)
-                    except IOError, e:
-                        if e.errno == EPIPE:
-                            cherrypy.log.error('Abandoning cat due to EPIPE', 'EXEC', logging.WARNING)
-                        else:
-                            raise
-            self.stdin.close()
-
-    def _execute(self, block_store, task_id):
-        cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
-        with tempfile.NamedTemporaryFile(delete=False) as temp_output:
-            temp_output_name = temp_output.name
-
-        filenames, fetch_ctx = self.get_filenames(block_store, self.input_refs)
-        
-        if self.stream_output:
-            block_store.prepublish_file(temp_output_name, self.output_ids[0])
-            stream_ref = SW2_StreamReference(self.output_ids[0])
-            stream_ref.add_location_hint(block_store.netloc)
-            self.master_proxy.publish_refs(task_id, {self.output_ids[0] : stream_ref})
-        
-        with open(temp_output_name, "w") as temp_output_fp:
-            # This hopefully avoids the race condition in subprocess.Popen()
-            self.proc = subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
-    
-        add_running_child(self.proc)
-    
-        cat_thread = self.CatThread(filenames, self.proc.stdin)
-        cat_thread.start()
-
-        read_pipe, write_pipe = os.pipe()
-
-        self.waiter_thread = ProcessWaiter(self.proc, write_pipe)
-
-        fetch_ctx.transfer_all(read_pipe)
-
-        rc = self.waiter_thread.wait()
-
-        remove_running_child(self.proc)
-
-        fetch_ctx.cleanup(block_store)
-
-        os.close(read_pipe)
-        os.close(write_pipe)
-
-        failure_bindings = fetch_ctx.get_failed_refs()
-        if failure_bindings is not None:
-            raise MissingInputException(failure_bindings)
-
-        self.proc = None
-
-        if rc != 0:
-            print rc
-            raise OSError()
-        
-        if self.stream_output:
-            _, size_hint = block_store.commit_file(temp_output.name, self.output_ids[0], can_move=True)
-        else:
-            _, size_hint = block_store.store_file(temp_output.name, self.output_ids[0], can_move=True)
-
-        real_ref = SW2_ConcreteReference(self.output_ids[0], size_hint)
-        real_ref.add_location_hint(block_store.netloc)
-        self.output_refs[0] = real_ref
-        
-    def _cleanup(self, block_store):
-        if self.stream_output and not self.succeeded:
-            block_store.rollback_file(self.output_ids[0])
-        
-    def _abort(self):
-        if self.proc is not None:
-            self.proc.kill()
-            self.waiter_thread.wait()
-
-class EnvironmentExecutor(SWExecutor):
-    
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.input_refs = args['inputs']
-            self.command_line = args['command_line']
-        except KeyError:
-            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
-        self.proc = None
-    
-    def _execute(self, block_store, task_id):
-        cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
-
-        input_filenames, fetch_ctx = self.get_filenames(block_store, self.input_refs)
-        with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
-            for filename in input_filenames:
-                input_filenames_file.write(filename)
-                input_filenames_file.write('\n')
-            input_filenames_name = input_filenames_file.name
-            
-        output_filenames = []
-        with tempfile.NamedTemporaryFile(delete=False) as output_filenames_file:
-            for _ in self.output_refs:
-                with tempfile.NamedTemporaryFile(delete=False) as this_file:
-                    output_filenames.append(this_file.name)
-                    output_filenames_file.write(this_file.name)
-                    output_filenames_file.write('\n')
-            output_filenames_name = output_filenames_file.name
-            
-        environment = {'INPUT_FILES'  : input_filenames_name,
-                       'OUTPUT_FILES' : output_filenames_name}
-            
-        self.proc = subprocess.Popen(map(str, self.command_line), env=environment, close_fds=True)
-
-        add_running_child(self.proc)
-
-        read_pipe, write_pipe = os.pipe()
-        self.wait_thread = ProcessWaiter(self.proc, write_pipe)
-
-        fetch_ctx.transfer_all(read_pipe)
-
-        rc = self.wait_thread.wait()
-        
-        remove_running_child(self.proc)
-        
-        self.proc = None
-        
-        fetch_ctx.cleanup(block_store)
-
-        os.close(read_pipe)
-        os.close(write_pipe)
-
-        if rc != 0:
-            print rc
-            raise OSError()
-        for i, filename in enumerate(output_filenames):
-            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
-            real_ref.add_location_hint(block_store.netloc)
-            self.output_refs[i] = real_ref
-        
-    def _abort(self):
-        if self.proc is not None:
-            self.proc.kill()
-            self.wait_thread.wait()
-
-class JavaExecutor(SWExecutor):
-    
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        self.continuation = continuation
-        try:
-            self.jar_refs = args['lib']
-            self.class_name = args['class']
-        except KeyError:
-            raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
-
         try:
             self.input_refs = args['inputs']
         except KeyError:
             self.input_refs = []
-
-        try:
-            self.argv = args['argv']
-        except KeyError:
-            self.argv = []
-        
         try:
             self.stream_output = args['stream_output']
         except KeyError:
             self.stream_output = False
-        
+
+        self.proc = None
+
     def _execute(self, block_store, task_id):
-        cherrypy.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
-        cherrypy.engine.publish("worker_event", "Java: fetching inputs")
         file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
         file_outputs = []
         for i in range(len(self.output_refs)):
             with tempfile.NamedTemporaryFile(delete=False) as this_file:
                 file_outputs.append(this_file.name)
         
-        cherrypy.engine.publish("worker_event", "Java: fetching JAR")
-        jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
-
         if self.stream_output:
             stream_refs = {}
             for i, filename in enumerate(file_outputs):
@@ -379,63 +166,25 @@ class JavaExecutor(SWExecutor):
                 stream_refs[self.output_ids[i]] = stream_ref
             self.master_proxy.publish_refs(task_id, stream_refs)
 
-#        print "Input filenames:"
-#        for fn in file_inputs:
-#            print '\t', fn
-#        print "Output filenames:"
-#        for fn in file_outputs:
-#            print '\t', fn
-
-        cherrypy.engine.publish("worker_event", "Java: running")
-
-        #print 'Stdout:', java_stdout.name, 'Stderr:', java_stderr.name
-        cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
-        process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
-        for x in jar_filenames:
-            process_args.append("file://" + x)
-        #print 'Command-line:', " ".join(process_args)
-        
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
-        
-        self.proc = proc
+        self.proc = self.start_process(block_store, file_inputs, file_outputs, transfer_ctx)
         add_running_child(self.proc)
-        
-        proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
-        for x in file_inputs:
-            proc.stdin.write("%s\0" % x)
-        for x in file_outputs:
-            proc.stdin.write("%s\0" % x)
-        for x in self.argv:
-            proc.stdin.write("%s\0" % x)
-        proc.stdin.close()
 
-        read_pipe, write_pipe = os.pipe()
-        waiter_thread = ProcessWaiter(proc, write_pipe)
-
-        _ = proc.stdout.read(1)
-        #print 'Got byte back from Java'
-
-        transfer_ctx.transfer_all(read_pipe)
-
-        rc = waiter_thread.wait()
-#        print 'Return code', rc
-
+        rc = self.await_process(block_store, file_inputs, file_outputs, transfer_ctx)
         remove_running_child(self.proc)
+
         self.proc = None
 
+        cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
+        transfer_ctx.wait_for_all_transfers()
         transfer_ctx.cleanup(block_store)
-
-        os.close(read_pipe)
-        os.close(write_pipe)
 
         failure_bindings = transfer_ctx.get_failed_refs()
         if failure_bindings is not None:
             raise MissingInputException(failure_bindings)
-            
-        cherrypy.engine.publish("worker_event", "Java: JVM finished")
+
         if rc != 0:
             raise OSError()
-        cherrypy.engine.publish("worker_event", "Java: Storing outputs")
+        cherrypy.engine.publish("worker_event", "Executor: Storing outputs")
         for i, filename in enumerate(file_outputs):
                     
             if self.stream_output:
@@ -443,188 +192,222 @@ class JavaExecutor(SWExecutor):
             else:
                 _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
             
+            # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
             real_ref.add_location_hint(block_store.netloc)
             self.output_refs[i] = real_ref
             
-        cherrypy.engine.publish("worker_event", "Java: Finished storing outputs")
+        cherrypy.engine.publish("worker_event", "Executor: Done")
+
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+        raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
+        
+    def await_process(self, block_store, input_files, output_files, transfer_ctx):
+        rc = self.proc.wait()
+        transfer_ctx.consumers_detached()
+        return rc
 
     def _cleanup(self, block_store):
         if self.stream_output and not self.succeeded:
-            map(block_store.rollback_file, self.output_ids)
-
+            block_store.rollback_file(self.output_ids[0])
+        
     def _abort(self):
         if self.proc is not None:
             self.proc.kill()
-        
-class DotNetExecutor(SWExecutor):
+
+class SWStdinoutExecutor(ProcessRunningExecutor):
     
-    def __init__(self, args, continuation, num_outputs):
-        SWExecutor.__init__(self, args, continuation, num_outputs)
-        self.continuation = continuation
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        ProcessRunningExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        if len(expected_output_ids) != 1:
+            raise BlameUserException("Stdinout executor must have one output")
         try:
-            self.input_refs = args['inputs']
+            self.command_line = args['command_line']
+        except KeyError:
+            raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
+
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+        cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
+
+        with open(output_files[0], "w") as temp_output_fp:
+            # This hopefully avoids the race condition in subprocess.Popen()
+            return subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
+
+    def await_process(self, block_store, input_files, output_files, transfer_ctx):
+
+        class list_with:
+            def __init__(self, l):
+                self.wrapped_list = l
+            def __enter__(self):
+                return [x.__enter__() for x in self.wrapped_list]
+            def __exit__(self, exnt, exnv, exntb):
+                for x in self.wrapped_list:
+                    x.__exit__(exnt, exnv, exntb)
+                return False
+
+        with list_with([open(filename, 'r') for filename in input_files]) as fileobjs:
+            transfer_ctx.consumers_attached()
+            for fileobj in fileobjs:
+                try:
+                    shutil.copyfileobj(fileobj, self.proc.stdin)
+                except IOError, e:
+                    if e.errno == EPIPE:
+                        cherrypy.log.error('Abandoning cat due to EPIPE', 'EXEC', logging.WARNING)
+                        break
+                    else:
+                        raise
+
+        self.proc.stdin.close()
+        rc = self.proc.wait()
+        transfer_ctx.consumers_detached()
+        return rc
+        
+class EnvironmentExecutor(ProcessRunningExecutor):
+    
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        ProcessRunningExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        try:
+            self.command_line = args['command_line']
+        except KeyError:
+            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
+
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+        cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
+
+        with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
+            for filename in input_files:
+                input_filenames_file.write(filename)
+                input_filenames_file.write('\n')
+            input_filenames_name = input_filenames_file.name
+            
+        with tempfile.NamedTemporaryFile(delete=False) as output_filenames_file:
+            for filename in output_files:
+                output_filenames_file.write(filename)
+                output_filenames_file.write('\n')
+            output_filenames_name = output_filenames_file.name
+            
+        environment = {'INPUT_FILES'  : input_filenames_name,
+                       'OUTPUT_FILES' : output_filenames_name}
+            
+        proc = subprocess.Popen(map(str, self.command_line), env=environment, close_fds=True)
+
+        _ = proc.stdout.read(1)
+        #print 'Got byte back from Executor'
+
+        transfer_ctx.consumers_attached()
+        
+        return proc
+
+class FilenamesOnStdinExecutor(ProcessRunningExecutor):
+    
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        ProcessRunningExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        try:
+            self.argv = args['argv']
+        except KeyError:
+            self.argv = []
+        try:
+            self.debug_opts = args['debug_options']
+        except KeyError:
+            self.debug_opts = []
+        
+    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+
+        self.before_execute(block_store)
+        cherrypy.engine.publish("worker_event", "Executor: running")
+
+        if "go_slow" in self.debug_opts:
+            cherrypy.log.error("DEBUG: Executor sleep(3)'ing", "EXEC", logging.DEBUG)
+            time.sleep(3)
+
+        proc = subprocess.Popen(self.get_process_args(), shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
+        
+        proc.stdin.write("%d,%d,%d\0" % (len(input_files), len(output_files), len(self.argv)))
+        for x in input_files:
+            proc.stdin.write("%s\0" % x)
+        for x in output_files:
+            proc.stdin.write("%s\0" % x)
+        for x in self.argv:
+            proc.stdin.write("%s\0" % x)
+        proc.stdin.close()
+
+        _ = proc.stdout.read(1)
+        #print 'Got byte back from Executor'
+
+        transfer_ctx.consumers_attached()
+
+        return proc
+
+    def get_process_args(self):
+        raise Exception("Must override get_process_args subclassing FilenamesOnStdinExecutor")
+
+class JavaExecutor(FilenamesOnStdinExecutor):
+
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        FilenamesOnStdinExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        try:
+            self.jar_refs = args['lib']
+            self.class_name = args['class']
+        except KeyError:
+            raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
+
+    def before_execute(self, block_store):
+        cherrypy.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
+        cherrypy.engine.publish("worker_event", "Java: fetching JAR")
+        self.jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
+
+    def get_process_args(self):
+        cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
+        process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
+        process_args.extend(["file://" + x for x in self.jar_filenames])
+        return process_args
+        
+class DotNetExecutor(FilenamesOnStdinExecutor):
+
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        FilenamesOnStdinExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        try:
             self.dll_refs = args['lib']
             self.class_name = args['class']
-            self.argv = args['argv']
         except KeyError:
-            cherrypy.log.error("Incorrect arguments for dotnet executor", 'EXEC', logging.ERROR)
-            raise BlameUserException("Incorrect arguments for dotnet executor")
+            raise BlameUserException('Incorrect arguments to the dotnet executor: %s' % repr(args))
 
-    def _execute(self, block_store, task_id):
-        
-        file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
-        file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
-        
-        dll_filenames = self.get_filenames_eager(block_store, self.dll_refs)
-        dotnet_stdout = tempfile.NamedTemporaryFile(delete=False)
-        dotnet_stderr = tempfile.NamedTemporaryFile(delete=False)
+    def before_execute(self, block_store):
+        cherrypy.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
+        cherrypy.engine.publish("worker_event", "Dotnet: fetching DLLs")
+        self.dll_filenames = self.get_filenames_eager(block_store, self.dll_refs)
 
-        print "Input filenames:"
-        for fn in file_inputs:
-            print '\t', fn
-        print "Output filenames:"
-        for fn in file_outputs:
-            print '\t', fn
-        
-        print 'Stdout:', dotnet_stdout.name, 'Stderr:', dotnet_stderr.name
-        
-        process_args = ["mono", "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/csharp/loader/loader.exe", self.class_name]
-        for x in dll_filenames:
-            process_args.append(x)
-        print 'Command-line:', " ".join(process_args)
-        
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=dotnet_stdout, stderr=dotnet_stderr, close_fds=True)
-        
-        self.proc = proc
-        add_running_child(self.proc)
-        
-        proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
-        for x in file_inputs:
-            proc.stdin.write("%s\0" % x)
-        for x in file_outputs:
-            proc.stdin.write("%s\0" % x)
-        for x in self.argv:
-            proc.stdin.write("%s\0" % x)
-        proc.stdin.close()
+    def get_process_args(self):
 
-        read_pipe, write_pipe = os.pipe()
-        waiter_thread = ProcessWaiter(proc, write_pipe)
+        mono_loader = os.getenv('SW_MONO_LOADER_PATH', 
+                                "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/csharp/loader/loader.exe")
+        process_args = ["mono", mono_loader, self.class_name]
+        process_args.extend(self.dll_filenames)
+        return process_args
 
-        transfer_ctx.transfer_all(read_pipe)
+class CExecutor(FilenamesOnStdinExecutor):
 
-        rc = waiter_thread.wait()
-        print 'Return code', rc
-
-        remove_running_child(self.proc)
-        self.proc = None
-
-        transfer_ctx.cleanup(block_store)
-
-        os.close(read_pipe)
-        os.close(write_pipe)
-
-        if rc != 0:
-            with open(dotnet_stdout.name) as stdout_fp:
-                with open(dotnet_stderr.name) as stderr_fp:
-                    print ".NET program failed, returning", rc, "with stdout:"
-                    for l in stdout_fp.readlines():
-                        print l
-                    print "...and stderr:"
-                    for l in stderr_fp.readlines():
-                        print l
-            raise OSError()
-        
-        for i, filename in enumerate(file_outputs):
-            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
-            real_ref.add_location_hint(block_store.netloc)
-            self.output_refs[i] = real_ref
-
-class CExecutor(SWExecutor):
-    
-    def __init__(self, args, continuation, num_outputs):
-        SWExecutor.__init__(self, args, continuation, num_outputs)
-        self.continuation = continuation
+    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+        FilenamesOnStdinExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
         try:
-            self.input_refs = args['inputs']
             self.so_refs = args['lib']
             self.entry_point_name = args['entry_point']
-            self.argv = args['argv']
         except KeyError:
-            print "Incorrect arguments for stdinout executor"
-            raise
+            raise BlameUserException('Incorrect arguments to the C executor: %s' % repr(args))
 
-    def _execute(self, block_store, task_id):
-        
-        file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
-        file_outputs = [tempfile.NamedTemporaryFile(delete=False).name for i in range(len(self.output_refs))]
-        
-        so_filenames = self.get_filenames_eager(block_store, self.so_refs)
-        c_stdout = tempfile.NamedTemporaryFile(delete=False)
-        c_stderr = tempfile.NamedTemporaryFile(delete=False)
+    def before_execute(self, block_store):
+        cherrypy.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
+        cherrypy.engine.publish("worker_event", "C-exec: fetching SOs")
+        self.so_filenames = self.get_filenames_eager(block_store, self.so_refs)
 
-        print "Input filenames:"
-        for fn in file_inputs:
-            print '\t', fn
-        print "Output filenames:"
-        for fn in file_outputs:
-            print '\t', fn
-        
-        print 'Stdout:', c_stdout.name, 'Stderr:', c_stderr.name
-        
-        process_args = ["/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/c/src/loader", self.entry_point_name]
-        for x in so_filenames:
-            process_args.append(x)
-        print 'Command-line:', " ".join(process_args)
-        
-        proc = subprocess.Popen(process_args, shell=False, stdin=PIPE, stdout=c_stdout, stderr=c_stderr, close_fds=True)
-        
-        self.proc = proc
-        add_running_child(self.proc)
-        
-        proc.stdin.write("%d,%d,%d\0" % (len(file_inputs), len(file_outputs), len(self.argv)))
-        for x in file_inputs:
-            proc.stdin.write("%s\0" % x)
-        for x in file_outputs:
-            proc.stdin.write("%s\0" % x)
-        for x in self.argv:
-            proc.stdin.write("%s\0" % x)
-        proc.stdin.close()
+    def get_process_args(self):
 
-        read_pipe, write_pipe = os.pipe()
-        waiter_thread = ProcessWaiter(proc, write_pipe)
-
-        transfer_ctx.transfer_all(read_pipe)
-
-        rc = waiter_thread.wait()
-        print 'Return code', rc
-
-        remove_running_child(self.proc)
-        self.proc = None
-
-        transfer_ctx.cleanup(block_store)
-
-        os.close(read_pipe)
-        os.close(write_pipe)
-
-        if rc != 0:
-            with open(c_stdout.name) as stdout_fp:
-                with open(c_stderr.name) as stderr_fp:
-                    print "C program failed, returning", rc, "with stdout:"
-                    for l in stdout_fp.readlines():
-                        print l
-                    print "...and stderr:"
-                    for l in stderr_fp.readlines():
-                        print l
-            raise OSError()
-        
-        for i, filename in enumerate(file_outputs):
-            _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
-            real_ref.add_location_hint(block_store.netloc)
-            self.output_refs[i] = real_ref
-            
+        c_loader = os.getenv('SW_C_LOADER_PATH', 
+                             "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/c/src/loader")
+        process_args = [c_loader, self.entry_point_name]
+        process_args.extend(self.so_filenames)
+        return process_args
+    
 class GrabURLExecutor(SWExecutor):
     
     def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):

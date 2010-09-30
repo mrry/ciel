@@ -30,6 +30,18 @@ $PACKAGES="python python-ply python-httplib2 python-simplejson python-cherrypy3 
 # the JDK to install
 $JDK="openjdk-6-jre"
 
+if [[ $1 == '' ]]; then
+    SWROOT='/opt/skywriting'
+else
+    SWROOT=$1
+fi
+
+if [[ $2 == '' ]]; then
+    GITUSER='mrry'
+else
+    GITUSER=$2
+fi
+
 # shut up dpkg
 export DEBIAN_FRONTEND="noninteractive"
 
@@ -46,11 +58,10 @@ apt-get -qq -y install $PACKAGES 1>&2 2>/dev/null
 apt-get -qq -y install $JDK 1>&2 2>/dev/null
 
 # git checkout
-mkdir -p /opt
-cd /opt
-git clone -q http://github.com/mrry/skywriting.git
-mkdir -p /opt/skywriting/logs
-mkdir -p /opt/skywriting/journal
-mkdir -p /mnt/store
-ln -s /mnt/store /opt/skywriting/store
+git clone -q http://github.com/$2/skywriting.git $1
+mkdir -p $1/logs
+mkdir -p $1/journal
+mkdir -p $1/store
+#mkdir -p /mnt/store
+#ln -s /mnt/store /opt/skywriting/store
 

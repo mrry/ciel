@@ -23,6 +23,7 @@
 KEY="sw-masterkey"
 SWUSER="root"
 SWROOT="/opt/skywriting"
+GITUSER="mrry"
 VERBOSE=0
 
 # ---------------------------------------------
@@ -39,6 +40,11 @@ do
 
     -i|-k)
       KEY=$2
+      shift 2
+    ;;
+
+    -g|--gituser)
+      GITUSER=$2
       shift 2
     ;;
 
@@ -74,7 +80,9 @@ do
       echo "-r|--swroot: the root directory of the remote Skywriting installation"
       echo "             (defaults to '/opt/skywriting')"
       echo "-u|--swuser: the user name of the Skywriting user on the cluster"
-      echo "             (defaults to 'root'; use 'ec2' if running on EC2)"
+      echo "             (defaults to 'root')"
+      echo "-g|--gituser: the git user whose repo should be cloned"
+      echo "             (defaults to 'mrry')"
       echo "-v: verbose mode (don't surpress output from remote machines)"
       shift 1
       exit 0
@@ -89,7 +97,7 @@ I=0
 cat $SOURCE | while myLine=`line`
 do
     echo -n "Deploying instance $I: "
-    ./sw-deploy.sh $myLine $KEY $SWUSER
+    ./sw-deploy.sh $myLine $KEY $SWUSER $SWROOT $GITUSER
     echo $myLine
     I=`expr $I + 1`
 done

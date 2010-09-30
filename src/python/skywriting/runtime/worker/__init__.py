@@ -58,7 +58,7 @@ class Worker(plugins.SimplePlugin):
             block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         else:
             block_store_dir = options.blockstore
-        self.block_store = BlockStore(self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
+        self.block_store = BlockStore(cherrypy.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.build_pin_set()
         self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
         self.upload_deferred_work.subscribe()

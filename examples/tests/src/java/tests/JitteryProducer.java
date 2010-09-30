@@ -16,6 +16,7 @@ class StreamFeeder {
     private int last_number_written;
     private Random rng;
     private int id;
+    public int bytes_written;
 
     public StreamFeeder(OutputStream fos2, Random rng, int id) {
 
@@ -24,6 +25,7 @@ class StreamFeeder {
 	this.last_number_written = 0;
 	this.rng = rng;
 	this.id = id;
+	this.bytes_written = 0;
 
     }
 
@@ -32,7 +34,9 @@ class StreamFeeder {
 	if(this.active) {
 	    for(int i = 0; i < 10000; i++) {
 		String nextWrite = String.format("%d,", this.last_number_written++);
-		this.fos.write(nextWrite.getBytes("US-ASCII"));
+		byte[] nextWriteBytes = nextWrite.getBytes("US-ASCII");
+		this.fos.write(nextWriteBytes);
+		this.bytes_written += nextWriteBytes.length;
 	    }	
 	}
 
@@ -54,7 +58,9 @@ public class JitteryProducer implements Task {
 	Random rng = new Random();
 	List<StreamFeeder> streams = new LinkedList<StreamFeeder>();
 
-	for (int i = 0; i < fos.length; i++) {
+	int seconds_to_run = Integer.parseInt(args[0]);
+
+	for (int i = 0; i < (fos.length - 1); i++) {
 
 	    streams.add(new StreamFeeder(fos[i], rng, i));
 
@@ -64,7 +70,7 @@ public class JitteryProducer implements Task {
 	    long seconds_elapsed = 0;
 	    long last_number_written = 0;
 	    System.out.printf("Producer start\n");
-	    while(seconds_elapsed < 10) {
+	    while(seconds_elapsed < seconds_to_run) {
 		long last_change_time = System.currentTimeMillis();
 		while(System.currentTimeMillis() < (last_change_time + 1000)) {
 		    for(StreamFeeder stream : streams) {
@@ -79,6 +85,11 @@ public class JitteryProducer implements Task {
 		}
 	    }
 	    System.out.printf("Producer stop\n");
+	    int total_bytes_written = 0;
+	    for(StreamFeeder stream : streams) {
+		total_bytes_written += stream.bytes_written;
+	    }
+	    fos[fos.length - 1].write(Integer.toString(total_bytes_written).getBytes("US-ASCII"));
 	}
 	catch(Exception e) {
 	    System.out.printf("JitteryProducer epic fail: %s\n", e.toString());
