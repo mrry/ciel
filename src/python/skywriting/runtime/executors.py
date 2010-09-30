@@ -80,6 +80,10 @@ class SWExecutor:
         self.fetch_limit = fetch_limit
         self.master_proxy = master_proxy
         self.succeeded = False
+        try:
+            self.debug_opts = args['debug_options']
+        except KeyError:
+            self.debug_opts = []
 
     def resolve_ref(self, ref):
         if self.continuation is not None:
@@ -104,7 +108,7 @@ class SWExecutor:
 
     def get_filenames(self, block_store, refs):
         real_refs = self.mark_and_test_refs(refs)
-        return block_store.retrieve_filenames_for_refs(real_refs)
+        return block_store.retrieve_filenames_for_refs(real_refs, "trace_io" in self.debug_opts)
 
     def get_filenames_eager(self, block_store, refs):
         real_refs = self.mark_and_test_refs(refs)
@@ -148,10 +152,6 @@ class ProcessRunningExecutor(SWExecutor):
             self.stream_output = args['stream_output']
         except KeyError:
             self.stream_output = False
-        try:
-            self.debug_opts = args['debug_options']
-        except KeyError:
-            self.debug_opts = []
 
         self.proc = None
 
@@ -181,6 +181,8 @@ class ProcessRunningExecutor(SWExecutor):
 
         cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
         transfer_ctx.wait_for_all_transfers()
+        if "trace_io" in self.debug_opts:
+            transfer_ctx.log_traces()
         transfer_ctx.cleanup(block_store)
 
         failure_bindings = transfer_ctx.get_failed_refs()
@@ -314,7 +316,6 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         self.last_event_time = None
         self.current_state = "Starting up"
         self.state_times = dict()
-        self.io_trace = []
 
     def change_state(self, new_state):
         time_now = datetime.now()
@@ -369,15 +370,15 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                         anything_read = True
                     if c == ",":
                         if message[0] == "C":
-                           timestamp = datetime.fromtimestamp(float(message[1:]))
-                           self.io_trace.append(("Computing", timestamp))
+                           timestamp = float(message[1:])
+                           cherrypy.engine.publish("worker_event", "Process log %f Computing" % timestamp)
                         elif message[0] == "I":
                             try:
                                 params = message[1:].split("|")
                                 stream_id = int(params[0])
-                                timestamp = datetime.fromtimestamp(float(params[1]))
-                                self.io_trace.append(("Waiting on input %d" % stream_id, timestamp))
-                            except NumberFormatError:
+                                timestamp = float(params[1])
+                                cherrypy.engine.publish("worker_event", "Process log %f Waiting %d" % (timestamp, stream_id))
+                            except:
                                 cherrypy.log.error("Malformed data from stdout: %s" % message)
                                 raise
                         else:
@@ -388,12 +389,14 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                         raise Exception("Stdout closed")
                     else:
                         message = message + c
-            except:
+            except Exception as e:
+                print e
                 break
 
     def await_process(self, block_store, input_files, output_files, transfer_ctx):
         self.change_state("Running")
         if "trace_io" in self.debug_opts:
+            cherrypy.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.INFO)
             self.gather_io_trace()
         rc = self.proc.wait()
         self.change_state("Done")

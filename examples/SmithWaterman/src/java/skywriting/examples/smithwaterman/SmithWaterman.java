@@ -32,10 +32,10 @@ public class SmithWaterman implements Task {
     public void changeState(boolean compute_bound, int ios) {
 	if(trace_io != null) {
 	    if(compute_bound) {
-		trace_io.add(String.format("C%f,", ((float)System.currentTimeMillis()) / 1000));
+		trace_io.add(String.format("C%f,", ((double)System.currentTimeMillis()) / 1000));
 	    }
 	    else {
-		trace_io.add(String.format("I%d|%f,", ios, ((float)System.currentTimeMillis()) / 1000));
+		trace_io.add(String.format("I%d|%f,", ios, ((double)System.currentTimeMillis()) / 1000));
 	    }
 	}
     }

@@ -31,6 +31,7 @@ import fcntl
 import re
 import threading
 from datetime import datetime, timedelta
+import time
 from cStringIO import StringIO
 from errno import EAGAIN, EPIPE
 from cherrypy.process import plugins
@@ -423,6 +424,10 @@ class StreamTransferGroup(WaitableTransferGroup):
         for h in self.handles:
             h.consumer_detached()
 
+    def log_traces(self):
+        for h in self.handles:
+            h.log_trace()
+
     def cleanup(self, block_store):
         for handle in self.handles:
             handle.save_result(block_store)
@@ -589,7 +594,7 @@ class StreamTransferContext(pycURLContextCallbacks):
                 self.mem_buffer = ""
             self.fifo_state = FIFO_DEAD
             
-    def __init__(self, ref, urls, save_id, multi, completion_callback):
+    def __init__(self, ref, urls, save_id, multi, completion_callback, report_index, do_io_trace=False):
         self.ref = ref
         self.urls = urls
         self.failures = 0
@@ -614,9 +619,24 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.multi = multi
         self.description = self.urls[0]
         self.completion_callback = completion_callback
+        self.report_index = report_index
+        if do_io_trace:
+            cherrypy.log.error("DEBUG: pycURL trace active", "CURL_FETCH", logging.INFO)
+            self.io_trace = []
+        else:
+            self.io_trace = None
         multi.add_context(self)
 
+    def trace_event(self, str):
+        if self.io_trace is not None:
+            self.io_trace.append((time.time(), str))
+
+    def log_trace(self):
+        for (t, e) in self.io_trace:
+            cherrypy.engine.publish("worker_event", "Fetch trace %d %f %s" % (self.report_index, t, e))
+
     def start(self):
+        self.trace_event("Start")
         self.start_next_fetch()
 
     def get_select_fds(self):
@@ -657,6 +677,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def write_data(self, _str):
         # Called from cURL thread
+        self.trace_event("receiving")
         self.fifo_sink.write_data(_str)
         ret = self.sink_fp.write(_str)
         self.current_start_byte += len(_str)
@@ -669,12 +690,14 @@ class StreamTransferContext(pycURLContextCallbacks):
     def start_next_fetch(self):
         cherrypy.log.error("Fetch %s offset %d" % 
                            (self.description, self.current_start_byte), 'CURL_FETCH', logging.DEBUG)
+        self.trace_event("Request-sent")
         self.start_fetch(self.urls[self.failures], 
                          (self.current_start_byte, 
                           self.current_start_byte + self.chunk_size))
 
     def pause_for(self, secs):
         assert self.dormant_until is None
+        self.trace_event("Dormant")
         self.dormant_until = datetime.now() + timedelta(0, secs)
         cherrypy.log.error("Pausing %s fetch due to producer buffer empty" 
                            % self.description, 'CURL_FETCH', logging.DEBUG)
@@ -694,6 +717,7 @@ class StreamTransferContext(pycURLContextCallbacks):
             self.requests_paused = True
 
     def report_completion(self, succeeded):
+        self.trace_event("EOF")
         cherrypy.log.error("%s reporting EOF to client" % self.description, "CURL_FETCH", logging.INFO)
         self.fifo_sink.write_data_eof()
         self.has_completed = True
@@ -1030,7 +1054,7 @@ class BlockStore(plugins.SimplePlugin):
 
         return result_list
 
-    def retrieve_filenames_for_refs(self, refs):
+    def retrieve_filenames_for_refs(self, refs, do_io_trace=False):
 
         fetch_ctx = StreamTransferGroup()
 
@@ -1038,22 +1062,23 @@ class BlockStore(plugins.SimplePlugin):
         resolved_refs = map(self.try_retrieve_filename_for_ref_without_transfer, refs)
 
         # Step 2: Build request descriptors
-        def create_transfer_context(ref):
+        def create_transfer_context(ref, i):
             urls = self.get_fetch_urls_for_ref(ref)
             if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
                 save_id = ref.id
             else:
                 save_id = self.allocate_new_id()
-            ret = StreamTransferContext(ref, urls, save_id, self.fetch_thread, fetch_ctx.transfer_completed_callback)
+            ret = StreamTransferContext(ref, urls, save_id, self.fetch_thread, 
+                                        fetch_ctx.transfer_completed_callback, i, do_io_trace)
             fetch_ctx.add_handle(ret)
             ret.start()
             return ret
 
         result_list = []
  
-        for (ref, resolution) in zip(refs, resolved_refs):
+        for (i, (ref, resolution)) in enumerate(zip(refs, resolved_refs)):
             if resolution is None:
-                ctx = create_transfer_context(ref)
+                ctx = create_transfer_context(ref, i)
                 result_list.append(ctx.fifo_name)
             else:
                 result_list.append(resolution)
