@@ -7,19 +7,37 @@ import java.io.DataOutputStream;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.LinkedList;
+import java.util.List;
 
 import uk.co.mrry.mercator.task.Task;
 
 public class SmithWaterman implements Task {
 
-    public void changeState(boolean compute_bound, int ios) {
-	if(compute_bound) {
-	    System.out.printf("C,");
+    private List<String> trace_io;
+
+    public SmithWaterman() {
+
+	if(System.getProperty("skywriting.trace_io") != null) {
+	    System.err.printf("*** DEBUG: Outputting IO trace data\n");
+	    trace_io = new LinkedList<String>();
 	}
 	else {
-	    System.out.printf("I%d,", ios);
+	    System.err.printf("Smith-waterman: normal startup\n");
+	    trace_io = null;
 	}
-	System.out.flush();
+
+    }
+
+    public void changeState(boolean compute_bound, int ios) {
+	if(trace_io != null) {
+	    if(compute_bound) {
+		trace_io.add(String.format("C%f,", ((float)System.currentTimeMillis()) / 1000));
+	    }
+	    else {
+		trace_io.add(String.format("I%d|%f,", ios, ((float)System.currentTimeMillis()) / 1000));
+	    }
+	}
     }
 
 	@Override
@@ -130,14 +148,12 @@ public class SmithWaterman implements Task {
 			int[] currentRow = new int[previousRow.length];
 
 			DataOutputStream rightHaloOutputStream = new DataOutputStream(fos[2]);
-			
+
+			if(leftHaloIndex != 0)
+			    changeState(false, leftHaloIndex);
 			for (int i = 1; i <= verticalChunk.length; ++i) {
 				int aboveLeft = left;
-				if(leftHaloIndex != 0)
-				    changeState(false, leftHaloIndex);
 				left = leftHaloInputStream.readInt();
-				if(leftHaloIndex != 0)
-				    changeState(true, 0);
 				
 				previousRow[0] = aboveLeft;
 				currentRow[0] = left;
@@ -169,6 +185,8 @@ public class SmithWaterman implements Task {
 				currentRow = previousRow;
 				previousRow = temp;
 			}
+			if(leftHaloIndex != 0)
+			    changeState(true, 0);
 			
 			leftHaloInputStream.close();
 			
@@ -196,6 +214,13 @@ public class SmithWaterman implements Task {
 			{
 				rightHaloOutputStream.flush();
 				rightHaloOutputStream.close();
+			}
+
+			if(trace_io != null) {
+			    for(String s : trace_io) {
+				System.out.print(s);
+				System.out.flush();
+			    }
 			}
 		} catch (Exception e) {
 			throw new RuntimeException(e);

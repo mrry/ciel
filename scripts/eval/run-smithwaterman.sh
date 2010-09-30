@@ -4,6 +4,12 @@ NUM_COLS=10
 MASTER="http://localhost:9000"
 SWROOT="../.."
 
+if [[ $1 == '--trace' ]]; then
+    SCRIPT_FILE=$SWROOT/src/sw/smithwaterman-traced.sw
+else
+    SCRIPT_FILE=$SWROOT/src/sw/smithwaterman.sw
+fi
+
 export PYTHONPATH=$SWROOT/src/python/
 export INPUT1=`$SWROOT/scripts/sw-load -m $MASTER horizontal_string_random | tr -d '\n'`
 export INPUT2=`$SWROOT/scripts/sw-load -m $MASTER vertical_string_random | tr -d '\n'`
@@ -14,5 +20,5 @@ for i in 1; do
 #for c in 10000 5000 2500 2000; do
     echo "Running repetition $i: "
     export FOO=`date +%s`
-    $SWROOT/scripts/sw-job -m $MASTER -e $SWROOT/src/sw/smithwaterman.sw 2>&1
+    $SWROOT/scripts/sw-job -m $MASTER -e $SCRIPT_FILE 2>&1
 done

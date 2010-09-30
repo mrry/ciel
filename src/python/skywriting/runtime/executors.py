@@ -148,6 +148,10 @@ class ProcessRunningExecutor(SWExecutor):
             self.stream_output = args['stream_output']
         except KeyError:
             self.stream_output = False
+        try:
+            self.debug_opts = args['debug_options']
+        except KeyError:
+            self.debug_opts = []
 
         self.proc = None
 
@@ -307,13 +311,10 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             self.argv = args['argv']
         except KeyError:
             self.argv = []
-        try:
-            self.debug_opts = args['debug_options']
-        except KeyError:
-            self.debug_opts = []
         self.last_event_time = None
-        self.current_state = 0
+        self.current_state = "Starting up"
         self.state_times = dict()
+        self.io_trace = []
 
     def change_state(self, new_state):
         time_now = datetime.now()
@@ -337,7 +338,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
 
         proc = subprocess.Popen(self.get_process_args(), shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
         self.last_event_time = datetime.now()
-        self.change_state(0)
+        self.change_state("Writing input details")
         
         proc.stdin.write("%d,%d,%d\0" % (len(input_files), len(output_files), len(self.argv)))
         for x in input_files:
@@ -347,7 +348,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         for x in self.argv:
             proc.stdin.write("%s\0" % x)
         proc.stdin.close()
-        self.change_state(1)
+        self.change_state("Waiting for FIFO pickup")
 
         _ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
@@ -356,23 +357,29 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
 
         return proc
 
-    def await_process(self, block_store, input_files, output_files, transfer_ctx):
-        self.change_state(2)
+    def gather_io_trace(self):
+        anything_read = False
         while True:
             try:
                 message = ""
                 while True:
                     c = self.proc.stdout.read(1)
+                    if not anything_read:
+                        self.change_state("Gathering IO trace")
+                        anything_read = True
                     if c == ",":
-                        if message == "C":
-                            self.change_state(2)
+                        if message[0] == "C":
+                           timestamp = datetime.fromtimestamp(float(message[1:]))
+                           self.io_trace.append(("Computing", timestamp))
                         elif message[0] == "I":
                             try:
-                                stream_id = int(message[1:])
+                                params = message[1:].split("|")
+                                stream_id = int(params[0])
+                                timestamp = datetime.fromtimestamp(float(params[1]))
+                                self.io_trace.append(("Waiting on input %d" % stream_id, timestamp))
                             except NumberFormatError:
                                 cherrypy.log.error("Malformed data from stdout: %s" % message)
                                 raise
-                            self.change_state(100 + stream_id)
                         else:
                             cherrypy.log.error("Malformed data from stdout: %s" % message)
                             raise Exception("Malformed stuff")
@@ -382,11 +389,14 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                     else:
                         message = message + c
             except:
-                cherrypy.log.error("Stdout closed or bad data")
                 break
-        self.change_state(3)
+
+    def await_process(self, block_store, input_files, output_files, transfer_ctx):
+        self.change_state("Running")
+        if "trace_io" in self.debug_opts:
+            self.gather_io_trace()
         rc = self.proc.wait()
-        self.change_state(0)
+        self.change_state("Done")
         transfer_ctx.consumers_detached()
         cherrypy.log.error("Process terminated. Stats:", "EXEC", logging.INFO)
         for key, value in self.state_times.items():
@@ -413,7 +423,10 @@ class JavaExecutor(FilenamesOnStdinExecutor):
 
     def get_process_args(self):
         cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
-        process_args = ["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", self.class_name]
+        process_args = ["java", "-cp", cp]
+        if "trace_io" in self.debug_opts:
+            process_args.append("-Dskywriting.trace_io=1")
+        process_args.extend(["uk.co.mrry.mercator.task.JarTaskLoader", self.class_name])
         process_args.extend(["file://" + x for x in self.jar_filenames])
         return process_args
         
