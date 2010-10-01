@@ -28,7 +28,7 @@ def main():
     q = Queue()
     q.put(root_url)
     
-    print 'task_id type parent created_at assigned_at committed_at num_children num_dependencies num_outputs final_state'
+    print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state'
     
     while True:
         try:
@@ -54,6 +54,8 @@ def main():
             elif state == 'COMMITTED':
                 committed_at = time
 
+        duration = committed_at - assigned_at if (committed_at is not None and assigned_at is not None) else None
+
         num_children = len(descriptor["children"])
 
         num_dependencies = len(descriptor["dependencies"])
@@ -64,7 +66,7 @@ def main():
 
         final_state = descriptor["state"]
 
-        print task_id, type, parent, created_at, assigned_at, committed_at, num_children, num_dependencies, num_outputs, final_state
+        print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state
 
         for child in descriptor["children"]:
             q.put(urljoin(url, child))

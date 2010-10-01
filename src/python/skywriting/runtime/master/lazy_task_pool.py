@@ -328,7 +328,11 @@ class LazyTaskPool(plugins.SimplePlugin):
                     
                     # We may need to recursively check the inputs on the
                     # producing task for this reference.
-                    producing_task = self.task_for_output[ref.id]
+                    try:
+                        producing_task = self.task_for_output[ref.id]
+                    except KeyError:
+                        cherrypy.log.error('Task %s cannot access missing input %s and will block until this is produced' % (task.task_id, ref.id), 'TASKPOOL', logging.WARNING)
+                        continue
                     
                     # The producing task is inactive, so recursively visit it.                    
                     if producing_task.state in (TASK_CREATED, TASK_COMMITTED):
