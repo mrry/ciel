@@ -488,12 +488,25 @@ class StreamTransferContext(pycURLContextCallbacks):
             self.ctx.request_failed(errno, errstr)
 
     class StreamFifoSink:
-        def __init__(self, fifo_name):
+        def __init__(self, fifo_name, report_index, do_log=False):
             self.dummy_read_fd = os.open(fifo_name, os.O_RDONLY | os.O_NONBLOCK)
             self.fifo_fd = os.open(fifo_name, os.O_WRONLY | os.O_NONBLOCK)
             self.fifo_state = FIFO_UNCONNECTED
             self.mem_buffer = ""
             self.eof = False
+            self.report_index = report_index
+            if do_log:
+                self.io_trace = []
+            else:
+                self.io_trace = None
+
+        def trace_event(self, str):
+            if self.io_trace is not None:
+                self.io_trace.append((time.time(), str))
+
+        def log_trace(self):
+            for (t, e) in self.io_trace:
+                cherrypy.engine.publish("worker_event", "Fetch FIFO trace %d %f %s" % (self.report_index, t, e))
 
         def write_without_blocking(self, fd, _str):
             total_written = 0
@@ -523,6 +536,8 @@ class StreamTransferContext(pycURLContextCallbacks):
                         self.consumer_detached()
                     else:
                         raise
+            else:
+                self.trace_event("Buffer empty")
             if self.buffer_empty() and self.eof:
                 self.consumer_detached()
 
@@ -540,12 +555,14 @@ class StreamTransferContext(pycURLContextCallbacks):
                     else:
                         written = self.write_without_blocking(self.fifo_fd, _str)
                         if written < len(_str):
+                            self.trace_event("Buffer not empty")
                             self.mem_buffer += _str[written:]
 
         def write_data_eof(self):
             # If the FIFO is still unconnected we should wait for it to become connected.
             # If it's connected already, just hang up.
             self.eof = True
+            self.trace_event("EOF")
             if self.fifo_state == FIFO_CONNECTED:
                 if self.buffer_empty():
                     self.consumer_detached()
@@ -574,12 +591,14 @@ class StreamTransferContext(pycURLContextCallbacks):
 
         def consumer_attached(self):
             assert self.fifo_state == FIFO_UNCONNECTED
+            self.trace_event("Became attached")
             self.fifo_state = FIFO_CONNECTED
             os.close(self.dummy_read_fd)
             self.dummy_read_fd = -1
             self.try_empty_buffer()
 
         def consumer_detached(self):
+            self.trace_event("Became detached")
             if self.fifo_state == FIFO_DEAD:
                 return
             elif self.fifo_state == FIFO_UNCONNECTED:
@@ -603,7 +622,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.fifo_dir = tempfile.mkdtemp()
         self.fifo_name = os.path.join(self.fifo_dir, 'fetch_fifo')
         os.mkfifo(self.fifo_name)
-        self.fifo_sink = StreamTransferContext.StreamFifoSink(self.fifo_name)
+        self.fifo_sink = StreamTransferContext.StreamFifoSink(self.fifo_name, report_index, do_io_trace)
         with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
             self.sinkfile_name = sinkfile.name
         self.sink_fp = open(self.sinkfile_name, "wb")
@@ -634,6 +653,7 @@ class StreamTransferContext(pycURLContextCallbacks):
     def log_trace(self):
         for (t, e) in self.io_trace:
             cherrypy.engine.publish("worker_event", "Fetch trace %d %f %s" % (self.report_index, t, e))
+        self.fifo_sink.log_trace()
 
     def start(self):
         self.trace_event("Start")
