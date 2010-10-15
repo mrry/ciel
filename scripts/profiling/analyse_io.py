@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from sys import stderr
 
 if len(sys.argv) < 2:
-    sys.stderr.write("Usage: analyser_worker.py worker_address")
+    sys.stderr.write("Usage: analyser_worker.py worker_address [interesting_task_file]")
     sys.exit(1)
 
 conn = httplib.HTTPConnection(sys.argv[1])
@@ -212,16 +212,30 @@ def classify_state(state):
     else:
         return "Unknown state"
 
+interesting_tasks = None
+if len(sys.argv) > 2:
+    interesting_tasks = []
+    with open(sys.argv[2], "r") as task_file:
+        for task in task_file:
+            interesting_tasks.append("'%s'" % task[:-1])
+
 for (taskname, task) in tasks.items():
-    
-    print "Processing log", taskname
-    task.produce_time_series()
-    for ((start_t, stop_t), state) in task.state_log:
-        print (stop_t - start_t), state
-        state_class = classify_state(state)
-        if state_class not in state_summaries:
-            state_summaries[state_class] = timedelta()
-        state_summaries[state_class] += (stop_t - start_t)
+
+    if interesting_tasks is None or taskname in interesting_tasks:
+
+        print "Processing log", taskname
+
+        task.produce_time_series()
+        for ((start_t, stop_t), state) in task.state_log:
+            print (stop_t - start_t), state
+            state_class = classify_state(state)
+            if state_class not in state_summaries:
+                state_summaries[state_class] = timedelta()
+            state_summaries[state_class] += (stop_t - start_t)
+
+    else:
+
+        print "Ignoring uninteresting task", taskname
 
 print "Summary:"
 
