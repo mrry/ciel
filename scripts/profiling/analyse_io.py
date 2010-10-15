@@ -4,7 +4,7 @@ import sys
 import httplib
 import simplejson
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from sys import stderr
 
 if len(sys.argv) < 2:
@@ -146,6 +146,8 @@ class TaskRecord:
                         self.add_time("Consuming input %d (buffered)" % wait_id, start_t, end_t)
                     elif state.find("EOF") >= 0:
                         self.add_time("EOF input %d" % wait_id, start_t, end_t)
+                    elif state.find("Start") >= 0:
+                        self.add_time("Waiting for FIFO to attach input %d" % wait_id, start_t, end_t)
                     else:
                         self.report_fetch_time(wait_id, start_t, end_t)
 
@@ -190,9 +192,38 @@ for log_record in log_records:
     elif event_text.find("Fetch FIFO trace") >= 0:
         current_task.add_fifo_log(event_text[17:])
 
+state_summaries = dict()
+
+def classify_state(state):
+    if state.find("Computing") >= 0:
+        return "Compute-bound"
+    elif state.find("buffered") >= 0 or state.find("EOF") >= 0:
+        return "IO-bound (satisfied)"
+    elif state.find("Waiting for FIFO to attach") >= 0 or state.find("Waiting for first request") >= 0:
+        return "Waiting for infrastructure"
+    elif state.find("unbuffered") >= 0:
+        return "IO-bound (limited by producer rate)"
+    elif state.find("Waiting for reply") >= 0:
+        return "IO-bound (limited by network RTT)"
+    elif state.find("Waiting for slow producer") >= 0:
+        return "IO-bound (limited by producer rate [stalled])"
+    elif state.find("cached") >= 0:
+        return "IO-bound (limited by disk)"
+    else:
+        return "Unknown state"
+
 for (taskname, task) in tasks.items():
     
     print "Processing log", taskname
     task.produce_time_series()
     for ((start_t, stop_t), state) in task.state_log:
         print (stop_t - start_t), state
+        state_class = classify_state(state)
+        if state_class not in state_summaries:
+            state_summaries[state_class] = timedelta()
+        state_summaries[state_class] += (stop_t - start_t)
+
+print "Summary:"
+
+for state, t in state_summaries.items():
+    print state, t
