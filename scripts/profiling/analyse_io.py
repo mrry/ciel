@@ -217,7 +217,7 @@ if len(sys.argv) > 2:
     interesting_tasks = []
     with open(sys.argv[2], "r") as task_file:
         for task in task_file:
-            interesting_tasks.append("'%s'" % task[:-1])
+            interesting_tasks.append("u'%s'" % task[:-1])
 
 for (taskname, task) in tasks.items():
 
