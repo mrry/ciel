@@ -98,7 +98,11 @@ class pycURLFetchContext:
         self.curl_ctx.setopt(pycurl.URL, str(url))
         self.curl_ctx.ctx = self
         if range is not None:
-            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
+            (start_range, end_range) = range
+            if end_range is None:
+                self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-" % start_range])
+            else:
+                self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-%d" % range])
 
         self.callbacks = callback_obj
             
@@ -464,13 +468,14 @@ class StreamTransferContext(pycURLContextCallbacks):
     class StreamFetchContext(pycURLFetchCallbacks):
         # Represents a single HTTP-fetch attempt in stream
 
-        def __init__(self, ctx, description):
+        def __init__(self, ctx, description, range):
             self.ctx = ctx
             self.response_had_stream = False
             self.request_length = None
             self.first_header = True
             self.response_code = None
             self.description = description
+            self.range = range
         
         def write_data(self, _str):
             # Don't write error-documents to our client process
@@ -499,11 +504,12 @@ class StreamTransferContext(pycURLContextCallbacks):
             self.ctx.request_failed(errno, errstr)
 
     class StreamFifoSink:
-        def __init__(self, fifo_name, report_index, do_log=False):
+        def __init__(self, fifo_name, max_buffer_level, report_index, do_log=False):
             self.dummy_read_fd = os.open(fifo_name, os.O_RDONLY | os.O_NONBLOCK)
             self.fifo_fd = os.open(fifo_name, os.O_WRONLY | os.O_NONBLOCK)
             self.fifo_state = FIFO_UNCONNECTED
             self.mem_buffer = ""
+            self.buffer_limit = max_buffer_level
             self.eof = False
             self.report_index = report_index
             if do_log:
@@ -594,11 +600,11 @@ class StreamTransferContext(pycURLContextCallbacks):
             if self.fifo_state == FIFO_CONNECTED and self.fifo_fd in wr:
                 self.try_empty_buffer()
 
-        def is_overfull(self):
+        def max_allowable_fetch(self):
             if self.fifo_state == FIFO_UNCONNECTED or self.fifo_state == FIFO_CONNECTED:
-                return not self.buffer_empty()
+                return self.buffer_limit - len(self.mem_buffer)
             else:
-                return False
+                return None
 
         def consumer_attached(self):
             assert self.fifo_state == FIFO_UNCONNECTED
@@ -630,15 +636,20 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.failures = 0
         self.has_completed = False
         self.has_succeeded = False
+
+        # Hard-coded stream behaviour
+        self.max_in_memory_buffer = 1048576
+        self.min_fetch_size = 262144
+
         self.fifo_dir = tempfile.mkdtemp()
         self.fifo_name = os.path.join(self.fifo_dir, 'fetch_fifo')
         os.mkfifo(self.fifo_name)
-        self.fifo_sink = StreamTransferContext.StreamFifoSink(self.fifo_name, report_index, do_io_trace)
+        self.fifo_sink = StreamTransferContext.StreamFifoSink(self.fifo_name, self.max_in_memory_buffer, report_index, do_io_trace)
         with tempfile.NamedTemporaryFile(delete=False) as sinkfile:
             self.sinkfile_name = sinkfile.name
         self.sink_fp = open(self.sinkfile_name, "wb")
         self.current_start_byte = 0
-        self.chunk_size = 1048576
+
         self.have_written_to_process = False
         self.current_fetch = None
         self.dormant_until = None
@@ -689,6 +700,13 @@ class StreamTransferContext(pycURLContextCallbacks):
                                'CURL_FETCH', logging.DEBUG)
             self.start_next_fetch()
 
+    def fifo_overfull(self):
+        max_fetch = self.fifo_sink.max_allowable_fetch()
+        if max_fetch is None:
+            return False
+        else:
+            return (max_fetch < self.min_fetch_size)
+
     def select_callback(self, rd, wr, exn):
         # Called from cURL thread
         # Reasons this callback could occur:
@@ -698,7 +716,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.event_queue.dispatch_events()
         self.fifo_sink.select_callback(rd, wr, exn)
         if self.requests_paused:
-            if not self.fifo_sink.is_overfull():
+            if not self.fifo_overfull():
                 self.requests_paused = False
                 self.consider_restart()
         if self.dormant_until is not None:
@@ -714,17 +732,22 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.current_start_byte += len(_str)
         self.have_written_to_process = True
 
-    def start_fetch(self, url, range):
-        self.current_fetch = StreamTransferContext.StreamFetchContext(self, url)
+    def start_fetch(self, url, range=None):
+        self.current_fetch = StreamTransferContext.StreamFetchContext(self, url, range)
         self.multi.add_fetch(self.current_fetch, url, range)
 
     def start_next_fetch(self):
-        cherrypy.log.error("Fetch %s offset %d" % 
-                           (self.description, self.current_start_byte), 'CURL_FETCH', logging.DEBUG)
+        fifo_fetch_limit = self.fifo_sink.max_allowable_fetch()
+        if fifo_fetch_limit is None:
+            cherrypy.log.error("Unbounded fetch %s offset %d" %
+                               (self.description, self.current_start_byte))
+            fetch_end = None
+        else:
+            cherrypy.log.error("Bounded fetch %s offset %d length %d" % 
+                               (self.description, self.current_start_byte, fifo_fetch_limit), 'CURL_FETCH', logging.DEBUG)
+            fetch_end = self.current_start_byte + fifo_fetch_limit
         self.trace_event("Request-sent")
-        self.start_fetch(self.urls[self.failures], 
-                         (self.current_start_byte, 
-                          self.current_start_byte + self.chunk_size))
+        self.start_fetch(self.urls[self.failures], (self.current_start_byte, fetch_end))
 
     def pause_for(self, secs):
         assert self.dormant_until is None
@@ -735,17 +758,29 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def request_succeeded(self):
         # Called from cURL thread
-        if not self.fifo_sink.is_overfull():
-            if self.current_fetch.request_length is not None and self.current_fetch.request_length < (self.chunk_size / 2):
-                # We're nearly ahead of the producer; pause to give it a chance to buffer more output.
-                self.pause_for(1)
-            else:
-                self.start_next_fetch()
+        (req_start, req_end) = self.current_fetch.range
+        if req_end is None:
+            req_bytes = None
         else:
-            # We should hold off on ordering another chunk until the process has consumed this one
-            # The restart will happen when the buffer drains.
-            cherrypy.log.error("Pausing %s fetch consumer buffer full" % self.description, 'CURL_FETCH', logging.DEBUG)
-            self.requests_paused = True
+            req_bytes = (req_end - req_start) + 1
+        rx_length = self.current_fetch.request_length
+        if req_bytes is None or req_bytes > rx_length:
+            # Potentially the end
+            if not self.current_fetch.response_had_stream:
+                self.report_completion(True)
+        if not self.has_completed:
+            if not self.fifo_overfull():
+                if rx_length < self.min_fetch_size:
+                    # We're nearly ahead of the producer; pause to give it a chance to buffer more output.
+                    self.pause_for(1)
+                else:
+                    self.start_next_fetch()
+            else:
+                # We should hold off on ordering another chunk until the process has consumed this one
+                # The restart will happen when the buffer drains.
+                cherrypy.log.error("Pausing %s fetch consumer buffer overfull" % self.description, 
+                                   'CURL_FETCH', logging.DEBUG)
+                self.requests_paused = True
 
     def report_completion(self, succeeded):
         self.trace_event("EOF")
