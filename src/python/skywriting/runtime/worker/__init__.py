@@ -127,6 +127,9 @@ class Worker(plugins.SimplePlugin):
         cherrypy.engine.publish("worker_event", "Abort task " + repr(task_id))
         self.task_executor.abort_task(task_id)
 
+    def notify_task_streams_done(self, task_id):
+        self.task_executor.notify_streams_done(task_id)
+
     def add_log_entry(self, log_string):
         with self.log_lock:
             self.event_log.append((datetime.now(), log_string))

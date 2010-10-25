@@ -133,6 +133,11 @@ class SWExecutor:
     
     def _cleanup(self, block_store):
         pass
+    
+    def notify_streams_done(self):
+        # Out-of-thread call
+        # Overridden for process-running executors
+        pass
         
     def abort(self):
         self._abort()
@@ -153,10 +158,21 @@ class ProcessRunningExecutor(SWExecutor):
         except KeyError:
             self.stream_output = False
 
+        self._lock = threading.Lock()
         self.proc = None
+        self.transfer_ctx = None
+
+    def notify_streams_done(self):
+        # Out-of-thread call. Indicates our streaming inputs, if any, have all finished.
+        # We should retry stream-fetches right away.
+        with self._lock:
+            if self.transfer_ctx is not None:
+                self.transfer_ctx.notify_streams_done()
 
     def _execute(self, block_store, task_id):
         file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
+        with self._lock:
+            self.transfer_ctx = transfer_ctx
         file_outputs = []
         for i in range(len(self.output_refs)):
             with tempfile.NamedTemporaryFile(delete=False) as this_file:
@@ -183,6 +199,7 @@ class ProcessRunningExecutor(SWExecutor):
         transfer_ctx.wait_for_all_transfers()
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
+
         transfer_ctx.cleanup(block_store)
 
         failure_bindings = transfer_ctx.get_failed_refs()

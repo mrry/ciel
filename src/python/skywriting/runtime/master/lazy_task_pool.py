@@ -24,6 +24,8 @@ import cherrypy
 import collections
 import logging
 import uuid
+import httplib2
+import simplejson
 
 class LazyTaskPool(plugins.SimplePlugin):
     
@@ -193,8 +195,7 @@ class LazyTaskPool(plugins.SimplePlugin):
         
         # Record the name-to-concrete-reference mapping for this ref's name.
         try:
-            current_ref = self.ref_for_output[global_id]
-            combined_ref = combine_references(current_ref, ref)
+            combined_ref = combine_references(self.ref_for_output[global_id], ref)
             if not combined_ref:
                 return
             if not combined_ref.is_consumable():
@@ -204,17 +205,22 @@ class LazyTaskPool(plugins.SimplePlugin):
         except KeyError:
             if ref.is_consumable():
                 self.ref_for_output[global_id] = ref
-                current_ref = ref
             else:
                 return
 
-        # Notify any consumers that the ref is now available. N.B. After this,
-        # the consumers are unsubscribed from this ref.
+        current_ref = self.ref_for_output[global_id]
+
+        # Notify any consumers that the ref is now available.
+        # Contrary to how this was in earlier versions, tasks must unsubscribe themselves.
+        # I always unsubscribe Jobs for simplicity, and because Jobs never need more than one callback.
         try:
-            consumers = self.consumers_for_output.pop(global_id)
-            for consumer in consumers:
+            consumers = self.consumers_for_output[global_id]
+            iter_consumers = consumers.copy()
+            # Avoid problems with deletion from set during iteration
+            for consumer in iter_consumers:
                 if isinstance(consumer, Job):
                     consumer.completed(current_ref)
+                    self.unregister_job_interest_for_output(current_ref.id, consumer)
                 else:
                     self.notify_task_of_reference(consumer, global_id, current_ref)
         except KeyError:
@@ -222,10 +228,16 @@ class LazyTaskPool(plugins.SimplePlugin):
 
     def notify_task_of_reference(self, task, id, ref):
         if ref.is_consumable():
-            task.unblock_on(id, ref)
-            if not task.is_blocked():
+            was_streaming = task.is_assigned_streaming()
+            was_blocked = task.is_blocked()
+            task.notify_reference_changed(id, ref)
+            if was_blocked and not task.is_blocked():
                 self.add_runnable_task(task)
-                    
+            if was_streaming and not task.is_assigned_streaming():
+                # All input streams have finished; poke the task for prompt finish
+                cherrypy.log.error("Assigned task %s all streams done, notifying" % task.task_id, "TASKPOOL", logging.INFO)
+                httplib2.Http().request("http://%s/task/%s/streams_done" % (task.worker.netloc, task.task_id), "POST", simplejson.dumps({}))
+
     def register_job_interest_for_output(self, ref_id, job):
         try:
             subscribers = self.consumers_for_output[ref_id]
@@ -233,6 +245,32 @@ class LazyTaskPool(plugins.SimplePlugin):
             subscribers = set()
             self.consumers_for_output[ref_id] = subscribers
         subscribers.add(job)
+
+    def unregister_job_interest_for_output(self, ref_id, job):
+        try:
+            subscribers = self.consumers_for_output[ref_id]
+            subscribers.remove(job)
+            if len(subscribers) == 0:
+                del self.consumers_for_output[ref_id]
+        except:
+            cherrypy.log.error("Job %s failed to unsubscribe from ref %s" % (job, ref_id), "TASKPOOL", logging.WARNING)
+
+    def subscribe_task_to_ref(self, task, ref):
+        try:
+            subscribers = self.consumers_for_output[ref.id]
+        except:
+            subscribers = set()
+            self.consumers_for_output[ref.id] = subscribers
+        subscribers.add(task)
+
+    def unsubscribe_task_from_ref(self, task, ref):
+        try:
+            subscribers = self.consumers_for_output[ref.id]
+            subscribers.remove(task)
+            if len(subscribers) == 0:
+                del self.consumers_for_output[ref.id]
+        except:
+            cherrypy.log.error("Task %s failed to unsubscribe from ref %s" % (task, ref.id), "TASKPOOL", logging.WARNING)
             
     def register_task_interest_for_ref(self, task, ref):
         if isinstance(ref, SW2_FutureReference):
@@ -245,12 +283,7 @@ class LazyTaskPool(plugins.SimplePlugin):
                 pass
             
             # Otherwise, subscribe to the production of the named output.
-            try:
-                subscribers = self.consumers_for_output[ref.id]
-            except:
-                subscribers = set()
-                self.consumers_for_output[ref.id] = subscribers
-            subscribers.add(task)
+            self.subscribe_task_to_ref(task, ref)
             return None
 
         elif isinstance(ref, SW2_ConcreteReference):
@@ -319,6 +352,9 @@ class LazyTaskPool(plugins.SimplePlugin):
                                                                ref)
                 if conc_ref is not None and conc_ref.is_consumable():
                     task.inputs[local_id] = conc_ref
+                    if isinstance(conc_ref, SW2_StreamReference):
+                        task.unfinished_input_streams.add(ref.id)
+                        self.subscribe_task_to_ref(task, conc_ref)
                 else:
                     
                     # The reference is a future that has not yet been produced,
@@ -392,6 +428,9 @@ class LazyTaskPoolAdapter:
     def get_task_by_id(self, id):
         return self.lazy_task_pool.get_task_by_id(id)
     
+    def unsubscribe_task_from_ref(self, task, ref):
+        return self.lazy_task_pool.unsubscribe_task_from_ref(task, ref)
+
     def publish_refs(self, task, refs):
         self.lazy_task_pool.publish_refs(refs, task.job, True)
     

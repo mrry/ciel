@@ -4,24 +4,28 @@ Created on 17 Aug 2010
 @author: dgm36
 '''
 import datetime
-from skywriting.runtime.references import SW2_FutureReference
+from skywriting.runtime.references import SW2_FutureReference, SW2_StreamReference
 import time
+import cherrypy
+import logging
 
 TASK_CREATED = -1
 TASK_BLOCKING = 0
 TASK_SELECTING = 1
 TASK_RUNNABLE = 2
 TASK_QUEUED = 3
-TASK_ASSIGNED = 4
-TASK_COMMITTED = 5
-TASK_FAILED = 6
-TASK_ABORTED = 7
+TASK_ASSIGNED_STREAMING = 4
+TASK_ASSIGNED = 5
+TASK_COMMITTED = 6
+TASK_FAILED = 7
+TASK_ABORTED = 8
 
 TASK_STATES = {'CREATED': TASK_CREATED,
                'BLOCKING': TASK_BLOCKING,
                'SELECTING': TASK_SELECTING,
                'RUNNABLE': TASK_RUNNABLE,
                'QUEUED': TASK_QUEUED,
+               'ASSIGNED_STREAMING': TASK_ASSIGNED_STREAMING,
                'ASSIGNED': TASK_ASSIGNED,
                'COMMITTED': TASK_COMMITTED,
                'FAILED': TASK_FAILED,
@@ -69,7 +73,8 @@ class TaskPoolTask(Task):
         
         self.task_pool = task_pool
         
-        
+        self.unfinished_input_streams = set()
+
         self._blocking_dict = {}
         if select_group is not None:
             self._selecting_dict = {}
@@ -151,6 +156,9 @@ class TaskPoolTask(Task):
         
     def is_blocked(self):
         return self.state in (TASK_BLOCKING, TASK_SELECTING)
+    
+    def is_assigned_streaming(self):
+        return self.state == TASK_ASSIGNED_STREAMING
         
     def blocked_on(self):
         if self.state == TASK_SELECTING:
@@ -167,18 +175,34 @@ class TaskPoolTask(Task):
         except KeyError:
             self._blocking_dict[global_id] = set([local_id])
             
-    def unblock_on(self, global_id, ref):
-        if self.state == TASK_BLOCKING:
-            local_ids = self._blocking_dict.pop(global_id)
-            for local_id in local_ids:
-                self.inputs[local_id] = ref
-            if len(self._blocking_dict) == 0:
-                self.set_state(TASK_RUNNABLE)
+    def notify_reference_changed(self, global_id, ref):
+        if global_id in self.unfinished_input_streams:
+            self.unfinished_input_streams.remove(global_id)
+            self.task_pool.unsubscribe_task_from_ref(self, ref)
+            if len(self.unfinished_input_streams) == 0:
+                if self.state == TASK_ASSIGNED_STREAMING:
+                    self.set_state(TASK_ASSIGNED)
+        else:
+            if self.state == TASK_BLOCKING:
+                local_ids = self._blocking_dict.pop(global_id)
+                for local_id in local_ids:
+                    self.inputs[local_id] = ref
+                if isinstance(ref, SW2_StreamReference):
+                    # Stay subscribed; this ref is still interesting
+                    self.unfinished_input_streams.add(global_id)
+                else:
+                    # Don't need to hear about this again
+                    self.task_pool.unsubscribe_task_from_ref(self, ref)
+                if len(self._blocking_dict) == 0:
+                    self.set_state(TASK_RUNNABLE)
         
     # Warning: called under worker_pool._lock
     def set_assigned_to_worker(self, worker):
         self.worker = worker
-        self.set_state(TASK_ASSIGNED)
+        if len(self.unfinished_input_streams) > 0:
+            self.set_state(TASK_ASSIGNED_STREAMING)
+        else:
+            self.set_state(TASK_ASSIGNED)
         #self.state = TASK_ASSIGNED
         #self.record_event("ASSIGNED")
         #self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)

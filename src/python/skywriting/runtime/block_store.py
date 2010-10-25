@@ -409,9 +409,20 @@ class StreamTransferGroup(WaitableTransferGroup):
     def __init__(self):
         WaitableTransferGroup.__init__(self)
         self.handles = []
+        self.handles_lock = threading.Lock()
 
     def add_handle(self, h):
-        self.handles.append(h)
+        with self.handles_lock:
+            self.handles.append(h)
+
+    def notify_streams_done(self):
+        # Out-of-thread call. Might overlap with any other member functions.
+        # I think this is enough; consumer_attached/detached can overlap freely,
+        # as they're synchronised by post_event, whilst cleanup only runs once the
+        # transfer is done, which the event handler checks for.
+        with self.handles_lock:
+            for h in self.handles:
+                h.try_again_now()
 
     def wait_for_all_transfers(self):
         self.wait_for_transfers(len(self.handles))
@@ -790,6 +801,18 @@ class StreamTransferContext(pycURLContextCallbacks):
         # Called from arbitrary thread
         self.event_queue.post_event(self._consumer_detached)
 
+    def _try_again_now(self):
+        # Called from cURL thread
+        if not self.has_completed:
+            cherrypy.log.error("Transfer %s trying again immediately (producer reported done via master)" % self.description, "CURL_FETCH", logging.INFO)
+            if self.dormant_until is not None:
+                self.dormant_until = None
+                self.consider_restart()
+
+    def try_again_now(self):
+        # Called from arbitrary thread
+        self.event_queue.post_event(self._try_again_now)
+        
     def cleanup(self):
         # Called from arbitrary thread, but only after all cURL callbacks have completed
         cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' 

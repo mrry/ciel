@@ -54,6 +54,14 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
                 self.current_task_execution_record.abort()
             self.current_task_id = None
             self.current_task_execution_record = None
+
+    def notify_streams_done(self, task_id):
+        with self._lock:
+            # Guards against changes to self.current_{task_id, task_execution_record}
+            if self.current_task_id == task_id:
+                # Note on threading: much like aborts, the execution_record's execute() is running
+                # in another thread. It might have not yet begun, already completed, or be in progress.
+                self.current_task_execution_record.notify_streams_done()
     
     def handle_input(self, input):
         handler = input['handler']
@@ -186,11 +194,20 @@ class SWExecutorTaskExecutionRecord:
         self.executor_name = task_descriptor['handler']
         self.executor = None
         self.is_running = True
+        self._lock = Lock()
     
     def abort(self):
         self.is_running = False
-        if self.executor is not None:
-            self.executor.abort()
+        with self._lock:
+            # Guards against missing abort because the executor is started between test and call
+            if self.executor is not None:
+                self.executor.abort()
+
+    def notify_streams_done(self):
+        # Out-of-thread call
+        with self._lock:
+            if self.executor is not None:
+                self.executor.notify_streams_done()
     
     def fetch_executor_args(self, inputs):
         args_ref = None
@@ -226,7 +243,9 @@ class SWExecutorTaskExecutionRecord:
                 parsed_args = self.fetch_executor_args(self.inputs)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Fetching executor")
-                self.executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs, self.task_executor.master_proxy)
+                executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs, self.task_executor.master_proxy)
+                with self._lock:
+                    self.executor = executor
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Executing")
                 self.executor.execute(self.task_executor.block_store, self.task_id)
