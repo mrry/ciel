@@ -18,21 +18,23 @@ from skywriting.runtime.master.job_pool import Job
 from skywriting.runtime.references import SW2_FutureReference, \
     SW2_ConcreteReference, SWErrorReference, combine_references, SW2_StreamReference
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
-    TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED
+    TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED, TASK_QUEUED_STREAMING
 from threading import Lock
 import cherrypy
 import collections
 import logging
 import uuid
-import httplib2
 import simplejson
 
 class LazyTaskPool(plugins.SimplePlugin):
     
-    def __init__(self, bus):
+    def __init__(self, bus, worker_pool):
     
         # Used for publishing schedule events.
         self.bus = bus
+
+        # For signalling workers of task state changes
+        self.worker_pool = worker_pool
     
         # Mapping from task ID to task object.
         self.tasks = {}
@@ -228,15 +230,20 @@ class LazyTaskPool(plugins.SimplePlugin):
 
     def notify_task_of_reference(self, task, id, ref):
         if ref.is_consumable():
-            was_streaming = task.is_assigned_streaming()
+            was_queued_streaming = task.is_queued_streaming()
+            was_assigned_streaming = task.is_assigned_streaming()
             was_blocked = task.is_blocked()
             task.notify_reference_changed(id, ref)
             if was_blocked and not task.is_blocked():
                 self.add_runnable_task(task)
-            if was_streaming and not task.is_assigned_streaming():
+            elif was_assigned_streaming and not task.is_assigned_streaming():
                 # All input streams have finished; poke the task for prompt finish
-                cherrypy.log.error("Assigned task %s all streams done, notifying" % task.task_id, "TASKPOOL", logging.INFO)
-                httplib2.Http().request("http://%s/task/%s/streams_done" % (task.worker.netloc, task.task_id), "POST", simplejson.dumps({}))
+                cherrypy.log.error("Assigned task %s all streams done, notifying" % task.task_id, 
+                                   "TASKPOOL", logging.INFO)
+                self.worker_pool.notify_task_streams_done(task.worker, task)
+            elif was_queued_streaming and not task.is_queued_streaming():
+                # Submit this to the scheduler again
+                self.add_runnable_task(task)
 
     def register_job_interest_for_output(self, ref_id, job):
         try:
@@ -314,7 +321,10 @@ class LazyTaskPool(plugins.SimplePlugin):
             return False
     
     def add_runnable_task(self, task):
-        task.set_state(TASK_QUEUED)
+        if len(task.unfinished_input_streams) == 0:
+            task.set_state(TASK_QUEUED)
+        else:
+            task.set_state(TASK_QUEUED_STREAMING)
         self.task_queue.put(task)
     
     def do_root_graph_reduction(self):

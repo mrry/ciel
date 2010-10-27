@@ -27,6 +27,7 @@ import logging
 class FeatureQueues:
     def __init__(self):
         self.queues = {}
+        self.streaming_queues = {}
         
     def get_queue_for_feature(self, feature):
         try:
@@ -34,6 +35,14 @@ class FeatureQueues:
         except KeyError:
             queue = Queue()
             self.queues[feature] = queue
+            return queue
+
+    def get_streaming_queue_for_feature(self, feature):
+        try:
+            return self.streaming_queues[feature]
+        except KeyError:
+            queue = Queue()
+            self.streaming_queues[feature] = queue
             return queue
 
 class Worker:
@@ -51,6 +60,8 @@ class Worker:
         self.queues = [self.local_queue]
         for feature in self.features:
             self.queues.append(feature_queues.get_queue_for_feature(feature))
+        for feature in self.features:
+            self.queues.append(feature_queues.get_streaming_queue_for_feature(feature))
 
     def __repr__(self):
         return 'Worker(%s)' % self.id
@@ -152,7 +163,13 @@ class WorkerPool(plugins.SimplePlugin):
             httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
             self.worker_failed(worker)
-            
+
+    def notify_task_streams_done(self, worker, task):
+        try:
+            httplib2.Http().request("http://%s/task/%s/streams_done" % (worker.netloc, task.task_id), "POST", "done")
+        except:
+            pass
+
     def abort_task_on_worker(self, task):
         worker = task.worker
     

@@ -45,7 +45,7 @@ def master_main(options):
     worker_pool = WorkerPool(cherrypy.engine, deferred_worker)
     worker_pool.subscribe()
 
-    lazy_task_pool = LazyTaskPool(cherrypy.engine)
+    lazy_task_pool = LazyTaskPool(cherrypy.engine, worker_pool)
     task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
     lazy_task_pool.subscribe()
     

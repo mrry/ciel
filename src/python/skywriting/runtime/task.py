@@ -13,17 +13,19 @@ TASK_CREATED = -1
 TASK_BLOCKING = 0
 TASK_SELECTING = 1
 TASK_RUNNABLE = 2
-TASK_QUEUED = 3
-TASK_ASSIGNED_STREAMING = 4
-TASK_ASSIGNED = 5
-TASK_COMMITTED = 6
-TASK_FAILED = 7
-TASK_ABORTED = 8
+TASK_QUEUED_STREAMING = 3
+TASK_QUEUED = 4
+TASK_ASSIGNED_STREAMING = 5
+TASK_ASSIGNED = 6
+TASK_COMMITTED = 7
+TASK_FAILED = 8
+TASK_ABORTED = 9
 
 TASK_STATES = {'CREATED': TASK_CREATED,
                'BLOCKING': TASK_BLOCKING,
                'SELECTING': TASK_SELECTING,
                'RUNNABLE': TASK_RUNNABLE,
+               'QUEUED_STREAMING': TASK_QUEUED_STREAMING,
                'QUEUED': TASK_QUEUED,
                'ASSIGNED_STREAMING': TASK_ASSIGNED_STREAMING,
                'ASSIGNED': TASK_ASSIGNED,
@@ -159,6 +161,9 @@ class TaskPoolTask(Task):
     
     def is_assigned_streaming(self):
         return self.state == TASK_ASSIGNED_STREAMING
+
+    def is_queued_streaming(self):
+        return self.state == TASK_QUEUED_STREAMING
         
     def blocked_on(self):
         if self.state == TASK_SELECTING:
@@ -182,6 +187,8 @@ class TaskPoolTask(Task):
             if len(self.unfinished_input_streams) == 0:
                 if self.state == TASK_ASSIGNED_STREAMING:
                     self.set_state(TASK_ASSIGNED)
+                elif self.state == TASK_QUEUED_STREAMING:
+                    self.set_state(TASK_QUEUED)
         else:
             if self.state == TASK_BLOCKING:
                 local_ids = self._blocking_dict.pop(global_id)

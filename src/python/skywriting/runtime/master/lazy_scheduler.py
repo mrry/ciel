@@ -13,7 +13,9 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.references import SWURLReference, SW2_ConcreteReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
-from skywriting.runtime.task import TASK_QUEUED
+from skywriting.runtime.task import TASK_QUEUED, TASK_QUEUED_STREAMING
+import cherrypy
+import logging
 
 '''
 Created on 15 Apr 2010
@@ -51,7 +53,7 @@ class LazyScheduler(AsynchronousExecutePlugin):
                 try:
                     task = worker.queues[attempt_count].get(block=False)
                     # Skip over tasks that have been aborted or otherwise scheduled.
-                    while task.state != TASK_QUEUED:
+                    while task.state != TASK_QUEUED and task.state != TASK_QUEUED_STREAMING:
                         task = worker.queues[attempt_count].get(block=False)
                     self.worker_pool.execute_task_on_worker(worker, task)
                 except Empty:
@@ -97,7 +99,14 @@ class LazyScheduler(AsynchronousExecutePlugin):
             
     # Based on TaskPool.add_task_to_queues()
     def add_task_to_worker_queues(self, task):
-        for good_worker in self.compute_good_workers_for_task(task):
-            good_worker.local_queue.put(task) 
-        handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
-        handler_queue.put(task)
+        if task.state == TASK_QUEUED_STREAMING:
+            handler_queue = self.worker_pool.feature_queues.get_streaming_queue_for_feature(task.handler)
+            handler_queue.put(task)
+        elif task.state == TASK_QUEUED:
+            handler_queue = self.worker_pool.feature_queues.get_queue_for_feature(task.handler)
+            handler_queue.put(task)
+            for good_worker in self.compute_good_workers_for_task(task):
+                good_worker.local_queue.put(task)
+        else:
+            cherrypy.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
+                               "SCHEDULER", logging.ERROR)
