@@ -53,6 +53,7 @@ class ExecutionFeatures:
     def __init__(self):
 
         self.executors = {'swi': None, # Could make a special SWI interpreter....
+                          'skypy': None, # And again...
                           'stdinout': SWStdinoutExecutor,
                           'environ': EnvironmentExecutor,
                           'java': JavaExecutor,
@@ -504,7 +505,7 @@ class GrabURLExecutor(SWExecutor):
             self.urls = args['urls']
             self.version = args['version']
         except KeyError:
-            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
+            raise BlameUserException('Incorrect arguments to the grab executor: %s' % repr(args))
         assert len(self.urls) == len(expected_output_ids)
     
     def _execute(self, block_store, task_id):
@@ -513,6 +514,8 @@ class GrabURLExecutor(SWExecutor):
         for i, url in enumerate(self.urls):
             ref = block_store.get_ref_for_url(url, self.version, task_id)
             self.output_refs[i] = SWDataValue(self.output_ids[i], ref)
+
+        cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
             
 class SyncExecutor(SWExecutor):
     
@@ -521,7 +524,7 @@ class SyncExecutor(SWExecutor):
         try:
             self.inputs = args['inputs']
         except KeyError:
-            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
+            raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(args))
         assert len(expected_output_ids) == 1
     
     def _execute(self, block_store, task_id):

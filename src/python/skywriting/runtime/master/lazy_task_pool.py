@@ -366,7 +366,6 @@ class LazyTaskPool(plugins.SimplePlugin):
                         task.unfinished_input_streams.add(ref.id)
                         self.subscribe_task_to_ref(task, conc_ref)
                 else:
-                    
                     # The reference is a future that has not yet been produced,
                     # so block the task.
                     task_will_block = True

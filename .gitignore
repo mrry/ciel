@@ -8,3 +8,7 @@
 /dist
 /parser.out
 /parsetab.py
+*.pyc
+*~
+*.jar
+*.class

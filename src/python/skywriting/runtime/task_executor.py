@@ -30,6 +30,9 @@ import cherrypy
 import logging
 import uuid
 import hashlib
+import subprocess
+import pickle
+import skywriting.runtime.worker.skypy
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWErrorReference, SW2_FutureReference,\
@@ -68,6 +71,8 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
         if handler == 'swi':
             execution_record = SWInterpreterTaskExecutionRecord(input, self)
+        elif handler == "skypy":
+            execution_record = SWSkyPyTaskExecutionRecord(input, self)
         else:
             execution_record = SWExecutorTaskExecutionRecord(input, self)
 
@@ -260,7 +265,492 @@ class SWExecutorTaskExecutionRecord:
         except:
             cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')
+
+class SWSkyPyTaskExecutionRecord:
+    
+    def __init__(self, task_descriptor, task_executor):
+        self.task_id = task_descriptor['task_id']
+        self.task_executor = task_executor
+        
+        self.is_running = True
+        self.is_fetching = False
+        self.is_interpreting = False
+        
+        try:
+            self.interpreter = SWSkyPyTask(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy)
+        except:
+            cherrypy.log.error('Error during SkyPy task creation', 'SKYPY', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id)
+
+    def execute(self):
+        try:
+            if self.is_running:
+                cherrypy.engine.publish("worker_event", "Fetching args")
+                self.interpreter.fetch_inputs(self.task_executor.block_store)
+            if self.is_running:
+                cherrypy.engine.publish("worker_event", "Interpreting")
+                self.interpreter.interpret()
+            if self.is_running:
+                cherrypy.engine.publish("worker_event", "Spawning")
+                self.interpreter.spawn_all(self.task_executor.block_store, self.task_executor.master_proxy)
+            if self.is_running:
+                cherrypy.engine.publish("worker_event", "Committing")
+                self.interpreter.commit_result(self.task_executor.block_store, self.task_executor.master_proxy)
+            else:
+                self.task_executor.master_proxy.failed_task(self.task_id)
+        
+        except MissingInputException as mie:
+            cherrypy.log.error('Missing input during SKYPY task execution', 'SKYPY', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
+              
+        except MasterNotRespondingException:
+            cherrypy.log.error('Could not commit task results to the master', 'SKYPY', logging.ERROR, True)
+                
+        except:
+            cherrypy.log.error('Error during SKYPY task execution', 'SKYPY', logging.ERROR, True)
+            self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')    
+
+    def abort(self):
+        raise Exception("Not implemented")
+
+class SWSkyPyTask:
+    
+    def __init__(self, task_descriptor, block_store, execution_features, master_proxy):
+
+        self.task_id = task_descriptor['task_id']
+        
+        try:
+            self.original_task_id = task_descriptor['original_task_id']
+            self.replay_ref = task_descriptor['replay_ref']
+        except KeyError:
+            self.original_task_id = self.task_id
+            self.replay_ref = None
+
+        self.additional_refs_to_publish = []
+        
+        self.expected_outputs = task_descriptor['expected_outputs']
+        self.inputs = task_descriptor['inputs']
+
+#        try:
+#            self.select_result = task_descriptor['select_result']
+#        except KeyError:
+#            self.select_result = None
+# No select yet
             
+#        try:
+#            self.save_continuation = task_descriptor['save_continuation']
+#        except KeyError:
+#            self.save_continuation = False
+            
+        try:
+            self.replay_uuid_list = task_descriptor['replay_uuids']
+            self.replay_uuids = True
+            self.current_uuid_index = 0
+        except KeyError:
+            self.replay_uuid_list = []
+            self.replay_uuids = False
+
+        self.block_store = block_store
+        self.execution_features = execution_features
+
+        self.spawn_list = []
+        
+        self.coroutine = None
+        self.result = None
+        
+        self.master_proxy = master_proxy
+        
+        self.is_running = True
+        
+        self.current_executor = None
+        self.exec_result_counter = 0
+        self.spawn_exec_counter = 0
+        
+        # This should be the same as the length of the spawn list, outside 
+        # calls to spawn_func and spawn_exec_func.
+        self.spawn_counter = 0
+        
+    def fetch_inputs(self, block_store):
+        coroutine_ref = None
+        self.pyfile_ref = None
+
+        self.interesting_ref_table = dict()
+
+        for id, ref in self.inputs.items():
+            if id == '_coro':
+                coroutine_ref = ref
+            elif id == '_py':
+                self.pyfile_ref = ref
+            else:
+                self.interesting_ref_table[id] = ref
+
+        if coroutine_ref is None or self.pyfile_ref is None:
+            raise Exception("SkyPy tasks must have a _coro and a _py input")
+
+        rq_list = [coroutine_ref, self.pyfile_ref]
+
+        filenames = block_store.retrieve_filenames_for_refs_eager(rq_list)
+
+        self.coroutine_filename = filenames[0]
+        self.py_source_filename = filenames[1]
+        
+        cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' % (self.coroutine_filename, self.py_source_filename), 'SKYPY', logging.INFO)
+
+    def ref_for_id(self, id, should_add=False):
+        try:
+            return self.interesting_ref_table[id]
+        except KeyError:
+            new_ref = SW2_FutureReference(id)
+            if should_add:
+                self.interesting_ref_table[id] = new_ref
+            return new_ref
+
+    def ref_from_raw_file(self, filename, refid):
+        _, size_hint = self.block_store.store_file(filename, refid, can_move=True)
+        real_ref = SW2_ConcreteReference(refid, size_hint)
+        real_ref.add_location_hint(self.block_store.netloc)
+        self.maybe_also_publish(real_ref)
+        return real_ref
+
+    def interpret(self):
+
+        pypy_args = ["/local/scratch/cs448/pypy-1.3/pypy/translator/goal/pypy-c", "/local/scratch/cs448/skywriting/src/python/skywriting/runtime/worker/skypy/stub.py", "--resume_state", self.coroutine_filename, "--source", self.py_source_filename, "--taskid", self.task_id]
+
+        pypy_process = subprocess.Popen(pypy_args, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+
+        self.exit_file = None
+        self.exit_done = False
+        cont_task_id = None
+
+        while True:
+            
+            next_rq = pickle.load(pypy_process.stdout)
+            cherrypy.log.error("Request: %s" % next_rq, "SKYPY", logging.DEBUG)
+            if next_rq["request"] == "deref":
+                filename = self.eager_deref(next_rq["id"])
+                cherrypy.log.error("Pypy dereferenced %s, returning %s" % (next_rq["id"], filename), "SKYPY", logging.INFO)
+                # filename might be None -- in that case the interpreter won't be able to continue and will stop soon.
+                pickle.dump({"filename": filename}, pypy_process.stdin)
+            elif next_rq["request"] == "deref_json":
+                try:
+                    pickle.dump({"obj": self.deref_json(next_rq["id"]), "success": True}, pypy_process.stdin)
+                except ReferenceUnavailableException:
+                    pickle.dump({"success": False}, pypy_process.stdin)
+            elif next_rq["request"] == "spawn":
+                spawn_coro_file = next_rq["coro_filename"]
+                new_task_id = next_rq["new_task_id"]
+                output_id = next_rq["output_id"]
+                self.spawn_func(spawn_coro_file, new_task_id, output_id)
+            elif next_rq["request"] == "spawn_exec":
+                executor_name = next_rq["executor_name"]
+                spawn_args = next_rq["args"]
+                new_task_id = next_rq["new_task_id"]
+                output_ids = next_rq["output_ids"]
+                exec_prefix = next_rq["exec_prefix"]
+                self.spawn_exec_func(executor_name, spawn_args, new_task_id, exec_prefix, output_ids)
+            elif next_rq["request"] == "exec":
+                executor_name = next_rq["executor_name"]
+                args = next_rq["args"]
+                n_outputs = next_rq["n_outputs"]
+                try:
+                    output_ref_names = self.exec_func(executor_name, args, n_outputs)
+                    pickle.dump({"success": True, "output_names": output_ref_names}, pypy_process.stdin)
+                except ReferenceUnavailableException:
+                    pickle.dump({"success": False}, pypy_process.stdin)
+                    # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
+            elif next_rq["request"] == "freeze":
+                # The interpreter is stopping because it needed a reference that wasn't ready yet.
+                self.exit_file = next_rq["coro_filename"]
+                cont_task_id = next_rq["new_task_id"]
+                self.exit_done = False
+                break
+            elif next_rq["request"] == "done":
+                # The interpreter is stopping because the function has completed
+                self.exit_file = next_rq["retval_filename"]
+                self.exit_done = True
+                break
+            elif next_rq["request"] == "exception":
+                report_file = next_rq["report_filename"]
+                report_fp = open(report_file, "r")
+                report_text = pickle.load(report_fp)
+                report_fp.close()
+                raise Exception("Fatal pypy exception: %s" % report_text)
+
+#        except SelectException, se:
+            
+#            local_select_group = se.select_group
+#            timeout = se.timeout
+            
+#            select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
+                        
+#            cont_task_id = self.create_spawned_task_name()
+                        
+#            cont_task_descriptor = {'task_id': str(cont_task_id),
+#                                    'handler': 'swi',
+#                                    'dependencies': {},
+#                                    'select_group': select_group,
+#                                    'select_timeout': timeout,
+#                                    'expected_outputs': map(str, self.expected_outputs),
+#                                    'save_continuation': self.save_continuation}
+#            self.save_continuation = False
+#            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
+            
+        if not self.exit_done:
+            # The interpreter died before the script finished because it dereferenced a future
+            # Need to add a continuation task to the spawn list.
+            cont_deps = self.interesting_ref_table
+            # Unlike the SW interpreter, I ask for information about every reference that's either already concrete
+            # or which I need to continue.
+            # This is a straight alternative to keeping a reference table in SWContinuation. Basically I ask the master to
+            # refresh my impression of the whole world each time I'm restarted.
+            cont_ref = self.ref_from_raw_file(self.exit_file, self.get_spawn_continuation_object_id(cont_task_id))
+            cont_deps["_coro"] = cont_ref
+            cont_deps["_py"] = self.pyfile_ref
+            cont_task_descriptor = {'task_id': str(cont_task_id),
+                                    'handler': 'skypy',
+                                    'dependencies': cont_deps,
+                                    'expected_outputs': map(str, self.expected_outputs),
+#                                    'save_continuation': self.save_continuation,
+                                    'continues_task': str(self.original_task_id)}
+            self.save_continuation = False
+            # TODO: This.
+#            if isinstance(ei, FeatureUnavailableException):
+#                cont_task_descriptor['require_features'] = [ei.feature_name]
+            
+            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor))
+
+#       except MissingInputException as mie:
+#            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
+#            raise
+
+#        except Exception:
+#            cherrypy.log.error('Interpreter error.', 'SKYPY', logging.ERROR, True)
+#            self.save_continuation = True
+#            raise
+
+    def spawn_all(self, block_store, master_proxy):
+
+        if len(self.spawn_list) == 0:
+            return
+        
+        spawn_descriptors = [x.task_descriptor for x in self.spawn_list]
+        master_proxy.spawn_tasks(self.task_id, spawn_descriptors)
+
+    def get_spawn_continuation_object_id(self, task_id):
+        return '%s:cont' % (task_id, )
+
+#    def get_saved_continuation_object_id(self):
+#        return '%s:saved_cont' % (self.task_id, )
+
+    def maybe_also_publish(self, ref):
+        #if self.replay_ref is not None and concrete_ref.id == self.replay_ref.id:
+        if isinstance(ref, SW2_ConcreteReference):
+            self.additional_refs_to_publish.append(ref)
+
+    def commit_result(self, block_store, master_proxy):
+        
+        commit_bindings = {}
+        for ref in self.additional_refs_to_publish:
+            commit_bindings[ref.id] = ref
+        
+#        if not self.exit_done:
+#            if self.save_continuation:
+#                save_cont_uri, _ = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
+#            else:
+#            master_proxy.commit_task(self.task_id, commit_bindings, None, self.replay_uuid_list)
+#            return
+        
+#        serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
+# No need for this for SkyPy: "local" references carry global IDs
+# Also, we can't explore arbitrary data structures.
+
+        # TODO: This is a raw file that's been pickled by pypy. We ought to be annotating references with an encoding.
+        # For the time being I rely on the programmer to manually instruct pypy as to whether json or pickle is appropriate.
+#        _, size_hint = block_store.store_object(self.result, 'json', self.expected_outputs[0])
+#        if size_hint < 128:
+#            result_ref = SWDataValue(self.expected_outputs[0], serializable_result)
+#        else:
+#            result_ref = SW2_ConcreteReference(self.expected_outputs[0], size_hint)
+#            result_ref.add_location_hint(self.block_store.netloc)
+
+        if self.exit_done:
+            result_ref = self.ref_from_raw_file(self.exit_file, self.expected_outputs[0])
+            commit_bindings[self.expected_outputs[0]] = result_ref
+        
+#        if self.save_continuation:
+#            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
+#        else:
+#            save_cont_uri = None
+        
+        master_proxy.commit_task(self.task_id, commit_bindings, None, self.replay_uuid_list)
+
+#    def create_spawned_task_name(self):
+#        sha = hashlib.sha1()
+#        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
+#        ret = sha.hexdigest()
+#        self.spawn_counter += 1
+#        return ret
+    
+#    def create_spawn_output_name(self, task_id):
+#        return 'skypy:%s' % task_id
+
+# These happen within the pypy process.
+    
+    def spawn_func(self, coro_filename, new_task_id, new_task_expected_output_id):
+
+        coro_ref = self.ref_from_raw_file(coro_filename, self.get_spawn_continuation_object_id(new_task_id))
+        
+        # For now we assume anything interesting to us might be interesting to the spawnee.
+        # This is because unlike Skywriting it's potentially difficult to know which references it captured.
+        # An alternative would be to assume it uses nothing and request references on demand.
+        new_task_deps = self.interesting_ref_table.copy()
+        new_task_deps["_py"] = self.pyfile_ref
+        new_task_deps["_coro"] = coro_ref
+        
+        task_descriptor = {'task_id': new_task_id,
+                           'handler': 'skypy',
+                           'dependencies': new_task_deps, 
+                           'expected_outputs': [str(new_task_expected_output_id)]
+                          }
+
+        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
+
+    def spawn_exec_func(self, executor_name, exec_args, new_task_id, exec_prefix, expected_output_ids):
+
+        inputs = dict()
+
+        def args_check_mapper(leaf):
+            if isinstance(leaf, skypy_refs.OpaqueReference):
+                real_ref = self.ref_for_id(leaf.id, should_add=False)
+                i = len(inputs)
+                inputs[i] = real_ref
+                ret = SWLocalReference(i)
+                return ret
+            return leaf
+        
+        transformed_args = map_leaf_values(args_check_mapper, exec_args)
+
+        args_id = self.get_args_name_for_exec(exec_prefix)
+        _, size_hint = self.block_store.store_object(exec_args, 'pickle', args_id)
+        args_ref = SW2_ConcreteReference(args_id, size_hint)
+        self.spawn_exec_counter += 1
+        args_ref.add_location_hint(self.block_store.netloc)
+        self.maybe_also_publish(args_ref)
+        
+        inputs['_args'] = args_ref
+
+        task_descriptor = {'task_id': new_task_id,
+                           'handler': executor_name, 
+                           'dependencies': inputs,
+                           'expected_outputs': expected_output_ids}
+        
+        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
+        
+        if len(self.spawn_list) > 20:
+            self.spawn_all(self.block_store, self.master_proxy)
+            self.spawn_list = []
+        
+        return ret
+    
+    def get_args_name_for_exec(self, prefix):
+        return '%sargs' % (prefix, )
+
+    def create_output_names_for_exec(self, executor_name, real_args, num_outputs):
+        sha = hashlib.sha1()
+        self.hash_update_with_structure(sha, [real_args, num_outputs])
+        prefix = '%s:%s:' % (executor_name, sha.hexdigest())
+        return ['%s%d' % (prefix, i) for i in range(num_outputs)]
+
+    def exec_func(self, executor_name, args, num_outputs):
+        
+        output_ids = self.create_output_names_for_exec(executor_name, args, num_outputs)
+
+        class FakeContinuation:
+
+            def __init__(self, ref_for_id_f):
+                self.ref_for_id_f = ref_for_id_f
+            def resolve_tasklocal_reference_with_ref(self, refname):
+                return self.ref_for_id_f(refname, should_add=True)
+            def mark_as_execd(self, refname):
+                # Hmm. I suspect this ought to be a deref.
+                pass
+
+        self.current_executor = self.execution_features.get_executor(executor_name, args, FakeContinuation(self.ref_for_id), output_ids, self.master_proxy)
+        self.current_executor.execute(self.block_store, self.task_id)
+        
+        for ref in self.current_executor.output_refs:
+            self.exec_result_counter += 1
+            self.maybe_also_publish(ref)
+        
+        output_refs = self.current_executor.output_refs
+        for ref in output_refs:
+            self.interesting_ref_table[ref.id] = ref
+
+        ret = [ref.id for ref in output_refs]
+        self.current_executor = None
+        return ret
+
+    def eager_deref(self, id):
+        cherrypy.log.error("Eager deref %s" % id, "SKYPY", logging.INFO)
+        real_ref = self.ref_for_id(id, should_add=True)
+        if isinstance(real_ref, SW2_FutureReference):
+            return None
+        else:
+            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            return filenames[0]
+
+
+    def deref_json(self, id):
+        cherrypy.log.error("Deref-as-JSON %s" % id, "SKYPY", logging.INFO)
+        real_ref = self.ref_for_id(id, should_add=True)
+        if isinstance(real_ref, SW2_FutureReference):
+            raise ReferenceUnavailableException(ref)
+        else:
+            obj = self.block_store.retrieve_object_for_ref(real_ref, "json")
+            def refs_to_strings(x):
+                if isinstance(x, SWRealReference):
+                    # This seems dodgy as heck -- but matches SWI
+                    self.interesting_ref_table[x.id] = x
+                    # This will also result in "publication," much like refs that emerge from exec outputs.
+                    # To review this whole business.
+                    return "__ref__:" + x.id
+                else:
+                    return x
+            return map_leaf_values(refs_to_strings, obj)
+
+    def hash_update_with_structure(self, hash, value):
+        """
+        Recurses over a Skywriting data structure (containing lists, dicts and 
+        primitive leaves) in a deterministic order, and updates the given hash with
+        all values contained therein.
+        """
+        if isinstance(value, list):
+            hash.update('[')
+            for element in value:
+                self.hash_update_with_structure(hash, element)
+                hash.update(',')
+            hash.update(']')
+        elif isinstance(value, dict):
+            hash.update('{')
+            for (dict_key, dict_value) in sorted(value.items()):
+                hash.update(dict_key)
+                hash.update(':')
+                self.hash_update_with_structure(hash, dict_value)
+                hash.update(',')
+            hash.update('}')
+        elif isinstance(value, SW2_ConcreteReference) or isinstance(value, SW2_FutureReference):
+            hash.update('ref')
+            hash.update(value.id)
+        elif isinstance(value, SWURLReference):
+            hash.update('ref')
+            hash.update(value.urls[0])
+        elif isinstance(value, SWDataValue):
+            hash.update('ref*')
+            self.hash_update_with_structure(hash, value.value)
+        else:
+            hash.update(str(value))
+
+
 class SWInterpreterTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
