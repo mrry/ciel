@@ -676,7 +676,10 @@ class SWSkyPyTask:
                 pass
 
         self.current_executor = self.execution_features.get_executor(executor_name, args, FakeContinuation(self.ref_for_id), output_ids, self.master_proxy)
-        self.current_executor.execute(self.block_store, self.task_id)
+        # This version of _execute raises. We allow reference-unavailable exceptions to propagate all the way up here,
+        # rather than attempting to do thunks in advance like the SWI executor, as it's at least conceivable there'll
+        # be executors that don't always use all their inputs.
+        self.current_executor._execute(self.block_store, self.task_id)
         
         for ref in self.current_executor.output_refs:
             self.exec_result_counter += 1

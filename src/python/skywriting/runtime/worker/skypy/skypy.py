@@ -189,6 +189,9 @@ def refs_to_strings(x):
 
 def sync_exec(exec_name, exec_args_dict, n_outputs):
 
+    global halt_spawn_id
+    global halt_reason
+
     for tries in range(2):
 
         real_args_dict = map_leaf_values(refs_to_strings, exec_args_dict)
@@ -203,6 +206,7 @@ def sync_exec(exec_name, exec_args_dict, n_outputs):
             return [OpaqueReference(x) for x in result["output_names"]]
         else:
             if tries == 0:
+                halt_spawn_id = create_spawned_task_name()
                 halt_reason = HALT_REFERENCE_UNAVAILABLE
                 main_coro.switch()
             else:
