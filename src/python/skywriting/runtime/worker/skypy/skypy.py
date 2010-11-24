@@ -29,6 +29,7 @@ HALT_RUNTIME_EXCEPTION = 3
 class PersistentState:
     def __init__(self):
         self.spawn_counter = 0
+        self.ref_dependencies = set()
 
 class ResumeState:
     
@@ -74,31 +75,23 @@ def deref(ref):
             ref_cache[ref.id] = obj
             return obj
 
-def await_refs(refs):
-    # Wait for a list of refs to be produced
+def add_ref_dependency(ref):
+    persistent_state.ref_dependencies.add(ref.id)
 
-    global halt_reason
-    global ref_cache
-    global halt_spawn_id
+def remove_ref_dependency(ref):
+    persistent_state.ref_dependencies.remove(ref.id)
 
-    for tries in range(2):
-        reqd_refs = []
-        for ref in refs:
-            if ref.id not in ref_cache:
-                reqd_refs.append(ref)
-        pickle.dump({"request": "await_refs", "ids": [ref.id for ref in reqd_refs]}, runtime_out)
-        runtime_out.flush()
-        runtime_response = pickle.load(runtime_in)
-        if not runtime_response["success"]:
-            if tries == 0:
-                halt_spawn_id = create_spawned_task_name()
-                halt_reason = HALT_REFERENCE_UNAVAILABLE
-                main_coro.switch()
-                continue
-            else:
-                raise Exception("Double failure waiting on refs %s" % refs)
-        # Refs are ready!
-        return
+class RequiredRefs():
+    def __init__(self, refs):
+        self.refs = refs
+
+    def __enter__(self):
+        for ref in self.refs:
+            add_ref_dependency(ref)
+
+    def __exit__(self, x, y, z):
+        for ref in self.refs:
+            remove_ref_dependency(ref)
 
 def deref_json(ref):
 

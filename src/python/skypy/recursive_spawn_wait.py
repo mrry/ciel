@@ -1,4 +1,6 @@
 
+from __future__ import with_statement
+
 import skypy
 import sys
 
@@ -8,8 +10,8 @@ def spawnee(i):
         return 1
     else:
         spawnees = [skypy.spawn(lambda: spawnee(i - 1)) for j in range(2)]
-        skypy.await_refs(spawnees)
-        results = [skypy.deref(x) for x in spawnees]
+        with skypy.RequiredRefs(spawnees):
+            results = [skypy.deref(x) for x in spawnees]
         accum = 0
         for result in results:
             accum += result

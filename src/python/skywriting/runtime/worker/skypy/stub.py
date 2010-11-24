@@ -1,15 +1,18 @@
 
 # Requires PyPy or Stackless Python
 
+from __future__ import with_statement
+
 import optparse
 import stackless
 import pickle
 import imp
-import skypy
 import sys
 import tempfile
 import traceback
 import os
+
+import skypy
 
 parser = optparse.OptionParser()
 parser.add_option("-r", "--resume_state", dest="state_file", 
@@ -51,7 +54,7 @@ if resume_file is not None:
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
         pickle.dump(resume_state, output_fp)
         output_fp.close()
-        pickle.dump({"request": "freeze", "coro_filename": output_filename, "new_task_id": skypy.halt_spawn_id}, sys.stdout)
+        pickle.dump({"request": "freeze", "coro_filename": output_filename, "new_task_id": skypy.halt_spawn_id, "additional_deps": skypy.persistent_state.ref_dependencies}, sys.stdout)
     elif skypy.halt_reason == skypy.HALT_DONE:
         pickle.dump(skypy.script_return_val, output_fp)
         output_fp.close()

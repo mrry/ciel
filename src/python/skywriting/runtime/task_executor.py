@@ -443,15 +443,6 @@ class SWSkyPyTask:
                 except ReferenceUnavailableException:
                     self.halt_dependencies.append(next_rq["id"])
                     pickle.dump({"success": False}, pypy_process.stdin)
-            elif next_rq["request"] == "await_refs":
-                cherrypy.log.error("Pypy awaits refs: %s" % next_rq["ids"])
-                response = {"success": True}
-                for id in next_rq["ids"]:
-                    if not self.is_ref_available(id):
-                        response = {"success": False}
-                        self.halt_dependencies.extend(next_rq["ids"])
-                        break
-                pickle.dump(response, pypy_process.stdin)
             elif next_rq["request"] == "spawn":
                 spawn_coro_file = next_rq["coro_filename"]
                 new_task_id = next_rq["new_task_id"]
@@ -478,6 +469,7 @@ class SWSkyPyTask:
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 self.exit_file = next_rq["coro_filename"]
                 cont_task_id = next_rq["new_task_id"]
+                self.halt_dependencies.extend(list(next_rq["additional_deps"]))
                 self.exit_done = False
                 break
             elif next_rq["request"] == "done":
@@ -702,9 +694,6 @@ class SWSkyPyTask:
         ret = [ref.id for ref in output_refs]
         self.current_executor = None
         return ret
-
-    def is_ref_available(self, id):
-        return id in self.reference_cache
 
     def filename_for_ref(self, id):
         cherrypy.log.error("Deref to file: %s" % id, "SKYPY", logging.INFO)
