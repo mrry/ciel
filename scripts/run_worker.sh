@@ -14,4 +14,4 @@ MASTER=${MASTER_HOST:-http://$HOST:9000}
 WORKER_PORT=${WORKER_PORT:-9001}
 
 export CLASSPATH=${BASE}/src/java/JavaBindings.jar:${BASE}/src/sw/json_simple-1.1.jar
-${PYTHON} ${BASE}/src/python/skywriting/__init__.py --role worker --master ${MASTER} --port $WORKER_PORT --staticbase $BASE/src/js/skyweb_worker/
+${PYTHON} ${BASE}/src/python/skywriting/__init__.py --role worker --master ${MASTER} --port $WORKER_PORT --staticbase $BASE/src/js/skyweb_worker/ --skypybase $BASE/src/python/skywriting/runtime/worker/skypy

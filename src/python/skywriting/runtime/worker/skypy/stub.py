@@ -49,7 +49,6 @@ if resume_file is not None:
     output_fd, output_filename = tempfile.mkstemp()
     output_fp = os.fdopen(output_fd, "w")
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
-        print >>sys.stderr, "Saving state", resume_state
         pickle.dump(resume_state, output_fp)
         output_fp.close()
         pickle.dump({"request": "freeze", "coro_filename": output_filename, "new_task_id": skypy.halt_spawn_id}, sys.stdout)

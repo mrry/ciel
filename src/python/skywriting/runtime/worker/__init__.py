@@ -64,7 +64,7 @@ class Worker(plugins.SimplePlugin):
         self.upload_deferred_work.subscribe()
         self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)
         self.execution_features = ExecutionFeatures()
-        self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
+        self.task_executor = TaskExecutorPlugin(bus, options.skypybase, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
         self.server_root = WorkerRoot(self)
         self.pinger = Pinger(bus, self.master_proxy, None, 30)

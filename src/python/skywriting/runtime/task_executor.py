@@ -32,7 +32,6 @@ import uuid
 import hashlib
 import subprocess
 import pickle
-import skywriting.runtime.worker.skypy
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWErrorReference, SW2_FutureReference,\
@@ -40,12 +39,13 @@ from skywriting.runtime.references import SWDataValue, SWURLReference,\
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, block_store, master_proxy, execution_features, num_threads=1):
+    def __init__(self, bus, skypybase, block_store, master_proxy, execution_features, num_threads=1):
         AsynchronousExecutePlugin.__init__(self, bus, num_threads, "execute_task")
         self.block_store = block_store
         self.master_proxy = master_proxy
         self.execution_features = execution_features
-    
+        self.skypybase = skypybase
+
         self.current_task_id = None
         self.current_task_execution_record = None
     
@@ -277,7 +277,7 @@ class SWSkyPyTaskExecutionRecord:
         self.is_interpreting = False
         
         try:
-            self.interpreter = SWSkyPyTask(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy)
+            self.interpreter = SWSkyPyTask(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy, self.task_executor.skypybase)
         except:
             cherrypy.log.error('Error during SkyPy task creation', 'SKYPY', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id)
@@ -315,9 +315,17 @@ class SWSkyPyTaskExecutionRecord:
 
 class SWSkyPyTask:
     
-    def __init__(self, task_descriptor, block_store, execution_features, master_proxy):
+    def __init__(self, task_descriptor, block_store, execution_features, master_proxy, skypybase):
 
         self.task_id = task_descriptor['task_id']
+        self.skypybase = skypybase
+
+        import sys
+        # Skypy's reference descriptor:
+        sys.path.append(self.skypybase)
+        from opaque_ref import SkyPyOpaqueReference
+        self.SkyPyOpaqueReference = SkyPyOpaqueReference
+        sys.path = sys.path[:-1]
         
         try:
             self.original_task_id = task_descriptor['original_task_id']
@@ -326,7 +334,7 @@ class SWSkyPyTask:
             self.original_task_id = self.task_id
             self.replay_ref = None
 
-        self.additional_refs_to_publish = []
+        self.refs_to_publish = []
         
         self.expected_outputs = task_descriptor['expected_outputs']
         self.inputs = task_descriptor['inputs']
@@ -354,6 +362,8 @@ class SWSkyPyTask:
         self.execution_features = execution_features
 
         self.spawn_list = []
+        self.halt_dependencies = []
+        
         
         self.coroutine = None
         self.result = None
@@ -369,12 +379,15 @@ class SWSkyPyTask:
         # This should be the same as the length of the spawn list, outside 
         # calls to spawn_func and spawn_exec_func.
         self.spawn_counter = 0
+
+        # This starts out blank each run, possibly leading to repeated fetches (i.e. halts with dependencies)
+        # of the same reference during a given run. This is the opposite suck to SWI's, in which it keeps a table
+        # of all references it knows about and moves that table around, pruning it only when we spawn() or spawn_exec().
+        self.reference_cache = dict()
         
     def fetch_inputs(self, block_store):
         coroutine_ref = None
         self.pyfile_ref = None
-
-        self.interesting_ref_table = dict()
 
         for id, ref in self.inputs.items():
             if id == '_coro':
@@ -382,7 +395,7 @@ class SWSkyPyTask:
             elif id == '_py':
                 self.pyfile_ref = ref
             else:
-                self.interesting_ref_table[id] = ref
+                self.reference_cache[id] = ref
 
         if coroutine_ref is None or self.pyfile_ref is None:
             raise Exception("SkyPy tasks must have a _coro and a _py input")
@@ -396,20 +409,11 @@ class SWSkyPyTask:
         
         cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' % (self.coroutine_filename, self.py_source_filename), 'SKYPY', logging.INFO)
 
-    def ref_for_id(self, id, should_add=False):
-        try:
-            return self.interesting_ref_table[id]
-        except KeyError:
-            new_ref = SW2_FutureReference(id)
-            if should_add:
-                self.interesting_ref_table[id] = new_ref
-            return new_ref
-
     def ref_from_raw_file(self, filename, refid):
         _, size_hint = self.block_store.store_file(filename, refid, can_move=True)
         real_ref = SW2_ConcreteReference(refid, size_hint)
         real_ref.add_location_hint(self.block_store.netloc)
-        self.maybe_also_publish(real_ref)
+        self.refs_to_publish.append(real_ref)
         return real_ref
 
     def interpret(self):
@@ -427,15 +431,27 @@ class SWSkyPyTask:
             next_rq = pickle.load(pypy_process.stdout)
             cherrypy.log.error("Request: %s" % next_rq, "SKYPY", logging.DEBUG)
             if next_rq["request"] == "deref":
-                filename = self.eager_deref(next_rq["id"])
+                filename = self.filename_for_ref(next_rq["id"])
                 cherrypy.log.error("Pypy dereferenced %s, returning %s" % (next_rq["id"], filename), "SKYPY", logging.INFO)
                 # filename might be None -- in that case the interpreter won't be able to continue and will stop soon.
+                if filename is None:
+                    self.halt_dependencies.append(next_rq["id"])
                 pickle.dump({"filename": filename}, pypy_process.stdin)
             elif next_rq["request"] == "deref_json":
                 try:
                     pickle.dump({"obj": self.deref_json(next_rq["id"]), "success": True}, pypy_process.stdin)
                 except ReferenceUnavailableException:
+                    self.halt_dependencies.append(next_rq["id"])
                     pickle.dump({"success": False}, pypy_process.stdin)
+            elif next_rq["request"] == "await_refs":
+                cherrypy.log.error("Pypy awaits refs: %s" % next_rq["ids"])
+                response = {"success": True}
+                for id in next_rq["ids"]:
+                    if not self.is_ref_available(id):
+                        response = {"success": False}
+                        self.halt_dependencies.extend(next_rq["ids"])
+                        break
+                pickle.dump(response, pypy_process.stdin)
             elif next_rq["request"] == "spawn":
                 spawn_coro_file = next_rq["coro_filename"]
                 new_task_id = next_rq["new_task_id"]
@@ -498,11 +514,7 @@ class SWSkyPyTask:
         if not self.exit_done:
             # The interpreter died before the script finished because it dereferenced a future
             # Need to add a continuation task to the spawn list.
-            cont_deps = self.interesting_ref_table
-            # Unlike the SW interpreter, I ask for information about every reference that's either already concrete
-            # or which I need to continue.
-            # This is a straight alternative to keeping a reference table in SWContinuation. Basically I ask the master to
-            # refresh my impression of the whole world each time I'm restarted.
+            cont_deps = dict([(k, SW2_FutureReference(k)) for k in self.halt_dependencies])
             cont_ref = self.ref_from_raw_file(self.exit_file, self.get_spawn_continuation_object_id(cont_task_id))
             cont_deps["_coro"] = cont_ref
             cont_deps["_py"] = self.pyfile_ref
@@ -542,17 +554,10 @@ class SWSkyPyTask:
 #    def get_saved_continuation_object_id(self):
 #        return '%s:saved_cont' % (self.task_id, )
 
-    def maybe_also_publish(self, ref):
-        #if self.replay_ref is not None and concrete_ref.id == self.replay_ref.id:
-        if isinstance(ref, SW2_ConcreteReference):
-            self.additional_refs_to_publish.append(ref)
-
     def commit_result(self, block_store, master_proxy):
         
-        commit_bindings = {}
-        for ref in self.additional_refs_to_publish:
-            commit_bindings[ref.id] = ref
-        
+        commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
+
 #        if not self.exit_done:
 #            if self.save_continuation:
 #                save_cont_uri, _ = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
@@ -600,12 +605,7 @@ class SWSkyPyTask:
 
         coro_ref = self.ref_from_raw_file(coro_filename, self.get_spawn_continuation_object_id(new_task_id))
         
-        # For now we assume anything interesting to us might be interesting to the spawnee.
-        # This is because unlike Skywriting it's potentially difficult to know which references it captured.
-        # An alternative would be to assume it uses nothing and request references on demand.
-        new_task_deps = self.interesting_ref_table.copy()
-        new_task_deps["_py"] = self.pyfile_ref
-        new_task_deps["_coro"] = coro_ref
+        new_task_deps = {"_py": self.pyfile_ref, "_coro": coro_ref}
         
         task_descriptor = {'task_id': new_task_id,
                            'handler': 'skypy',
@@ -617,27 +617,32 @@ class SWSkyPyTask:
 
     def spawn_exec_func(self, executor_name, exec_args, new_task_id, exec_prefix, expected_output_ids):
 
-        inputs = dict()
+        inputs_list = []
 
+        # Canonicalise the references mentioned in the args-dict
+        # The alternative would be to keep the SkyPy context around and resolve references like we do for Execs.
         def args_check_mapper(leaf):
-            if isinstance(leaf, skypy_refs.OpaqueReference):
-                real_ref = self.ref_for_id(leaf.id, should_add=False)
-                i = len(inputs)
-                inputs[i] = real_ref
-                ret = SWLocalReference(i)
+            if isinstance(leaf, self.SkyPyOpaqueReference):
+                real_ref = SW2_FutureReference(leaf.id)
+                # I always give a Future here, as either I or someone else should be publishing its value.
+                ret = SWLocalReference(len(inputs_list))
+                inputs_list.append(real_ref)
                 return ret
             return leaf
         
         transformed_args = map_leaf_values(args_check_mapper, exec_args)
 
         args_id = self.get_args_name_for_exec(exec_prefix)
-        _, size_hint = self.block_store.store_object(exec_args, 'pickle', args_id)
+        _, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
         args_ref = SW2_ConcreteReference(args_id, size_hint)
         self.spawn_exec_counter += 1
         args_ref.add_location_hint(self.block_store.netloc)
-        self.maybe_also_publish(args_ref)
+        self.refs_to_publish.append(args_ref)
         
-        inputs['_args'] = args_ref
+        inputs = dict(enumerate(inputs_list))
+        inputs['_args'] = SW2_FutureReference(args_ref.id)
+        # I really know more about this, but that information is conveyed by a publish.
+        # I try to always nominate Futures as dependencies so that I can easily convert to a set-of-deps rather than a dict.
 
         task_descriptor = {'task_id': new_task_id,
                            'handler': executor_name, 
@@ -649,8 +654,6 @@ class SWSkyPyTask:
         if len(self.spawn_list) > 20:
             self.spawn_all(self.block_store, self.master_proxy)
             self.spawn_list = []
-        
-        return ret
     
     def get_args_name_for_exec(self, prefix):
         return '%sargs' % (prefix, )
@@ -667,59 +670,70 @@ class SWSkyPyTask:
 
         class FakeContinuation:
 
-            def __init__(self, ref_for_id_f):
-                self.ref_for_id_f = ref_for_id_f
-            def resolve_tasklocal_reference_with_ref(self, refname):
-                return self.ref_for_id_f(refname, should_add=True)
-            def mark_as_execd(self, refname):
-                # Hmm. I suspect this ought to be a deref.
-                pass
+            def __init__(self, refs_dict):
+                self.refs = refs_dict
+                self.exec_deps = []
+            def resolve_tasklocal_reference_with_ref(self, ref):
+                try:
+                    return self.refs[ref.id]
+                except KeyError:
+                    return SW2_FutureReference(ref.id)
+            def mark_as_execd(self, ref):
+                # The executor will need this reference.
+                self.exec_deps.append(ref.id)
 
-        self.current_executor = self.execution_features.get_executor(executor_name, args, FakeContinuation(self.ref_for_id), output_ids, self.master_proxy)
-        # This version of _execute raises. We allow reference-unavailable exceptions to propagate all the way up here,
-        # rather than attempting to do thunks in advance like the SWI executor, as it's at least conceivable there'll
-        # be executors that don't always use all their inputs.
-        self.current_executor._execute(self.block_store, self.task_id)
-        
+        fake_cont = FakeContinuation(self.reference_cache)
+        self.current_executor = self.execution_features.get_executor(executor_name, args, fake_cont, output_ids, self.master_proxy)
+
+        try:
+            self.current_executor.execute(self.block_store, self.task_id)
+        except ReferenceUnavailableException:
+            self.halt_dependencies.extend(fake_cont.exec_deps)
+            raise
+
         for ref in self.current_executor.output_refs:
             self.exec_result_counter += 1
-            self.maybe_also_publish(ref)
+            self.refs_to_publish.append(ref)
         
         output_refs = self.current_executor.output_refs
         for ref in output_refs:
-            self.interesting_ref_table[ref.id] = ref
+            self.reference_cache[ref.id] = ref
 
         ret = [ref.id for ref in output_refs]
         self.current_executor = None
         return ret
 
-    def eager_deref(self, id):
-        cherrypy.log.error("Eager deref %s" % id, "SKYPY", logging.INFO)
-        real_ref = self.ref_for_id(id, should_add=True)
-        if isinstance(real_ref, SW2_FutureReference):
-            return None
-        else:
-            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
-            return filenames[0]
+    def is_ref_available(self, id):
+        return id in self.reference_cache
 
+    def filename_for_ref(self, id):
+        cherrypy.log.error("Deref to file: %s" % id, "SKYPY", logging.INFO)
+        if id in self.reference_cache:
+            filenames = self.block_store.retrieve_filenames_for_refs_eager([self.reference_cache[id]])
+            return filenames[0]
+        else:
+            return None
 
     def deref_json(self, id):
         cherrypy.log.error("Deref-as-JSON %s" % id, "SKYPY", logging.INFO)
-        real_ref = self.ref_for_id(id, should_add=True)
-        if isinstance(real_ref, SW2_FutureReference):
-            raise ReferenceUnavailableException(ref)
+        if id not in self.reference_cache:
+            raise ReferenceUnavailableException(SW2_FutureReference(id), None)
         else:
+            real_ref = self.reference_cache[id]
             obj = self.block_store.retrieve_object_for_ref(real_ref, "json")
-            def refs_to_strings(x):
+            def opaqueify_ref(x):
                 if isinstance(x, SWRealReference):
-                    # This seems dodgy as heck -- but matches SWI
-                    self.interesting_ref_table[x.id] = x
-                    # This will also result in "publication," much like refs that emerge from exec outputs.
-                    # To review this whole business.
-                    return "__ref__:" + x.id
+                    self.reference_cache[x.id] = x
+                    # This is a bit grim -- responsibility lies on the first "discoverer" of a reference to publish it.
+                    # This is used by the Grab executor, which yields a ref-to-a-ref and doesn't publish the inner ref.
+                    # As far as I can see all refs coming out of SWI would be published by the worker that defined them,
+                    # so we'd be alright not doing this in that case.
+                    # TODO: Fix this.
+                    self.refs_to_publish.append(x)
+                    return self.SkyPyOpaqueReference(x.id)
                 else:
                     return x
-            return map_leaf_values(refs_to_strings, obj)
+            return map_leaf_values(opaqueify_ref, obj)
 
     def hash_update_with_structure(self, hash, value):
         """
@@ -1139,8 +1153,6 @@ class SWRuntimeInterpreterTask:
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
         
-        
-        
         # Append the new task definition to the spawn list.
         new_task_id = self.create_spawned_task_name()
         expected_output_id = self.create_spawn_output_name(new_task_id)
@@ -1246,13 +1258,16 @@ class SWRuntimeInterpreterTask:
         _, output_ids = self.create_names_for_exec(executor_name, real_args, num_outputs)
 
         self.current_executor = self.execution_features.get_executor(executor_name, real_args, self.continuation, output_ids, self.master_proxy)
+        cherrypy.log.error("SW-Exec calling execute!", "EXEC", logging.ERROR)
         self.current_executor.execute(self.block_store, self.task_id)
+        cherrypy.log.error("SW-Exec back from execute!", "EXEC", logging.ERROR)
         
         for ref in self.current_executor.output_refs:
             self.exec_result_counter += 1
             self.maybe_also_publish(ref)
         
         ret = map(self.continuation.create_tasklocal_reference, self.current_executor.output_refs)
+        cherrypy.log.error("SW-Exec returning %s!" % ret, "EXEC", logging.ERROR)
         self.current_executor = None
         return ret
 

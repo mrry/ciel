@@ -1,13 +1,6 @@
-/parser.out
-/parsetab.py
-/parser.out
-/parsetab.py
 /dist
-/parser.out
-/parsetab.py
-/dist
-/parser.out
-/parsetab.py
+parser.out
+parsetab.py
 *.pyc
 *~
 *.jar
