@@ -345,11 +345,6 @@ class SWSkyPyTask:
 #            self.select_result = None
 # No select yet
             
-#        try:
-#            self.save_continuation = task_descriptor['save_continuation']
-#        except KeyError:
-#            self.save_continuation = False
-            
         try:
             self.replay_uuid_list = task_descriptor['replay_uuids']
             self.replay_uuids = True
@@ -363,10 +358,7 @@ class SWSkyPyTask:
 
         self.spawn_list = []
         self.halt_dependencies = []
-        
-        
-        self.coroutine = None
-        self.result = None
+        self.halt_feature_requirement = None
         
         self.master_proxy = master_proxy
         
@@ -376,10 +368,6 @@ class SWSkyPyTask:
         self.exec_result_counter = 0
         self.spawn_exec_counter = 0
         
-        # This should be the same as the length of the spawn list, outside 
-        # calls to spawn_func and spawn_exec_func.
-        self.spawn_counter = 0
-
         # This starts out blank each run, possibly leading to repeated fetches (i.e. halts with dependencies)
         # of the same reference during a given run. This is the opposite suck to SWI's, in which it keeps a table
         # of all references it knows about and moves that table around, pruning it only when we spawn() or spawn_exec().
@@ -464,6 +452,9 @@ class SWSkyPyTask:
                     pickle.dump({"success": True, "output_names": output_ref_names}, pypy_process.stdin)
                 except ReferenceUnavailableException:
                     pickle.dump({"success": False}, pypy_process.stdin)
+                except FeatureUnavailableException as exn:
+                    pickle.dump({"success": False}, pypy_process.stdin)
+                    self.halt_feature_requirement = exn.feature_name
                     # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
             elif next_rq["request"] == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
@@ -484,25 +475,6 @@ class SWSkyPyTask:
                 report_fp.close()
                 raise Exception("Fatal pypy exception: %s" % report_text)
 
-#        except SelectException, se:
-            
-#            local_select_group = se.select_group
-#            timeout = se.timeout
-            
-#            select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
-                        
-#            cont_task_id = self.create_spawned_task_name()
-                        
-#            cont_task_descriptor = {'task_id': str(cont_task_id),
-#                                    'handler': 'swi',
-#                                    'dependencies': {},
-#                                    'select_group': select_group,
-#                                    'select_timeout': timeout,
-#                                    'expected_outputs': map(str, self.expected_outputs),
-#                                    'save_continuation': self.save_continuation}
-#            self.save_continuation = False
-#            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
-            
         if not self.exit_done:
             # The interpreter died before the script finished because it dereferenced a future
             # Need to add a continuation task to the spawn list.
@@ -514,12 +486,9 @@ class SWSkyPyTask:
                                     'handler': 'skypy',
                                     'dependencies': cont_deps,
                                     'expected_outputs': map(str, self.expected_outputs),
-#                                    'save_continuation': self.save_continuation,
                                     'continues_task': str(self.original_task_id)}
-            self.save_continuation = False
-            # TODO: This.
-#            if isinstance(ei, FeatureUnavailableException):
-#                cont_task_descriptor['require_features'] = [ei.feature_name]
+            if self.halt_feature_requirement is not None:
+                cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
             
             self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor))
 
@@ -543,56 +512,16 @@ class SWSkyPyTask:
     def get_spawn_continuation_object_id(self, task_id):
         return '%s:cont' % (task_id, )
 
-#    def get_saved_continuation_object_id(self):
-#        return '%s:saved_cont' % (self.task_id, )
-
     def commit_result(self, block_store, master_proxy):
         
         commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
-
-#        if not self.exit_done:
-#            if self.save_continuation:
-#                save_cont_uri, _ = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
-#            else:
-#            master_proxy.commit_task(self.task_id, commit_bindings, None, self.replay_uuid_list)
-#            return
-        
-#        serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
-# No need for this for SkyPy: "local" references carry global IDs
-# Also, we can't explore arbitrary data structures.
-
-        # TODO: This is a raw file that's been pickled by pypy. We ought to be annotating references with an encoding.
-        # For the time being I rely on the programmer to manually instruct pypy as to whether json or pickle is appropriate.
-#        _, size_hint = block_store.store_object(self.result, 'json', self.expected_outputs[0])
-#        if size_hint < 128:
-#            result_ref = SWDataValue(self.expected_outputs[0], serializable_result)
-#        else:
-#            result_ref = SW2_ConcreteReference(self.expected_outputs[0], size_hint)
-#            result_ref.add_location_hint(self.block_store.netloc)
 
         if self.exit_done:
             result_ref = self.ref_from_raw_file(self.exit_file, self.expected_outputs[0])
             commit_bindings[self.expected_outputs[0]] = result_ref
         
-#        if self.save_continuation:
-#            save_cont_uri, size_hint = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
-#        else:
-#            save_cont_uri = None
-        
         master_proxy.commit_task(self.task_id, commit_bindings, None, self.replay_uuid_list)
 
-#    def create_spawned_task_name(self):
-#        sha = hashlib.sha1()
-#        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
-#        ret = sha.hexdigest()
-#        self.spawn_counter += 1
-#        return ret
-    
-#    def create_spawn_output_name(self, task_id):
-#        return 'skypy:%s' % task_id
-
-# These happen within the pypy process.
-    
     def spawn_func(self, coro_filename, new_task_id, new_task_expected_output_id):
 
         coro_ref = self.ref_from_raw_file(coro_filename, self.get_spawn_continuation_object_id(new_task_id))
@@ -613,6 +542,7 @@ class SWSkyPyTask:
 
         # Canonicalise the references mentioned in the args-dict
         # The alternative would be to keep the SkyPy context around and resolve references like we do for Execs.
+        # Better still, why not instantiate the Python aspect of the executor and have it tell us what it needs.
         def args_check_mapper(leaf):
             if isinstance(leaf, self.SkyPyOpaqueReference):
                 real_ref = SW2_FutureReference(leaf.id)
