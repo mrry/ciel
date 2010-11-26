@@ -65,12 +65,12 @@ class ExecutionFeatures:
     def all_features(self):
         return self.executors.keys()
     
-    def get_executor(self, name, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+    def get_executor(self, name):
         try:
             Executor = self.executors[name]
         except KeyError:
             raise FeatureUnavailableException(name)
-        return Executor(args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        return Executor()
 
 class SWExecutor:
 

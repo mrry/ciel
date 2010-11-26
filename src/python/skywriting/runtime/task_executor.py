@@ -215,26 +215,10 @@ class SWExecutorTaskExecutionRecord:
                 self.executor.notify_streams_done()
     
     def fetch_executor_args(self, inputs):
-        args_ref = None
-        parsed_inputs = {}
         
-        for local_id, ref in inputs.items():
-            if local_id == '_args':
-                args_ref = ref
-            else:
-                parsed_inputs[int(local_id)] = ref
+        self.exec_args = self.task_executor.block_store.retrieve_object_for_ref(inputs["_args"], 'pickle')
+        self.inputs = inputs
         
-        exec_args = self.task_executor.block_store.retrieve_object_for_ref(args_ref, 'pickle')
-        
-        def args_parsing_mapper(leaf):
-            if isinstance(leaf, SWLocalReference):
-                return parsed_inputs[leaf.index]
-            else:
-                return leaf
-        
-        parsed_args = map_leaf_values(args_parsing_mapper, exec_args)
-        return parsed_args
-    
     def commit(self):
         commit_bindings = {}
         for i, output_ref in enumerate(self.executor.output_refs):
@@ -248,12 +232,19 @@ class SWExecutorTaskExecutionRecord:
                 parsed_args = self.fetch_executor_args(self.inputs)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Fetching executor")
-                executor = self.task_executor.execution_features.get_executor(self.executor_name, parsed_args, None, self.expected_outputs, self.task_executor.master_proxy)
+                executor = self.task_executor.execution_features.get_executor(self.executor_name)
                 with self._lock:
                     self.executor = executor
             if self.is_running:
+                cherrypy.engine.publish("worker_event", "Rewriting references")
+                # A misleading name: this is just an environment that reads out of a dict.
+                fake_cont = SkyPyRefCacheContinuation(self.inputs)
+                # Rewrite refs this executor needs using our inputs as a name table
+                self.executor.resolve_args_refs(self.exec_args, fake_cont)
+                # No need to check args: they're already valid
+            if self.is_running:
                 cherrypy.engine.publish("worker_event", "Executing")
-                self.executor.execute(self.task_executor.block_store, self.task_id)
+                self.executor.execute(self.task_executor.block_store, self.task_id, self.exec_args, self.expected_outputs, self.task_executor.master_proxy)
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Committing")
                 self.commit()
@@ -323,7 +314,7 @@ class SkyPyBlankContinuation:
         # The executor will need this reference.
         self.exec_deps.append(ref.id)
 
-class SkyPyRefCacheContinuation:
+class SkyPyRefCacheContinuation(SkyPyBlankContinuation):
 
     def __init__(self, refs_dict):
         SkyPyBlankContinuation.__init__(self)
@@ -559,15 +550,19 @@ class SWSkyPyTask:
 
     def spawn_exec_func(self, executor_name, exec_args, new_task_id, exec_prefix, expected_output_ids):
 
-        fake_cont = SkyPyBlankContinuation()
         # An environment that just returns FutureReferences whenever it's passed a SkyPyOpaqueReference
-        dummy_executor = self.execution_features.get_executor(executor_name, exec_args, fake_cont, expected_output_ids, self.master_proxy)
-        # Most of these parameters shouldn't actually get used.
-        transformed_args = dummy_executor.resolve_args_refs()
-        # This dict is exec_args with its refs transformed into FutureReferences.
+        fake_cont = SkyPyBlankContinuation()
+
+        executor = self.execution_features.get_executor(executor_name)
+
+        # Replace all relevant OpaqueReferences with FutureReferences, and log all ref IDs touched in the Continuation
+        executor.resolve_args_refs(exec_args, fake_cont)
+
+        # Throw early if the args are bad
+        executor.check_args_valid(exec_args, expected_output_ids)
 
         args_id = self.get_args_name_for_exec(exec_prefix)
-        _, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
+        _, size_hint = self.block_store.store_object(exec_args, 'pickle', args_id)
         args_ref = SW2_ConcreteReference(args_id, size_hint)
         self.spawn_exec_counter += 1
         args_ref.add_location_hint(self.block_store.netloc)
@@ -603,13 +598,20 @@ class SWSkyPyTask:
         output_ids = self.create_output_names_for_exec(executor_name, args, num_outputs)
 
         fake_cont = SkyPyRefCacheContinuation(self.reference_cache)
-        self.current_executor = self.execution_features.get_executor(executor_name, args, fake_cont, output_ids, self.master_proxy)
+        self.current_executor = self.execution_features.get_executor(executor_name)
+        # Resolve all of our OpaqueReferences to RealReferences, and as a side-effect record all refs touched in the Continuation.
+        # Side-effect: modified args.
+        self.current_executor.resolve_args_refs(args, fake_cont)
+        # Might throw a BlameUserException.
+        self.current_executor.check_args_valid(args, output_ids)
+        # Eagerly check all references for availability.
+        for refid in fake_cont.exec_deps:
+            if refid not in self.reference_cache:
+                self.halt_dependencies.extend(fake_cont.exec_deps)
+                raise ReferenceUnavailableException(SW2_FutureReference(refid))
 
-        try:
-            self.current_executor.execute(self.block_store, self.task_id)
-        except ReferenceUnavailableException:
-            self.halt_dependencies.extend(fake_cont.exec_deps)
-            raise
+        # Might raise runtime errors
+        self.current_executor.execute(self.block_store, self.task_id, args, output_ids, self.master_proxy)
 
         for ref in self.current_executor.output_refs:
             self.exec_result_counter += 1
