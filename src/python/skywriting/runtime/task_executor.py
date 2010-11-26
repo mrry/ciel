@@ -568,7 +568,7 @@ class SWSkyPyTask:
         args_ref.add_location_hint(self.block_store.netloc)
         self.refs_to_publish.append(args_ref)
         
-        inputs = dict([(ref.id, SW2_FutureReference(ref.id)) for ref in fake_cont.exec_deps])
+        inputs = dict([(refid, SW2_FutureReference(refid)) for refid in fake_cont.exec_deps])
         inputs['_args'] = SW2_FutureReference(args_ref.id)
         # I really know more about this, but that information is conveyed by a publish.
         # I try to always nominate Futures as dependencies so that I can easily convert to a set-of-deps rather than a dict.
@@ -608,7 +608,7 @@ class SWSkyPyTask:
         for refid in fake_cont.exec_deps:
             if refid not in self.reference_cache:
                 self.halt_dependencies.extend(fake_cont.exec_deps)
-                raise ReferenceUnavailableException(SW2_FutureReference(refid))
+                raise ReferenceUnavailableException(SW2_FutureReference(refid), None)
 
         # Might raise runtime errors
         self.current_executor.execute(self.block_store, self.task_id, args, output_ids, self.master_proxy)

@@ -82,7 +82,8 @@ class SWExecutor:
         return continuation.resolve_tasklocal_reference_with_ref(ref)
 
     def resolve_args_refs(self, foreign_args, continuation):
-        foreign_args["inputs"] = [self.resolve_ref(ref, continuation) for ref in foreign_args["inputs"]]
+        if "inputs" in foreign_args:
+            foreign_args["inputs"] = [self.resolve_ref(ref, continuation) for ref in foreign_args["inputs"]]
 
     def check_args_valid(self, args, expected_output_ids):
         pass
@@ -240,7 +241,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
 
         if len(expected_output_ids) != 1:
             raise BlameUserException("Stdinout executor must have one output")
-        if "command_line" not in self.args:
+        if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
 
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
@@ -526,8 +527,8 @@ class GrabURLExecutor(SWExecutor):
 
         cherrypy.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
         
-        for i, url in enumerate(self.urls):
-            ref = block_store.get_ref_for_url(url, self.version, task_id)
+        for i, url in enumerate(urls):
+            ref = block_store.get_ref_for_url(url, version, task_id)
             self.output_refs[i] = SWDataValue(self.output_ids[i], ref)
 
         cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
