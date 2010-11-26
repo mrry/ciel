@@ -357,7 +357,6 @@ class LazyTaskPool(plugins.SimplePlugin):
             # Identify the other tasks that need to run to make this task
             # runnable.
             task_will_block = False
-            print "!!! Dependencies:", task.dependencies.items()
             for local_id, ref in task.dependencies.items():
                 conc_ref = self.register_task_interest_for_ref(task, 
                                                                ref)
