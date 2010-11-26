@@ -313,6 +313,27 @@ class SWSkyPyTaskExecutionRecord:
     def abort(self):
         raise Exception("Not implemented")
 
+class SkyPyBlankContinuation:
+    
+    def __init__(self):
+        self.exec_deps = []
+    def resolve_tasklocal_reference_with_ref(self, ref):
+        return SW2_FutureReference(ref.id)
+    def mark_as_execd(self, ref):
+        # The executor will need this reference.
+        self.exec_deps.append(ref.id)
+
+class SkyPyRefCacheContinuation:
+
+    def __init__(self, refs_dict):
+        SkyPyBlankContinuation.__init__(self)
+        self.refs = refs_dict
+    def resolve_tasklocal_reference_with_ref(self, ref):
+        try:
+            return self.refs[ref.id]
+        except KeyError:
+            return SkyPyBlankContinuation.resolve_tasklocal_reference_with_ref(self, ref)
+
 class SWSkyPyTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy, skypybase):
@@ -538,21 +559,12 @@ class SWSkyPyTask:
 
     def spawn_exec_func(self, executor_name, exec_args, new_task_id, exec_prefix, expected_output_ids):
 
-        inputs_list = []
-
-        # Canonicalise the references mentioned in the args-dict
-        # The alternative would be to keep the SkyPy context around and resolve references like we do for Execs.
-        # Better still, why not instantiate the Python aspect of the executor and have it tell us what it needs.
-        def args_check_mapper(leaf):
-            if isinstance(leaf, self.SkyPyOpaqueReference):
-                real_ref = SW2_FutureReference(leaf.id)
-                # I always give a Future here, as either I or someone else should be publishing its value.
-                ret = SWLocalReference(len(inputs_list))
-                inputs_list.append(real_ref)
-                return ret
-            return leaf
-        
-        transformed_args = map_leaf_values(args_check_mapper, exec_args)
+        fake_cont = SkyPyBlankContinuation()
+        # An environment that just returns FutureReferences whenever it's passed a SkyPyOpaqueReference
+        dummy_executor = self.execution_features.get_executor(executor_name, exec_args, fake_cont, expected_output_ids, self.master_proxy)
+        # Most of these parameters shouldn't actually get used.
+        transformed_args = dummy_executor.resolve_args_refs()
+        # This dict is exec_args with its refs transformed into FutureReferences.
 
         args_id = self.get_args_name_for_exec(exec_prefix)
         _, size_hint = self.block_store.store_object(transformed_args, 'pickle', args_id)
@@ -561,7 +573,7 @@ class SWSkyPyTask:
         args_ref.add_location_hint(self.block_store.netloc)
         self.refs_to_publish.append(args_ref)
         
-        inputs = dict(enumerate(inputs_list))
+        inputs = dict([(ref.id, SW2_FutureReference(ref.id)) for ref in fake_cont.exec_deps])
         inputs['_args'] = SW2_FutureReference(args_ref.id)
         # I really know more about this, but that information is conveyed by a publish.
         # I try to always nominate Futures as dependencies so that I can easily convert to a set-of-deps rather than a dict.
@@ -590,21 +602,7 @@ class SWSkyPyTask:
         
         output_ids = self.create_output_names_for_exec(executor_name, args, num_outputs)
 
-        class FakeContinuation:
-
-            def __init__(self, refs_dict):
-                self.refs = refs_dict
-                self.exec_deps = []
-            def resolve_tasklocal_reference_with_ref(self, ref):
-                try:
-                    return self.refs[ref.id]
-                except KeyError:
-                    return SW2_FutureReference(ref.id)
-            def mark_as_execd(self, ref):
-                # The executor will need this reference.
-                self.exec_deps.append(ref.id)
-
-        fake_cont = FakeContinuation(self.reference_cache)
+        fake_cont = SkyPyRefCacheContinuation(self.reference_cache)
         self.current_executor = self.execution_features.get_executor(executor_name, args, fake_cont, output_ids, self.master_proxy)
 
         try:
