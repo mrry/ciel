@@ -418,7 +418,7 @@ class SWSkyPyTask:
 
     def interpret(self):
 
-        pypy_args = ["/local/scratch/cs448/pypy-1.3/pypy/translator/goal/pypy-c", "/local/scratch/cs448/skywriting/src/python/skywriting/runtime/worker/skypy/stub.py", "--resume_state", self.coroutine_filename, "--source", self.py_source_filename, "--taskid", self.task_id]
+        pypy_args = ["pypy", self.skypybase + "/stub.py", "--resume_state", self.coroutine_filename, "--source", self.py_source_filename, "--taskid", self.task_id]
 
         pypy_process = subprocess.Popen(pypy_args, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
