@@ -338,34 +338,12 @@ class SWSkyPyTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy, skypybase):
 
+        ### Input parameters
+
         self.task_id = task_descriptor['task_id']
         self.skypybase = skypybase
-
-        import sys
-        # Skypy's reference descriptor:
-        sys.path.append(self.skypybase)
-        from opaque_ref import SkyPyOpaqueReference
-        self.SkyPyOpaqueReference = SkyPyOpaqueReference
-        sys.path = sys.path[:-1]
+        self.master_proxy = master_proxy
         
-        try:
-            self.original_task_id = task_descriptor['original_task_id']
-            self.replay_ref = task_descriptor['replay_ref']
-        except KeyError:
-            self.original_task_id = self.task_id
-            self.replay_ref = None
-
-        self.refs_to_publish = []
-        
-        self.expected_outputs = task_descriptor['expected_outputs']
-        self.inputs = task_descriptor['inputs']
-
-#        try:
-#            self.select_result = task_descriptor['select_result']
-#        except KeyError:
-#            self.select_result = None
-# No select yet
-            
         try:
             self.replay_uuid_list = task_descriptor['replay_uuids']
             self.replay_uuids = True
@@ -376,21 +354,42 @@ class SWSkyPyTask:
 
         self.block_store = block_store
         self.execution_features = execution_features
+        
+        try:
+            self.original_task_id = task_descriptor['original_task_id']
+            self.replay_ref = task_descriptor['replay_ref']
+        except KeyError:
+            self.original_task_id = self.task_id
+            self.replay_ref = None
+
+        self.expected_outputs = task_descriptor['expected_outputs']
+        self.inputs = task_descriptor['inputs']
+
+        ### Exit status
 
         self.spawn_list = []
+        self.refs_to_publish = []
         self.halt_dependencies = []
         self.halt_feature_requirement = None
         
-        self.master_proxy = master_proxy
-        
+        ### Transient local state
+
         self.is_running = True
-        
         self.current_executor = None
         
         # This starts out blank each run, possibly leading to repeated fetches (i.e. halts with dependencies)
         # of the same reference during a given run. This is the opposite suck to SWI's, in which it keeps a table
         # of all references it knows about and moves that table around, pruning it only when we spawn() or spawn_exec().
         self.reference_cache = dict()
+
+        ### Import SkyPy's internal reference descriptor, to save a rewriting stage
+
+        import sys
+        # Skypy's reference descriptor:
+        sys.path.append(self.skypybase)
+        from opaque_ref import SkyPyOpaqueReference
+        self.SkyPyOpaqueReference = SkyPyOpaqueReference
+        sys.path = sys.path[:-1]
         
     def fetch_inputs(self, block_store):
         coroutine_ref = None
@@ -559,7 +558,6 @@ class SWSkyPyTask:
         args_id = self.get_args_name_for_exec(exec_prefix)
         _, size_hint = self.block_store.store_object(args, 'pickle', args_id)
         args_ref = SW2_ConcreteReference(args_id, size_hint)
-        self.spawn_exec_counter += 1
         args_ref.add_location_hint(self.block_store.netloc)
         self.refs_to_publish.append(args_ref)
         
