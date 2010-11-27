@@ -412,9 +412,15 @@ class SWSkyPyTask:
         cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' % (self.coroutine_filename, self.py_source_filename), 'SKYPY', logging.INFO)
 
     def ref_from_raw_file(self, filename, refid):
+        # TODO: Merge with similar code in executors.py
+        # TODO: Likewise, figure out whether there's any point storing in our block store
         _, size_hint = self.block_store.store_file(filename, refid, can_move=True)
-        real_ref = SW2_ConcreteReference(refid, size_hint)
-        real_ref.add_location_hint(self.block_store.netloc)
+        if size_hint < 1024:
+            with open(filename, "r") as f:
+                real_ref = SWDataValue(refid, f.read())
+        else:
+            real_ref = SW2_ConcreteReference(refid, size_hint)
+            real_ref.add_location_hint(self.block_store.netloc)
         self.refs_to_publish.append(real_ref)
         return real_ref
 
@@ -557,8 +563,11 @@ class SWSkyPyTask:
 
         args_id = self.get_args_name_for_exec(exec_prefix)
         _, size_hint = self.block_store.store_object(args, 'pickle', args_id)
-        args_ref = SW2_ConcreteReference(args_id, size_hint)
-        args_ref.add_location_hint(self.block_store.netloc)
+        if size_hint < 1024:
+            args_ref = SWDataValue(args_id, pickle.dumps(args))
+        else:
+            args_ref = SW2_ConcreteReference(args_id, size_hint)
+            args_ref.add_location_hint(self.block_store.netloc)
         self.refs_to_publish.append(args_ref)
         
         inputs = dict([(refid, SW2_FutureReference(refid)) for refid in fake_cont.exec_deps])

@@ -16,10 +16,11 @@ from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference
+    SWDataValue, SW2_StreamReference, SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException, MissingInputException,\
     RuntimeSkywritingError
+import simplejson
 import logging
 import shutil
 import subprocess
@@ -203,15 +204,21 @@ class ProcessRunningExecutor(SWExecutor):
             raise OSError()
         cherrypy.engine.publish("worker_event", "Executor: Storing outputs")
         for i, filename in enumerate(file_outputs):
-                    
+
             if self.stream_output:
                 _, size_hint = block_store.commit_file(filename, self.output_ids[i], can_move=True)
             else:
                 _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            
-            # XXX: fix provenance.
-            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
-            real_ref.add_location_hint(block_store.netloc)
+
+            # XXX: Is there any point storing this thing in the block store if we're going to DataValue it?
+            # TODO: Generalise this to e.g. the URLExecutor
+            if size_hint < 1024:
+                with open(filename, "r") as f:
+                    # Note no encoding: the process is responsible for using an appropriate encoding.
+                    real_ref = SWDataValue(self.output_ids[i], f.read())
+            else:
+                real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
+                real_ref.add_location_hint(block_store.netloc)
             self.publish_callback(real_ref)
             
         cherrypy.engine.publish("worker_event", "Executor: Done")
@@ -529,8 +536,12 @@ class GrabURLExecutor(SWExecutor):
         
         for i, url in enumerate(urls):
             ref = block_store.get_ref_for_url(url, version, task_id)
-            # TODO: DataValues store strings now, so this should be something else
-            out_ref = SWDataValue(self.output_ids[i], ref)
+            out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
+            # TODO: Ideally executors publishing references shouldn't be the ones to decide 
+            # whether they're Values or Concretes. Admittedly this single ref is unlikely to be large, however :)
+            # TODO #2: We're in the unusual position of knowing the decoded form of a reference.
+            # We should push this into the block_store's reference cache.
+            out_ref = SWDataValue(self.output_ids[i], out_str)
             self.publish_callback(ref)
             self.publish_callback(out_ref)
 
@@ -547,4 +558,5 @@ class SyncExecutor(SWExecutor):
 
     def _execute(self, block_store, task_id):
         self.inputs = self.args['inputs']
-        self.publish_callback(SWDataValue(self.output_ids[0], True))
+        # TODO: Ditto the Grabber's comment re: Values vs Concretes?
+        self.publish_callback(SWDataValue(self.output_ids[0], simplejson.dumps(True)))
