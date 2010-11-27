@@ -424,39 +424,31 @@ class SWSkyPyTask:
 
         while True:
             
-            next_rq = pickle.load(pypy_process.stdout)
-            cherrypy.log.error("Request: %s" % next_rq, "SKYPY", logging.DEBUG)
-            if next_rq["request"] == "deref":
-                filename = self.filename_for_ref(next_rq["id"])
-                cherrypy.log.error("Pypy dereferenced %s, returning %s" % (next_rq["id"], filename), "SKYPY", logging.INFO)
+            request_args = pickle.load(pypy_process.stdout)
+            request = request_args["request"]
+            del request_args["request"]
+            cherrypy.log.error("Request: %s, args %s" % (request, request_args), "SKYPY", logging.DEBUG)
+            if request == "deref":
+                filename = self.filename_for_ref(**request_args)
+                cherrypy.log.error("Pypy dereferenced %s, returning %s" 
+                                   % (request_args["id"], filename), "SKYPY", logging.INFO)
                 # filename might be None -- in that case the interpreter won't be able to continue and will stop soon.
                 if filename is None:
-                    self.halt_dependencies.append(next_rq["id"])
+                    self.halt_dependencies.append(request_args["id"])
                 pickle.dump({"filename": filename}, pypy_process.stdin)
-            elif next_rq["request"] == "deref_json":
+            elif request == "deref_json":
                 try:
-                    pickle.dump({"obj": self.deref_json(next_rq["id"]), "success": True}, pypy_process.stdin)
+                    pickle.dump({"obj": self.deref_json(**request_args), "success": True}, pypy_process.stdin)
                 except ReferenceUnavailableException:
-                    self.halt_dependencies.append(next_rq["id"])
+                    self.halt_dependencies.append(request_args["id"])
                     pickle.dump({"success": False}, pypy_process.stdin)
-            elif next_rq["request"] == "spawn":
-                spawn_coro_file = next_rq["coro_filename"]
-                new_task_id = next_rq["new_task_id"]
-                output_id = next_rq["output_id"]
-                self.spawn_func(spawn_coro_file, new_task_id, output_id)
-            elif next_rq["request"] == "spawn_exec":
-                executor_name = next_rq["executor_name"]
-                spawn_args = next_rq["args"]
-                new_task_id = next_rq["new_task_id"]
-                output_ids = next_rq["output_ids"]
-                exec_prefix = next_rq["exec_prefix"]
-                self.spawn_exec_func(executor_name, spawn_args, new_task_id, exec_prefix, output_ids)
-            elif next_rq["request"] == "exec":
-                executor_name = next_rq["executor_name"]
-                args = next_rq["args"]
-                n_outputs = next_rq["n_outputs"]
+            elif request == "spawn":
+                self.spawn_func(**request_args)
+            elif request == "spawn_exec":
+                self.spawn_exec_func(**request_args)
+            elif request == "exec":
                 try:
-                    output_ref_names = self.exec_func(executor_name, args, n_outputs)
+                    output_ref_names = self.exec_func(**request_args)
                     pickle.dump({"success": True, "output_names": output_ref_names}, pypy_process.stdin)
                 except ReferenceUnavailableException:
                     pickle.dump({"success": False}, pypy_process.stdin)
@@ -464,20 +456,20 @@ class SWSkyPyTask:
                     pickle.dump({"success": False}, pypy_process.stdin)
                     self.halt_feature_requirement = exn.feature_name
                     # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
-            elif next_rq["request"] == "freeze":
+            elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                self.exit_file = next_rq["coro_filename"]
-                cont_task_id = next_rq["new_task_id"]
-                self.halt_dependencies.extend(list(next_rq["additional_deps"]))
+                self.exit_file = request_args["coro_filename"]
+                cont_task_id = request_args["new_task_id"]
+                self.halt_dependencies.extend(list(request_args["additional_deps"]))
                 self.exit_done = False
                 break
-            elif next_rq["request"] == "done":
+            elif request == "done":
                 # The interpreter is stopping because the function has completed
-                self.exit_file = next_rq["retval_filename"]
+                self.exit_file = request_args["retval_filename"]
                 self.exit_done = True
                 break
-            elif next_rq["request"] == "exception":
-                report_file = next_rq["report_filename"]
+            elif request == "exception":
+                report_file = request_args["report_filename"]
                 report_fp = open(report_file, "r")
                 report_text = pickle.load(report_fp)
                 report_fp.close()
@@ -530,7 +522,7 @@ class SWSkyPyTask:
         
         master_proxy.commit_task(self.task_id, commit_bindings, None, self.replay_uuid_list)
 
-    def spawn_func(self, coro_filename, new_task_id, new_task_expected_output_id):
+    def spawn_func(self, coro_filename, new_task_id, output_id):
 
         coro_ref = self.ref_from_raw_file(coro_filename, self.get_spawn_continuation_object_id(new_task_id))
         
@@ -539,12 +531,12 @@ class SWSkyPyTask:
         task_descriptor = {'task_id': new_task_id,
                            'handler': 'skypy',
                            'dependencies': new_task_deps, 
-                           'expected_outputs': [str(new_task_expected_output_id)]
+                           'expected_outputs': [str(output_id)]
                           }
 
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
 
-    def spawn_exec_func(self, executor_name, exec_args, new_task_id, exec_prefix, expected_output_ids):
+    def spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids):
 
         # An environment that just returns FutureReferences whenever it's passed a SkyPyOpaqueReference
         fake_cont = SkyPyBlankContinuation()
@@ -552,13 +544,13 @@ class SWSkyPyTask:
         executor = self.execution_features.get_executor(executor_name)
 
         # Replace all relevant OpaqueReferences with FutureReferences, and log all ref IDs touched in the Continuation
-        executor.resolve_args_refs(exec_args, fake_cont)
+        executor.resolve_args_refs(args, fake_cont)
 
         # Throw early if the args are bad
-        executor.check_args_valid(exec_args, expected_output_ids)
+        executor.check_args_valid(args, expected_output_ids)
 
         args_id = self.get_args_name_for_exec(exec_prefix)
-        _, size_hint = self.block_store.store_object(exec_args, 'pickle', args_id)
+        _, size_hint = self.block_store.store_object(args, 'pickle', args_id)
         args_ref = SW2_ConcreteReference(args_id, size_hint)
         self.spawn_exec_counter += 1
         args_ref.add_location_hint(self.block_store.netloc)
@@ -589,9 +581,9 @@ class SWSkyPyTask:
         prefix = '%s:%s:' % (executor_name, sha.hexdigest())
         return ['%s%d' % (prefix, i) for i in range(num_outputs)]
 
-    def exec_func(self, executor_name, args, num_outputs):
+    def exec_func(self, executor_name, args, n_outputs):
         
-        output_ids = self.create_output_names_for_exec(executor_name, args, num_outputs)
+        output_ids = self.create_output_names_for_exec(executor_name, args, n_outputs)
 
         fake_cont = SkyPyRefCacheContinuation(self.reference_cache)
         self.current_executor = self.execution_features.get_executor(executor_name)
