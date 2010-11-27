@@ -38,6 +38,7 @@ def main():
     parser = OptionParser()
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
     parser.add_option("-i", "--id", action="store", dest="id", help="Job ID", metavar="ID", default="default")
+    parser.add_option("-s", "--skypy-stub", action="store", dest="skypy_stub", help="Path to Skypy stub.py", metavar="PATH", default=None)
     (options, args) = parser.parse_args()
    
     if not options.master:
@@ -58,7 +59,7 @@ def main():
     print id, "STARTED", now_as_timestamp()
 
     script_name = args[0]
-    pypy_args = ["/local/scratch/cs448/pypy-1.3/pypy/translator/goal/pypy-c", "/local/scratch/cs448/skywriting/src/python/skywriting/runtime/worker/skypy/stub.py", "--source", script_name]
+    pypy_args = ["pypy", options.skypy_stub, "--source", script_name]
     pypy_process = subprocess.Popen(pypy_args, stdout=initial_coro_fp)
     os.close(initial_coro_fp)
     pypy_process.wait()
