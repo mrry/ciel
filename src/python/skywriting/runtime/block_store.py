@@ -967,7 +967,7 @@ class BlockStore(plugins.SimplePlugin):
     
     def store_object(self, object, encoder, id):
         """Stores the given object as a block, and returns a swbs URL to it."""
-        self.object_cache[id] = object
+        self.object_cache[(id, decoder)] = object
         with open(self.filename(id), "wb") as object_file:
             self.encoders[encoder](object, object_file)
             file_size = object_file.tell()
@@ -1044,9 +1044,10 @@ class BlockStore(plugins.SimplePlugin):
             raise RuntimeSkywritingError()
         elif isinstance(ref, SWDataValue):
             id = ref.id
-            with open(self.filename(id), 'w') as obj_file:
-                self.encode_json(ref.value, obj_file)
-            return self.filename(id)
+            filename = self.filename(id)
+            with open(filename, 'w') as obj_file:
+                obj_file.write(ref.value)
+            return filename
         elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
             maybe_local_filename = self.filename(ref.id)
             if os.path.exists(maybe_local_filename):
@@ -1060,20 +1061,59 @@ class BlockStore(plugins.SimplePlugin):
                     return parsed_url.path
             return find_first_cached(ref.urls)
 
+    def try_retrieve_string_for_ref_without_transfer(self, ref):
+        assert isinstance(ref, SWRealReference)
+
+        def find_first_cached(urls):
+            for url in urls:
+                filename = self.find_url_in_cache(url)
+                if filename is not None:
+                    return filename
+            return None
+
+        if isinstance(ref, SWErrorReference):
+            raise RuntimeSkywritingError()
+        elif isinstance(ref, SWDataValue):
+            return ref.value
+        elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+            maybe_local_filename = self.filename(ref.id)
+            to_read = None
+            if os.path.exists(maybe_local_filename):
+                to_read = maybe_local_filename
+            else:
+                check_urls = ["swbs://%s/%s" % (loc_hint, str(ref.id)) for loc_hint in ref.location_hints]
+                to_read = find_first_cached(check_urls)
+            if to_read is not None:
+                with open(to_read, "r") as f:
+                    return f.read()
+            else:
+                return None
+        elif isinstance(ref, SWURLReference):
+            to_read = None
+            for url in ref.urls:
+                parsed_url = urlparse.urlparse(url)
+                if parsed_url.scheme == "file":
+                    return to_read = parsed_url.path
+            if to_read is None:
+                to_read = find_first_cached(ref.urls)        
+            if to_read is not None:
+                with open(to_read, "r") as f:
+                    return f.read()
+            else:
+                return None
+
     def try_retrieve_object_for_ref_without_transfer(self, ref, decoder):
 
         # Basically like the same task for files, but with the possibility of cached decoded forms
-        if isinstance(ref, SW2_ConcreteReference):
-            for loc in ref.location_hints:
-                if loc == self.netloc:
-                    try:
-                        return self.object_cache[ref.id]
-                    except:
-                        pass
-        cached_file = self.try_retrieve_filename_for_ref_without_transfer(ref)
-        if cached_file is not None:
-            with open(cached_file, "r") as f:
-                return self.decoders[decoder](f)
+        try:
+            return self.object_cache[(ref.id, decoder)]
+        except:
+            pass
+        str = self.try_retrieve_string_for_ref_without_transfer(ref)
+        if str is not None:
+            decoded = self.decoders[decoder](StringIO(str))
+            self.object_cache[(ref.id, decoder)] = decoded
+            return decoded
         return None
 
     def get_fetch_urls_for_ref(self, ref):
@@ -1194,7 +1234,9 @@ class BlockStore(plugins.SimplePlugin):
                 j += 1
                 if next_object.has_succeeded:
                     next_object.buffer.seek(0)
-                    result_list[i] = self.decoders[decoder](next_object.buffer)
+                    decoded = self.decoders[decoder](next_object.buffer)
+                    self.object_cache[(ref.id, decoder)] = decoded
+                    result_list[i] = decoded
                 else:
                     failure_bindings[ref.id] = SW2_TombstoneReference(ref.id, ref.location_hints)
 

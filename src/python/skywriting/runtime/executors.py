@@ -529,6 +529,7 @@ class GrabURLExecutor(SWExecutor):
         
         for i, url in enumerate(urls):
             ref = block_store.get_ref_for_url(url, version, task_id)
+            # TODO: DataValues store strings now, so this should be something else
             out_ref = SWDataValue(self.output_ids[i], ref)
             self.publish_callback(ref)
             self.publish_callback(out_ref)

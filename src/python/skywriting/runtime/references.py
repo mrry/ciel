@@ -225,7 +225,8 @@ class SWURLReference(SWRealReference):
 
 class SWDataValue(SWRealReference):
     """
-    Used to store data that has been dereferenced and loaded into the environment.
+    This is akin to a SW2_ConcreteReference which encapsulates its own data.
+    The data is always a string, and must be decoded using block_store functions much like Concrete refs.
     """
     
     def __init__(self, id, value):
@@ -236,7 +237,7 @@ class SWDataValue(SWRealReference):
         return ('val', self.id, self.value)
     
     def as_binrepr(self):
-        return reftype_to_packed('dv') + id_to_packed(self.id) + string_to_packed(simplejson.dumps(self.value, cls=SWReferenceJSONEncoder))
+        return reftype_to_packed('dv') + id_to_packed(self.id) + string_to_packed(self.value)
     
     def __repr__(self):
         return 'SWDataValue(%s, %s)' % (repr(self.id), repr(self.value))

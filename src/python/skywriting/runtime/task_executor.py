@@ -671,7 +671,7 @@ class SWSkyPyTask:
             hash.update(value.urls[0])
         elif isinstance(value, SWDataValue):
             hash.update('ref*')
-            self.hash_update_with_structure(hash, value.value)
+            hash.update(hash, value.value)
         else:
             hash.update(str(value))
 
@@ -806,10 +806,7 @@ class SWRuntimeInterpreterTask:
                 return
             
             if self.continuation.is_marked_as_dereferenced(local_id):
-                if isinstance(ref, SWDataValue):
-                    self.continuation.rewrite_reference(local_id, ref)
-                else:
-                    fetch_objects.append((local_id, ref))
+                fetch_objects.append((local_id, ref))
             elif self.continuation.is_marked_as_execd(local_id):
                 self.continuation.rewrite_reference(local_id, ref)
             else:
@@ -999,7 +996,9 @@ class SWRuntimeInterpreterTask:
                 save_cont_uri = None
             master_proxy.commit_task(self.task_id, commit_bindings, save_cont_uri, self.replay_uuid_list)
             return
-        
+
+        # TODO: Get a *string* back from the block_store for the data-value
+
         serializable_result = map_leaf_values(self.convert_tasklocal_to_real_reference, self.result)
 
         _, size_hint = block_store.store_object(serializable_result, 'json', self.expected_outputs[0])
@@ -1188,6 +1187,7 @@ class SWRuntimeInterpreterTask:
 
     def eager_dereference(self, ref):
         real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
+        # TODO: DataValues store strings, so we still need a decode step here
         if isinstance(real_ref, SWDataValue):
             return map_leaf_values(self.convert_real_to_tasklocal_reference, real_ref.value)
         else:
