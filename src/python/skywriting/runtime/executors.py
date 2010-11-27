@@ -99,12 +99,12 @@ class SWExecutor:
         files, ctx = self.get_filenames(block_store, [ref])
         return (files[0], ctx)
 
-    def execute(self, block_store, task_id, args, expected_output_ids, master_proxy, fetch_limit=None):
+    def execute(self, block_store, task_id, args, expected_output_ids, publish_callback, master_proxy, fetch_limit=None):
         # On entry: args have been checked for validity and their relevant refs resolved to consumable references (i.e. Concrete, Streaming, DataValue).
         self.output_ids = expected_output_ids
-        self.output_refs = [None for id in self.output_ids]
         self.fetch_limit = fetch_limit
         self.master_proxy = master_proxy
+        self.publish_callback = publish_callback
         self.succeeded = False
         self.args = args
         try:
@@ -167,7 +167,7 @@ class ProcessRunningExecutor(SWExecutor):
         with self._lock:
             self.transfer_ctx = transfer_ctx
         file_outputs = []
-        for i in range(len(self.output_refs)):
+        for i in range(len(self.output_ids)):
             with tempfile.NamedTemporaryFile(delete=False) as this_file:
                 file_outputs.append(this_file.name)
         
@@ -212,7 +212,7 @@ class ProcessRunningExecutor(SWExecutor):
             # XXX: fix provenance.
             real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
             real_ref.add_location_hint(block_store.netloc)
-            self.output_refs[i] = real_ref
+            self.publish_callback(real_ref)
             
         cherrypy.engine.publish("worker_event", "Executor: Done")
 
@@ -529,7 +529,9 @@ class GrabURLExecutor(SWExecutor):
         
         for i, url in enumerate(urls):
             ref = block_store.get_ref_for_url(url, version, task_id)
-            self.output_refs[i] = SWDataValue(self.output_ids[i], ref)
+            out_ref = SWDataValue(self.output_ids[i], ref)
+            self.publish_callback(ref)
+            self.publish_callback(out_ref)
 
         cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
             
@@ -544,4 +546,4 @@ class SyncExecutor(SWExecutor):
 
     def _execute(self, block_store, task_id):
         self.inputs = self.args['inputs']
-        self.output_refs[0] = SWDataValue(self.output_ids[0], True)
+        self.publish_callback(SWDataValue(self.output_ids[0], True))

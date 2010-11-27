@@ -199,6 +199,7 @@ class SWExecutorTaskExecutionRecord:
         self.executor_name = task_descriptor['handler']
         self.executor = None
         self.is_running = True
+        self.published_refs = []
         self._lock = Lock()
     
     def abort(self):
@@ -219,10 +220,12 @@ class SWExecutorTaskExecutionRecord:
         self.exec_args = self.task_executor.block_store.retrieve_object_for_ref(inputs["_args"], 'pickle')
         self.inputs = inputs
         
+    # Callback for executor to register knowledge about a reference
+    def publish_ref(self, ref):
+        self.published_refs.append(ref)
+        
     def commit(self):
-        commit_bindings = {}
-        for i, output_ref in enumerate(self.executor.output_refs):
-            commit_bindings[self.expected_outputs[i]] = output_ref
+        commit_bindings = dict([(ref.id, ref) for ref in self.published_refs])
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
     
     def execute(self):        
@@ -244,7 +247,13 @@ class SWExecutorTaskExecutionRecord:
                 # No need to check args: they were checked earlier by whoever made this task
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Executing")
-                self.executor.execute(self.task_executor.block_store, self.task_id, self.exec_args, self.expected_outputs, self.task_executor.master_proxy)
+                self.executor.execute(self.task_executor.block_store, 
+                                      self.task_id, 
+                                      self.exec_args, 
+                                      self.expected_outputs, 
+                                      self.publish_ref,
+                                      self.task_executor.master_proxy)
+
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Committing")
                 self.commit()
@@ -377,8 +386,6 @@ class SWSkyPyTask:
         self.is_running = True
         
         self.current_executor = None
-        self.exec_result_counter = 0
-        self.spawn_exec_counter = 0
         
         # This starts out blank each run, possibly leading to repeated fetches (i.e. halts with dependencies)
         # of the same reference during a given run. This is the opposite suck to SWI's, in which it keeps a table
@@ -581,13 +588,19 @@ class SWSkyPyTask:
         prefix = '%s:%s:' % (executor_name, sha.hexdigest())
         return ['%s%d' % (prefix, i) for i in range(num_outputs)]
 
+    # Callback for executors to announce that they know something about a reference.
+    def publish_reference(self, ref):
+        self.reference_cache[ref.id] = ref
+        self.refs_to_publish.append(ref)
+
     def exec_func(self, executor_name, args, n_outputs):
         
         output_ids = self.create_output_names_for_exec(executor_name, args, n_outputs)
 
         fake_cont = SkyPyRefCacheContinuation(self.reference_cache)
         self.current_executor = self.execution_features.get_executor(executor_name)
-        # Resolve all of our OpaqueReferences to RealReferences, and as a side-effect record all refs touched in the Continuation.
+        # Resolve all of our OpaqueReferences to RealReferences, 
+        # and as a side-effect record all refs touched in the Continuation.
         # Side-effect: modified args.
         self.current_executor.resolve_args_refs(args, fake_cont)
         # Might throw a BlameUserException.
@@ -599,19 +612,15 @@ class SWSkyPyTask:
                 raise ReferenceUnavailableException(SW2_FutureReference(refid), None)
 
         # Might raise runtime errors
-        self.current_executor.execute(self.block_store, self.task_id, args, output_ids, self.master_proxy)
+        self.current_executor.execute(self.block_store, 
+                                      self.task_id, 
+                                      args, 
+                                      output_ids,
+                                      self.publish_reference,
+                                      self.master_proxy)
 
-        for ref in self.current_executor.output_refs:
-            self.exec_result_counter += 1
-            self.refs_to_publish.append(ref)
-        
-        output_refs = self.current_executor.output_refs
-        for ref in output_refs:
-            self.reference_cache[ref.id] = ref
-
-        ret = [ref.id for ref in output_refs]
         self.current_executor = None
-        return ret
+        return output_ids
 
     def filename_for_ref(self, id):
         cherrypy.log.error("Deref to file: %s" % id, "SKYPY", logging.INFO)
@@ -631,12 +640,6 @@ class SWSkyPyTask:
             def opaqueify_ref(x):
                 if isinstance(x, SWRealReference):
                     self.reference_cache[x.id] = x
-                    # This is a bit grim -- responsibility lies on the first "discoverer" of a reference to publish it.
-                    # This is used by the Grab executor, which yields a ref-to-a-ref and doesn't publish the inner ref.
-                    # As far as I can see all refs coming out of SWI would be published by the worker that defined them,
-                    # so we'd be alright not doing this in that case.
-                    # TODO: Fix this.
-                    self.refs_to_publish.append(x)
                     return self.SkyPyOpaqueReference(x.id)
                 else:
                     return x
