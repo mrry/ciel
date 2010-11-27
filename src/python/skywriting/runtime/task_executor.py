@@ -241,7 +241,7 @@ class SWExecutorTaskExecutionRecord:
                 fake_cont = SkyPyRefCacheContinuation(self.inputs)
                 # Rewrite refs this executor needs using our inputs as a name table
                 self.executor.resolve_args_refs(self.exec_args, fake_cont)
-                # No need to check args: they're already valid
+                # No need to check args: they were checked earlier by whoever made this task
             if self.is_running:
                 cherrypy.engine.publish("worker_event", "Executing")
                 self.executor.execute(self.task_executor.block_store, self.task_id, self.exec_args, self.expected_outputs, self.task_executor.master_proxy)
@@ -389,15 +389,11 @@ class SWSkyPyTask:
         coroutine_ref = None
         self.pyfile_ref = None
 
-        for id, ref in self.inputs.items():
-            if id == '_coro':
-                coroutine_ref = ref
-            elif id == '_py':
-                self.pyfile_ref = ref
-            else:
-                self.reference_cache[id] = ref
-
-        if coroutine_ref is None or self.pyfile_ref is None:
+        self.reference_cache = self.inputs
+        try:
+            coroutine_ref = self.reference_cache["_coro"]
+            self.pyfile_ref = self.reference_cache["_py"]
+        except KeyError:
             raise Exception("SkyPy tasks must have a _coro and a _py input")
 
         rq_list = [coroutine_ref, self.pyfile_ref]
