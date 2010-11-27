@@ -547,7 +547,7 @@ class SWSkyPyTask:
         executor.resolve_args_refs(args, fake_cont)
 
         # Throw early if the args are bad
-        executor.check_args_valid(args, expected_output_ids)
+        executor.check_args_valid(args, output_ids)
 
         args_id = self.get_args_name_for_exec(exec_prefix)
         _, size_hint = self.block_store.store_object(args, 'pickle', args_id)
@@ -564,7 +564,7 @@ class SWSkyPyTask:
         task_descriptor = {'task_id': new_task_id,
                            'handler': executor_name, 
                            'dependencies': inputs,
-                           'expected_outputs': expected_output_ids}
+                           'expected_outputs': output_ids}
         
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
         
