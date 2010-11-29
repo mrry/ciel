@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import tempfile
 import os
+import os.path
 import cherrypy
 import threading
 import time
@@ -205,20 +206,22 @@ class ProcessRunningExecutor(SWExecutor):
         cherrypy.engine.publish("worker_event", "Executor: Storing outputs")
         for i, filename in enumerate(file_outputs):
 
-            if self.stream_output:
-                _, size_hint = block_store.commit_file(filename, self.output_ids[i], can_move=True)
-            else:
-                _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-
-            # XXX: Is there any point storing this thing in the block store if we're going to DataValue it?
             # TODO: Generalise this to e.g. the URLExecutor
-            if size_hint < 1024:
+            file_size = os.path.getsize(filename)
+            if file_size < 1024:
                 with open(filename, "r") as f:
                     # Note no encoding: the process is responsible for using an appropriate encoding.
-                    real_ref = SWDataValue(self.output_ids[i], f.read())
+                    real_ref = SWDataValue(self.output_ids[i], f.read())                
+                if self.stream_output:
+                    block_store.rollback_file(self.output_ids[i])
             else:
-                real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
+                if self.stream_output:
+                    block_store.commit_file(filename, self.output_ids[i], can_move=True)
+                else:
+                    block_store.store_file(filename, self.output_ids[i], can_move=True)
+                real_ref = SW2_ConcreteReference(self.output_ids[i], file_size)
                 real_ref.add_location_hint(block_store.netloc)
+
             self.publish_callback(real_ref)
             
         cherrypy.engine.publish("worker_event", "Executor: Done")

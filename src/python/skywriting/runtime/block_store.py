@@ -967,7 +967,7 @@ class BlockStore(plugins.SimplePlugin):
     
     def store_object(self, object, encoder, id):
         """Stores the given object as a block, and returns a swbs URL to it."""
-        self.object_cache[(id, decoder)] = object
+        self.object_cache[(id, encoder)] = object
         with open(self.filename(id), "wb") as object_file:
             self.encoders[encoder](object, object_file)
             file_size = object_file.tell()
@@ -1093,7 +1093,7 @@ class BlockStore(plugins.SimplePlugin):
             for url in ref.urls:
                 parsed_url = urlparse.urlparse(url)
                 if parsed_url.scheme == "file":
-                    return to_read = parsed_url.path
+                    to_read = parsed_url.path
             if to_read is None:
                 to_read = find_first_cached(ref.urls)        
             if to_read is not None:

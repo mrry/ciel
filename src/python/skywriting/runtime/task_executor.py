@@ -32,6 +32,7 @@ import uuid
 import hashlib
 import subprocess
 import pickle
+import os.path
 from skywriting.runtime.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWErrorReference, SW2_FutureReference,\
@@ -413,13 +414,14 @@ class SWSkyPyTask:
 
     def ref_from_raw_file(self, filename, refid):
         # TODO: Merge with similar code in executors.py
-        # TODO: Likewise, figure out whether there's any point storing in our block store
-        _, size_hint = self.block_store.store_file(filename, refid, can_move=True)
-        if size_hint < 1024:
+        
+        size = os.path.getsize(filename)
+        if size < 1024:
             with open(filename, "r") as f:
                 real_ref = SWDataValue(refid, f.read())
         else:
-            real_ref = SW2_ConcreteReference(refid, size_hint)
+            _ = self.block_store.store_file(filename, refid, can_move=True)
+            real_ref = SW2_ConcreteReference(refid, size)
             real_ref.add_location_hint(self.block_store.netloc)
         self.refs_to_publish.append(real_ref)
         return real_ref
