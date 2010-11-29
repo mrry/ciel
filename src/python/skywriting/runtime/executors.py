@@ -206,14 +206,11 @@ class ProcessRunningExecutor(SWExecutor):
         cherrypy.engine.publish("worker_event", "Executor: Storing outputs")
         for i, filename in enumerate(file_outputs):
 
-            # TODO: Generalise this to e.g. the URLExecutor
             file_size = os.path.getsize(filename)
-            if file_size < 1024:
+            if file_size < 1024 and not self.stream_output:
                 with open(filename, "r") as f:
                     # Note no encoding: the process is responsible for using an appropriate encoding.
-                    real_ref = SWDataValue(self.output_ids[i], f.read())                
-                if self.stream_output:
-                    block_store.rollback_file(self.output_ids[i])
+                    real_ref = SWDataValue(self.output_ids[i], f.read())
             else:
                 if self.stream_output:
                     block_store.commit_file(filename, self.output_ids[i], can_move=True)
@@ -540,10 +537,7 @@ class GrabURLExecutor(SWExecutor):
         for i, url in enumerate(urls):
             ref = block_store.get_ref_for_url(url, version, task_id)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
-            # TODO: Ideally executors publishing references shouldn't be the ones to decide 
-            # whether they're Values or Concretes. Admittedly this single ref is unlikely to be large, however :)
-            # TODO #2: We're in the unusual position of knowing the decoded form of a reference.
-            # We should push this into the block_store's reference cache.
+            block_store.cache_object(ref, "json", self.output_ids[i])
             out_ref = SWDataValue(self.output_ids[i], out_str)
             self.publish_callback(ref)
             self.publish_callback(out_ref)
@@ -561,5 +555,5 @@ class SyncExecutor(SWExecutor):
 
     def _execute(self, block_store, task_id):
         self.inputs = self.args['inputs']
-        # TODO: Ditto the Grabber's comment re: Values vs Concretes?
+        block_store.cache_object(True, "json", self.output_ids[0])
         self.publish_callback(SWDataValue(self.output_ids[0], simplejson.dumps(True)))

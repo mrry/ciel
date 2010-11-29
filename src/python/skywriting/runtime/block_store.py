@@ -965,9 +965,12 @@ class BlockStore(plugins.SimplePlugin):
             file_size = data_file.tell()
         return 'swbs://%s/%s' % (self.netloc, str(id)), file_size            
     
+    def cache_object(self, object, encoder, id):
+        self.object_cache[(id, encoder)] = object        
+
     def store_object(self, object, encoder, id):
         """Stores the given object as a block, and returns a swbs URL to it."""
-        self.object_cache[(id, encoder)] = object
+        self.cache_object(object, encoder, id)
         with open(self.filename(id), "wb") as object_file:
             self.encoders[encoder](object, object_file)
             file_size = object_file.tell()
