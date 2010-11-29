@@ -81,8 +81,6 @@ class Worker(plugins.SimplePlugin):
         if options.lib is not None:
             self.cherrypy_conf["/stdlib"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.lib }
 
-
-
         self.subscribe()
 
     def subscribe(self):
