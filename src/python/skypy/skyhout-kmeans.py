@@ -10,14 +10,15 @@ def mapreduce(inputs, mapper, reducer, r):
     return map(reducer, reduce_inputs)
 
 def grab(url):
-    return skypy.spawn_exec("grab", {"urls": [url], "version": 0}, 1)
+    ref = (skypy.spawn_exec("grab", {"urls": [url], "version": 0}, 1))[0]
+    return (skypy.deref_json(ref))
 
 def java(class_name, input_refs, argv, jar_refs, num_outputs):
     return skypy.spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv}, num_outputs)
 
-convergence_delta = "0.00000001";
+convergence_delta = "0.00000001"
 
-def skypy_main():
+def skypy_main(vector_in, cluster_in):
     jar_lib = map(grab, 
                   ["http://www.cl.cam.ac.uk/~dgm36/skyhout.jar",
                    "http://www.cl.cam.ac.uk/~dgm36/mahout-core-0.3.jar",
@@ -44,7 +45,7 @@ def skypy_main():
                           reduce_input + [old_clusters],
                           [convergenceDelta],
                           jar_lib,
-                          2);
+                          2)
             return {"cluster" : result[0], "converged" : skypy.deref(result[1])}
 	
 	new_clusters_and_decisions = mapreduce(data_chunks, kmeans_map, kmeans_reduce, num_reducers)
@@ -59,8 +60,8 @@ def skypy_main():
 	return {"converged" : converged, "clusters" : new_clusters[0]}
 
     # TODO: Something about this
-    input_vectors = grab(env["VECTOR_INPUT_URL"])
-    input_clusters = grab(env["CLUSTER_INPUT_URL"])[0]
+    input_vectors = skypy.deref_json(grab(vector_in))
+    input_clusters = (skypy.deref_json(grab(cluster_in)))[0]
 
     r = 1
     i = 0
