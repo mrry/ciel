@@ -4,6 +4,7 @@ import hashlib
 import tempfile
 import traceback
 import os
+from StringIO import StringIO
 
 from opaque_ref import SkyPyOpaqueReference
 
@@ -25,6 +26,35 @@ halt_reason = 0
 HALT_REFERENCE_UNAVAILABLE = 1
 HALT_DONE = 2
 HALT_RUNTIME_EXCEPTION = 3
+
+class MaybeFile:
+
+    def __init__(self):
+        self.real_fp = None
+        self.filename = None
+        self.bytes_written = 0
+        self.fake_fp = StringIO()
+
+    def write(self, str):
+        if self.real_fp is not None:
+            self.real_fp.write(str)
+        else:
+            if self.bytes_written + len(str) > 1024:
+                self.fd, self.filename = tempfile.mkstemp()
+                self.real_fp = os.fdopen(self.fd, "w")
+                self.real_fp.write(self.fake_fp.getvalue())
+                self.real_fp.write(str)
+                self.fake_fp.close()
+            else:
+                self.bytes_written += len(str)
+                self.fake_fp.write(str)
+
+def describe_maybe_file(output_fp, out_dict):
+    if output_fp.real_fp is not None:
+        out_dict["filename"] = output_fp.filename
+        output_fp.real_fp.close()
+    else:
+        out_dict["outstr"] = output_fp.fake_fp.getvalue()
 
 class PersistentState:
     def __init__(self):
@@ -124,13 +154,15 @@ def spawn(spawn_callable):
     new_coro = stackless.coroutine()
     new_coro.bind(spawn_callable)
     save_obj = ResumeState(PersistentState(), new_coro)
-    new_coro_fd, new_coro_fname = tempfile.mkstemp()
-    new_coro_fp = os.fdopen(new_coro_fd)
+    new_coro_fp = MaybeFile()
     pickle.dump(save_obj, new_coro_fp)
-    new_coro_fp.close()
     new_task_id = create_spawned_task_name()
     output_id = create_spawn_output_name(new_task_id)
-    pickle.dump({"request": "spawn", "coro_filename": new_coro_fname, "new_task_id": new_task_id, "output_id": output_id}, runtime_out)
+    out_dict = {"request": "spawn", 
+                "new_task_id": new_task_id, 
+                "output_id": output_id}
+    describe_maybe_file(new_coro_fp, out_dict)
+    pickle.dump(out_dict, runtime_out)
     return SkyPyOpaqueReference(output_id)
 
 def hash_update_with_structure(hash, value):

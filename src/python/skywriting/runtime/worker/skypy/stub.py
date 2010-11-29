@@ -49,20 +49,20 @@ if resume_file is not None:
     user_coro = resume_state.coro
     user_coro.switch()
     # We're back -- either the user script is done, or else it's stuck waiting on a reference.
-    output_fd, output_filename = tempfile.mkstemp()
-    output_fp = os.fdopen(output_fd, "w")
+    output_fp = skypy.MaybeFile()
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
         pickle.dump(resume_state, output_fp)
-        output_fp.close()
-        pickle.dump({"request": "freeze", "coro_filename": output_filename, "new_task_id": skypy.halt_spawn_id, "additional_deps": skypy.persistent_state.ref_dependencies}, sys.stdout)
+        out_dict = {"request": "freeze", 
+                    "new_task_id": skypy.halt_spawn_id, 
+                    "additional_deps": skypy.persistent_state.ref_dependencies}
     elif skypy.halt_reason == skypy.HALT_DONE:
         pickle.dump(skypy.script_return_val, output_fp)
-        output_fp.close()
-        pickle.dump({"request": "done", "retval_filename": output_filename}, sys.stdout)
+        out_dict = {"request": "done"}
     elif skypy.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
         pickle.dump("Runtime exception %s\n%s" % (str(skypy.script_return_val), skypy.script_backtrace), output_fp)
-        output_fp.close()
-        pickle.dump({"request": "exception", "report_filename": output_filename}, sys.stdout)
+        out_dict = {"request": "exception"}
+    skypy.describe_maybe_file(output_fp, out_dict)
+    pickle.dump(out_dict, sys.stdout)
 
 else:
     try:

@@ -410,21 +410,27 @@ class SWSkyPyTask:
         self.coroutine_filename = filenames[0]
         self.py_source_filename = filenames[1]
         
-        cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' % (self.coroutine_filename, self.py_source_filename), 'SKYPY', logging.INFO)
+        cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
+                           % (self.coroutine_filename, self.py_source_filename), 'SKYPY', logging.INFO)
 
-    def ref_from_raw_file(self, filename, refid):
-        # TODO: Merge with similar code in executors.py
-        
-        size = os.path.getsize(filename)
-        if size < 1024:
-            with open(filename, "r") as f:
-                real_ref = SWDataValue(refid, f.read())
-        else:
-            _ = self.block_store.store_file(filename, refid, can_move=True)
+    def ref_from_pypy_dict(self, args_dict, refid):
+        try:
+            ref = SWDataValue(refid, args_dict["outstr"])
+            cherrypy.log.error("SkyPy shipped a small ref (length %d)" % len(args_dict["outstr"]), "SKYPY", logging.INFO)
+            return ref
+        except KeyError:
+            _, size = self.block_store.store_file(args_dict["filename"], refid, can_move=True)
             real_ref = SW2_ConcreteReference(refid, size)
             real_ref.add_location_hint(self.block_store.netloc)
-        self.refs_to_publish.append(real_ref)
-        return real_ref
+            cherrypy.log.error("SkyPy shipped a large ref as file %s (length %d)" % (args_dict["filename"], size), "SKYPY", logging.INFO)
+            return real_ref
+
+    def str_from_pypy_dict(self, args_dict):
+        try:
+            return pickle.loads(args_dict["outstr"])
+        except KeyError:
+            with open(args_dict["filename"], "r") as f:
+                return pickle.load(f)
 
     def interpret(self):
 
@@ -432,8 +438,6 @@ class SWSkyPyTask:
 
         pypy_process = subprocess.Popen(pypy_args, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
-        self.exit_file = None
-        self.exit_done = False
         cont_task_id = None
 
         while True:
@@ -441,7 +445,7 @@ class SWSkyPyTask:
             request_args = pickle.load(pypy_process.stdout)
             request = request_args["request"]
             del request_args["request"]
-            cherrypy.log.error("Request: %s, args %s" % (request, request_args), "SKYPY", logging.DEBUG)
+            cherrypy.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
             if request == "deref":
                 filename = self.filename_for_ref(**request_args)
                 cherrypy.log.error("Pypy dereferenced %s, returning %s" 
@@ -472,39 +476,31 @@ class SWSkyPyTask:
                     # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                self.exit_file = request_args["coro_filename"]
                 cont_task_id = request_args["new_task_id"]
+                cont_ref_id = self.get_spawn_continuation_object_id(cont_task_id)
+                cont_ref = self.ref_from_pypy_dict(request_args, cont_ref_id)
+                self.refs_to_publish.append(cont_ref)
                 self.halt_dependencies.extend(list(request_args["additional_deps"]))
-                self.exit_done = False
+                cont_deps = dict([(k, SW2_FutureReference(k)) for k in self.halt_dependencies])
+                cont_deps["_coro"] = SW2_FutureReference(cont_ref_id)
+                cont_deps["_py"] = self.pyfile_ref
+                cont_task_descriptor = {'task_id': str(cont_task_id),
+                                        'handler': 'skypy',
+                                        'dependencies': cont_deps,
+                                        'expected_outputs': map(str, self.expected_outputs),
+                                        'continues_task': str(self.original_task_id)}
+                if self.halt_feature_requirement is not None:
+                    cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
+                self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor))
                 break
             elif request == "done":
                 # The interpreter is stopping because the function has completed
-                self.exit_file = request_args["retval_filename"]
-                self.exit_done = True
+                result_ref = self.ref_from_pypy_dict(request_args, self.expected_outputs[0])
+                self.refs_to_publish.append(result_ref)
                 break
             elif request == "exception":
-                report_file = request_args["report_filename"]
-                report_fp = open(report_file, "r")
-                report_text = pickle.load(report_fp)
-                report_fp.close()
+                report_text = self.str_from_pypy_dict(request_args)
                 raise Exception("Fatal pypy exception: %s" % report_text)
-
-        if not self.exit_done:
-            # The interpreter died before the script finished because it dereferenced a future
-            # Need to add a continuation task to the spawn list.
-            cont_deps = dict([(k, SW2_FutureReference(k)) for k in self.halt_dependencies])
-            cont_ref = self.ref_from_raw_file(self.exit_file, self.get_spawn_continuation_object_id(cont_task_id))
-            cont_deps["_coro"] = cont_ref
-            cont_deps["_py"] = self.pyfile_ref
-            cont_task_descriptor = {'task_id': str(cont_task_id),
-                                    'handler': 'skypy',
-                                    'dependencies': cont_deps,
-                                    'expected_outputs': map(str, self.expected_outputs),
-                                    'continues_task': str(self.original_task_id)}
-            if self.halt_feature_requirement is not None:
-                cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
-            
-            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor))
 
 #       except MissingInputException as mie:
 #            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
@@ -529,16 +525,11 @@ class SWSkyPyTask:
     def commit_result(self, block_store, master_proxy):
         
         commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
-
-        if self.exit_done:
-            result_ref = self.ref_from_raw_file(self.exit_file, self.expected_outputs[0])
-            commit_bindings[self.expected_outputs[0]] = result_ref
-        
         master_proxy.commit_task(self.task_id, commit_bindings, None, self.replay_uuid_list)
 
-    def spawn_func(self, coro_filename, new_task_id, output_id):
+    def spawn_func(self, new_task_id, output_id, **otherargs):
 
-        coro_ref = self.ref_from_raw_file(coro_filename, self.get_spawn_continuation_object_id(new_task_id))
+        coro_ref = self.ref_from_pypy_dict(otherargs, self.get_spawn_continuation_object_id(new_task_id))
         
         new_task_deps = {"_py": self.pyfile_ref, "_coro": coro_ref}
         
