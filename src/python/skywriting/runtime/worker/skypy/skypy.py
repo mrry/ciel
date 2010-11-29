@@ -239,9 +239,10 @@ def freeze_script_at_startup(entry_point):
     global script_return_val
     global script_backtrace
 
+    local_args = initial_run_args
     main_coro.switch()
     try:
-        script_return_val = entry_point()
+        script_return_val = entry_point(*local_args)
         halt_reason = HALT_DONE
     except Exception, e:
         script_return_val = e

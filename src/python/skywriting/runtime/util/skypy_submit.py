@@ -1,4 +1,4 @@
-# Copyright (c) 2010 Derek Murray <derek.murray@cl.cam.ac.uk>
+# Copyright (c) 2010 Christopher Smowton <chris.smowton@cl.cam.ac.uk>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -46,11 +46,6 @@ def main():
         print >> sys.stderr, "Must specify master URI with --master"
         sys.exit(1)
 
-    if len(args) != 1:
-        parser.print_help()
-        print >> sys.stderr, "Must specify one python file to execute, as argument"
-        sys.exit(1)
-
     master_uri = options.master
     id = options.id
     
@@ -59,7 +54,7 @@ def main():
     print id, "STARTED", now_as_timestamp()
 
     script_name = args[0]
-    pypy_args = ["pypy", options.skypy_stub, "--source", script_name]
+    pypy_args = ["pypy", options.skypy_stub, "--source", script_name] + args[1:]
     pypy_process = subprocess.Popen(pypy_args, stdout=initial_coro_fp)
     os.close(initial_coro_fp)
     pypy_process.wait()

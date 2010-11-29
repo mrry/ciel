@@ -67,6 +67,7 @@ if resume_file is not None:
 else:
     try:
         print >>sys.stderr, "SkyPy: Creating initial coroutine"
+        skypy.initial_run_args = args
         user_coro = stackless.coroutine()
         user_coro.bind(skypy.freeze_script_at_startup, user_script_namespace.skypy_main)
         user_coro.switch()
