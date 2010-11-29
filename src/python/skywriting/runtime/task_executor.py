@@ -447,13 +447,22 @@ class SWSkyPyTask:
             del request_args["request"]
             cherrypy.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
             if request == "deref":
-                filename = self.filename_for_ref(**request_args)
-                cherrypy.log.error("Pypy dereferenced %s, returning %s" 
-                                   % (request_args["id"], filename), "SKYPY", logging.INFO)
-                # filename might be None -- in that case the interpreter won't be able to continue and will stop soon.
-                if filename is None:
+                ref_ret = self.ref_as_file_or_string(**request_args)
+                ret = None
+                if ref_ret is None:
                     self.halt_dependencies.append(request_args["id"])
-                pickle.dump({"filename": filename}, pypy_process.stdin)
+                    ret = {"success": False}
+                else:
+                    (is_inline_data, data) = ref_ret
+                    if is_inline_data:
+                        cherrypy.log.error("Pypy dereferenced %s, returning data inline" % request_args["id"],
+                                           "SKYPY", logging.INFO)
+                        ret = {"success": True, "strdata": data}
+                    else:
+                        cherrypy.log.error("Pypy dereferenced %s, returning %s" 
+                                           % (request_args["id"], filename), "SKYPY", logging.INFO)
+                        ret = {"success": True, "filename": data}
+                pickle.dump(ret, pypy_process.stdin)
             elif request == "deref_json":
                 try:
                     pickle.dump({"obj": self.deref_json(**request_args), "success": True}, pypy_process.stdin)
@@ -622,12 +631,16 @@ class SWSkyPyTask:
         self.current_executor = None
         return output_ids
 
-    def filename_for_ref(self, id):
-        cherrypy.log.error("Deref to file: %s" % id, "SKYPY", logging.INFO)
-        if id in self.reference_cache:
-            filenames = self.block_store.retrieve_filenames_for_refs_eager([self.reference_cache[id]])
-            return filenames[0]
-        else:
+    def ref_as_file_or_string(self, id):
+        cherrypy.log.error("Deref: %s" % id, "SKYPY", logging.INFO)
+        try:
+            ref = self.reference_cache[id]
+            if isinstance(ref, SWDataValue):
+                return (True, ref.value)
+            else:
+                filenames = self.block_store.retrieve_filenames_for_refs_eager([self.reference_cache[id]])
+                return (False, filenames[0])
+        except KeyError:
             return None
 
     def deref_json(self, id):

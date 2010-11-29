@@ -90,7 +90,7 @@ def deref(ref):
             pickle.dump({"request": "deref", "id": ref.id}, runtime_out)
             runtime_out.flush()
             runtime_response = pickle.load(runtime_in)
-            if runtime_response["filename"] is None:
+            if not runtime_response["success"]:
                 if tries == 0:
                     halt_spawn_id = create_spawned_task_name()
                     halt_reason = HALT_REFERENCE_UNAVAILABLE
@@ -99,9 +99,12 @@ def deref(ref):
                 else:
                     raise Exeception("Double failure trying to deref %s" % ref.id)
             # We're back -- the ref should be available now.
-            ref_fp = open(runtime_response["filename"], "r")
-            obj = pickle.load(ref_fp)
-            ref_fp.close()
+            try:
+                obj = pickle.loads(runtime_response["strdata"])
+            except KeyError:
+                ref_fp = open(runtime_response["filename"], "r")
+                obj = pickle.load(ref_fp)
+                ref_fp.close()
             ref_cache[ref.id] = obj
             return obj
 
