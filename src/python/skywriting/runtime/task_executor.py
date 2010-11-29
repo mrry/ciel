@@ -72,9 +72,9 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         handler = input['handler']
 
         if handler == 'swi':
-            execution_record = SWInterpreterTaskExecutionRecord(input, self)
+            execution_record = SWInterpreterTaskExecutionRecord(input, self, SWRuntimeInterpreterTask)
         elif handler == "skypy":
-            execution_record = SWSkyPyTaskExecutionRecord(input, self)
+            execution_record = SWInterpreterTaskExecutionRecord(input, self, SkyPyInterpreterTask, skypybase=self.skypybase)
         else:
             execution_record = SWExecutorTaskExecutionRecord(input, self)
 
@@ -95,98 +95,12 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_id = None
             self.current_task_execution_record = None
             
-            
-class ReferenceTableEntry:
-    
-    def __init__(self, reference):
-        self.reference = reference
-        self.is_dereferenced = False
-        self.is_execd = False
-        self.is_returned = False
-        
-    def __repr__(self):
-        return 'ReferenceTableEntry(%s, d=%s, e=%s, r=%s)' % (repr(self.reference), repr(self.is_dereferenced), repr(self.is_execd), repr(self.is_returned))
-        
 class SpawnListEntry:
     
     def __init__(self, id, task_descriptor, continuation=None):
         self.id = id
         self.task_descriptor = task_descriptor
-        self.continuation = continuation
-        self.ignore = False
     
-class SWContinuation:
-    
-    def __init__(self, task_stmt, context):
-        self.task_stmt = task_stmt
-        self.current_local_id_index = 0
-        self.stack = []
-        self.context = context
-        self.reference_table = {}
-      
-    def __repr__(self):
-        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s, reference_table=%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context), repr(self.reference_table))
-
-    def create_tasklocal_reference(self, ref):
-        id = self.current_local_id_index
-        self.current_local_id_index += 1
-        self.reference_table[id] = ReferenceTableEntry(ref)
-        return SWLocalReference(id)
-
-    def store_tasklocal_reference(self, id, ref):
-        """Used when copying references to a spawned continuation."""
-        self.reference_table[id] = ReferenceTableEntry(ref)
-        self.current_local_id_index = max(self.current_local_id_index, id + 1)
-    
-    # The following methods capture why we might have blocked on something,
-    # for appropriate handling on task loading.
-    def mark_as_dereferenced(self, ref):
-        self.reference_table[ref.index].is_dereferenced = True
-    def is_marked_as_dereferenced(self, id):
-        return self.reference_table[id].is_dereferenced
-    def mark_as_execd(self, ref):
-        self.reference_table[ref.index].is_execd = True
-    def is_marked_as_execd(self, id):
-        return self.reference_table[id].is_execd
-    def mark_as_returned(self, ref):
-        self.reference_table[ref.index].is_returned = True
-    def is_marked_as_returned(self, id):
-        return self.reference_table[id].is_returned
-        
-    def rewrite_reference(self, id, real_ref):
-        self.reference_table[id].reference = real_ref
-        
-    def resolve_tasklocal_reference_with_index(self, index):
-        return self.reference_table[index].reference
-    def resolve_tasklocal_reference_with_ref(self, ref):
-        return self.reference_table[ref.index].reference
-
-class SafeLambdaFunction(LambdaFunction):
-    
-    def __init__(self, function, interpreter):
-        LambdaFunction.__init__(self, function)
-        self.interpreter = interpreter
-
-    def call(self, args_list, stack, stack_base, context):
-        safe_args = self.interpreter.do_eager_thunks(args_list)
-        return LambdaFunction.call(self, safe_args, stack, stack_base, context)
-
-class SWLocalReference:
-    """
-    A primitive object used in the interpreter, and returned from functions like
-    ref() and spawn(). Contains an index into the continuation's reference table,
-    which identifies the real reference object.
-    """
-    
-    def __init__(self, index):
-        self.index = index
-        
-    def as_tuple(self):
-        return ('local', self.index)
-
-    def __repr__(self):
-        return 'SWLocalReference(%d)' % self.index
-
 class SWExecutorTaskExecutionRecord:
     
     def __init__(self, task_descriptor, task_executor):
@@ -268,9 +182,9 @@ class SWExecutorTaskExecutionRecord:
             cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')
 
-class SWSkyPyTaskExecutionRecord:
+class SWInterpreterTaskExecutionRecord:
     
-    def __init__(self, task_descriptor, task_executor):
+    def __init__(self, task_descriptor, task_executor, interpreter_class, **interpreter_args):
         self.task_id = task_descriptor['task_id']
         self.task_executor = task_executor
         
@@ -279,7 +193,7 @@ class SWSkyPyTaskExecutionRecord:
         self.is_interpreting = False
         
         try:
-            self.interpreter = SWSkyPyTask(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy, self.task_executor.skypybase)
+            self.interpreter = interpreter_class(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy, **interpreter_args)
         except:
             cherrypy.log.error('Error during SkyPy task creation', 'SKYPY', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id)
@@ -315,7 +229,7 @@ class SWSkyPyTaskExecutionRecord:
     def abort(self):
         raise Exception("Not implemented")
 
-class SkyPyBlankContinuation:
+class EmptyEnvironment:
     
     def __init__(self):
         self.exec_deps = []
@@ -325,7 +239,7 @@ class SkyPyBlankContinuation:
         # The executor will need this reference.
         self.exec_deps.append(ref.id)
 
-class SkyPyRefCacheContinuation(SkyPyBlankContinuation):
+class RefCacheEnvironment(EmptyEnvironment):
 
     def __init__(self, refs_dict):
         SkyPyBlankContinuation.__init__(self)
@@ -334,7 +248,7 @@ class SkyPyRefCacheContinuation(SkyPyBlankContinuation):
         try:
             return self.refs[ref.id]
         except KeyError:
-            return SkyPyBlankContinuation.resolve_tasklocal_reference_with_ref(self, ref)
+            return EmptyEnvironment.resolve_tasklocal_reference_with_ref(self, ref)
 
 class InterpreterTask:
 
@@ -402,15 +316,12 @@ class InterpreterTask:
         commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
         master_proxy.commit_task(self.task_id, commit_bindings, self.save_cont_uri, self.replay_uuid_list)
 
-    def spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids):
-
-        # An environment that just returns FutureReferences whenever it's passed a SkyPyOpaqueReference
-        fake_cont = SkyPyBlankContinuation()
+    def spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids, enclosing_environment):
 
         executor = self.execution_features.get_executor(executor_name)
 
-        # Replace all relevant OpaqueReferences with FutureReferences, and log all ref IDs touched in the Continuation
-        executor.resolve_args_refs(args, fake_cont)
+        # Rewrite any interpreter-specific refs to FutureReferences, and log all ref IDs touched in the Continuation
+        executor.resolve_args_refs(args, enclosing_environment)
 
         # Throw early if the args are bad
         executor.check_args_valid(args, output_ids)
@@ -481,8 +392,8 @@ class InterpreterTask:
         self.current_executor = None
         return output_ids
 
-    def deref_json(self, id):
-        cherrypy.log.error("Deref-as-JSON %s" % id, "SKYPY", logging.INFO)
+    def deref_json(self, id, tx_func):
+        cherrypy.log.error("Deref-as-JSON %s" % id, "INTERPRETER", logging.INFO)
         if id not in self.reference_cache:
             raise ReferenceUnavailableException(SW2_FutureReference(id), None)
         else:
@@ -491,7 +402,7 @@ class InterpreterTask:
             def opaqueify_ref(x):
                 if isinstance(x, SWRealReference):
                     self.reference_cache[x.id] = x
-                    return self.SkyPyOpaqueReference(x.id)
+                    return tx_func(x.id)
                 else:
                     return x
             return map_leaf_values(opaqueify_ref, obj)
@@ -528,7 +439,7 @@ class InterpreterTask:
         else:
             hash.update(str(value))
 
-class SWSkyPyTask:
+class SkyPyInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy, skypybase):
 
@@ -626,7 +537,8 @@ class SWSkyPyTask:
                 pickle.dump(ret, pypy_process.stdin)
             elif request == "deref_json":
                 try:
-                    pickle.dump({"obj": self.deref_json(**request_args), "success": True}, pypy_process.stdin)
+                    pickle.dump({"obj": self.deref_json(tx_func=SkyPyOpaqueReference, **request_args), 
+                                 "success": True}, pypy_process.stdin)
                 except ReferenceUnavailableException:
                     self.halt_dependencies.append(request_args["id"])
                     pickle.dump({"success": False}, pypy_process.stdin)
@@ -695,6 +607,12 @@ class SWSkyPyTask:
 
         self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
 
+    def spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids):
+
+        # An environment that just returns FutureReferences whenever it's passed a SkyPyOpaqueReference
+        fake_cont = EmptyEnvironment()
+        InterpreterTask.spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids, fake_cont)
+
     def ref_as_file_or_string(self, id):
         cherrypy.log.error("Deref: %s" % id, "SKYPY", logging.INFO)
         try:
@@ -707,54 +625,28 @@ class SWSkyPyTask:
         except KeyError:
             return None
 
-class SWInterpreterTaskExecutionRecord:
+class SWContinuation:
     
-    def __init__(self, task_descriptor, task_executor):
-        self.task_id = task_descriptor['task_id']
-        self.task_executor = task_executor
-        
-        self.is_running = True
-        self.is_fetching = False
-        self.is_interpreting = False
-        
-        try:
-            self.interpreter = SWRuntimeInterpreterTask(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy)
-        except:
-            cherrypy.log.error('Error during SWI task creation', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id)            
+    def __init__(self, task_stmt, context):
+        self.task_stmt = task_stmt
+        self.current_local_id_index = 0
+        self.stack = []
+        self.context = context
+        self.reference_hints = {}
+      
+    def __repr__(self):
+        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s, reference_hints=%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context), repr(self.reference_hints))
 
-    def execute(self):
-        try:
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Fetching args")
-                self.interpreter.fetch_inputs(self.task_executor.block_store)
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Interpreting")
-                self.interpreter.interpret()
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Spawning")
-                self.interpreter.spawn_all(self.task_executor.block_store, self.task_executor.master_proxy)
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Committing")
-                self.interpreter.commit_result(self.task_executor.block_store, self.task_executor.master_proxy)
-            else:
-                self.task_executor.master_proxy.failed_task(self.task_id)
-        
-        except MissingInputException as mie:
-            cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
-              
-        except MasterNotRespondingException:
-            cherrypy.log.error('Could not commit task results to the master', 'SWI', logging.ERROR, True)
-                
-        except:
-            cherrypy.log.error('Error during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')    
+class SafeLambdaFunction(LambdaFunction):
+    
+    def __init__(self, function, interpreter):
+        LambdaFunction.__init__(self, function)
+        self.interpreter = interpreter
 
-    def abort(self):
-        self.is_running = False
-        self.interpreter.abort()
-        
+    def call(self, args_list, stack, stack_base, context):
+        safe_args = self.interpreter.do_eager_thunks(args_list)
+        return LambdaFunction.call(self, safe_args, stack, stack_base, context)
+
 class SWRuntimeInterpreterTask:
     
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy):
@@ -766,6 +658,7 @@ class SWRuntimeInterpreterTask:
         except KeyError:
             self.save_continuation = False
 
+        self.lazy_derefs = set()
         self.spawn_counter = 0
         self.continuation = None
         self.result = None
@@ -783,17 +676,9 @@ class SWRuntimeInterpreterTask:
         InterpreterTask.fetch_inputs(self, block_store)
 
         self.continuation = self.block_store.retrieve_object_for_ref(self.inputs["_cont"], 'pickle')
+        self.reference_cache.update(self.continuation.reference_hints)
         
-        # TODO: Figure out what to do about SWI's old eager-fetch-on-startup policy,
-        # in which it would eagerly retrieve anything that had been lazily deref'd before the last halt.
-
-        #fetch_refs = [ref for (local_id, ref) in fetch_objects]
-        #fetched_objects = self.block_store.retrieve_objects_for_refs(fetch_refs, 'json')
-
-        #for (id, ref, ob) in zip([local_id for (local_id, ref) in fetch_objects], fetch_refs, fetched_objects):
-        #   self.continuation.rewrite_reference(id, SWDataValue(ref.id, ob))
-            
-        cherrypy.log.error('Fetched all task inputs', 'SWI', logging.INFO)
+        cherrypy.log.error('Fetched continuation', 'SWI', logging.INFO)
 
     def interpret(self):
         self.continuation.context.restart()
@@ -920,12 +805,9 @@ class SWRuntimeInterpreterTask:
         #       So let's assume that we won't run out of indices in a normal run :).
         for id in captured_refs:
             try:
-                cont.reference_table[id] = self.continuation.reference_table[id]
+                cont.reference_hints[id] = self.reference_cache[id]
             except KeyError:
-                try:
-                    cont.reference_table[id] = self.reference_cache[id]
-                except KeyError:
-                    pass
+                pass
         
         return cont
 
@@ -1015,16 +897,17 @@ class SWRuntimeInterpreterTask:
     #   return self.continuation.create_tasklocal_reference(SWURLReference(urls))
 
     def lazy_dereference(self, ref):
-        self.halt_dependencies.append(ref.id)
+        self.lazy_derefs.insert(ref.id)
         return SWDereferenceWrapper(ref)
 
     def eager_dereference(self, ref):
         # For SWI, all decodes are JSON
-        if isinstance(ref, SWDataValue):
-            return simplejson.loads(real_ref.value, cls=SWReferenceJSONEncoder)
-        else:
+        try:
+            ret = self.deref_json(ref.id, SW2_FutureReference)
+            self.lazy_derefs.discard(ref.id)
+        except ReferenceUnavailableException:
             self.halt_dependencies.append(ref.id)
-            raise ReferenceUnavailableException(ref, self.continuation)
+            raise
 
     def include_script(self, target_expr):
         if isinstance(target_expr, basestring):
@@ -1043,68 +926,11 @@ class SWRuntimeInterpreterTask:
             raise BlameUserException('The included script did not parse successfully')
         return script
 
-    def is_future(self, ref):
-        return isinstance(ref, SW2_FutureReference)
-
-    def is_error(self, ref):
-        return isinstance(ref, SWErrorReference)
-
-    def abort_production(self, ref):
-        raise
-        #real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        #if isinstance(real_ref, SWLocalFutureReference):
-        #    self.spawn_list[real_ref.spawn_list_index].ignore = True
-        #elif isinstance(real_ref, SWGlobalFutureReference):
-        #    self.master_proxy.abort_production_of_output(real_ref)
-        #return True
-    
-    def get_task_details(self, ref):
-        raise
-        #real_ref = self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        #if isinstance(real_ref, SWGlobalFutureReference):
-        #    return self.master_proxy.get_task_details_for_future(ref)
-        #else:
-        #    return {}
-
 #    def select_func(self, select_group, timeout=None):
 #        if self.select_result is not None:
 #            return self.select_result
 #        else:
 #            raise SelectException(select_group, timeout)
-
-    def hash_update_with_structure(self, hash, value):
-        """
-        Recurses over a Skywriting data structure (containing lists, dicts and 
-        primitive leaves) in a deterministic order, and updates the given hash with
-        all values contained therein.
-        """
-        if isinstance(value, list):
-            hash.update('[')
-            for element in value:
-                self.hash_update_with_structure(hash, element)
-                hash.update(',')
-            hash.update(']')
-        elif isinstance(value, dict):
-            hash.update('{')
-            for (dict_key, dict_value) in sorted(value.items()):
-                hash.update(dict_key)
-                hash.update(':')
-                self.hash_update_with_structure(hash, dict_value)
-                hash.update(',')
-            hash.update('}')
-        elif isinstance(value, SWLocalReference):
-            self.hash_update_with_structure(hash, self.convert_tasklocal_to_real_reference(value))
-        elif isinstance(value, SW2_ConcreteReference) or isinstance(value, SW2_FutureReference):
-            hash.update('ref')
-            hash.update(value.id)
-        elif isinstance(value, SWURLReference):
-            hash.update('ref')
-            hash.update(value.urls[0])
-        elif isinstance(value, SWDataValue):
-            hash.update('ref*')
-            hash.update(value.value)
-        else:
-            hash.update(str(value))
 
 def map_leaf_values(f, value):
     """
