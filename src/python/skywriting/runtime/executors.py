@@ -84,9 +84,18 @@ class SWExecutor:
         continuation.mark_as_execd(ref)
         return continuation.resolve_tasklocal_reference_with_ref(ref)
 
-    def resolve_args_refs(self, foreign_args, continuation):
-        if "inputs" in foreign_args:
-            foreign_args["inputs"] = [self.resolve_ref(ref, continuation) for ref in foreign_args["inputs"]]
+    def resolve_required_refs(self, foreign_args, get_ref_callback):
+        try:
+            foreign_args["inputs"] = [get_ref_callback(ref) for ref in foreign_args["inputs"]]
+        except KeyError:
+            pass
+
+    def get_required_refs(self, foreign_args, required_callback):
+        try:
+            for input in foreign_args["inputs"]:
+                required_callback(input)
+        except KeyError:
+            pass
 
     def check_args_valid(self, args, expected_output_ids):
         pass
@@ -105,9 +114,9 @@ class SWExecutor:
     def execute(self, block_store, task_id, args, expected_output_ids, publish_callback, master_proxy, fetch_limit=None):
         # On entry: args have been checked for validity and their relevant refs resolved to consumable references (i.e. Concrete, Streaming, DataValue).
         self.output_ids = expected_output_ids
+        self.output_refs = [None for i in range(len(self.output_ids))]
         self.fetch_limit = fetch_limit
         self.master_proxy = master_proxy
-        self.publish_callback = publish_callback
         self.succeeded = False
         self.args = args
         try:
@@ -116,6 +125,11 @@ class SWExecutor:
             self.debug_opts = []
         try:
             self._execute(block_store, task_id)
+            for ref in self.output_refs:
+                if ref is not None:
+                    publish_callback(ref)
+                else:
+                    cherrypy.log.error("Executor failed to define output %s" % ref.id, "EXEC", logging.WARNING)
             self.succeeded = True
         except:
             cherrypy.log.error("Task execution failed", "EXEC", logging.ERROR, True)
@@ -222,7 +236,7 @@ class ProcessRunningExecutor(SWExecutor):
                 real_ref = SW2_ConcreteReference(self.output_ids[i], file_size)
                 real_ref.add_location_hint(block_store.netloc)
 
-            self.publish_callback(real_ref)
+            self.output_refs[i] = real_ref
             
         cherrypy.engine.publish("worker_event", "Executor: Done")
 
@@ -351,9 +365,20 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         self.last_event_time = time_now
         self.current_state = new_state
 
-    def resolve_args_refs(self, foreign_args, continuation):
-        SWExecutor.resolve_args_refs(self, foreign_args, continuation)
-        foreign_args["lib"] = [self.resolve_ref(ref, continuation) for ref in foreign_args["lib"]]
+    def resolve_required_refs(self, foreign_args, get_ref_callback):
+        SWExecutor.resolve_required_refs(self, foreign_args, get_ref_callback)
+        try:
+            foreign_args["lib"] = [get_ref_callback(ref) for ref in foreign_args["lib"]]
+        except KeyError:
+            pass
+
+    def get_required_refs(self, foreign_args, required_callback):
+        SWExecutor.get_required_refs(self, foreign_args, required_callback)
+        try:
+            for lib in foreign_args["lib"]:
+                required_callback(lib)
+        except KeyError:
+            pass
 
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
 
@@ -541,9 +566,8 @@ class GrabURLExecutor(SWExecutor):
             ref = block_store.get_ref_for_url(url, version, task_id)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
             block_store.cache_object(ref, "json", self.output_ids[i])
-            out_ref = SWDataValue(self.output_ids[i], out_str)
-            self.publish_callback(ref)
-            self.publish_callback(out_ref)
+            # The inner ref is born concrete, so no need to publish
+            self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
 
         cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
             
@@ -559,4 +583,4 @@ class SyncExecutor(SWExecutor):
     def _execute(self, block_store, task_id):
         self.inputs = self.args['inputs']
         block_store.cache_object(True, "json", self.output_ids[0])
-        self.publish_callback(SWDataValue(self.output_ids[0], simplejson.dumps(True)))
+        self.output_refs[0] = SWDataValue(self.output_ids[0], simplejson.dumps(True))
