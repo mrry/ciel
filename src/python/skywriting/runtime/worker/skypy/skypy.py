@@ -111,11 +111,11 @@ def deref(ref):
 
 def add_ref_dependency(ref):
     if not ref.is_consumable():
-        persistent_state.ref_dependencies.add(ref.id)
+        persistent_state.ref_dependencies.add(ref)
 
 def remove_ref_dependency(ref):
     if not ref.is_consumable():
-        persistent_state.ref_dependencies.remove(ref.id)
+        persistent_state.ref_dependencies.remove(ref)
 
 class RequiredRefs():
     def __init__(self, refs):
@@ -186,9 +186,6 @@ def hash_update_with_structure(hash, value):
             hash_update_with_structure(hash, dict_value)
             hash.update(',')
         hash.update('}')
-    elif isinstance(value, SkyPyOpaqueReference):
-        hash.update('ref')
-        hash_update_with_structure(hash, value.id)
     else:
         hash.update(str(value))
 

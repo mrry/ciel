@@ -1036,7 +1036,7 @@ class BlockStore(plugins.SimplePlugin):
             os.unlink(self.streaming_filename(id))
 
     def decode_datavalue(self, ref):
-        decoder = codecs.lookup("escape_string")
+        decoder = codecs.lookup("string_escape")
         return (decoder.decode(ref.value))[0]
         
     def try_retrieve_filename_for_ref_without_transfer(self, ref):

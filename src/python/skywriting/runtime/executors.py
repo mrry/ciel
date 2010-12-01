@@ -227,7 +227,7 @@ class ProcessRunningExecutor(SWExecutor):
                 with open(filename, "r") as f:
                     # DataValues must be ASCII so the JSON encoder won't explode.
                     # Decoding gets done in the block store's retrieve routines.
-                    encoder = codecs.lookup("escape_string")
+                    encoder = codecs.lookup("string_escape")
                     real_ref = SWDataValue(self.output_ids[i], (encoder.encode(f.read()))[0])
             else:
                 if self.stream_output:

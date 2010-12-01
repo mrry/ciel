@@ -108,10 +108,13 @@ class RefCacheEnvironment:
     def __init__(self, refs_dict):
         self.refs = refs_dict
     def resolve_ref(self, ref):
-        try:
-            return self.refs[ref.id]
-        except KeyError:
-            raise ReferenceUnavailableException(ref.id)
+        if ref.is_consumable:
+            return ref
+        else:
+            try:
+                return self.refs[ref.id]
+            except KeyError:
+                raise ReferenceUnavailableException(ref.id)
 
 class RefList:
     
@@ -322,7 +325,7 @@ class InterpreterTask:
 
         # Discover required ref IDs for this executor
         l = RefList()
-        executor.get_required_refs(args, l)
+        executor.get_required_refs(args, l.add_ref)
 
         args_id = self.get_args_name_for_exec(exec_prefix)
         # Always assume the args-dict for an executor is fairly small.
@@ -372,7 +375,9 @@ class InterpreterTask:
         # Eagerly check all references for availability.
         raise_ref = None
         for ref in l.exec_deps:
+            print "Checking ref", ref
             if not self.is_ref_resolvable(ref):
+                print "Not consumable"
                 self.halt_dependencies.append(ref)
                 raise_ref = ref
         if raise_ref is not None:
@@ -413,7 +418,7 @@ class InterpreterTask:
         except ReferenceUnavailableException:
             return False
     
-    def deref_json(self, ref, tx_func):
+    def deref_json(self, ref):
         cherrypy.log.error("Deref-as-JSON %s" % id, "INTERPRETER", logging.INFO)
         return self.block_store.retrieve_object_for_ref(self.resolve_ref(ref), "json")
 
@@ -543,7 +548,7 @@ class SkyPyInterpreterTask(InterpreterTask):
                     pickle.dump({"obj": self.deref_json(**request_args), 
                                  "success": True}, pypy_process.stdin)
                 except ReferenceUnavailableException:
-                    self.halt_dependencies.append(request_args["id"])
+                    self.halt_dependencies.append(request_args["ref"])
                     pickle.dump({"success": False}, pypy_process.stdin)
             elif request == "spawn":
                 self.spawn_func(**request_args)
