@@ -292,12 +292,6 @@ class LazyTaskPool(plugins.SimplePlugin):
             # Otherwise, subscribe to the production of the named output.
             self.subscribe_task_to_ref(task, ref)
             return None
-
-        elif isinstance(ref, SW2_ConcreteReference):
-            # We have a concrete reference for this name, but others may
-            # be waiting on it, so publish it.
-            self._publish_ref(ref.id, ref, task.job, True)
-            return ref
         
         else:
             # We have an opaque reference, which can be accessed immediately.
