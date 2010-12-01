@@ -108,7 +108,7 @@ class RefCacheEnvironment:
     def __init__(self, refs_dict):
         self.refs = refs_dict
     def resolve_ref(self, ref):
-        if ref.is_consumable:
+        if ref.is_consumable():
             return ref
         else:
             try:
@@ -375,17 +375,19 @@ class InterpreterTask:
         # Eagerly check all references for availability.
         raise_ref = None
         for ref in l.exec_deps:
-            print "Checking ref", ref
             if not self.is_ref_resolvable(ref):
-                print "Not consumable"
                 self.halt_dependencies.append(ref)
                 raise_ref = ref
         if raise_ref is not None:
             raise ReferenceUnavailableException(raise_ref)
 
+        print "Args pre-resolve", args
+
         # Okay, all ref are good to go: executor should pull them in and run.
         env = RefCacheEnvironment(self.reference_cache)
         self.current_executor.resolve_required_refs(args, env.resolve_ref)
+
+        print "Args post-resolve", args
 
         # Might raise runtime errors
         self.current_executor.execute(self.block_store, 
