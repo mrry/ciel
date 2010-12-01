@@ -14,7 +14,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from subprocess import PIPE
-from skywriting.runtime.references import \
+from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
     SWDataValue, SW2_StreamReference, SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\

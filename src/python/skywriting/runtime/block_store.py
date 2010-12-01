@@ -40,7 +40,7 @@ from cherrypy.process import plugins
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
 import simplejson
-from skywriting.runtime.references import SWRealReference,\
+from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWURLReference, \
     SW2_StreamReference,\

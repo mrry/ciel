@@ -20,7 +20,7 @@ import pickle
 import simplejson
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,\
     json_decode_object_hook, sw_to_external_url
-from skywriting.runtime.references import SWDataValue, SWURLReference
+from shared.references import SWDataValue, SWURLReference
 
 '''
 Created on 17 May 2010

@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.executors import kill_all_running_children
-from skywriting.runtime.references import SW2_FetchReference
+from shared.references import SW2_FetchReference
 import logging
 
 '''

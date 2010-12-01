@@ -17,7 +17,7 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from skywriting.runtime.references import SW2_ConcreteReference
+from shared.references import SW2_ConcreteReference
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
 import time
 import datetime

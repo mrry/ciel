@@ -20,7 +20,7 @@ Created on 15 Apr 2010
 from skywriting.lang.parser import \
     SWScriptParser
 from skywriting.runtime.task_executor import SWContinuation
-from skywriting.runtime.references import SW2_ConcreteReference
+from shared.references import SW2_ConcreteReference
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
 from skywriting.lang.context import SimpleContext
 import time

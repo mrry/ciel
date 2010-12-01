@@ -15,7 +15,7 @@
 from Queue import Queue
 from cherrypy.process import plugins
 from skywriting.runtime.master.job_pool import Job
-from skywriting.runtime.references import SW2_FutureReference, \
+from shared.references import SW2_FutureReference, \
     SW2_ConcreteReference, SWErrorReference, combine_references, SW2_StreamReference
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
     TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED, TASK_QUEUED_STREAMING

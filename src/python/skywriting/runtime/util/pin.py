@@ -16,7 +16,7 @@ from skywriting.runtime.block_store import sw_to_external_url,\
 import sys
 import httplib2
 import simplejson
-from skywriting.runtime.references import SW2_ConcreteReference
+from shared.references import SW2_ConcreteReference
 from optparse import OptionParser
 
 def main():

@@ -6,8 +6,8 @@ import traceback
 import os
 from StringIO import StringIO
 
-import skywriting.runtime.references
-from skywriting.runtime.references import SW2_FutureReference
+import shared.references
+from shared.references import SW2_FutureReference
 
 # Changes from run to run; set externally
 main_coro = None

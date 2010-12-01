@@ -20,7 +20,7 @@ import os
 import simplejson
 import httplib2
 from urlparse import urljoin
-from skywriting.runtime.references import SWURLReference
+from shared.references import SWURLReference
 
 def main():
     parser = OptionParser()

@@ -11,7 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.references import SWURLReference, SW2_ConcreteReference
+from shared.references import SWURLReference, SW2_ConcreteReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
 from skywriting.runtime.task import TASK_QUEUED, TASK_QUEUED_STREAMING
 import cherrypy

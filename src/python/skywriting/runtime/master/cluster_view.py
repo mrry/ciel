@@ -16,7 +16,7 @@ from cherrypy._cperror import HTTPError
 from skywriting.runtime.task import TASK_STATES, TASK_STATE_NAMES
 import cherrypy
 import time
-from skywriting.runtime.references import SWURLReference, SWDataValue
+from shared.references import SWURLReference, SWDataValue
 
 def table_row(key, value):
     return '<tr><td><b>%s</b></td><td>%s</td></tr>' % (key, str(value))

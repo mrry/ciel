@@ -36,7 +36,7 @@ import subprocess
 import pickle
 import simplejson
 import os.path
-from skywriting.runtime.references import SWDataValue, SWURLReference,\
+from shared.references import SWDataValue, SWURLReference,\
     SWRealReference,\
     SWErrorReference, SW2_FutureReference,\
     SW2_ConcreteReference
