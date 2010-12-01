@@ -16,7 +16,8 @@ from __future__ import with_statement
 from subprocess import PIPE
 from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference, SWReferenceJSONEncoder
+    SWDataValue, SW2_StreamReference
+from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException, MissingInputException,\
     RuntimeSkywritingError

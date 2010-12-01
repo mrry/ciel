@@ -503,7 +503,7 @@ class SkyPyInterpreterTask(InterpreterTask):
     def interpret(self):
 
         pypy_env = os.environ.copy()
-        pypy_env["PYTHONPATH"] = self.skypybase + ":" + env["PYTHONPATH"]
+        pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
 
         pypy_args = ["pypy", 
                      self.skypybase + "/stub.py", 

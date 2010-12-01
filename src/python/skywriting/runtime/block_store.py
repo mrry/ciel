@@ -44,7 +44,8 @@ from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SWURLReference, \
     SW2_StreamReference,\
-    SW2_TombstoneReference, SW2_FetchReference, SWReferenceJSONEncoder
+    SW2_TombstoneReference, SW2_FetchReference
+from skywriting.runtime.references import SWReferenceJSONEncoder
 import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
