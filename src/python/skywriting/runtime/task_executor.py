@@ -315,6 +315,9 @@ class InterpreterTask:
     def commit_result(self, block_store, master_proxy):
         
         commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
+        for ref in self.refs_to_publish:
+            if ref.id.find("upload") != -1:
+                print "This task defines", ref.id, "to", ref
         master_proxy.commit_task(self.task_id, commit_bindings, self.save_cont_uri, self.replay_uuid_list)
 
     def spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids, enclosing_environment):
@@ -873,10 +876,13 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         args = self.do_eager_thunks(exec_args)
 
         new_task_id = self.create_spawned_task_name()
-        exec_prefix = get_exec_prefix(executor_name, args, num_outputs)
+        exec_prefix = self.get_exec_prefix(executor_name, args, num_outputs)
         _, expected_output_ids = self.create_names_for_exec(executor_name, args, num_outputs)
 
-        return InterpreterTask.spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids)
+        env = EmptyEnvironment()
+        InterpreterTask.spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, expected_output_ids, env)
+
+        return [SW2_FutureReference(id) for id in expected_output_ids]
 
     def get_exec_prefix(self, executor_name, real_args, num_outputs):
         sha = hashlib.sha1()
@@ -892,7 +898,8 @@ class SWRuntimeInterpreterTask(InterpreterTask):
     def exec_func(self, executor_name, args, num_outputs):
         
         real_args = self.do_eager_thunks(args)
-        return InterpreterTask.exec_func(self, executor_name, real_args, num_outputs)
+        out_ids = InterpreterTask.exec_func(self, executor_name, real_args, num_outputs)
+        return [SW2_FutureReference(id) for id in out_ids]
 
     #def make_reference(self, urls):
     #   return self.continuation.create_tasklocal_reference(SWURLReference(urls))

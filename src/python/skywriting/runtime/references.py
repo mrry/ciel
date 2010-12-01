@@ -264,7 +264,13 @@ def build_reference_from_tuple(reference_tuple):
         raise KeyError(ref_type)
     
 def combine_references(original, update):
-        
+
+    # DataValues are better than all others: they *are* the data
+    if isinstance(original, SWDataValue):
+        return original
+    if isinstance(update, SWDataValue):
+        return update
+
     # Concrete reference > streaming reference > future reference.
     if (isinstance(original, SW2_FutureReference) or isinstance(original, SW2_StreamReference)) and isinstance(update, SW2_ConcreteReference):
         return update

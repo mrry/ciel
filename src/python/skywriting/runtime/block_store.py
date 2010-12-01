@@ -30,6 +30,7 @@ import select
 import fcntl
 import re
 import threading
+import codecs
 from datetime import datetime, timedelta
 import time
 from cStringIO import StringIO
@@ -1032,7 +1033,11 @@ class BlockStore(plugins.SimplePlugin):
         with self._lock:
             self.streaming_id_set.remove(id)
             os.unlink(self.streaming_filename(id))
-    
+
+    def decode_datavalue(self, ref):
+        decoder = codecs.lookup("escape_string")
+        return (decoder.decode(ref.value))[0]
+        
     def try_retrieve_filename_for_ref_without_transfer(self, ref):
         assert isinstance(ref, SWRealReference)
 
@@ -1049,7 +1054,7 @@ class BlockStore(plugins.SimplePlugin):
             id = ref.id
             filename = self.filename(id)
             with open(filename, 'w') as obj_file:
-                obj_file.write(ref.value)
+                obj_file.write(self.decode_datavalue(ref))
             return filename
         elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
             maybe_local_filename = self.filename(ref.id)
@@ -1077,7 +1082,7 @@ class BlockStore(plugins.SimplePlugin):
         if isinstance(ref, SWErrorReference):
             raise RuntimeSkywritingError()
         elif isinstance(ref, SWDataValue):
-            return ref.value
+            return self.decode_datavalue(ref)
         elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
             maybe_local_filename = self.filename(ref.id)
             to_read = None

@@ -30,6 +30,7 @@ import os.path
 import cherrypy
 import threading
 import time
+import codecs
 from datetime import datetime
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
@@ -209,8 +210,10 @@ class ProcessRunningExecutor(SWExecutor):
             file_size = os.path.getsize(filename)
             if file_size < 1024 and not self.stream_output:
                 with open(filename, "r") as f:
-                    # Note no encoding: the process is responsible for using an appropriate encoding.
-                    real_ref = SWDataValue(self.output_ids[i], f.read())
+                    # DataValues must be ASCII so the JSON encoder won't explode.
+                    # Decoding gets done in the block store's retrieve routines.
+                    encoder = codecs.lookup("escape_string")
+                    real_ref = SWDataValue(self.output_ids[i], (encoder.encode(f.read()))[0])
             else:
                 if self.stream_output:
                     block_store.commit_file(filename, self.output_ids[i], can_move=True)
