@@ -60,9 +60,8 @@ class DataTooBigException(ExecutionInterruption):
         self.size = size
         
 class ReferenceUnavailableException(ExecutionInterruption):
-    def __init__(self, ref, continuation):
+    def __init__(self, ref):
         self.ref = ref
-        self.continuation = continuation
         
     def __repr__(self):
         return 'ReferenceUnavailableException(ref=%s)' % (repr(self.ref), )

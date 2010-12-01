@@ -111,7 +111,7 @@ class RefCacheEnvironment:
         try:
             return self.refs[ref.id]
         except KeyError:
-            raise ReferenceUnavailableException(ref.id, None)
+            raise ReferenceUnavailableException(ref.id)
 
 class RefList:
     
@@ -376,7 +376,7 @@ class InterpreterTask:
                 self.halt_dependencies.append(ref)
                 raise_ref = ref
         if raise_ref is not None:
-            raise ReferenceUnavailableException(raise_ref, None)
+            raise ReferenceUnavailableException(raise_ref)
 
         # Okay, all ref are good to go: executor should pull them in and run.
         env = RefCacheEnvironment(self.reference_cache)
