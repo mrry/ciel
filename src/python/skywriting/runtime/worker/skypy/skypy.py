@@ -6,7 +6,8 @@ import traceback
 import os
 from StringIO import StringIO
 
-from opaque_ref import SkyPyOpaqueReference
+import skywriting.runtime.references
+from skywriting.runtime.references import SW2_FutureReference
 
 # Changes from run to run; set externally
 main_coro = None
@@ -87,7 +88,7 @@ def deref(ref):
         return ref_cache[ref.id]
     else:
         for tries in range(2):
-            pickle.dump({"request": "deref", "id": ref.id}, runtime_out)
+            pickle.dump({"request": "deref", "ref": ref}, runtime_out)
             runtime_out.flush()
             runtime_response = pickle.load(runtime_in)
             if not runtime_response["success"]:
@@ -109,10 +110,12 @@ def deref(ref):
             return obj
 
 def add_ref_dependency(ref):
-    persistent_state.ref_dependencies.add(ref.id)
+    if not ref.is_consumable():
+        persistent_state.ref_dependencies.add(ref.id)
 
 def remove_ref_dependency(ref):
-    persistent_state.ref_dependencies.remove(ref.id)
+    if not ref.is_consumable():
+        persistent_state.ref_dependencies.remove(ref.id)
 
 class RequiredRefs():
     def __init__(self, refs):
@@ -136,7 +139,7 @@ def deref_json(ref):
         return ref_cache[ref.id]
     else:
         for tries in range(2):
-            pickle.dump({"request": "deref_json", "id": ref.id}, runtime_out)
+            pickle.dump({"request": "deref_json", "ref": ref}, runtime_out)
             runtime_out.flush()
             runtime_response = pickle.load(runtime_in)
             if not runtime_response["success"]:
@@ -166,7 +169,7 @@ def spawn(spawn_callable):
                 "output_id": output_id}
     describe_maybe_file(new_coro_fp, out_dict)
     pickle.dump(out_dict, runtime_out)
-    return SkyPyOpaqueReference(output_id)
+    return SW2_FutureReference(output_id)
 
 def hash_update_with_structure(hash, value):
     if isinstance(value, list):
@@ -210,7 +213,7 @@ def spawn_exec(exec_name, exec_args_dict, n_outputs):
                  "output_ids": expected_output_ids}, 
                 runtime_out)
 
-    return [SkyPyOpaqueReference(id) for id in expected_output_ids]
+    return [SW2_FutureReference(id) for id in expected_output_ids]
 
 def sync_exec(exec_name, exec_args_dict, n_outputs):
 
@@ -227,7 +230,7 @@ def sync_exec(exec_name, exec_args_dict, n_outputs):
         runtime_out.flush()
         result = pickle.load(runtime_in)
         if result["success"]:
-            return [SkyPyOpaqueReference(x) for x in result["output_names"]]
+            return result["outputs"]
         else:
             if tries == 0:
                 halt_spawn_id = create_spawned_task_name()

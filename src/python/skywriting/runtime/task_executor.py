@@ -502,13 +502,16 @@ class SkyPyInterpreterTask(InterpreterTask):
 
     def interpret(self):
 
+        pypy_env = os.environ.copy()
+        pypy_env["PYTHONPATH"] = self.skypybase + ":" + env["PYTHONPATH"]
+
         pypy_args = ["pypy", 
                      self.skypybase + "/stub.py", 
                      "--resume_state", self.coroutine_filename, 
                      "--source", self.py_source_filename, 
                      "--taskid", self.task_id]
 
-        pypy_process = subprocess.Popen(pypy_args, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
         cont_task_id = None
 
@@ -548,8 +551,8 @@ class SkyPyInterpreterTask(InterpreterTask):
                 self.spawn_exec_func(**request_args)
             elif request == "exec":
                 try:
-                    output_ref_names = self.exec_func(**request_args)
-                    pickle.dump({"success": True, "output_names": output_ref_names}, pypy_process.stdin)
+                    output_refs = self.exec_func(**request_args)
+                    pickle.dump({"success": True, "outputs": output_refs}, pypy_process.stdin)
                 except ReferenceUnavailableException:
                     pickle.dump({"success": False}, pypy_process.stdin)
                 except FeatureUnavailableException as exn:
