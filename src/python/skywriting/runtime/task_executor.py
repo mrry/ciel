@@ -392,12 +392,10 @@ class InterpreterTask:
         executor.get_required_refs(args, l.add_ref)
 
         args_id = self.get_args_name_for_exec(exec_prefix)
-        # Always assume the args-dict for an executor is fairly small.
-        args_ref = SWDataValue(args_id, pickle.dumps(args))
-        self.block_store.cache_object(args, "pickle", args_id)
-        
         output_ids = get_exec_output_ids(exec_prefix)
 
+        args_ref = self.block_store.ref_from_object(args, "pickle", args_id)
+        
         inputs = dict([(ref.id, ref) for ref in l.exec_deps])
         inputs['_args'] = args_ref
 
@@ -545,21 +543,11 @@ class SkyPyInterpreterTask(InterpreterTask):
             del request_args["request"]
             cherrypy.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
             if request == "deref":
-                ref_ret = self.ref_as_file_or_string(**request_args)
-                ret = None
-                if ref_ret is None:
+                try:
+                    ret = self.deref_func(**request_args)
+                except ReferenceUnavailableException:
                     self.halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
-                else:
-                    (is_inline_data, data) = ref_ret
-                    if is_inline_data:
-                        cherrypy.log.error("Pypy dereferenced %s, returning data inline" % request_args["ref"].id,
-                                           "SKYPY", logging.INFO)
-                        ret = {"success": True, "strdata": data}
-                    else:
-                        cherrypy.log.error("Pypy dereferenced %s, returning %s" 
-                                           % (request_args["ref"].id, filename), "SKYPY", logging.INFO)
-                        ret = {"success": True, "filename": data}
                 pickle.dump(ret, pypy_process.stdin)
             elif request == "deref_json":
                 try:
@@ -610,17 +598,18 @@ class SkyPyInterpreterTask(InterpreterTask):
 
         self.spawn_task(new_task_deps, output_id)
         
-    def ref_as_file_or_string(self, ref):
+    def deref_func(self, ref):
         cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
-        try:
-            real_ref = self.resolve_ref(ref)
-            if isinstance(real_ref, SWDataValue):
-                return (True, real_ref.value)
-            else:
-                filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
-                return (False, filenames[0])
-        except ReferenceUnavailableException:
-            return None
+        real_ref = self.resolve_ref(ref)
+        if isinstance(real_ref, SWDataValue):
+            cherrypy.log.error("Pypy dereferenced %s, returning data inline" % request_args["ref"].id,
+                               "SKYPY", logging.INFO)
+            return {"success": True, "strdata": data}
+        else:
+            cherrypy.log.error("Pypy dereferenced %s, returning %s" 
+                               % (request_args["ref"].id, filename), "SKYPY", logging.INFO)
+            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            return {"success": True, "filename": filenames[0]}
 
 class SWContinuation:
     
@@ -708,14 +697,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             if self.result is None:
                 self.result = SWErrorReference('NO_RETURN_VALUE', 'null')
 
-            json_result = simplejson.dumps(self.result, cls=SWReferenceJSONEncoder)
-            if len(json_result) < 128:
-                self.block_store.cache_object(self.result, "json", self.expected_outputs[0])
-                self.result_ref = SWDataValue(self.expected_outputs[0], json_result)
-            else:
-                _, size_hint = self.block_store.store_object(json_result, "json", self.expected_outputs[0])
-                self.result_ref = SW2_ConcreteReference(self.expected_outputs[0], size_hint)
-                self.result_ref.add_location_hint(self.block_store.netloc)
+            self.result_ref = self.block_store.ref_from_object(self.result, "json", self.expected_outputs[0])
             return True
 
 #        except SelectException, se:
@@ -738,10 +720,8 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 #            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
             
         except ExecutionInterruption, ei:
-
-            _, size_hint = self.block_store.store_object(self.continuation, 'pickle', spawned_cont_id)
-            self.spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
-            self.spawned_cont_ref.add_location_hint(self.block_store.netloc)
+            
+            self.spawned_cont_ref = self.block_store.ref_from_object(self.continuation, "pickle", self.expected_outputs[0])
             return False
 
     def add_cont_deps(self, cont_deps):
@@ -769,9 +749,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
         expected_output_id = self.create_spawn_output_name()
         spawned_cont_id = self.get_spawn_continuation_object_id(new_task_id)
-        _, size_hint = self.block_store.store_object(spawned_continuation, 'pickle', spawned_cont_id)
-        spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
-        spawned_cont_ref.add_location_hint(self.block_store.netloc)
+        spawned_cont_ref = self.block_store.ref_from_object(spawned_continuation, 'pickle', spawned_cont_id)
 
         self.spawn_task(new_task_id, {"_cont": spawned_cont_ref}, expected_output_id)
 

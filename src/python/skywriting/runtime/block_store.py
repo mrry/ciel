@@ -36,6 +36,7 @@ import time
 from cStringIO import StringIO
 from errno import EAGAIN, EPIPE
 from cherrypy.process import plugins
+from shared.io_helpers import MaybeFile
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -878,6 +879,7 @@ class BlockStore(plugins.SimplePlugin):
         self.bus.subscribe("stop", self.stop_thread, 10)
         self.fetch_thread = pycURLThread()
         self.fetch_thread.start()
+        self.dataval_codec = codecs.lookup("string_escape")
     
         self.pin_set = set()
     
@@ -986,6 +988,21 @@ class BlockStore(plugins.SimplePlugin):
         file_size = os.path.getsize(self.filename(id))
         return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
 
+    def ref_from_object(self, object, encoder, id, threshold_bytes=1024):
+        """Encodes an object, returning either a DataValue or ConcreteReference as appropriate"""
+        maybe_file = MaybeFile(threshold_bytes=threshold_bytes, filename=self.filename(id))
+        # TODO: Make MaybeFiles a context object so that I can with... them.
+        self.encoders[encoder](object, maybe_file)
+        if maybe_file.real_fp is not None:
+            # Policy: don't cache the decoded form if the encoded form is big enough to deserve a concrete ref.
+            file_size = maybe_file.real_fp.tell()
+            maybe_file.real_fp.close()
+            ret = SW2_ConcreteReference(id, size_hint=file_size, location_hints=[self.netloc])
+        else:
+            ret = SWDataValue(id, self.encode_datavalue(maybe_file.fake_fp.getvalue()))
+            self.cache_object(object, encoder, id)
+        return ret
+
     def make_stream_sink(self, id):
         '''
         Called when an executor wants its output to be streamable.
@@ -1034,9 +1051,11 @@ class BlockStore(plugins.SimplePlugin):
             self.streaming_id_set.remove(id)
             os.unlink(self.streaming_filename(id))
 
+    def encode_datavalue(self, str):
+        return (self.dataval_codec.encode(str))[0]
+
     def decode_datavalue(self, ref):
-        decoder = codecs.lookup("string_escape")
-        return (decoder.decode(ref.value))[0]
+        return (self.dataval_codec.decode(ref.value))[0]
         
     def try_retrieve_filename_for_ref_without_transfer(self, ref):
         assert isinstance(ref, SWRealReference)

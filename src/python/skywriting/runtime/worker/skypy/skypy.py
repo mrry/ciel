@@ -9,6 +9,7 @@ from StringIO import StringIO
 import shared.references
 from shared.references import SW2_FutureReference
 from shared.exec_helpers import get_exec_prefix, get_exec_output_ids
+from shared.io_helpers import MaybeFile
 
 # Changes from run to run; set externally
 main_coro = None
@@ -28,28 +29,6 @@ halt_reason = 0
 HALT_REFERENCE_UNAVAILABLE = 1
 HALT_DONE = 2
 HALT_RUNTIME_EXCEPTION = 3
-
-class MaybeFile:
-
-    def __init__(self):
-        self.real_fp = None
-        self.filename = None
-        self.bytes_written = 0
-        self.fake_fp = StringIO()
-
-    def write(self, str):
-        if self.real_fp is not None:
-            self.real_fp.write(str)
-        else:
-            if self.bytes_written + len(str) > 1024:
-                self.fd, self.filename = tempfile.mkstemp()
-                self.real_fp = os.fdopen(self.fd, "w")
-                self.real_fp.write(self.fake_fp.getvalue())
-                self.real_fp.write(str)
-                self.fake_fp.close()
-            else:
-                self.bytes_written += len(str)
-                self.fake_fp.write(str)
 
 def describe_maybe_file(output_fp, out_dict):
     if output_fp.real_fp is not None:
