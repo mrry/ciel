@@ -14,7 +14,7 @@ import os
 
 import skypy
 
-from shared.io_helpers import MaybeFile, describe_maybe_file
+from shared.io_helpers import MaybeFile
 
 parser = optparse.OptionParser()
 parser.add_option("-r", "--resume_state", dest="state_file", 
