@@ -199,21 +199,6 @@ class SW2_FetchReference(SWRealReference):
     def __repr__(self):
         return 'SW2_FetchReference(%s, %s)' % (repr(self.id), repr(self.url))
 
-class SWURLReference(SWRealReference):
-    """
-    A reference to one or more URLs representing the same data.
-    """
-    
-    def __init__(self, urls, size_hint=None):
-        self.urls = urls
-        self.size_hint = size_hint
-        
-    def as_tuple(self):
-        return ('urls', self.urls, self.size_hint)
-    
-    def __repr__(self):
-        return 'SWURLReference(%s, %s)' % (repr(self.urls), repr(self.size_hint))
-
 class SWDataValue(SWRealReference):
     """
     This is akin to a SW2_ConcreteReference which encapsulates its own data.
@@ -235,9 +220,7 @@ class SWDataValue(SWRealReference):
 
 def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]
-    if ref_type == 'urls':
-        return SWURLReference(reference_tuple[1], reference_tuple[2])
-    elif ref_type == 'val':
+    if ref_type == 'val':
         return SWDataValue(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'err':
         return SWErrorReference(reference_tuple[1], reference_tuple[2], reference_tuple[3])
@@ -285,4 +268,30 @@ def combine_references(original, update):
     
     # If we return false, this means we should ignore the update.
     return False
+
+def hash_update_with_structure(self, hash, value):
+    """
+    Recurses over a Skywriting data structure (containing lists, dicts and 
+    primitive leaves) in a deterministic order, and updates the given hash with
+    all values contained therein.
+    """
+    if isinstance(value, list):
+        hash.update('[')
+        for element in value:
+            hash_update_with_structure(hash, element)
+            hash.update(',')
+        hash.update(']')
+    elif isinstance(value, dict):
+        hash.update('{')
+        for (dict_key, dict_value) in sorted(value.items()):
+            hash.update(dict_key)
+            hash.update(':')
+            hash_update_with_structure(hash, dict_value)
+            hash.update(',')
+        hash.update('}')
+    elif isinstance(value, SWRealReference):
+        hash.update('ref')
+        hash.update(value.id)
+    else:
+        hash.update(str(value))
     

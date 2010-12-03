@@ -7,7 +7,7 @@ import os
 from StringIO import StringIO
 
 import shared.references
-from shared.references import SW2_FutureReference
+from shared.references import SW2_FutureReference, hash_update_with_structure
 
 # Changes from run to run; set externally
 main_coro = None
@@ -170,24 +170,6 @@ def spawn(spawn_callable):
     describe_maybe_file(new_coro_fp, out_dict)
     pickle.dump(out_dict, runtime_out)
     return SW2_FutureReference(output_id)
-
-def hash_update_with_structure(hash, value):
-    if isinstance(value, list):
-        hash.update('[')
-        for element in value:
-            hash_update_with_structure(hash, element)
-            hash.update(',')
-        hash.update(']')
-    elif isinstance(value, dict):
-        hash.update('{')
-        for (dict_key, dict_value) in sorted(value.items()):
-            hash.update(dict_key)
-            hash.update(':')
-            hash_update_with_structure(hash, dict_value)
-            hash.update(',')
-        hash.update('}')
-    else:
-        hash.update(str(value))
 
 def get_prefix_for_exec(executor_name, real_args, num_outputs):
     sha = hashlib.sha1()

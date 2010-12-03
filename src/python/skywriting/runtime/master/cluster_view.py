@@ -16,7 +16,7 @@ from cherrypy._cperror import HTTPError
 from skywriting.runtime.task import TASK_STATES, TASK_STATE_NAMES
 import cherrypy
 import time
-from shared.references import SWURLReference, SWDataValue
+from shared.references import SWDataValue
 
 def table_row(key, value):
     return '<tr><td><b>%s</b></td><td>%s</td></tr>' % (key, str(value))
@@ -28,10 +28,7 @@ def job_link(job):
     return '<a href="/browse/job/%s">%s</a>' % (job.id, job.id)
 
 def ref_link(ref):
-    if isinstance(ref, SWURLReference):
-        return '<a href="%s">URL ref</a>' % ref.urls[0]
-    else:
-        return '<a href="/browse/ref/%s">%s</a>' % (ref.id, ref.id)
+    return '<a href="/browse/ref/%s">%s</a>' % (ref.id, ref.id)
 
 def ref_id_link(ref_id):
     return '<a href="/browse/ref/%s">%s</a>' % (ref_id, ref_id)

@@ -42,8 +42,7 @@ import urlparse
 import simplejson
 from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
-    SWErrorReference, SWURLReference, \
-    SW2_StreamReference,\
+    SWErrorReference, SW2_StreamReference,\
     SW2_TombstoneReference, SW2_FetchReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 import hashlib
@@ -1063,12 +1062,6 @@ class BlockStore(plugins.SimplePlugin):
                 return maybe_local_filename
             check_urls = ["swbs://%s/%s" % (loc_hint, str(ref.id)) for loc_hint in ref.location_hints]
             return find_first_cached(check_urls)
-        elif isinstance(ref, SWURLReference):
-            for url in ref.urls:
-                parsed_url = urlparse.urlparse(url)
-                if parsed_url.scheme == "file":
-                    return parsed_url.path
-            return find_first_cached(ref.urls)
 
     def try_retrieve_string_for_ref_without_transfer(self, ref):
         assert isinstance(ref, SWRealReference)
@@ -1097,19 +1090,6 @@ class BlockStore(plugins.SimplePlugin):
                     return f.read()
             else:
                 return None
-        elif isinstance(ref, SWURLReference):
-            to_read = None
-            for url in ref.urls:
-                parsed_url = urlparse.urlparse(url)
-                if parsed_url.scheme == "file":
-                    to_read = parsed_url.path
-            if to_read is None:
-                to_read = find_first_cached(ref.urls)        
-            if to_read is not None:
-                with open(to_read, "r") as f:
-                    return f.read()
-            else:
-                return None
 
     def try_retrieve_object_for_ref_without_transfer(self, ref, decoder):
 
@@ -1129,8 +1109,6 @@ class BlockStore(plugins.SimplePlugin):
 
         if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
-        elif isinstance(ref, SWURLReference):
-            return map(sw_to_external_url, ref.urls)
         elif isinstance(ref, SW2_FetchReference):
             return [ref.url]
                 

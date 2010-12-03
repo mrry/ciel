@@ -36,10 +36,9 @@ import subprocess
 import pickle
 import simplejson
 import os.path
-from shared.references import SWDataValue, SWURLReference,\
-    SWRealReference,\
-    SWErrorReference, SW2_FutureReference,\
-    SW2_ConcreteReference
+from shared.references import SWDataValue, SWRealReference,\
+    SWErrorReference, SW2_FutureReference, SW2_ConcreteReference,\
+    hash_update_with_structure
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -351,7 +350,7 @@ class InterpreterTask:
 
     def create_output_names_for_exec(self, executor_name, real_args, num_outputs):
         sha = hashlib.sha1()
-        self.hash_update_with_structure(sha, [real_args, num_outputs])
+        hash_update_with_structure(sha, [real_args, num_outputs])
         prefix = '%s:%s:' % (executor_name, sha.hexdigest())
         return ['%s%d' % (prefix, i) for i in range(num_outputs)]
 
@@ -381,13 +380,9 @@ class InterpreterTask:
         if raise_ref is not None:
             raise ReferenceUnavailableException(raise_ref)
 
-        print "Args pre-resolve", args
-
         # Okay, all ref are good to go: executor should pull them in and run.
         env = RefCacheEnvironment(self.reference_cache)
         self.current_executor.resolve_required_refs(args, env.resolve_ref)
-
-        print "Args post-resolve", args
 
         # Might raise runtime errors
         self.current_executor.execute(self.block_store, 
@@ -423,38 +418,6 @@ class InterpreterTask:
     def deref_json(self, ref):
         cherrypy.log.error("Deref-as-JSON %s" % id, "INTERPRETER", logging.INFO)
         return self.block_store.retrieve_object_for_ref(self.resolve_ref(ref), "json")
-
-    def hash_update_with_structure(self, hash, value):
-        """
-        Recurses over a Skywriting data structure (containing lists, dicts and 
-        primitive leaves) in a deterministic order, and updates the given hash with
-        all values contained therein.
-        """
-        if isinstance(value, list):
-            hash.update('[')
-            for element in value:
-                self.hash_update_with_structure(hash, element)
-                hash.update(',')
-            hash.update(']')
-        elif isinstance(value, dict):
-            hash.update('{')
-            for (dict_key, dict_value) in sorted(value.items()):
-                hash.update(dict_key)
-                hash.update(':')
-                self.hash_update_with_structure(hash, dict_value)
-                hash.update(',')
-            hash.update('}')
-        elif isinstance(value, SW2_ConcreteReference) or isinstance(value, SW2_FutureReference):
-            hash.update('ref')
-            hash.update(value.id)
-        elif isinstance(value, SWURLReference):
-            hash.update('ref')
-            hash.update(value.urls[0])
-        elif isinstance(value, SWDataValue):
-            hash.update('ref*')
-            hash.update(hash, value.value)
-        else:
-            hash.update(str(value))
 
 class SkyPyInterpreterTask(InterpreterTask):
     
@@ -856,7 +819,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
     def get_exec_prefix(self, executor_name, real_args, num_outputs):
         sha = hashlib.sha1()
-        self.hash_update_with_structure(sha, [real_args, num_outputs])
+        hash_update_with_structure(sha, [real_args, num_outputs])
         return '%s:%s:' % (executor_name, sha.hexdigest())
 
     def create_names_for_exec(self, executor_name, real_args, num_outputs):
