@@ -299,6 +299,47 @@ class InterpreterTask:
 
         self.reference_cache = self.inputs
 
+    def interpret(self):
+
+        try:
+
+            successful_completion = self.run_interpreter()
+            if successful_completion:
+                self.refs_to_publish.append(self.result_ref
+                if self.save_continuation:
+                    self.save_continuation()
+            else:
+                cont_deps = dict([(ref.id, ref) for ref in self.halt_dependencies])
+                # Add interpreter-specific dependencies
+                self.add_cont_deps(cont_deps)
+                cont_task_descriptor = {'task_id': str(self.cont_task_id),
+                                        'handler': self.handler_name,
+                                        'dependencies': cont_deps,
+                                        'expected_outputs': map(str, self.expected_outputs),
+                                        'save_continuation': self.save_continuation,
+                                        'continues_task': str(self.original_task_id)}
+                if self.halt_feature_requirement is not None:
+                    cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
+                self.spawn_list.append(SpawnListEntry(self.cont_task_id, cont_task_descriptor))
+
+        except MissingInputException as mie:
+            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
+            raise
+        except Exception:
+            cherrypy.log.error('Interpreter error.', 'SKYPY', logging.ERROR, True)
+            self.save_continuation = True
+            raise
+
+    def spawn_task(self, new_task_id, new_task_deps, output_id):
+
+        task_descriptor = {'task_id': new_task_id,
+                           'handler': self.handler_name,
+                           'dependencies': new_task_deps,
+                           'expected_outputs': [str(output_id)]
+                          }
+
+        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
+
     def spawn_all(self, block_store, master_proxy):
 
         if len(self.spawn_list) == 0:
@@ -309,6 +350,9 @@ class InterpreterTask:
 
     def get_spawn_continuation_object_id(self, task_id):
         return '%s:cont' % (task_id, )
+
+    def get_saved_continuation_object_id(self):
+        return '%s:saved_cont' % (self.task_id, )
 
     def commit_result(self, block_store, master_proxy):
         
@@ -353,9 +397,6 @@ class InterpreterTask:
         hash_update_with_structure(sha, [real_args, num_outputs])
         prefix = '%s:%s:' % (executor_name, sha.hexdigest())
         return ['%s%d' % (prefix, i) for i in range(num_outputs)]
-
-    def get_halt_deps(self):
-        return dict([(ref.id, ref) for ref in self.halt_dependencies])
 
     def publish_reference(self, ref):
         self.refs_to_publish.append(ref)
@@ -425,6 +466,7 @@ class SkyPyInterpreterTask(InterpreterTask):
 
         InterpreterTask.__init__(self, task_descriptor, block_store, execution_features, master_proxy)
         self.skypybase = skypybase
+        self.handler_name = "skypy"
         
     def fetch_inputs(self, block_store):
 
@@ -470,7 +512,7 @@ class SkyPyInterpreterTask(InterpreterTask):
             with open(args_dict["filename"], "r") as f:
                 return pickle.load(f)
 
-    def interpret(self):
+    def run_interpreter(self):
 
         pypy_env = os.environ.copy()
         pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
@@ -482,8 +524,6 @@ class SkyPyInterpreterTask(InterpreterTask):
                      "--taskid", self.task_id]
 
         pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
-
-        cont_task_id = None
 
         while True:
             
@@ -531,54 +571,33 @@ class SkyPyInterpreterTask(InterpreterTask):
                     # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                cont_task_id = request_args["new_task_id"]
-                cont_ref_id = self.get_spawn_continuation_object_id(cont_task_id)
-                cont_ref = self.ref_from_pypy_dict(request_args, cont_ref_id)
+                self.cont_task_id = request_args["new_task_id"]
+                self.cont_ref = self.ref_from_pypy_dict(request_args, cont_ref_id)
                 self.halt_dependencies.extend(list(request_args["additional_deps"]))
-                cont_deps = self.get_halt_deps()
-                cont_deps["_coro"] = cont_ref
-                cont_deps["_py"] = self.pyfile_ref
-                cont_task_descriptor = {'task_id': str(cont_task_id),
-                                        'handler': 'skypy',
-                                        'dependencies': cont_deps,
-                                        'expected_outputs': map(str, self.expected_outputs),
-                                        'continues_task': str(self.original_task_id)}
-                if self.halt_feature_requirement is not None:
-                    cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
-                self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor))
-                break
+                return False
             elif request == "done":
                 # The interpreter is stopping because the function has completed
-                result_ref = self.ref_from_pypy_dict(request_args, self.expected_outputs[0])
-                self.refs_to_publish.append(result_ref)
-                break
+                self.result_ref = self.ref_from_pypy_dict(request_args, self.expected_outputs[0])
+                return True
             elif request == "exception":
                 report_text = self.str_from_pypy_dict(request_args)
                 raise Exception("Fatal pypy exception: %s" % report_text)
 
-#       except MissingInputException as mie:
-#            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
-#            raise
+    def save_continuation(self):
+        # Nah
+        pass
 
-#        except Exception:
-#            cherrypy.log.error('Interpreter error.', 'SKYPY', logging.ERROR, True)
-#            self.save_continuation = True
-#            raise
+    def add_cont_deps(self, cont_deps):
+        cont_deps["_coro"] = self.cont_ref
+        cont_deps["_py"] = self.pyfile_ref
 
     def spawn_func(self, new_task_id, output_id, **otherargs):
 
         coro_ref = self.ref_from_pypy_dict(otherargs, self.get_spawn_continuation_object_id(new_task_id))
-        
         new_task_deps = {"_py": self.pyfile_ref, "_coro": coro_ref}
+
+        self.spawn_task(new_task_id, new_task_deps, output_id)
         
-        task_descriptor = {'task_id': new_task_id,
-                           'handler': 'skypy',
-                           'dependencies': new_task_deps,
-                           'expected_outputs': [str(output_id)]
-                          }
-
-        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
-
     def ref_as_file_or_string(self, ref):
         cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         try:
@@ -623,6 +642,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         except KeyError:
             self.save_continuation = False
 
+        self.handler_name = "swi"
         self.lazy_derefs = set()
         self.spawn_counter = 0
         self.continuation = None
@@ -644,7 +664,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         
         cherrypy.log.error('Fetched continuation', 'SWI', logging.INFO)
 
-    def interpret(self):
+    def run_interpreter(self):
         self.continuation.context.restart()
         task_context = TaskContext(self.continuation.context, self)
         
@@ -670,24 +690,22 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
             # The script finished successfully
 
-            json_result = simplejson.dumps(self.result, cls=SWReferenceJSONEncoder)
-            self.block_store.cache_object(self.result, "json", self.expected_outputs[0])
-            if len(json_result) < 128:
-                result_ref = SWDataValue(self.expected_outputs[0], json_result)
-            else:
-                self.block_store.store_object(json_result, "noop", self.expected_outputs[0])
-                result_ref = SW2_ConcreteReference(self.expected_outputs[0], size_hint)
-                result_ref.add_location_hint(self.block_store.netloc)   
-                
-            self.publish_reference(result_ref)
-
-            # XXX: This is for the unusual case that we have a task fragment that runs to completion without returning anything.
-            #      Could maybe use an ErrorRef here, but this might not be erroneous if, e.g. the interactive shell is used.
+            # XXX: This is for the unusual case that we have a task fragment that runs 
+            # to completion without returning anything.
+            # Could maybe use an ErrorRef here, but this might not be erroneous if, 
+            # e.g. the interactive shell is used.
             if self.result is None:
                 self.result = SWErrorReference('NO_RETURN_VALUE', 'null')
 
-            if self.save_continuation:
-                self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 'pickle', self.get_saved_continuation_object_id())
+            json_result = simplejson.dumps(self.result, cls=SWReferenceJSONEncoder)
+            if len(json_result) < 128:
+                self.block_store.cache_object(self.result, "json", self.expected_outputs[0])
+                self.result_ref = SWDataValue(self.expected_outputs[0], json_result)
+            else:
+                _, size_hint = self.block_store.store_object(json_result, "json", self.expected_outputs[0])
+                self.result_ref = SW2_ConcreteReference(self.expected_outputs[0], size_hint)
+                self.result_ref.add_location_hint(self.block_store.netloc)
+            return True
 
 #        except SelectException, se:
 #            
@@ -710,42 +728,19 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             
         except ExecutionInterruption, ei:
 
-            # Need to add a continuation task to the spawn list.
-            cont_deps = self.get_halt_deps()
-            cont_task_id = self.create_spawned_task_name()
-            spawned_cont_id = self.get_spawn_continuation_object_id(cont_task_id)
+            self.cont_task_id = self.create_spawned_task_name()
             _, size_hint = self.block_store.store_object(self.continuation, 'pickle', spawned_cont_id)
-            spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
-            spawned_cont_ref.add_location_hint(self.block_store.netloc)
-            cont_deps['_cont'] = spawned_cont_ref
+            self.spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
+            self.spawned_cont_ref.add_location_hint(self.block_store.netloc)
+            return False
 
-            cont_task_descriptor = {'task_id': str(cont_task_id),
-                                    'handler': 'swi',
-                                    'dependencies': cont_deps, # _cont will be added at spawn time.
-                                    'expected_outputs': map(str, self.expected_outputs),
-                                    'save_continuation': self.save_continuation,
-                                    'continues_task': str(self.original_task_id)}
-            self.save_continuation = False
-            if isinstance(ei, FeatureUnavailableException):
-                cont_task_descriptor['require_features'] = [ei.feature_name]
-            
-            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor))
-            return
-            
-        except MissingInputException as mie:
-            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SWI', logging.WARNING)
-            raise
+    def add_cont_deps(self, cont_deps):
+        cont_deps['_cont'] = self.spawned_cont_ref        
 
-        except Exception:
-            cherrypy.log.error('Interpreter error.', 'SWI', logging.ERROR, True)
-            self.save_continuation = True
-            raise
-
-    def get_spawn_continuation_object_id(self, task_id):
-        return '%s:cont' % (task_id, )
-
-    def get_saved_continuation_object_id(self):
-        return '%s:saved_cont' % (self.task_id, )
+    def save_continuation(self):
+        self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
+                                                              'pickle', 
+                                                              self.get_saved_continuation_object_id())
 
     def build_spawn_continuation(self, spawn_expr, args):
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
@@ -769,28 +764,19 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
-        
-        # Append the new task definition to the spawn list.
         new_task_id = self.create_spawned_task_name()
         expected_output_id = self.create_spawn_output_name(new_task_id)
-        
         spawned_cont_id = self.get_spawn_continuation_object_id(new_task_id)
         _, size_hint = self.block_store.store_object(spawned_continuation, 'pickle', spawned_cont_id)
         spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
         spawned_cont_ref.add_location_hint(self.block_store.netloc)
-        
-        task_descriptor = {'task_id': new_task_id,
-                           'handler': 'swi',
-                           'dependencies': {"_cont": spawned_cont_ref},
-                           'expected_outputs': [str(expected_output_id)]
-                          }
-        
+
+        self.spawn_task(new_task_id, {"_cont": spawned_cont_ref}, expected_output_id)
+
         # TODO: we could visit the spawn expression and try to guess what requirements
         #       and executors we need in here. 
         # TODO: should probably look at dereference wrapper objects in the spawn context
         #       and ship them as inputs.
-        
-        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
 
         # Return new future reference to the interpreter
         return SW2_FutureReference(expected_output_id)
