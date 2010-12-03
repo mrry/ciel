@@ -267,31 +267,5 @@ def combine_references(original, update):
             return original
     
     # If we return false, this means we should ignore the update.
-    return False
+    return False    
 
-def hash_update_with_structure(self, hash, value):
-    """
-    Recurses over a Skywriting data structure (containing lists, dicts and 
-    primitive leaves) in a deterministic order, and updates the given hash with
-    all values contained therein.
-    """
-    if isinstance(value, list):
-        hash.update('[')
-        for element in value:
-            hash_update_with_structure(hash, element)
-            hash.update(',')
-        hash.update(']')
-    elif isinstance(value, dict):
-        hash.update('{')
-        for (dict_key, dict_value) in sorted(value.items()):
-            hash.update(dict_key)
-            hash.update(':')
-            hash_update_with_structure(hash, dict_value)
-            hash.update(',')
-        hash.update('}')
-    elif isinstance(value, SWRealReference):
-        hash.update('ref')
-        hash.update(value.id)
-    else:
-        hash.update(str(value))
-    

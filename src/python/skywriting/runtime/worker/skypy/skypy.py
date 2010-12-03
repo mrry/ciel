@@ -7,7 +7,8 @@ import os
 from StringIO import StringIO
 
 import shared.references
-from shared.references import SW2_FutureReference, hash_update_with_structure
+from shared.references import SW2_FutureReference
+from shared.exec_helpers import get_exec_prefix, get_exec_output_ids
 
 # Changes from run to run; set externally
 main_coro = None
@@ -18,11 +19,11 @@ taskid = None
 
 # Volatile; emptied each run
 ref_cache = dict()
+spawn_counter = 0
 
 # Indirect communication with main_coro
 script_return_val = None
 script_backtrace = None
-halt_spawn_id = None
 halt_reason = 0
 HALT_REFERENCE_UNAVAILABLE = 1
 HALT_DONE = 2
@@ -59,7 +60,6 @@ def describe_maybe_file(output_fp, out_dict):
 
 class PersistentState:
     def __init__(self):
-        self.spawn_counter = 0
         self.ref_dependencies = set()
 
 class ResumeState:
@@ -68,15 +68,11 @@ class ResumeState:
         self.coro = coro
         self.persistent_state = pstate
 
-def create_spawned_task_name():
-    sha = hashlib.sha1()
-    sha.update('%s:%d' % (taskid, persistent_state.spawn_counter))
-    ret = sha.hexdigest()
-    persistent_state.spawn_counter += 1
+def create_spawn_output_name():
+    global spawn_counter
+    ret = 'skypy:%s:spawnout:%d' % (taskid, spawn_counter)
+    spawn_counter += 1
     return ret
-    
-def create_spawn_output_name(task_id):
-    return 'skypy:%s' % task_id
 
 def deref(ref):
 
@@ -93,7 +89,6 @@ def deref(ref):
             runtime_response = pickle.load(runtime_in)
             if not runtime_response["success"]:
                 if tries == 0:
-                    halt_spawn_id = create_spawned_task_name()
                     halt_reason = HALT_REFERENCE_UNAVAILABLE
                     main_coro.switch()
                     continue
@@ -144,7 +139,6 @@ def deref_json(ref):
             runtime_response = pickle.load(runtime_in)
             if not runtime_response["success"]:
                 if tries == 0:
-                    halt_spawn_id = create_spawned_task_name()
                     halt_reason = HALT_REFERENCE_UNAVAILABLE
                     main_coro.switch()
                     continue
@@ -162,34 +156,23 @@ def spawn(spawn_callable):
     save_obj = ResumeState(PersistentState(), new_coro)
     new_coro_fp = MaybeFile()
     pickle.dump(save_obj, new_coro_fp)
-    new_task_id = create_spawned_task_name()
-    output_id = create_spawn_output_name(new_task_id)
+    output_id = create_spawn_output_name()
     out_dict = {"request": "spawn", 
-                "new_task_id": new_task_id, 
                 "output_id": output_id}
     describe_maybe_file(new_coro_fp, out_dict)
     pickle.dump(out_dict, runtime_out)
     return SW2_FutureReference(output_id)
 
-def get_prefix_for_exec(executor_name, real_args, num_outputs):
-    sha = hashlib.sha1()
-    hash_update_with_structure(sha, [real_args, num_outputs])
-    return '%s:%s:' % (executor_name, sha.hexdigest())
-    
-def get_names_for_exec(prefix, num_outputs):
-    return ['%s%d' % (prefix, i) for i in range(num_outputs)]
-
 def spawn_exec(exec_name, exec_args_dict, n_outputs):
 
     new_task_id = create_spawned_task_name()
-    exec_prefix = get_prefix_for_exec(exec_name, exec_args_dict, n_outputs)
+    exec_prefix = get_exec_prefix(exec_name, exec_args_dict, n_outputs)
     expected_output_ids = get_names_for_exec(exec_prefix, n_outputs)
     pickle.dump({"request": "spawn_exec",
                  "args": exec_args_dict,
-                 "new_task_id": new_task_id,
                  "executor_name": exec_name,
-                 "exec_prefix": exec_prefix,
-                 "output_ids": expected_output_ids}, 
+                 "n_outputs": n_outputs,
+                 "exec_prefix", exec_prefix},
                 runtime_out)
 
     return [SW2_FutureReference(id) for id in expected_output_ids]

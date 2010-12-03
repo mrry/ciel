@@ -53,7 +53,6 @@ if resume_file is not None:
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
         pickle.dump(resume_state, output_fp)
         out_dict = {"request": "freeze", 
-                    "new_task_id": skypy.halt_spawn_id, 
                     "additional_deps": skypy.persistent_state.ref_dependencies}
     elif skypy.halt_reason == skypy.HALT_DONE:
         pickle.dump(skypy.script_return_val, output_fp)

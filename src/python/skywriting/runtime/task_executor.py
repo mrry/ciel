@@ -37,8 +37,8 @@ import pickle
 import simplejson
 import os.path
 from shared.references import SWDataValue, SWRealReference,\
-    SWErrorReference, SW2_FutureReference, SW2_ConcreteReference,\
-    hash_update_with_structure
+    SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
+from shared.exec_helpers import get_exec_prefix, get_exec_output_ids
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -291,6 +291,7 @@ class InterpreterTask:
 
         self.is_running = True
         self.current_executor = None
+        self.spawn_counter = 0
         
         # A volatile cache of references fetched earlier this run, or supplied by the master at startup.
         self.reference_cache = dict()
@@ -298,6 +299,7 @@ class InterpreterTask:
     def fetch_inputs(self, block_store):
 
         self.reference_cache = self.inputs
+        self.context = self.block_store.retrieve_object_for_ref(self.inputs["_generic_cont"], 'pickle')
 
     def interpret(self):
 
@@ -305,22 +307,23 @@ class InterpreterTask:
 
             successful_completion = self.run_interpreter()
             if successful_completion:
-                self.refs_to_publish.append(self.result_ref
+                self.refs_to_publish.append(self.result_ref)
                 if self.save_continuation:
                     self.save_continuation()
             else:
                 cont_deps = dict([(ref.id, ref) for ref in self.halt_dependencies])
+                new_task_id = self.create_spawned_task_name()
                 # Add interpreter-specific dependencies
                 self.add_cont_deps(cont_deps)
-                cont_task_descriptor = {'task_id': str(self.cont_task_id),
-                                        'handler': self.handler_name,
+                cont_task_descriptor = {'handler': self.handler_name,
                                         'dependencies': cont_deps,
                                         'expected_outputs': map(str, self.expected_outputs),
                                         'save_continuation': self.save_continuation,
                                         'continues_task': str(self.original_task_id)}
                 if self.halt_feature_requirement is not None:
                     cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
-                self.spawn_list.append(SpawnListEntry(self.cont_task_id, cont_task_descriptor))
+                    
+                self.add_spawned_task(cont_task_descriptor)
 
         except MissingInputException as mie:
             cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
@@ -330,15 +333,31 @@ class InterpreterTask:
             self.save_continuation = True
             raise
 
-    def spawn_task(self, new_task_id, new_task_deps, output_id):
+    def create_spawned_task_name(self):
+        sha = hashlib.sha1()
+        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
+        ret = sha.hexdigest()
+        self.spawn_counter += 1
+        return ret
 
-        task_descriptor = {'task_id': new_task_id,
-                           'handler': self.handler_name,
+    def add_spawned_task(self, descriptor):
+
+        fresh_name = self.create_spawned_task_name()
+        descriptor["task_id"] = fresh_name
+        self.spawn_list.append(SpawnListEntry(fresh_name, descriptor))
+
+        if len(self.spawn_list) > 20:
+            self.spawn_all(self.block_store, self.master_proxy)
+            self.spawn_list = []
+    
+    def spawn_task(self, new_task_deps, output_id):
+
+        task_descriptor = {'handler': self.handler_name,
                            'dependencies': new_task_deps,
                            'expected_outputs': [str(output_id)]
                           }
 
-        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
+        self.add_spawned_task(task_descriptor)
 
     def spawn_all(self, block_store, master_proxy):
 
@@ -348,8 +367,8 @@ class InterpreterTask:
         spawn_descriptors = [x.task_descriptor for x in self.spawn_list]
         master_proxy.spawn_tasks(self.task_id, spawn_descriptors)
 
-    def get_spawn_continuation_object_id(self, task_id):
-        return '%s:cont' % (task_id, )
+    def get_spawn_continuation_object_id(self):
+        return '%s:%d:%spawncont' % (self.task_id, self.spawn_counter)
 
     def get_saved_continuation_object_id(self):
         return '%s:saved_cont' % (self.task_id, )
@@ -359,7 +378,9 @@ class InterpreterTask:
         commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
         master_proxy.commit_task(self.task_id, commit_bindings, self.save_cont_uri, self.replay_uuid_list)
 
-    def spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, output_ids):
+    def spawn_exec_func(self, executor_name, args, n_outputs, exec_prefix):
+
+        output_ids = get_exec_output_ids(exec_prefix)
 
         executor = self.execution_features.get_executor(executor_name)
 
@@ -375,35 +396,27 @@ class InterpreterTask:
         args_ref = SWDataValue(args_id, pickle.dumps(args))
         self.block_store.cache_object(args, "pickle", args_id)
         
+        output_ids = get_exec_output_ids(exec_prefix)
+
         inputs = dict([(ref.id, ref) for ref in l.exec_deps])
         inputs['_args'] = args_ref
 
-        task_descriptor = {'task_id': new_task_id,
-                           'handler': executor_name, 
+        task_descriptor = {'handler': executor_name, 
                            'dependencies': inputs,
                            'expected_outputs': output_ids}
         
-        self.spawn_list.append(SpawnListEntry(new_task_id, task_descriptor))
+        self.add_spawned_task(task_descriptor)
         
-        if len(self.spawn_list) > 20:
-            self.spawn_all(self.block_store, self.master_proxy)
-            self.spawn_list = []
-    
     def get_args_name_for_exec(self, prefix):
         return '%sargs' % (prefix, )
-
-    def create_output_names_for_exec(self, executor_name, real_args, num_outputs):
-        sha = hashlib.sha1()
-        hash_update_with_structure(sha, [real_args, num_outputs])
-        prefix = '%s:%s:' % (executor_name, sha.hexdigest())
-        return ['%s%d' % (prefix, i) for i in range(num_outputs)]
 
     def publish_reference(self, ref):
         self.refs_to_publish.append(ref)
 
     def exec_func(self, executor_name, args, n_outputs):
         
-        output_ids = self.create_output_names_for_exec(executor_name, args, n_outputs)
+        exec_prefix = get_exec_prefix(executor_name, args, n_outputs)
+        output_ids = get_exec_output_ids(exec_prefix, n_outputs)
 
         l = RefList()
         self.current_executor = self.execution_features.get_executor(executor_name)
@@ -571,7 +584,6 @@ class SkyPyInterpreterTask(InterpreterTask):
                     # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                self.cont_task_id = request_args["new_task_id"]
                 self.cont_ref = self.ref_from_pypy_dict(request_args, cont_ref_id)
                 self.halt_dependencies.extend(list(request_args["additional_deps"]))
                 return False
@@ -591,12 +603,12 @@ class SkyPyInterpreterTask(InterpreterTask):
         cont_deps["_coro"] = self.cont_ref
         cont_deps["_py"] = self.pyfile_ref
 
-    def spawn_func(self, new_task_id, output_id, **otherargs):
+    def spawn_func(self, output_id, **otherargs):
 
-        coro_ref = self.ref_from_pypy_dict(otherargs, self.get_spawn_continuation_object_id(new_task_id))
+        coro_ref = self.ref_from_pypy_dict(otherargs, self.get_spawn_continuation_object_id())
         new_task_deps = {"_py": self.pyfile_ref, "_coro": coro_ref}
 
-        self.spawn_task(new_task_id, new_task_deps, output_id)
+        self.spawn_task(new_task_deps, output_id)
         
     def ref_as_file_or_string(self, ref):
         cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
@@ -644,7 +656,6 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
         self.handler_name = "swi"
         self.lazy_derefs = set()
-        self.spawn_counter = 0
         self.continuation = None
         self.result = None
         
@@ -728,7 +739,6 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             
         except ExecutionInterruption, ei:
 
-            self.cont_task_id = self.create_spawned_task_name()
             _, size_hint = self.block_store.store_object(self.continuation, 'pickle', spawned_cont_id)
             self.spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
             self.spawned_cont_ref.add_location_hint(self.block_store.netloc)
@@ -748,15 +758,8 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         
         return cont
 
-    def create_spawned_task_name(self):
-        sha = hashlib.sha1()
-        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
-        ret = sha.hexdigest()
-        self.spawn_counter += 1
-        return ret
-    
-    def create_spawn_output_name(self, task_id):
-        return 'swi:%s' % task_id
+    def create_spawn_output_name(self):
+        return 'swi:%s:spawnout:%d' % (self.task_id, self.spawn_counter)
     
     def spawn_func(self, spawn_expr, args):
 
@@ -764,8 +767,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
-        new_task_id = self.create_spawned_task_name()
-        expected_output_id = self.create_spawn_output_name(new_task_id)
+        expected_output_id = self.create_spawn_output_name()
         spawned_cont_id = self.get_spawn_continuation_object_id(new_task_id)
         _, size_hint = self.block_store.store_object(spawned_continuation, 'pickle', spawned_cont_id)
         spawned_cont_ref = SW2_ConcreteReference(spawned_cont_id, size_hint)
@@ -795,25 +797,12 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
         args = self.do_eager_thunks(exec_args)
 
-        new_task_id = self.create_spawned_task_name()
-        exec_prefix = self.get_exec_prefix(executor_name, args, num_outputs)
-        _, expected_output_ids = self.create_names_for_exec(executor_name, args, num_outputs)
+        exec_prefix = get_exec_prefix(executor_name, args, num_outputs)
 
-        InterpreterTask.spawn_exec_func(self, executor_name, args, new_task_id, exec_prefix, expected_output_ids)
+        InterpreterTask.spawn_exec_func(self, executor_name, args, num_outputs, exec_prefix)
 
         return [SW2_FutureReference(id) for id in expected_output_ids]
 
-    def get_exec_prefix(self, executor_name, real_args, num_outputs):
-        sha = hashlib.sha1()
-        hash_update_with_structure(sha, [real_args, num_outputs])
-        return '%s:%s:' % (executor_name, sha.hexdigest())
-
-    def create_names_for_exec(self, executor_name, real_args, num_outputs):
-        prefix = self.get_exec_prefix(executor_name, real_args, num_outputs)
-        args_name = '%sargs' % (prefix, )
-        output_names = ['%s%d' % (prefix, i) for i in range(num_outputs)]
-        return args_name, output_names
-    
     def exec_func(self, executor_name, args, num_outputs):
         
         real_args = self.do_eager_thunks(args)
