@@ -1,3 +1,6 @@
+
+include "grab";
+
 function map(f, list) {
   outputs = [];
   for (i in range(len(list))) {

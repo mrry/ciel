@@ -1,3 +1,6 @@
+
+include "grab";
+
 java_lib = [ref("http://www.cl.cam.ac.uk/~dgm36/kmeans.jar")];
 num_partitions = 20;
 num_clusters = 2;

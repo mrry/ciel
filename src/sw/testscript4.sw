@@ -1,3 +1,6 @@
+
+include "grab";
+
 foo = function (file_ref) {
 	return exec("stdinout", {"inputs": [file_ref], "command_line": ["wc", "-w"]}, 1);
 };

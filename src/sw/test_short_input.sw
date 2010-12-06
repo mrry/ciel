@@ -1,4 +1,6 @@
 
+include "grab";
+
 producer_jar_ref = ref("file:///home/chris/skywriting/examples/tests/src/java/JitteryProducer.jar");                 
 consumer_jar_ref = ref("file:///home/chris/skywriting/examples/tests/src/java/JitteryConsumer.jar");                 
 

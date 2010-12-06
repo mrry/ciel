@@ -464,7 +464,7 @@ class InterpreterTask:
             return False
     
     def deref_json(self, ref):
-        cherrypy.log.error("Deref-as-JSON %s" % id, "INTERPRETER", logging.INFO)
+        cherrypy.log.error("Deref-as-JSON %s" % ref.id, "INTERPRETER", logging.INFO)
         return self.block_store.retrieve_object_for_ref(self.resolve_ref(ref), "json")
 
 class SkyPyInterpreterTask(InterpreterTask):
@@ -717,7 +717,8 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             
         except ExecutionInterruption, ei:
             
-            self.spawned_cont_ref = self.block_store.ref_from_object(self.continuation, "pickle", self.expected_outputs[0])
+            cont_id = self.get_spawn_continuation_object_id()
+            self.spawned_cont_ref = self.block_store.ref_from_object(self.continuation, "pickle", cont_id)
             return False
 
     def add_cont_deps(self, cont_deps):
