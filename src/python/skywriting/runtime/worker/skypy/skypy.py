@@ -148,7 +148,7 @@ def spawn(spawn_callable):
 def spawn_exec(exec_name, exec_args_dict, n_outputs):
 
     exec_prefix = get_exec_prefix(exec_name, exec_args_dict, n_outputs)
-    expected_output_ids = get_names_for_exec(exec_prefix, n_outputs)
+    expected_output_ids = get_exec_output_ids(exec_prefix, n_outputs)
     pickle.dump({"request": "spawn_exec",
                  "args": exec_args_dict,
                  "executor_name": exec_name,

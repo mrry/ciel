@@ -258,6 +258,11 @@ class InterpreterTask:
         self.master_proxy = master_proxy
 
         try:
+            self.should_save_continuation = task_descriptor['save_continuation']
+        except KeyError:
+            self.should_save_continuation = False
+
+        try:
             self.replay_uuid_list = task_descriptor['replay_uuids']
             self.replay_uuids = True
             self.current_uuid_index = 0
@@ -306,7 +311,7 @@ class InterpreterTask:
             successful_completion = self.run_interpreter()
             if successful_completion:
                 self.refs_to_publish.append(self.result_ref)
-                if self.save_continuation:
+                if self.should_save_continuation:
                     self.save_continuation()
             else:
                 cont_deps = dict([(ref.id, ref) for ref in self.halt_dependencies])
@@ -315,7 +320,7 @@ class InterpreterTask:
                 cont_task_descriptor = {'handler': self.handler_name,
                                         'dependencies': cont_deps,
                                         'expected_outputs': map(str, self.expected_outputs),
-                                        'save_continuation': self.save_continuation,
+                                        'save_continuation': self.should_save_continuation,
                                         'continues_task': str(self.original_task_id)}
                 if self.halt_feature_requirement is not None:
                     cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
@@ -376,9 +381,8 @@ class InterpreterTask:
 
     def spawn_exec_func(self, executor_name, args, n_outputs, exec_prefix):
 
-        output_ids = get_exec_output_ids(exec_prefix)
-
         executor = self.execution_features.get_executor(executor_name)
+        output_ids = get_exec_output_ids(exec_prefix, n_outputs)
 
         # Throw early if the args are bad
         executor.check_args_valid(args, output_ids)
@@ -388,7 +392,6 @@ class InterpreterTask:
         executor.get_required_refs(args, l.add_ref)
 
         args_id = self.get_args_name_for_exec(exec_prefix)
-        output_ids = get_exec_output_ids(exec_prefix)
 
         args_ref = self.block_store.ref_from_object(args, "pickle", args_id)
         
@@ -500,7 +503,7 @@ class SkyPyInterpreterTask(InterpreterTask):
 
     def ref_from_pypy_dict(self, args_dict, refid):
         try:
-            ref = SWDataValue(refid, args_dict["outstr"])
+            ref = SWDataValue(refid, self.block_store.encode_datavalue(args_dict["outstr"]))
             cherrypy.log.error("SkyPy shipped a small ref (length %d)" 
                                % len(args_dict["outstr"]), "SKYPY", logging.INFO)
             return ref
@@ -598,13 +601,13 @@ class SkyPyInterpreterTask(InterpreterTask):
         cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.resolve_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            cherrypy.log.error("Pypy dereferenced %s, returning data inline" % request_args["ref"].id,
+            cherrypy.log.error("Pypy dereferenced %s, returning data inline" % ref.id,
                                "SKYPY", logging.INFO)
-            return {"success": True, "strdata": data}
+            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
         else:
-            cherrypy.log.error("Pypy dereferenced %s, returning %s" 
-                               % (request_args["ref"].id, filename), "SKYPY", logging.INFO)
             filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            cherrypy.log.error("Pypy dereferenced %s, returning %s" 
+                               % (ref.id, filenames[0]), "SKYPY", logging.INFO)
             return {"success": True, "filename": filenames[0]}
 
 class SWContinuation:
@@ -633,11 +636,6 @@ class SWRuntimeInterpreterTask(InterpreterTask):
     def __init__(self, task_descriptor, block_store, execution_features, master_proxy):
 
         InterpreterTask.__init__(self, task_descriptor, block_store, execution_features, master_proxy)
-
-        try:
-            self.save_continuation = task_descriptor['save_continuation']
-        except KeyError:
-            self.save_continuation = False
 
         self.handler_name = "swi"
         self.lazy_derefs = set()
@@ -773,10 +771,11 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         args = self.do_eager_thunks(exec_args)
 
         exec_prefix = get_exec_prefix(executor_name, args, num_outputs)
+        output_ids = get_exec_output_ids(exec_prefix, num_outputs)
 
         InterpreterTask.spawn_exec_func(self, executor_name, args, num_outputs, exec_prefix)
 
-        return [SW2_FutureReference(id) for id in expected_output_ids]
+        return [SW2_FutureReference(id) for id in output_ids]
 
     def exec_func(self, executor_name, args, num_outputs):
         
