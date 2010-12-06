@@ -568,7 +568,7 @@ class SkyPyInterpreterTask(InterpreterTask):
                     # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                self.cont_ref = self.ref_from_pypy_dict(request_args, cont_ref_id)
+                self.cont_ref = self.ref_from_pypy_dict(request_args, self.get_spawn_continuation_object_id())
                 self.halt_dependencies.extend(list(request_args["additional_deps"]))
                 return False
             elif request == "done":

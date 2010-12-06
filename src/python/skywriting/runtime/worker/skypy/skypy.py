@@ -1,3 +1,6 @@
+
+from __future__ import with_statement
+
 import stackless
 import pickle
 import hashlib
@@ -144,14 +147,13 @@ def spawn(spawn_callable):
 
 def spawn_exec(exec_name, exec_args_dict, n_outputs):
 
-    new_task_id = create_spawned_task_name()
     exec_prefix = get_exec_prefix(exec_name, exec_args_dict, n_outputs)
     expected_output_ids = get_names_for_exec(exec_prefix, n_outputs)
     pickle.dump({"request": "spawn_exec",
                  "args": exec_args_dict,
                  "executor_name": exec_name,
                  "n_outputs": n_outputs,
-                 "exec_prefix", exec_prefix},
+                 "exec_prefix": exec_prefix},
                 runtime_out)
 
     return [SW2_FutureReference(id) for id in expected_output_ids]
@@ -174,7 +176,6 @@ def sync_exec(exec_name, exec_args_dict, n_outputs):
             return result["outputs"]
         else:
             if tries == 0:
-                halt_spawn_id = create_spawned_task_name()
                 halt_reason = HALT_REFERENCE_UNAVAILABLE
                 main_coro.switch()
             else:

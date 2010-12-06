@@ -14,7 +14,7 @@ import os
 
 import skypy
 
-from shared.io_helpers import MaybeFile, describe_maybe_file
+from shared.io_helpers import MaybeFile
 
 parser = optparse.OptionParser()
 parser.add_option("-r", "--resume_state", dest="state_file", 
@@ -51,7 +51,7 @@ if resume_file is not None:
     user_coro = resume_state.coro
     user_coro.switch()
     # We're back -- either the user script is done, or else it's stuck waiting on a reference.
-    with MaybeFile as output_fp:
+    with MaybeFile() as output_fp:
         if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
             pickle.dump(resume_state, output_fp)
             out_dict = {"request": "freeze", 
