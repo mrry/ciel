@@ -990,17 +990,15 @@ class BlockStore(plugins.SimplePlugin):
 
     def ref_from_object(self, object, encoder, id, threshold_bytes=1024):
         """Encodes an object, returning either a DataValue or ConcreteReference as appropriate"""
-        maybe_file = MaybeFile(threshold_bytes=threshold_bytes, filename=self.filename(id))
-        # TODO: Make MaybeFiles a context object so that I can with... them.
-        self.encoders[encoder](object, maybe_file)
-        if maybe_file.real_fp is not None:
-            # Policy: don't cache the decoded form if the encoded form is big enough to deserve a concrete ref.
-            file_size = maybe_file.real_fp.tell()
-            maybe_file.real_fp.close()
-            ret = SW2_ConcreteReference(id, size_hint=file_size, location_hints=[self.netloc])
-        else:
-            ret = SWDataValue(id, self.encode_datavalue(maybe_file.fake_fp.getvalue()))
-            self.cache_object(object, encoder, id)
+        with MaybeFile(threshold_bytes=threshold_bytes, filename=self.filename(id)) as maybe_file:
+            self.encoders[encoder](object, maybe_file)
+            if maybe_file.real_fp is not None:
+                # Policy: don't cache the decoded form if the encoded form is big enough to deserve a concrete ref.
+                file_size = maybe_file.real_fp.tell()
+                ret = SW2_ConcreteReference(id, size_hint=file_size, location_hints=[self.netloc])
+            else:
+                ret = SWDataValue(id, self.encode_datavalue(maybe_file.fake_fp.getvalue()))
+                self.cache_object(object, encoder, id)
         return ret
 
     def make_stream_sink(self, id):

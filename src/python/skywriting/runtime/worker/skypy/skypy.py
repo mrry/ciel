@@ -133,12 +133,12 @@ def spawn(spawn_callable):
     new_coro = stackless.coroutine()
     new_coro.bind(spawn_callable)
     save_obj = ResumeState(PersistentState(), new_coro)
-    new_coro_fp = MaybeFile()
-    pickle.dump(save_obj, new_coro_fp)
-    output_id = create_spawn_output_name()
-    out_dict = {"request": "spawn", 
-                "output_id": output_id}
-    describe_maybe_file(new_coro_fp, out_dict)
+    with MaybeFile() as new_coro_fp:
+        pickle.dump(save_obj, new_coro_fp)
+        output_id = create_spawn_output_name()
+        out_dict = {"request": "spawn", 
+                    "output_id": output_id}
+        describe_maybe_file(new_coro_fp, out_dict)
     pickle.dump(out_dict, runtime_out)
     return SW2_FutureReference(output_id)
 

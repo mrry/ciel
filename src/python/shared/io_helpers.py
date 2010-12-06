@@ -25,7 +25,17 @@ class MaybeFile:
                 self.real_fp.write(self.fake_fp.getvalue())
                 self.real_fp.write(str)
                 self.fake_fp.close()
+                self.fake_fp = None
             else:
                 self.bytes_written += len(str)
                 self.fake_fp.write(str)
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, extype, exvalue, extraceback):
+        if self.real_fp is not None:
+            self.real_fp.close()
+        if self.fake_fp is not None:
+            self.fake_fp.close()
 

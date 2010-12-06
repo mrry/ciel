@@ -18,7 +18,6 @@ import urlparse
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from skywriting.lang.context import SimpleContext, TaskContext,\
     LambdaFunction
-from skywriting.lang.datatypes import all_leaf_values, map_leaf_values
 from skywriting.lang.visitors import \
     StatementExecutorVisitor, SWDereferenceWrapper
 from skywriting.lang import ast
@@ -312,7 +311,6 @@ class InterpreterTask:
                     self.save_continuation()
             else:
                 cont_deps = dict([(ref.id, ref) for ref in self.halt_dependencies])
-                new_task_id = self.create_spawned_task_name()
                 # Add interpreter-specific dependencies
                 self.add_cont_deps(cont_deps)
                 cont_task_descriptor = {'handler': self.handler_name,
@@ -354,8 +352,7 @@ class InterpreterTask:
 
         task_descriptor = {'handler': self.handler_name,
                            'dependencies': new_task_deps,
-                           'expected_outputs': [str(output_id)]
-                          }
+                           'expected_outputs': [str(output_id)]}
 
         self.add_spawned_task(task_descriptor)
 
