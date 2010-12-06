@@ -787,17 +787,17 @@ class SWRuntimeInterpreterTask(InterpreterTask):
     #   return self.continuation.create_tasklocal_reference(SWURLReference(urls))
 
     def lazy_dereference(self, ref):
-        self.lazy_derefs.add(ref.id)
+        self.lazy_derefs.add(ref)
         return SWDereferenceWrapper(ref)
 
     def eager_dereference(self, ref):
         # For SWI, all decodes are JSON
         try:
             ret = self.deref_json(ref)
-            self.lazy_derefs.discard(ref.id)
+            self.lazy_derefs.discard(ref)
             return ret
         except ReferenceUnavailableException:
-            self.halt_dependencies.append(ref)
+            self.halt_dependencies.extend(list(self.lazy_derefs))
             raise
 
     def include_script(self, target_expr):
