@@ -1,7 +1,8 @@
 
 import hashlib
+from shared.references import SWRealReference
 
-def hash_update_with_structure(self, hash, value):
+def hash_update_with_structure(hash, value):
     """
     Recurses over a Skywriting data structure (containing lists, dicts and 
     primitive leaves) in a deterministic order, and updates the given hash with
@@ -33,5 +34,5 @@ def get_exec_prefix(executor_name, real_args, num_outputs):
     return '%s:%s:' % (executor_name, sha.hexdigest())
 
 def get_exec_output_ids(exec_prefix, num_outputs):
-    return ['%s%d' % (prefix, i) for i in range(num_outputs)]
+    return ['%s%d' % (exec_prefix, i) for i in range(num_outputs)]
 

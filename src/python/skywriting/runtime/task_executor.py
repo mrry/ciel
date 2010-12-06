@@ -18,7 +18,6 @@ import urlparse
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from skywriting.lang.context import SimpleContext, TaskContext,\
     LambdaFunction
-from skywriting.lang.datatypes import all_leaf_values, map_leaf_values
 from skywriting.lang.visitors import \
     StatementExecutorVisitor, SWDereferenceWrapper
 from skywriting.lang import ast
@@ -299,7 +298,6 @@ class InterpreterTask:
     def fetch_inputs(self, block_store):
 
         self.reference_cache = self.inputs
-        self.context = self.block_store.retrieve_object_for_ref(self.inputs["_generic_cont"], 'pickle')
 
     def interpret(self):
 
@@ -312,7 +310,6 @@ class InterpreterTask:
                     self.save_continuation()
             else:
                 cont_deps = dict([(ref.id, ref) for ref in self.halt_dependencies])
-                new_task_id = self.create_spawned_task_name()
                 # Add interpreter-specific dependencies
                 self.add_cont_deps(cont_deps)
                 cont_task_descriptor = {'handler': self.handler_name,
@@ -354,8 +351,7 @@ class InterpreterTask:
 
         task_descriptor = {'handler': self.handler_name,
                            'dependencies': new_task_deps,
-                           'expected_outputs': [str(output_id)]
-                          }
+                           'expected_outputs': [str(output_id)]}
 
         self.add_spawned_task(task_descriptor)
 
@@ -368,7 +364,7 @@ class InterpreterTask:
         master_proxy.spawn_tasks(self.task_id, spawn_descriptors)
 
     def get_spawn_continuation_object_id(self):
-        return '%s:%d:%spawncont' % (self.task_id, self.spawn_counter)
+        return '%s:%d:spawncont' % (self.task_id, self.spawn_counter)
 
     def get_saved_continuation_object_id(self):
         return '%s:saved_cont' % (self.task_id, )
@@ -572,7 +568,7 @@ class SkyPyInterpreterTask(InterpreterTask):
                     # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                self.cont_ref = self.ref_from_pypy_dict(request_args, cont_ref_id)
+                self.cont_ref = self.ref_from_pypy_dict(request_args, self.get_spawn_continuation_object_id())
                 self.halt_dependencies.extend(list(request_args["additional_deps"]))
                 return False
             elif request == "done":
@@ -748,10 +744,10 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
         expected_output_id = self.create_spawn_output_name()
-        spawned_cont_id = self.get_spawn_continuation_object_id(new_task_id)
+        spawned_cont_id = self.get_spawn_continuation_object_id()
         spawned_cont_ref = self.block_store.ref_from_object(spawned_continuation, 'pickle', spawned_cont_id)
 
-        self.spawn_task(new_task_id, {"_cont": spawned_cont_ref}, expected_output_id)
+        self.spawn_task({"_cont": spawned_cont_ref}, expected_output_id)
 
         # TODO: we could visit the spawn expression and try to guess what requirements
         #       and executors we need in here. 
