@@ -17,7 +17,7 @@ class MaybeFile:
             self.real_fp.write(str)
         else:
             if self.bytes_written + len(str) > self.threshold_bytes:
-                if filename is None:
+                if self.filename is None:
                     self.fd, self.filename = tempfile.mkstemp()
                     self.real_fp = os.fdopen(self.fd, "w")
                 else:
@@ -31,7 +31,7 @@ class MaybeFile:
                 self.fake_fp.write(str)
 
     def __enter__(self):
-        pass
+        return self
 
     def __exit__(self, extype, exvalue, extraceback):
         if self.real_fp is not None:

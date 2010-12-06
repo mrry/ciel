@@ -298,7 +298,6 @@ class InterpreterTask:
     def fetch_inputs(self, block_store):
 
         self.reference_cache = self.inputs
-        self.context = self.block_store.retrieve_object_for_ref(self.inputs["_generic_cont"], 'pickle')
 
     def interpret(self):
 
@@ -365,7 +364,7 @@ class InterpreterTask:
         master_proxy.spawn_tasks(self.task_id, spawn_descriptors)
 
     def get_spawn_continuation_object_id(self):
-        return '%s:%d:%spawncont' % (self.task_id, self.spawn_counter)
+        return '%s:%d:spawncont' % (self.task_id, self.spawn_counter)
 
     def get_saved_continuation_object_id(self):
         return '%s:saved_cont' % (self.task_id, )
@@ -745,10 +744,10 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         # Create new continuation for the spawned function.
         spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
         expected_output_id = self.create_spawn_output_name()
-        spawned_cont_id = self.get_spawn_continuation_object_id(new_task_id)
+        spawned_cont_id = self.get_spawn_continuation_object_id()
         spawned_cont_ref = self.block_store.ref_from_object(spawned_continuation, 'pickle', spawned_cont_id)
 
-        self.spawn_task(new_task_id, {"_cont": spawned_cont_ref}, expected_output_id)
+        self.spawn_task({"_cont": spawned_cont_ref}, expected_output_id)
 
         # TODO: we could visit the spawn expression and try to guess what requirements
         #       and executors we need in here. 
