@@ -369,7 +369,7 @@ class InterpreterTask:
     def commit_result(self, block_store, master_proxy):
         
         commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
-        master_proxy.commit_task(self.task_id, commit_bindings, self.save_cont_uri, self.replay_uuid_list)
+        master_proxy.commit_task(self.task_id, commit_bindings, self.save_cont_uri)
 
     def spawn_exec_func(self, executor_name, args, n_outputs, exec_prefix):
 
@@ -707,7 +707,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             
             cont_id = self.get_spawn_continuation_object_id()
             self.spawned_cont_ref = self.block_store.ref_from_object(self.continuation, "pickle", cont_id)
-            self.publish_ref(self.spawned_cont_ref)
+            self.publish_reference(self.spawned_cont_ref)
             return False
 
     def add_cont_deps(self, cont_deps):
@@ -752,7 +752,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
         def resolve_thunks_mapper(leaf):
             if isinstance(leaf, SWDereferenceWrapper):
-                return self.eager_dereference(leaf.ref, id_to_result_map)
+                return self.eager_dereference(leaf.ref)
             else:
                 return leaf
 
