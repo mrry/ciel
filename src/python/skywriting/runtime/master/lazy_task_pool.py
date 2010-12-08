@@ -164,7 +164,7 @@ class LazyTaskPool(plugins.SimplePlugin):
         # which ought to be enough.
         if should_notify_outputs:
             for output in task.expected_outputs:
-                self._publish_ref(output, SWErrorReference(reason, details), task.job)
+                self._publish_ref(output, SWErrorReference(output, reason, details), task.job)
 
         if worker is not None:
             self.bus.publish('worker_idle', worker)

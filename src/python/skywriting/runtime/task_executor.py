@@ -456,7 +456,7 @@ class SWRuntimeInterpreterTask:
             # XXX: This is for the unusual case that we have a task fragment that runs to completion without returning anything.
             #      Could maybe use an ErrorRef here, but this might not be erroneous if, e.g. the interactive shell is used.
             if self.result is None:
-                self.result = SWErrorReference('NO_RETURN_VALUE', 'null')
+                self.result = SWErrorReference(self.expected_outputs[0], 'NO_RETURN_VALUE', 'null')
             
         except SelectException, se:
             
