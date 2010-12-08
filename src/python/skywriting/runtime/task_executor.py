@@ -262,14 +262,6 @@ class InterpreterTask:
         except KeyError:
             self.should_save_continuation = False
 
-        try:
-            self.replay_uuid_list = task_descriptor['replay_uuids']
-            self.replay_uuids = True
-            self.current_uuid_index = 0
-        except KeyError:
-            self.replay_uuid_list = []
-            self.replay_uuids = False
-
         self.block_store = block_store
         self.execution_features = execution_features
         
@@ -321,7 +313,7 @@ class InterpreterTask:
                                         'dependencies': cont_deps,
                                         'expected_outputs': map(str, self.expected_outputs),
                                         'save_continuation': self.should_save_continuation,
-                                        'continues_task': str(self.original_task_id)}
+                                        'continues_task': str(self.task_id)}
                 if self.halt_feature_requirement is not None:
                     cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
                     
@@ -426,10 +418,8 @@ class InterpreterTask:
         raise_ref = None
         for ref in l.exec_deps:
             if not self.is_ref_resolvable(ref):
-                self.halt_dependencies.append(ref)
-                raise_ref = ref
-        if raise_ref is not None:
-            raise ReferenceUnavailableException(raise_ref)
+                self.halt_dependencies.extend(l.exec_deps)
+                raise ReferenceUnavailableException(ref)
 
         # Okay, all ref are good to go: executor should pull them in and run.
         env = RefCacheEnvironment(self.reference_cache)
