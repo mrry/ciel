@@ -120,6 +120,7 @@ class SWExecutor:
         self.master_proxy = master_proxy
         self.succeeded = False
         self.args = args
+        self.publish_callback = publish_callback
         try:
             self.debug_opts = args['debug_options']
         except KeyError:
@@ -565,9 +566,9 @@ class GrabURLExecutor(SWExecutor):
         
         for i, url in enumerate(urls):
             ref = block_store.get_ref_for_url(url, version, task_id)
+            self.publish_callback(ref)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
             block_store.cache_object(ref, "json", self.output_ids[i])
-            # The inner ref is born concrete, so no need to publish
             self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
 
         cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)

@@ -386,6 +386,7 @@ class InterpreterTask:
         args_id = self.get_args_name_for_exec(exec_prefix)
 
         args_ref = self.block_store.ref_from_object(args, "pickle", args_id)
+        self.publish_reference(args_ref)
         
         inputs = dict([(ref.id, ref) for ref in l.exec_deps])
         inputs['_args'] = args_ref
@@ -430,11 +431,8 @@ class InterpreterTask:
                                       self.task_id, 
                                       args, 
                                       output_ids,
-                                      lambda x: None,
+                                      self.publish_reference,
                                       self.master_proxy)
-
-        # lambda x: None is a dummy callback for publishing references-- there's no need to publish, as this
-        # is a synchronous exec operation, so all references are born concrete.
 
         ret = self.current_executor.output_refs
         self.current_executor = None
@@ -562,6 +560,7 @@ class SkyPyInterpreterTask(InterpreterTask):
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 self.cont_ref = self.ref_from_pypy_dict(request_args, self.get_spawn_continuation_object_id())
+                self.publish_reference(self.cont_ref)
                 self.halt_dependencies.extend(list(request_args["additional_deps"]))
                 return False
             elif request == "done":
@@ -583,6 +582,7 @@ class SkyPyInterpreterTask(InterpreterTask):
     def spawn_func(self, output_id, **otherargs):
 
         coro_ref = self.ref_from_pypy_dict(otherargs, self.get_spawn_continuation_object_id())
+        self.publish_reference(coro_ref)
         new_task_deps = {"_py": self.pyfile_ref, "_coro": coro_ref}
 
         self.spawn_task(new_task_deps, output_id)
@@ -707,6 +707,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             
             cont_id = self.get_spawn_continuation_object_id()
             self.spawned_cont_ref = self.block_store.ref_from_object(self.continuation, "pickle", cont_id)
+            self.publish_ref(self.spawned_cont_ref)
             return False
 
     def add_cont_deps(self, cont_deps):
@@ -735,6 +736,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         expected_output_id = self.create_spawn_output_name()
         spawned_cont_id = self.get_spawn_continuation_object_id()
         spawned_cont_ref = self.block_store.ref_from_object(spawned_continuation, 'pickle', spawned_cont_id)
+        self.publish_reference(spawned_cont_ref)
 
         self.spawn_task({"_cont": spawned_cont_ref}, expected_output_id)
 
