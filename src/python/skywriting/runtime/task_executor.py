@@ -48,11 +48,13 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.execution_features = execution_features
         self.skypybase = skypybase
 
-        self.current_task_id = None
-        self.current_task_execution_record = None
-    
+        self.root_executor = None
         self._lock = Lock()
+
+        self.reset()
     
+    # Out-of-thread asynchronous notification calls
+
     def abort_task(self, task_id):
         with self._lock:
             if self.current_task_id == task_id:
@@ -63,246 +65,148 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
     def notify_streams_done(self, task_id):
         with self._lock:
             # Guards against changes to self.current_{task_id, task_execution_record}
-            if self.current_task_id == task_id:
+            if self.root_task_id == task_id:
                 # Note on threading: much like aborts, the execution_record's execute() is running
                 # in another thread. It might have not yet begun, already completed, or be in progress.
-                self.current_task_execution_record.notify_streams_done()
+                self.root_executor.notify_streams_done()
     
-    def handle_input(self, input):
-        handler = input['handler']
+    # Helper functions for main
 
-        if handler == 'swi':
-            execution_record = SWInterpreterTaskExecutionRecord(input, self, SWRuntimeInterpreterTask)
-        elif handler == "skypy":
-            execution_record = SWInterpreterTaskExecutionRecord(input, self, SkyPyInterpreterTask, skypybase=self.skypybase)
-        else:
-            execution_record = SWExecutorTaskExecutionRecord(input, self)
-
-        with self._lock:
-            self.current_task_id = input['task_id']
-            self.current_task_execution_record = execution_record
-        
+    def run_task_with_executor(self, task_descriptor, executor)
         cherrypy.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
-        cherrypy.log.error("Starting task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
+        cherrypy.log.error("Starting task %s with handler %s" % (str(input['task_id']), new_task_handler), 'TASK', logging.INFO, False)
         try:
-            execution_record.execute()
+            executor.run(input)
             cherrypy.engine.publish("worker_event", "Completed execution " + repr(input['task_id']))
-            cherrypy.log.error("Completed task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
+            cherrypy.log.error("Completed task %s with handler %s" % (str(input['task_id']), new_task_handler), 'TASK', logging.INFO, False)
         except:
-            cherrypy.log.error("Error in task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.ERROR, True)
+            cherrypy.log.error("Error in task %s with handler %s" % (str(input['task_id']), new_task_handler), 'TASK', logging.ERROR, True)
 
+    def spawn_all(self):
+        if len(self.spawned_tasks) == 0:
+            return
+        master_proxy.spawn_tasks(self.root_task_id, self.spawned_tasks)
+
+    def commit(self):
+        commit_bindings = dict([(ref.id, ref) for ref in self.published_refs])
+        self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
+
+    def reset(self):
+        self.published_refs = []
+        self.spawned_tasks = []
+        self.reference_cache = None
+        self.task_for_output_id = dict()
+        self.spawn_counter = 0
         with self._lock:
-            self.current_task_id = None
-            self.current_task_execution_record = None
-            
-class SpawnListEntry:
-    
-    def __init__(self, id, task_descriptor, continuation=None):
-        self.id = id
-        self.task_descriptor = task_descriptor
-    
-class RefCacheEnvironment:
+            self.root_task_id = None
 
-    def __init__(self, refs_dict):
-        self.refs = refs_dict
+    # Main entry point
+
+    def handle_input(self, input):
+
+        new_task_handler = input["handler"]
+        with self._lock:
+            try:
+                if self.root_executor.handler != new_task_handler:
+                    self.root_executor = None
+            except AttributeError:
+                pass
+            if self.root_executor is None:
+                self.root_executor = SWExecutorTaskExecutionRecord(new_task_handler, self)
+            self.root_task_id = input["task_id"]
+
+        self.reference_cache = input["inputs"]
+        self.run_task_with_executor(input, self.root_executor)
+        self.commit()
+        self.spawn_all()
+        self.reset()
+
+    # Callbacks for executors
+
+    def publish_ref(self, ref):
+        self.published_refs.append(ref)
+        self.reference_cache[ref.id] = ref
+
+    # Add a task descriptor to the list of spawnees, and return references describing its outputs
+    def spawn_task(self, new_task_descriptor, n_outputs, rename=[]):
+        # TODO here: naming
+        target_executor = SWExecutorTaskExecutionRecord(new_task_descriptor["handler"], self)
+        # Throws a BlameUserException if we can quickly determine the task descriptor is bad
+        target_executor.check_task_descriptor(new_task_descriptor, n_outputs)
+        try:
+            task_name = target_executor.name_task_descriptor(new_task_descriptor)
+        except Exception:
+            task_name = generate_task_name()
+        new_task_descriptor["task_id"] = task_name
+        # Name any references created for this task
+        for suffix in rename:
+            ref = new_task_descriptor["dependencies"][suffix]
+            ref.id = "%s:%s" % (task_name, suffix)
+        if "hint_small_task" in new_task_descriptor:
+            for output in new_task_descriptor['expected_outputs']:
+                task_for_output_id[output] = new_task_descriptor
+        # Name the outputs of the new task
+        new_task_descriptor["expected_outputs"] = ["%s:%d" % (task_name, i) for i in range(n_outputs)]
+        self.spawned_tasks.append(new_task_descriptor)
+        return new_task_descriptor
+
     def resolve_ref(self, ref):
         if ref.is_consumable():
             return ref
         else:
             try:
-                return self.refs[ref.id]
+                return self.reference_cache[ref.id]
             except KeyError:
-                raise ReferenceUnavailableException(ref.id)
+                raise ReferenceUnavailableException(ref)
 
-class RefList:
-    
-    def __init__(self):
-        self.exec_deps = []
-    def add_ref(self, ref):
-        self.exec_deps.append(ref)
-
-class SWExecutorTaskExecutionRecord:
-    
-    def __init__(self, task_descriptor, task_executor):
-        self.task_id = task_descriptor['task_id']
+    def retrieve_ref(self, ref):
         try:
-            self.original_task_id = task_descriptor['original_task_id']
-        except KeyError:
-            self.original_task_id = self.task_id
-        self.expected_outputs = task_descriptor['expected_outputs'] 
-        self.task_executor = task_executor
-        self.inputs = task_descriptor['inputs']
-        self.executor_name = task_descriptor['handler']
-        self.executor = None
-        self.is_running = True
-        self.published_refs = []
-        self._lock = Lock()
-    
-    def abort(self):
-        self.is_running = False
-        with self._lock:
-            # Guards against missing abort because the executor is started between test and call
-            if self.executor is not None:
-                self.executor.abort()
-
-    def notify_streams_done(self):
-        # Out-of-thread call
-        with self._lock:
-            if self.executor is not None:
-                self.executor.notify_streams_done()
-    
-    def fetch_executor_args(self, inputs):
-        
-        self.exec_args = self.task_executor.block_store.retrieve_object_for_ref(inputs["_args"], 'pickle')
-        self.inputs = inputs
-        
-    # Callback for executor to register knowledge about a reference
-    def publish_ref(self, ref):
-        self.published_refs.append(ref)
-        
-    def commit(self):
-        commit_bindings = dict([(ref.id, ref) for ref in self.published_refs])
-        self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
-    
-    def execute(self):        
-        try:
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Fetching args")
-                parsed_args = self.fetch_executor_args(self.inputs)
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Fetching executor")
-                executor = self.task_executor.execution_features.get_executor(self.executor_name)
-                with self._lock:
-                    self.executor = executor
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Rewriting references")
-                env = RefCacheEnvironment(self.inputs)
-                # Rewrite refs this executor needs using our inputs as a name table
-                self.executor.resolve_required_refs(self.exec_args, env.resolve_ref)
-                # No need to check args: they were checked earlier by whoever made this task
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Executing")
-                self.executor.execute(self.task_executor.block_store, 
-                                      self.task_id, 
-                                      self.exec_args, 
-                                      self.expected_outputs, 
-                                      self.publish_ref,
-                                      self.task_executor.master_proxy)
-
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Committing")
-                self.commit()
-            else:
-                self.task_executor.master_proxy.failed_task(self.task_id)
-        except MissingInputException as mie:
-            cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
-        except:
-            cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')
-
-class SWInterpreterTaskExecutionRecord:
-    
-    def __init__(self, task_descriptor, task_executor, interpreter_class, **interpreter_args):
-        self.task_id = task_descriptor['task_id']
-        self.task_executor = task_executor
-        
-        self.is_running = True
-        self.is_fetching = False
-        self.is_interpreting = False
-        
-        try:
-            self.interpreter = interpreter_class(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy, **interpreter_args)
-        except:
-            cherrypy.log.error('Error during SkyPy task creation', 'SKYPY', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id)
-
-    def execute(self):
-        try:
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Fetching args")
-                self.interpreter.fetch_inputs(self.task_executor.block_store)
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Interpreting")
-                self.interpreter.interpret()
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Spawning")
-                self.interpreter.spawn_all(self.task_executor.block_store, self.task_executor.master_proxy)
-            if self.is_running:
-                cherrypy.engine.publish("worker_event", "Committing")
-                self.interpreter.commit_result(self.task_executor.block_store, self.task_executor.master_proxy)
-            else:
-                self.task_executor.master_proxy.failed_task(self.task_id)
-        
-        except MissingInputException as mie:
-            cherrypy.log.error('Missing input during SKYPY task execution', 'SKYPY', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
-              
-        except MasterNotRespondingException:
-            cherrypy.log.error('Could not commit task results to the master', 'SKYPY', logging.ERROR, True)
-                
-        except:
-            cherrypy.log.error('Error during SKYPY task execution', 'SKYPY', logging.ERROR, True)
-            self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')    
-
-    def abort(self):
-        raise Exception("Not implemented")
+            return self.resolve_ref(ref)
+        except ReferenceUnavailableException as e:
+            # Try running a small task to generate the required reference
+            try:
+                producer_task = task_for_output_id[id]
+                # Presence implies hint_small_task: we should run this now
+            except KeyError:
+                raise e
+            # Try to resolve all the child's dependencies
+            try:
+                producer_task["inputs"] = dict()
+                for child_ref in producer_task["dependencies"]:
+                    producer_task["inputs"][child_ref.id] = self.resolve_ref(child_ref)
+            except ReferenceUnavailableException:
+                # Child can't run now
+                del producer_task["inputs"]
+                raise e
+            nested_executor = SWExecutorTaskExecutionRecord(producer_task["handler"], self)
+            self.run_task_with_executor(producer_task, nested_executor)
+            # Okay the child has run, and may or may not have defined its outputs.
+            # If it hasn't, this will throw appropriately
+            return self.resolve_ref(ref)
 
 class InterpreterTask:
 
-    def __init__(self, task_descriptor, block_store, execution_features, master_proxy):
+    def __init__(self, task_executor):
 
-        ### Input parameters
+        self.task_executor = task_executor
+
+    def run(self, task_descriptor):
 
         self.task_id = task_descriptor['task_id']
-        self.master_proxy = master_proxy
+        self.expected_outputs = task_descriptor['expected_outputs']
+        self.inputs = task_descriptor['inputs']
+        self.save_cont_uri = None
 
         try:
             self.should_save_continuation = task_descriptor['save_continuation']
         except KeyError:
             self.should_save_continuation = False
 
-        self.block_store = block_store
-        self.execution_features = execution_features
-        
-        try:
-            self.original_task_id = task_descriptor['original_task_id']
-            self.replay_ref = task_descriptor['replay_ref']
-        except KeyError:
-            self.original_task_id = self.task_id
-            self.replay_ref = None
-
-        self.expected_outputs = task_descriptor['expected_outputs']
-        self.inputs = task_descriptor['inputs']
-
-        ### Exit status
-
-        self.spawn_list = []
-        self.refs_to_publish = []
-        self.halt_dependencies = []
-        self.halt_feature_requirement = None
-        self.save_cont_uri = None
-        
-        ### Transient local state
-
-        self.is_running = True
-        self.current_executor = None
-        self.spawn_counter = 0
-        
-        # A volatile cache of references fetched earlier this run, or supplied by the master at startup.
-        self.reference_cache = dict()
-
-    def fetch_inputs(self, block_store):
-
-        self.reference_cache = self.inputs
-
-    def interpret(self):
-
         try:
 
             successful_completion = self.run_interpreter()
             if successful_completion:
-                self.refs_to_publish.append(self.result_ref)
+                self.task_executor.publish_ref(self.result_ref)
                 if self.should_save_continuation:
                     self.save_continuation()
             else:
@@ -352,13 +256,6 @@ class InterpreterTask:
 
         self.add_spawned_task(task_descriptor)
 
-    def spawn_all(self, block_store, master_proxy):
-
-        if len(self.spawn_list) == 0:
-            return
-        
-        spawn_descriptors = [x.task_descriptor for x in self.spawn_list]
-        master_proxy.spawn_tasks(self.task_id, spawn_descriptors)
 
     def get_spawn_continuation_object_id(self):
         return '%s:%d:spawncont' % (self.task_id, self.spawn_counter)
