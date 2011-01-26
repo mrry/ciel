@@ -23,6 +23,8 @@
 KEY="sw-masterkey"
 SWUSER="root"
 SWROOT="/opt/skywriting"
+WORKER_PORT=8001
+MASTER_PORT=8000
 VERBOSE=0
 
 # ---------------------------------------------
@@ -45,6 +47,16 @@ do
          # Cluster definition file
          SOURCE=$2
       fi
+      shift 2
+    ;;
+
+    --mp)
+      MASTER_PORT=$2
+      shift 2
+    ;;
+
+    --wp)
+      WORKER_PORT=$2
       shift 2
     ;;
     
