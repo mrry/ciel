@@ -61,7 +61,7 @@ echo "Deploying to $TARGETHOST..."
 # this requires some awkward putty hackery as ssh does not
 # allow password-based login from non-interactive terminals
 if [[ $3 != 'ec2' ]]; then
-    echo y | plink -pw $SWUSERPW $SWUSER@$TARGETHOST 'mkdir .ssh'
+    echo y | plink -pw $SWUSERPW $SWUSER@$TARGETHOST 'mkdir -p .ssh'
     pscp -q -pw $SWUSERPW $PRIVKEY.pub $SWUSER@$TARGETHOST:.ssh/authorized_keys
 else
     # EC2 case - just log in as "ubuntu" user and copy authorized_keys
