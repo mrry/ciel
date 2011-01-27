@@ -46,5 +46,6 @@ int main (int argc, char *argv[]) {
     ;
   }
 
+  printf("true");
   return 0;
 }
