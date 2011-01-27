@@ -87,6 +87,13 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             return
         master_proxy.spawn_tasks(self.root_task_id, self.spawned_tasks)
 
+    def create_spawned_task_name(self):
+        sha = hashlib.sha1()
+        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
+        ret = sha.hexdigest()
+        self.spawn_counter += 1
+        return ret
+
     def commit(self):
         commit_bindings = dict([(ref.id, ref) for ref in self.published_refs])
         self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
@@ -127,26 +134,15 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.published_refs.append(ref)
         self.reference_cache[ref.id] = ref
 
-    # Add a task descriptor to the list of spawnees, and return references describing its outputs
-    def spawn_task(self, new_task_descriptor, n_outputs, rename=[]):
-        # TODO here: naming
+    def spawn_task(self, new_task_descriptor, **args):
+        new_task_descriptor["task_id"] = self.create_spawned_task_name()
         target_executor = SWExecutorTaskExecutionRecord(new_task_descriptor["handler"], self)
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
-        target_executor.check_task_descriptor(new_task_descriptor, n_outputs)
-        try:
-            task_name = target_executor.name_task_descriptor(new_task_descriptor)
-        except Exception:
-            task_name = generate_task_name()
-        new_task_descriptor["task_id"] = task_name
-        # Name any references created for this task
-        for suffix in rename:
-            ref = new_task_descriptor["dependencies"][suffix]
-            ref.id = "%s:%s" % (task_name, suffix)
+        target_executor.build_task_descriptor(new_task_descriptor, **args)
+        # TODO here: use the master's task-graph apparatus.
         if "hint_small_task" in new_task_descriptor:
             for output in new_task_descriptor['expected_outputs']:
                 task_for_output_id[output] = new_task_descriptor
-        # Name the outputs of the new task
-        new_task_descriptor["expected_outputs"] = ["%s:%d" % (task_name, i) for i in range(n_outputs)]
         self.spawned_tasks.append(new_task_descriptor)
         return new_task_descriptor
 
@@ -193,9 +189,10 @@ class InterpreterTask:
     def run(self, task_descriptor):
 
         self.task_id = task_descriptor['task_id']
-        self.expected_outputs = task_descriptor['expected_outputs']
+        self.expected_output = task_descriptor['expected_outputs'][0]
         self.inputs = task_descriptor['inputs']
         self.save_cont_uri = None
+        self.halt_dependencies = []
 
         try:
             self.should_save_continuation = task_descriptor['save_continuation']
@@ -215,58 +212,40 @@ class InterpreterTask:
                 self.add_cont_deps(cont_deps)
                 cont_task_descriptor = {'handler': self.handler_name,
                                         'dependencies': cont_deps,
-                                        'expected_outputs': map(str, self.expected_outputs),
+                                        'expected_outputs': str(self.expected_output),
                                         'save_continuation': self.should_save_continuation,
                                         'continues_task': str(self.task_id)}
-                if self.halt_feature_requirement is not None:
-                    cont_task_descriptor['require_features'] = [self.halt_feature_requirement]
                     
-                self.add_spawned_task(cont_task_descriptor)
+                self.task_executor.spawn_task(cont_task_descriptor)
 
         except MissingInputException as mie:
-            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
+            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'INTERPRETER', logging.WARNING)
             raise
         except Exception:
-            cherrypy.log.error('Interpreter error.', 'SKYPY', logging.ERROR, True)
+            cherrypy.log.error('Interpreter error.', 'INTERPRETER', logging.ERROR, True)
             self.save_continuation = True
             raise
 
-    def create_spawned_task_name(self):
-        sha = hashlib.sha1()
-        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
-        ret = sha.hexdigest()
-        self.spawn_counter += 1
-        return ret
-
-    def add_spawned_task(self, descriptor):
-
-        fresh_name = self.create_spawned_task_name()
-        descriptor["task_id"] = fresh_name
-        self.spawn_list.append(SpawnListEntry(fresh_name, descriptor))
-
-        if len(self.spawn_list) > 20:
-            self.spawn_all(self.block_store, self.master_proxy)
-            self.spawn_list = []
-    
-    def spawn_task(self, new_task_deps, output_id):
-
-        task_descriptor = {'handler': self.handler_name,
-                           'dependencies': new_task_deps,
-                           'expected_outputs': [str(output_id)]}
-
-        self.add_spawned_task(task_descriptor)
-
-
-    def get_spawn_continuation_object_id(self):
-        return '%s:%d:spawncont' % (self.task_id, self.spawn_counter)
+    def build_task_descriptor(self, task_descriptor, entry_point=None, args=None, cont=None):
+        if entry_point is not None:
+            # Create new continuation for the spawned function.
+            # TODO: Need some reference for the appropriate SWI file.
+            spawned_task_stmt = ast.Return(ast.SpawnedFunction(entry_point, args))
+            cont = SWContinuation(spawned_task_stmt, SimpleContext())
+            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+            # TODO: we could visit the spawn expression and try to guess what requirements
+            #       and executors we need in here. 
+            # TODO: should probably look at dereference wrapper objects in the spawn context
+            #       and ship them as inputs.
+        # else: cont is not None and this is a continuation of a previous SWI task
+        cont_id = "%s:cont" % task_descriptor["task_id"]
+        spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
+        self.task_executor.publish_reference(spawned_cont_ref)
+        task_descriptor["cont"] = spawned_cont_ref
+        task_descriptor["dependencies"].insert(spawned_cont_ref)
 
     def get_saved_continuation_object_id(self):
         return '%s:saved_cont' % (self.task_id, )
-
-    def commit_result(self, block_store, master_proxy):
-        
-        commit_bindings = dict((ref.id, ref) for ref in self.refs_to_publish)
-        master_proxy.commit_task(self.task_id, commit_bindings, self.save_cont_uri)
 
     def spawn_exec_func(self, executor_name, args, n_outputs, exec_prefix):
 
@@ -602,48 +581,20 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             
         except ExecutionInterruption, ei:
             
-            cont_id = self.get_spawn_continuation_object_id()
-            self.spawned_cont_ref = self.block_store.ref_from_object(self.continuation, "pickle", cont_id)
-            self.publish_reference(self.spawned_cont_ref)
-            return False
-
-    def add_cont_deps(self, cont_deps):
-        cont_deps['_cont'] = self.spawned_cont_ref        
+            self.task_executor.spawn_task({"handler": "swi", "expected_outputs": [str(self.expected_output)]}, cont=self.continuation)
 
     def save_continuation(self):
         self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
                                                               'pickle', 
                                                               self.get_saved_continuation_object_id())
 
-    def build_spawn_continuation(self, spawn_expr, args):
-        spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
-        cont = SWContinuation(spawned_task_stmt, SimpleContext())
-        
-        return cont
-
-    def create_spawn_output_name(self):
-        return 'swi:%s:spawnout:%d' % (self.task_id, self.spawn_counter)
-    
     def spawn_func(self, spawn_expr, args):
 
         args = self.do_eager_thunks(args)
-
-        # Create new continuation for the spawned function.
-        spawned_continuation = self.build_spawn_continuation(spawn_expr, args)
-        expected_output_id = self.create_spawn_output_name()
-        spawned_cont_id = self.get_spawn_continuation_object_id()
-        spawned_cont_ref = self.block_store.ref_from_object(spawned_continuation, 'pickle', spawned_cont_id)
-        self.publish_reference(spawned_cont_ref)
-
-        self.spawn_task({"_cont": spawned_cont_ref}, expected_output_id)
-
-        # TODO: we could visit the spawn expression and try to guess what requirements
-        #       and executors we need in here. 
-        # TODO: should probably look at dereference wrapper objects in the spawn context
-        #       and ship them as inputs.
+        new_task = self.task_executor.spawn_task({"handler": "swi"}, entry_point=spawn_expr, args=args)
 
         # Return new future reference to the interpreter
-        return SW2_FutureReference(expected_output_id)
+        return SW2_FutureReference(new_task["expected_outputs"][0])
 
     def do_eager_thunks(self, args):
 
@@ -680,13 +631,9 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
     def eager_dereference(self, ref):
         # For SWI, all decodes are JSON
-        try:
-            ret = self.deref_json(ref)
-            self.lazy_derefs.discard(ref)
-            return ret
-        except ReferenceUnavailableException:
-            self.halt_dependencies.extend(list(self.lazy_derefs))
-            raise
+        ret = self.deref_json(ref)
+        self.lazy_derefs.discard(ref)
+        return ret
 
     def include_script(self, target_expr):
         if isinstance(target_expr, basestring):
