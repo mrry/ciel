@@ -227,6 +227,8 @@ class SkyPyExecutor:
             request = request_args["request"]
             del request_args["request"]
             cherrypy.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
+            # The key difference between deref and deref_json is that the JSON variant MUST be decoded locally
+            # This is a hack around the fact that the simplejson library hasn't been ported to pypy.
             if request == "deref":
                 try:
                     ret = self.deref_func(**request_args)
@@ -234,11 +236,19 @@ class SkyPyExecutor:
                     self.halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
                 pickle.dump(ret, pypy_process.stdin)
+            elif request == "deref_json":
+                try:
+                    ret = self.deref_json(**request_args)
+                except ReferenceUnavailableException:
+                    self.halt_dependencies.append(request_args["ref"])
+                    ret = {"success": False}
+                pickle.dump(ret, pypy_process.stdin)                
             elif request == "spawn":
-                self.spawn_func(**request_args)
+                out_ref = self.spawn_func(**request_args)
+                pickle.dump({"output": out_ref}, pypy_process.stdin)
             elif request == "exec":
-                output_refs = spawn_other(**request_args)
-                pickle.dump({"success": True, "outputs": output_refs}, pypy_process.stdin)
+                out_refs = spawn_other(self.task_executor, **request_args)
+                pickle.dump({"outputs": output_refs}, pypy_process.stdin)
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 coro_data = FileOrString(request_args, self.block_store)
@@ -264,14 +274,18 @@ class SkyPyExecutor:
         self.task_executor.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
         return SW2_FutureReference(new_task_descriptor.expected_outputs[0])
         
-    def deref_func(self, ref, decoder):
+    def deref_func(self, ref):
         cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.task_executor.retrieve_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, decoder)}
+            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
         else:
             filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
             return {"success": True, "filename": filenames[0]}
+
+    def deref_json(self, ref):
+        real_ref = self.task_descriptor.retrieve_ref(ref)
+        return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
 
 # Imports for Skywriting
 

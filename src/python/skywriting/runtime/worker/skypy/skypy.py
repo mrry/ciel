@@ -50,13 +50,7 @@ class ResumeState:
         self.coro = coro
         self.persistent_state = pstate
 
-def create_spawn_output_name():
-    global spawn_counter
-    ret = 'skypy:%s:spawnout:%d' % (taskid, spawn_counter)
-    spawn_counter += 1
-    return ret
-
-def deref(ref):
+def fetch_ref(ref, verb):
 
     global halt_reason
     global ref_cache
@@ -66,7 +60,7 @@ def deref(ref):
         return ref_cache[ref.id]
     else:
         for tries in range(2):
-            pickle.dump({"request": "deref", "ref": ref}, runtime_out)
+            pickle.dump({"request": verb, "ref": ref}, runtime_out)
             runtime_out.flush()
             runtime_response = pickle.load(runtime_in)
             if not runtime_response["success"]:
@@ -77,14 +71,26 @@ def deref(ref):
                 else:
                     raise Exeception("Double failure trying to deref %s" % ref.id)
             # We're back -- the ref should be available now.
-            try:
-                obj = pickle.loads(runtime_response["strdata"])
-            except KeyError:
-                ref_fp = open(runtime_response["filename"], "r")
-                obj = pickle.load(ref_fp)
-                ref_fp.close()
-            ref_cache[ref.id] = obj
-            return obj
+    
+
+def deref_json(ref):
+    
+    runtime_response = fetch_ref(ref, "deref_json")
+    obj = runtime_response["obj"]
+    ref_cache[ref.id] = obj
+    return obj    
+
+def deref(ref):
+
+    runtime_response = fetch_ref(ref, "deref")
+    try:
+        obj = pickle.loads(runtime_response["strdata"])
+    except KeyError:
+        ref_fp = open(runtime_response["filename"], "r")
+        obj = pickle.load(ref_fp)
+        ref_fp.close()
+    ref_cache[ref.id] = obj
+    return obj
 
 def add_ref_dependency(ref):
     if not ref.is_consumable():
@@ -106,31 +112,6 @@ class RequiredRefs():
         for ref in self.refs:
             remove_ref_dependency(ref)
 
-def deref_json(ref):
-
-    global halt_reason
-    global ref_cache
-    global halt_spawn_id
-
-    if ref.id in ref_cache:
-        return ref_cache[ref.id]
-    else:
-        for tries in range(2):
-            pickle.dump({"request": "deref_json", "ref": ref}, runtime_out)
-            runtime_out.flush()
-            runtime_response = pickle.load(runtime_in)
-            if not runtime_response["success"]:
-                if tries == 0:
-                    halt_reason = HALT_REFERENCE_UNAVAILABLE
-                    main_coro.switch()
-                    continue
-                else:
-                    raise Exeception("Double failure trying to deref %s" % ref.id)
-            # We're back -- the ref should be available now.
-            obj = runtime_response["obj"]
-            ref_cache[ref.id] = obj
-            return obj
-
 def spawn(spawn_callable):
     
     new_coro = stackless.coroutine()
@@ -138,48 +119,29 @@ def spawn(spawn_callable):
     save_obj = ResumeState(PersistentState(), new_coro)
     with MaybeFile() as new_coro_fp:
         pickle.dump(save_obj, new_coro_fp)
-        output_id = create_spawn_output_name()
-        out_dict = {"request": "spawn", 
-                    "output_id": output_id}
+        out_dict = {"request": "spawn"}
         describe_maybe_file(new_coro_fp, out_dict)
     pickle.dump(out_dict, runtime_out)
-    return SW2_FutureReference(output_id)
+    response = pickle.load(runtime_in)
+    return response["output"]
+
+def do_exec(exec_name, args_dict, n_outputs, small_task):
+    
+    pickle.dump({"request": "exec",
+                 "args": args_dict,
+                 "executor_name": exec_name,
+                 "n_outputs": n_outputs,
+                 "small_task": small_task},
+                runtime_out)
+    return pickle.load(runtime_in)["outputs"]
 
 def spawn_exec(exec_name, exec_args_dict, n_outputs):
 
-    exec_prefix = get_exec_prefix(exec_name, exec_args_dict, n_outputs)
-    expected_output_ids = get_exec_output_ids(exec_prefix, n_outputs)
-    pickle.dump({"request": "spawn_exec",
-                 "args": exec_args_dict,
-                 "executor_name": exec_name,
-                 "n_outputs": n_outputs,
-                 "exec_prefix": exec_prefix},
-                runtime_out)
-
-    return [SW2_FutureReference(id) for id in expected_output_ids]
+    return do_exec(exec_name, exec_args_dict, n_outputs, False)
 
 def sync_exec(exec_name, exec_args_dict, n_outputs):
 
-    global halt_spawn_id
-    global halt_reason
-
-    for tries in range(2):
-
-        pickle.dump({"request": "exec",
-                     "executor_name": exec_name,
-                     "args": exec_args_dict,
-                     "n_outputs": n_outputs},
-                    runtime_out)
-        runtime_out.flush()
-        result = pickle.load(runtime_in)
-        if result["success"]:
-            return result["outputs"]
-        else:
-            if tries == 0:
-                halt_reason = HALT_REFERENCE_UNAVAILABLE
-                main_coro.switch()
-            else:
-                raise Exception("Failed to exec more than once")
+    return do_exec(exec_name, exec_args_dict, n_outputs, True)
 
 def freeze_script_at_startup(entry_point):
 
