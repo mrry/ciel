@@ -56,8 +56,8 @@ class ExecutionFeatures:
     
     def __init__(self):
 
-        self.executors = {'swi': None, # Could make a special SWI interpreter....
-                          'skypy': None, # And again...
+        self.executors = {'swi': SkywritingExecutor,
+                          'skypy': SkyPyExecutor,
                           'stdinout': SWStdinoutExecutor,
                           'environ': EnvironmentExecutor,
                           'java': JavaExecutor,
@@ -69,90 +69,431 @@ class ExecutionFeatures:
     def all_features(self):
         return self.executors.keys()
     
-    def get_executor(self, name):
+    def get_executor(self, name, task_executor):
+        return self.executors[name](task_executor)
+
+# Helper functions
+def spawn_other(task_executor, executor_name, small_task, **executor_args):
+
+    new_task_descriptor = {"handler": executor_name}
+    if small_task:
+        new_task_descriptor["hint"] = "small_task"
+    task_executor.spawn_task(new_task_descriptor, **executor_args)
+    return [SW2_FutureReference(ref.id) for ref in new_task_descriptor["expected_outputs"]]
+
+def hash_update_with_structure(hash, value):
+    """
+    Recurses over a Skywriting data structure (containing lists, dicts and 
+    primitive leaves) in a deterministic order, and updates the given hash with
+    all values contained therein.
+    """
+    if isinstance(value, list):
+        hash.update('[')
+        for element in value:
+            hash_update_with_structure(hash, element)
+            hash.update(',')
+        hash.update(']')
+    elif isinstance(value, dict):
+        hash.update('{')
+        for (dict_key, dict_value) in sorted(value.items()):
+            hash.update(dict_key)
+            hash.update(':')
+            hash_update_with_structure(hash, dict_value)
+            hash.update(',')
+        hash.update('}')
+    elif isinstance(value, SWRealReference):
+        hash.update('ref')
+        hash.update(value.id)
+    else:
+        hash.update(str(value))
+
+def map_leaf_values(f, value):
+    """
+    Recurses over a data structure containing lists, dicts and primitive leaves), 
+    and returns a new structure with the leaves mapped as specified.
+    """
+    if isinstance(value, list):
+        return map(lambda x: map_leaf_values(f, x), value)
+    elif isinstance(value, dict):
+        ret = {}
+        for (dict_key, dict_value) in value.items():
+            key = map_leaf_values(f, dict_key)
+            value = map_leaf_values(f, dict_value)
+            ret[key] = value
+        return ret
+    else:
+        return f(value)
+
+def accumulate_leaf_values(f, value):
+
+    def flatten_lofl(ls):
+        ret = []
+        for l in ls:
+            ret.extend(l)
+        return ret
+
+    if isinstance(value, list):
+        accumd_list = [accumulate_leaf_values(f, v) for v in value]
+        return flatten_lofl(accumd_list)
+    elif isinstance(value, dict):
+        accumd_keys = flatten_lofl([accumulate_leaf_values(f, v) for v in value.keys()])
+        accumd_values = flatten_lofl([accumulate_leaf_values(f, v) for v in value.values()])
+        accumd_keys.extend(accumd_values)
+        return accumd_keys
+    else:
+        return [f(value)]
+
+# Helper class for SkyPy
+class FileOrString:
+    
+    def __init__(self, in_dict, block_store):
+        self.block_store = block_store
+        if "outstr" in in_dict:
+            self.str = in_dict["outstr"]
+            self.filename = None
+        else:
+            self.str = None
+            self.filename = in_dict["filename"]
+
+    def toref(self, refid):
+        if self.str is not None:
+            ref = SWDataValue(refid, self.block_store.encode_datavalue(self.str))
+            return ref
+        else:
+            _, size = self.block_store.store_file(self.filename, refid, can_move=True)
+            ref = SW2_ConcreteReference(refid, size)
+            ref.add_location_hint(self.block_store.netloc)
+            return real_ref
+
+    def tostr(self):
+        if self.str is not None:
+            return pickle.loads(self.str)
+        else:
+            with open(self.filename, "r") as f:
+                return pickle.load(f)        
+
+class SkyPyExecutor:
+    
+    def __init__(self, task_executor):
+
+        self.task_executor = task_executor
+        self.skypybase = task_executor.skypybase
+        self.block_store = task_executor.block_store
+        
+    # TODO: External spawns
+    def build_task_descriptor(self, task_descriptor, coro_data, pyfile_ref):
+
+        coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
+        self.task_executor.publish_reference(coro_ref)
+        task_descriptor["coro_ref"] = coro_ref
+        task_descriptor["dependencies"].insert(coro_ref)
+        task_descriptor["py_ref"] = pyfile_ref
+        task_descriptor["dependencies"].insert(pyfile_ref)
+        if "expected_outputs" not in task_descriptor:
+            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+        
+    def run(self, task_descriptor):
+
+        halt_dependencies = []
+
+        coroutine_ref = self.task_executor.retrieve_ref(task_descriptor["coro_ref"])
+        pyfile_ref = self.task_executor.retrieve_ref(task_descriptor["py_ref"])
+        rq_list = [coroutine_ref, pyfile_ref]
+
+        filenames = block_store.retrieve_filenames_for_refs_eager(rq_list)
+
+        coroutine_filename = filenames[0]
+        py_source_filename = filenames[1]
+        
+        cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
+                           % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
+
+        pypy_env = os.environ.copy()
+        pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
+
+        pypy_args = ["pypy", 
+                     self.skypybase + "/stub.py", 
+                     "--resume_state", coroutine_filename, 
+                     "--source", py_source_filename]
+
+        pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+
+        while True:
+            
+            request_args = pickle.load(pypy_process.stdout)
+            request = request_args["request"]
+            del request_args["request"]
+            cherrypy.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
+            if request == "deref":
+                try:
+                    ret = self.deref_func(**request_args)
+                except ReferenceUnavailableException:
+                    self.halt_dependencies.append(request_args["ref"])
+                    ret = {"success": False}
+                pickle.dump(ret, pypy_process.stdin)
+            elif request == "spawn":
+                self.spawn_func(**request_args)
+            elif request == "exec":
+                output_refs = spawn_other(**request_args)
+                pickle.dump({"success": True, "outputs": output_refs}, pypy_process.stdin)
+            elif request == "freeze":
+                # The interpreter is stopping because it needed a reference that wasn't ready yet.
+                coro_data = FileOrString(request_args, self.block_store)
+                self.task_executor.spawn_task({"handler": "skypy", 
+                                               "expected_outputs": [self.expected_output], 
+                                               "dependencies": request_args["additional_deps"]},
+                                              coro_data=coro_data,
+                                              pyfile_ref=self.pyfile_ref)
+                return False
+            elif request == "done":
+                # The interpreter is stopping because the function has completed
+                self.task_executor.publish_reference(FileOrString(request_args, self.block_store).toref(self.expected_outputs[0]))
+                return True
+            elif request == "exception":
+                report_text = FileOrString(request_args, self.block_store).tostr()
+                raise Exception("Fatal pypy exception: %s" % report_text)
+
+    # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
+    def spawn_func(self, **otherargs):
+
+        new_task_descriptor = {"handler": "skypy"}
+        coro_data = FileOrString(otherargs, self.block_store)
+        self.task_executor.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
+        return SW2_FutureReference(new_task_descriptor.expected_outputs[0])
+        
+    def deref_func(self, ref, decoder):
+        cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
+        real_ref = self.task_executor.retrieve_ref(ref)
+        if isinstance(real_ref, SWDataValue):
+            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, decoder)}
+        else:
+            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            return {"success": True, "filename": filenames[0]}
+
+class SWContinuation:
+    
+    def __init__(self, task_stmt, context):
+        self.task_stmt = task_stmt
+        self.current_local_id_index = 0
+        self.stack = []
+        self.context = context
+      
+    def __repr__(self):
+        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s)" % 
+           (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context))
+
+class SafeLambdaFunction(LambdaFunction):
+    
+    def __init__(self, function, interpreter):
+        LambdaFunction.__init__(self, function)
+        self.interpreter = interpreter
+
+    def call(self, args_list, stack, stack_base, context):
+        safe_args = self.interpreter.do_eager_thunks(args_list)
+        return LambdaFunction.call(self, safe_args, stack, stack_base, context)
+
+class SkywritingExecutor:
+    
+    def __init__(self, task_executor):
+        self.task_executor = task_executor
+        self.block_store = task_executor.block_store
+
+    def build_task_descriptor(self, task_descriptor, entry_point=None, args=None, cont=None):
+
+        if entry_point is not None:
+            # Create new continuation for the spawned function.
+            # TODO: Need some reference for the appropriate SWI file.
+            spawned_task_stmt = ast.Return(ast.SpawnedFunction(entry_point, args))
+            cont = SWContinuation(spawned_task_stmt, SimpleContext())
+            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+            # TODO: we could visit the spawn expression and try to guess initial requirements 
+            # TODO: should probably look at dereference wrapper objects in the spawn context
+            #       and ship them as inputs.
+
+        # else: cont is not None and this is a continuation of a previous SWI task; expected_outputs is set
+        cont_id = "%s:cont" % task_descriptor["task_id"]
+        spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
+        self.task_executor.publish_reference(spawned_cont_ref)
+        task_descriptor["cont"] = spawned_cont_ref
+        task_descriptor["dependencies"].insert(spawned_cont_ref)
+
+    def run(self, task_descriptor):
+
         try:
-            Executor = self.executors[name]
+            save_continuation = task_descriptor["save_continuation"]
         except KeyError:
-            raise FeatureUnavailableException(name)
-        return Executor()
+            save_continuation = False
 
-class SWExecutor:
+        self.lazy_derefs = set()
+        self.continuation = None
+        self.result = None
 
-    def __init__(self):
-        pass
+        self.continuation = self.block_store.retrieve_object_for_ref(task_descriptor["cont"], 'pickle')
+
+        self.continuation.context.restart()
+        task_context = TaskContext(self.continuation.context, self)
+        
+        task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
+        task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
+        task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
+        task_context.bind_tasklocal_identifier("int", SafeLambdaFunction(lambda x: int(x[0]), self))
+        task_context.bind_tasklocal_identifier("range", SafeLambdaFunction(lambda x: range(*x), self))
+        task_context.bind_tasklocal_identifier("len", SafeLambdaFunction(lambda x: len(x[0]), self))
+        task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0], self))
+        task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
+        task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
+
+        visitor = StatementExecutorVisitor(task_context)
+        
+        try:
+            result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
+
+            # The script finished successfully
+
+            # XXX: This is for the unusual case that we have a task fragment that runs 
+            # to completion without returning anything.
+            # Could maybe use an ErrorRef here, but this might not be erroneous if, 
+            # e.g. the interactive shell is used.
+            if result is None:
+                result = SWErrorReference('NO_RETURN_VALUE', 'null')
+
+            result_ref = self.block_store.ref_from_object(result, "json", task_descriptor["expected_outputs"][0])
+            self.task_executor.publish_reference(result_ref)
+            
+        except ExecutionInterruption, ei:
+           
+            self.task_executor.spawn_task({"handler": "swi", 
+                                           "expected_outputs": [str(self.expected_output)]}, 
+                                          cont=self.continuation)
+
+        if task_descriptor["save_continuation"]:
+            self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
+                                                                  'pickle', 
+                                                                  "%s:saved_cont" % task_descriptor["task_id"])
+            
+    def spawn_func(self, spawn_expr, args):
+
+        args = self.do_eager_thunks(args)
+        new_task = self.task_executor.spawn_task({"handler": "swi"}, entry_point=spawn_expr, args=args)
+
+        # Return new future reference to the interpreter
+        return SW2_FutureReference(new_task["expected_outputs"][0])
+
+    def do_eager_thunks(self, args):
+
+        def resolve_thunks_mapper(leaf):
+            if isinstance(leaf, SWDereferenceWrapper):
+                return self.eager_dereference(leaf.ref)
+            else:
+                return leaf
+
+        return map_leaf_values(resolve_thunks_mapper, args)
+
+    def spawn_exec_func(self, executor_name, exec_args, num_outputs):
+        return spawn_other(self.task_executor, executor_name, False, args=exec_args, n_outputs=num_outputs)
+
+    def exec_func(self, executor_name, args, num_outputs):
+        return spawn_other(self.task_executor, executor_name, True, args=exec_args, n_outputs=num_outputs)        
+
+    def lazy_dereference(self, ref):
+        self.lazy_derefs.add(ref)
+        return SWDereferenceWrapper(ref)
+
+    def eager_dereference(self, ref):
+        # For SWI, all decodes are JSON
+        real_ref = self.task_executor.retrieve_ref(ref)
+        ret = self.block_store.retrieve_object_for_ref(real_ref, "json")
+        self.lazy_derefs.discard(ref)
+        return ret
+
+    def include_script(self, target_expr):
+        if isinstance(target_expr, basestring):
+            # Name may be relative to the local stdlib.
+            target_expr = urlparse.urljoin('http://%s/stdlib/' % self.block_store.netloc, target_expr)
+            target_ref = self.block_store.get_ref_for_url(target_expr, 0, self.task_id)
+        elif isinstance(target_expr, SWRealReference):    
+            target_ref = target_expr
+        else:
+            raise BlameUserException('Invalid object %s passed as the argument of include', 'INCLUDE', logging.ERROR)
+
+        try:
+            script = self.block_store.retrieve_object_for_ref(target_ref, 'script')
+        except:
+            cherrypy.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
+            raise BlameUserException('The included script did not parse successfully')
+        return script
+
+class SimpleExecutor:
+
+    def __init__(self, task_executor):
+        self.task_executor = task_executor
+        self.block_store = task_executor.block_store
+        self.master_proxy = task_executor.master_proxy
 
     def create_task_descriptor(self, task_descriptor, args, n_outputs):
 
-        # TODO: Copied verbatim from TE; fix this
-
         # Throw early if the args are bad
-        executor.check_args_valid(args, output_ids)
+        self.check_args_valid(args, n_outputs)
 
         # Discover required ref IDs for this executor
-        l = RefList()
-        executor.get_required_refs(args, l.add_ref)
+        reqd_refs = self.get_required_refs(args)
+        task_descriptor["dependencies"].update(reqd_refs)
 
-        args_id = self.get_args_name_for_exec(exec_prefix)
+        # Name our outputs
+        sha = hashlib.sha1()
+        hash_update_with_structure(sha, [real_args, num_outputs])
+        name_prefix = "%s:%s:" % (self.handler_name, sha.hexdigest())
+        task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]
 
-        args_ref = self.block_store.ref_from_object(args, "pickle", args_id)
-        self.publish_reference(args_ref)
+        # Add the args dict
+        args_name = "%ssimple_exec_args" % name_prefix
+        args_ref = self.block_store.ref_from_object(args, "pickle", args_name)
+        self.task_executor.publish_reference(args_ref)
+        task_descriptor["dependencies"].add(args_ref)
+        task_descriptor["simple_exec_args"] = args_ref
         
-        inputs = dict([(ref.id, ref) for ref in l.exec_deps])
-        inputs['_args'] = args_ref
-
-        task_descriptor = {'handler': executor_name, 
-                           'dependencies': inputs,
-                           'expected_outputs': output_ids}
-
-    def resolve_ref(self, ref, continuation):
-        continuation.mark_as_execd(ref)
-        return continuation.resolve_tasklocal_reference_with_ref(ref)
-
-    def resolve_required_refs(self, foreign_args, get_ref_callback):
+    def resolve_required_refs(self, args):
         try:
-            foreign_args["inputs"] = [get_ref_callback(ref) for ref in foreign_args["inputs"]]
+            args["inputs"] = [self.task_executor.retrieve_ref(ref) for ref in args["inputs"]]
         except KeyError:
             pass
 
-    def get_required_refs(self, foreign_args, required_callback):
+    def get_required_refs(self, foreign_args):
         try:
-            for input in foreign_args["inputs"]:
-                required_callback(input)
+            return args["inputs"]
         except KeyError:
-            pass
+            return []
 
-    def check_args_valid(self, args, expected_output_ids):
+    def check_args_valid(self, args, n_outputs):
         pass
 
-    def get_filenames(self, block_store, refs):
+    def get_filenames(self, refs):
         # Refs should already have been tested.
-        return block_store.retrieve_filenames_for_refs(refs, "trace_io" in self.debug_opts)
+        return self.block_store.retrieve_filenames_for_refs(refs, "trace_io" in self.debug_opts)
 
-    def get_filenames_eager(self, block_store, refs):
-        return block_store.retrieve_filenames_for_refs_eager(refs)
+    def get_filenames_eager(self, refs):
+        return self.block_store.retrieve_filenames_for_refs_eager(refs)
 
-    def get_filename(self, block_store, ref):
-        files, ctx = self.get_filenames(block_store, [ref])
+    def get_filename(self, ref):
+        files, ctx = self.get_filenames([ref])
         return (files[0], ctx)
 
-    def execute(self, block_store, task_id, args, expected_output_ids, publish_callback, master_proxy, fetch_limit=None):
-        # On entry: args have been checked for validity and their relevant refs resolved to consumable references (i.e. Concrete, Streaming, DataValue).
-        self.output_ids = expected_output_ids
+    def run(self, task_descriptor):
+        self.task_id = task_descriptor["task_id"]
+        self.output_ids = task_descriptor["expected_outputs"]
         self.output_refs = [None for i in range(len(self.output_ids))]
-        self.fetch_limit = fetch_limit
-        self.master_proxy = master_proxy
         self.succeeded = False
         self.args = args
-        self.publish_callback = publish_callback
+
         try:
             self.debug_opts = args['debug_options']
         except KeyError:
             self.debug_opts = []
         try:
-            self._execute(block_store, task_id)
+            self._execute()
             for ref in self.output_refs:
                 if ref is not None:
-                    publish_callback(ref)
+                    self.task_executor.publish_ref(ref)
                 else:
                     cherrypy.log.error("Executor failed to define output %s" % ref.id, "EXEC", logging.WARNING)
             self.succeeded = True
@@ -181,8 +522,8 @@ class SWExecutor:
 
 class ProcessRunningExecutor(SWExecutor):
 
-    def __init__(self):
-        SWExecutor.__init__(self)
+    def __init__(self, task_executor):
+        SWExecutor.__init__(self, task_executor)
 
         self._lock = threading.Lock()
         self.proc = None
@@ -195,7 +536,7 @@ class ProcessRunningExecutor(SWExecutor):
             if self.transfer_ctx is not None:
                 self.transfer_ctx.notify_streams_done()
 
-    def _execute(self, block_store, task_id):
+    def _execute(self):
         try:
             self.input_refs = self.args['inputs']
         except KeyError:
@@ -205,7 +546,7 @@ class ProcessRunningExecutor(SWExecutor):
         except KeyError:
             self.stream_output = False
 
-        file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
+        file_inputs, transfer_ctx = self.get_filenames(self.input_refs)
         with self._lock:
             self.transfer_ctx = transfer_ctx
         file_outputs = []
@@ -222,7 +563,7 @@ class ProcessRunningExecutor(SWExecutor):
                 stream_refs[self.output_ids[i]] = stream_ref
             self.master_proxy.publish_refs(task_id, stream_refs)
 
-        self.proc = self.start_process(block_store, file_inputs, file_outputs, transfer_ctx)
+        self.proc = self.start_process(file_inputs, file_outputs, transfer_ctx)
         add_running_child(self.proc)
 
         rc = self.await_process(block_store, file_inputs, file_outputs, transfer_ctx)
@@ -265,17 +606,17 @@ class ProcessRunningExecutor(SWExecutor):
             
         cherrypy.engine.publish("worker_event", "Executor: Done")
 
-    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files, transfer_ctx):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
         
-    def await_process(self, block_store, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files, transfer_ctx):
         rc = self.proc.wait()
         transfer_ctx.consumers_detached()
         return rc
 
-    def _cleanup(self, block_store):
+    def _cleanup(self):
         if self.stream_output and not self.succeeded:
-            block_store.rollback_file(self.output_ids[0])
+            self.block_store.rollback_file(self.output_ids[0])
         
     def _abort(self):
         if self.proc is not None:
@@ -283,17 +624,17 @@ class ProcessRunningExecutor(SWExecutor):
 
 class SWStdinoutExecutor(ProcessRunningExecutor):
     
-    def __init__(self):
-        ProcessRunningExecutor.__init__(self)
+    def __init__(self, task_executor):
+        ProcessRunningExecutor.__init__(self, task_executor)
 
-    def check_args_valid(self, args, expected_output_ids):
+    def check_args_valid(self, args, n_outputs):
 
-        if len(expected_output_ids) != 1:
+        if n_outputs != 1:
             raise BlameUserException("Stdinout executor must have one output")
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
 
-    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files, transfer_ctx):
 
         command_line = self.args["command_line"]
         cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
@@ -302,7 +643,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
             # This hopefully avoids the race condition in subprocess.Popen()
             return subprocess.Popen(map(str, command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
 
-    def await_process(self, block_store, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files, transfer_ctx):
 
         class list_with:
             def __init__(self, l):
@@ -341,7 +682,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
 
-    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files, transfer_ctx):
 
         command_line = self.args["command_line"]
         cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
@@ -390,29 +731,28 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         self.last_event_time = time_now
         self.current_state = new_state
 
-    def resolve_required_refs(self, foreign_args, get_ref_callback):
-        SWExecutor.resolve_required_refs(self, foreign_args, get_ref_callback)
+    def resolve_required_refs(self, args):
+        SWExecutor.resolve_required_refs(self, args, get_ref_callback)
         try:
-            foreign_args["lib"] = [get_ref_callback(ref) for ref in foreign_args["lib"]]
+            foreign_args["lib"] = [self.task_executor.retrieve_ref(ref) for ref in args["lib"]]
         except KeyError:
             pass
 
-    def get_required_refs(self, foreign_args, required_callback):
-        SWExecutor.get_required_refs(self, foreign_args, required_callback)
+    def get_required_refs(self, args):
+        l = SWExecutor.get_required_refs(self, args)
         try:
-            for lib in foreign_args["lib"]:
-                required_callback(lib)
+            l.extend(args["lib"])
         except KeyError:
             pass
 
-    def start_process(self, block_store, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files, transfer_ctx):
 
         try:
             self.argv = self.args['argv']
         except KeyError:
             self.argv = []
 
-        self.before_execute(block_store)
+        self.before_execute()
         cherrypy.engine.publish("worker_event", "Executor: running")
 
         if "go_slow" in self.debug_opts:
@@ -475,7 +815,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                 print e
                 break
 
-    def await_process(self, block_store, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files, transfer_ctx):
         self.change_state("Running")
         if "trace_io" in self.debug_opts:
             cherrypy.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.INFO)
@@ -496,18 +836,18 @@ class JavaExecutor(FilenamesOnStdinExecutor):
     def __init__(self):
         FilenamesOnStdinExecutor.__init__(self)
 
-    def check_args_valid(self, args, expected_output_ids):
+    def check_args_valid(self, args, n_outputs):
 
         if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
-    def before_execute(self, block_store):
+    def before_execute(self):
 
         self.jar_refs = self.args["lib"]
         self.class_name = self.args["class"]
         cherrypy.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
-        self.jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
+        self.jar_filenames = self.get_filenames_eager(self.jar_refs)
 
     def get_process_args(self):
         cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
@@ -523,19 +863,19 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
     def __init__(self):
         FilenamesOnStdinExecutor.__init__(self)
 
-    def check_args_valid(self, args, expected_output_ids):
+    def check_args_valid(self, args, n_outputs):
 
         if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the dotnet executor: %s' % repr(args))
 
-    def before_execute(self, block_store):
+    def before_execute(self):
 
         self.dll_refs = self.args['lib']
         self.class_name = self.args['class']
 
         cherrypy.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         cherrypy.engine.publish("worker_event", "Dotnet: fetching DLLs")
-        self.dll_filenames = self.get_filenames_eager(block_store, self.dll_refs)
+        self.dll_filenames = self.get_filenames_eager(self.dll_refs)
 
     def get_process_args(self):
 
@@ -550,7 +890,7 @@ class CExecutor(FilenamesOnStdinExecutor):
     def __init__(self):
         FilenamesOnStdinExecutor.__init__(self)
 
-    def check_args_valid(self, args, expected_output_ids):
+    def check_args_valid(self, args, n_outputs):
 
         if "lib" not in args or "entry_point" not in args:
             raise BlameUserException('Incorrect arguments to the C-so executor: %s' % repr(args))
@@ -560,7 +900,7 @@ class CExecutor(FilenamesOnStdinExecutor):
         self.entry_point_name = args['entry_point']
         cherrypy.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         cherrypy.engine.publish("worker_event", "C-exec: fetching SOs")
-        self.so_filenames = self.get_filenames_eager(block_store, self.so_refs)
+        self.so_filenames = self.get_filenames_eager(self.so_refs)
 
     def get_process_args(self):
 
@@ -575,12 +915,12 @@ class GrabURLExecutor(SWExecutor):
     def __init__(self):
         SWExecutor.__init__(self)
     
-    def check_args_valid(self, args, expected_output_ids):
+    def check_args_valid(self, args, n_outputs):
         
-        if "urls" not in args or "version" not in args or len(args["urls"]) != len(expected_output_ids):
+        if "urls" not in args or "version" not in args or len(args["urls"]) != n_outputs:
             raise BlameUserException('Incorrect arguments to the grab executor: %s' % repr(args))
 
-    def _execute(self, block_store, task_id):
+    def _execute(self):
 
         urls = self.args['urls']
         version = self.args['version']
@@ -589,9 +929,9 @@ class GrabURLExecutor(SWExecutor):
         
         for i, url in enumerate(urls):
             ref = block_store.get_ref_for_url(url, version, task_id)
-            self.publish_callback(ref)
+            self.task_executor.publish_reference(ref)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
-            block_store.cache_object(ref, "json", self.output_ids[i])
+            self.block_store.cache_object(ref, "json", self.output_ids[i])
             self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
 
         cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
@@ -601,11 +941,10 @@ class SyncExecutor(SWExecutor):
     def __init__(self):
         SWExecutor.__init__(self)
 
-    def check_args_valid(self, args, expected_output_ids):
-        if "inputs" not in args or len(expected_output_ids) != 1:
+    def check_args_valid(self, args, n_outputs):
+        if "inputs" not in args or n_outputs != 1:
             raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
 
-    def _execute(self, block_store, task_id):
-        self.inputs = self.args['inputs']
+    def _execute(self):
         block_store.cache_object(True, "json", self.output_ids[0])
         self.output_refs[0] = SWDataValue(self.output_ids[0], simplejson.dumps(True))
