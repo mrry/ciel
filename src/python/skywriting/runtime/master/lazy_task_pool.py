@@ -233,7 +233,7 @@ class LazyTaskPool(plugins.SimplePlugin):
             was_queued_streaming = task.is_queued_streaming()
             was_assigned_streaming = task.is_assigned_streaming()
             was_blocked = task.is_blocked()
-            task.notify_reference_changed(id, ref)
+            task.notify_reference_changed(id, ref, self)
             if was_blocked and not task.is_blocked():
                 self.add_runnable_task(task)
             elif was_assigned_streaming and not task.is_assigned_streaming():
