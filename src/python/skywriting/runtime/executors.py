@@ -18,9 +18,12 @@ from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
     SWDataValue, SW2_StreamReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
-from skywriting.runtime.exceptions import FeatureUnavailableException,\
-    ReferenceUnavailableException, BlameUserException, MissingInputException,\
-    RuntimeSkywritingError
+
+from shared.references import SWDataValue, SWRealReference,\
+    SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
+
+import hashlib
+import urlparse
 import simplejson
 import logging
 import shutil
@@ -269,6 +272,18 @@ class SkyPyExecutor:
         else:
             filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
             return {"success": True, "filename": filenames[0]}
+
+# Imports for Skywriting
+
+from skywriting.runtime.exceptions import ReferenceUnavailableException,\
+    BlameUserException, MissingInputException, ExecutionInterruption
+from skywriting.lang.context import SimpleContext, TaskContext,\
+    LambdaFunction
+from skywriting.lang.visitors import \
+    StatementExecutorVisitor, SWDereferenceWrapper
+from skywriting.lang import ast
+
+# Helpers for Skywriting
 
 class SWContinuation:
     

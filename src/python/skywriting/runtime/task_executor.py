@@ -13,31 +13,16 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from skywriting.lang.parser import CloudScriptParser
-import urlparse
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
-from skywriting.lang.context import SimpleContext, TaskContext,\
-    LambdaFunction
-from skywriting.lang.visitors import \
-    StatementExecutorVisitor, SWDereferenceWrapper
-from skywriting.lang import ast
-from skywriting.runtime.exceptions import ReferenceUnavailableException,\
-    FeatureUnavailableException, ExecutionInterruption,\
-    SelectException, MissingInputException, MasterNotRespondingException,\
-    RuntimeSkywritingError, BlameUserException
-from skywriting.runtime.references import SWReferenceJSONEncoder
+from skywriting.runtime.exceptions import ReferenceUnavailableException
 from threading import Lock
 import cherrypy
 import logging
-import uuid
 import hashlib
 import subprocess
 import pickle
 import simplejson
 import os.path
-from shared.references import SWDataValue, SWRealReference,\
-    SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
-from shared.exec_helpers import get_exec_prefix, get_exec_output_ids
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
