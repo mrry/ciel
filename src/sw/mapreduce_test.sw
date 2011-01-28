@@ -1,16 +1,20 @@
+
+include "grab";
+
 function map(f, list) {
   outputs = [];
   for (i in range(len(list))) {
-    outputs[i] = f(list)
+    outputs[i] = f(list);
   }
   return outputs;
 }
 
 function shuffle(inputs, num_outputs) {
   outputs = [];
-    outputs[i] = []
+  for(i in range(num_outputs)) {
+    outputs[i] = [];
     for (j in range(len(inputs))) {
-      outputs[i][j] = inputs[j][i]
+      outputs[i][j] = inputs[j][i];
     }
   }
   return outputs;

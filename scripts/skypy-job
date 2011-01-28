@@ -1,0 +1,11 @@
+#!/usr/bin/python
+
+import skywriting.runtime.util.skypy_submit
+import sys
+import os
+sys.argv.extend(["--skypy-stub", os.getcwd() + "/../src/python/skywriting/runtime/worker/skypy/stub.py"])
+
+result = skywriting.runtime.util.skypy_submit.main()
+
+print "Result:", result
+

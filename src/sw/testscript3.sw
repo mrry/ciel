@@ -1,3 +1,6 @@
+
+include "grab";
+
 words = ref("http://news.bbc.co.uk/");
 shermans = ref("http://nytimes.com/");
 

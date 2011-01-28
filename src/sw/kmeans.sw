@@ -1,3 +1,6 @@
+
+include "grab";
+
 java_lib = [ref("http://www.cl.cam.ac.uk/~dgm36/kmeans.jar")];
 
 points = spawn_exec("java", {"inputs":[], "lib":java_lib, "class":"tests.kmeans.KMeansInitialPoints", "argv":[1000, 10]}, 1);

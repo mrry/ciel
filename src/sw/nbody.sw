@@ -1,3 +1,6 @@
+
+include "grab";
+
 inputs_url_ref = ref("http://www.cl.cam.ac.uk/~dgm36/nbody.txt");
 coords_url_ref = ref("http://www.cl.cam.ac.uk/~dgm36/coords.txt");
 jar_ref = ref("http://www.cl.cam.ac.uk/~dgm36/magic.jar");

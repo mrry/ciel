@@ -2,3 +2,9 @@
 function grab(url) {
    return *(exec("grab", {"urls":[url], "version":0}, 1)[0]);
 }
+
+// For scripts using old syntax:
+
+function ref(url) {
+   return grab(url);
+}

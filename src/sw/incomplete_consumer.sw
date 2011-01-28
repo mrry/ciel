@@ -1,4 +1,6 @@
 
+include "grab";
+
 jar_ref = ref("file:///home/chris/skywriting/src/java/tests/JitteryProducer.jar");                 
 
 producer_out = spawn_exec("java", {"inputs":[], "lib":[jar_ref], "class":"JitteryProducer", "argv":[], "stream_output": true}, 1);

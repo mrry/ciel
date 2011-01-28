@@ -18,7 +18,7 @@ num_reducers = 2;
 // Change the regexp here
 regexp = "A27";
 
-jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/sky-eg-grep.jar")];
+jar_lib = [grab("http://www.cl.cam.ac.uk/~cs448/grep.jar")];
 
 // -----------------------------------------
 

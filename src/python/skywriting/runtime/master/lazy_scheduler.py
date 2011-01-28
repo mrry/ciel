@@ -11,7 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.references import SWURLReference, SW2_ConcreteReference
+from shared.references import SW2_ConcreteReference
 from skywriting.runtime.block_store import get_netloc_for_sw_url
 from skywriting.runtime.task import TASK_QUEUED, TASK_QUEUED_STREAMING
 import cherrypy
@@ -69,20 +69,7 @@ class LazyScheduler(AsynchronousExecutePlugin):
     def compute_good_workers_for_task(self, task):
         netlocs = {}
         for input in task.inputs.values():
-            if isinstance(input, SWURLReference):
-                if input.size_hint is None:
-                    # XXX: We don't know the size of objects from outside the
-                    # cluster. So we make a guess
-                    # TODO: Do something sensible here; probably HTTP HEAD
-                    input.size_hint = 10000000
-                for url in input.urls:
-                    netloc = get_netloc_for_sw_url(url)
-                    try:
-                        current_saving_for_netloc = netlocs[netloc]
-                    except KeyError:
-                        current_saving_for_netloc = 0
-                    netlocs[netloc] = current_saving_for_netloc + input.size_hint
-            elif isinstance(input, SW2_ConcreteReference) and input.size_hint is not None:
+            if isinstance(input, SW2_ConcreteReference) and input.size_hint is not None:
                 for netloc in input.location_hints:
                     try:
                         current_saving_for_netloc = netlocs[netloc]

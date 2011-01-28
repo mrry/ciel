@@ -14,20 +14,24 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from subprocess import PIPE
-from skywriting.runtime.references import \
+from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
     SWDataValue, SW2_StreamReference
+from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException, MissingInputException,\
     RuntimeSkywritingError
+import simplejson
 import logging
 import shutil
 import subprocess
 import tempfile
 import os
+import os.path
 import cherrypy
 import threading
 import time
+import codecs
 from datetime import datetime
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
@@ -53,6 +57,7 @@ class ExecutionFeatures:
     def __init__(self):
 
         self.executors = {'swi': None, # Could make a special SWI interpreter....
+                          'skypy': None, # And again...
                           'stdinout': SWStdinoutExecutor,
                           'environ': EnvironmentExecutor,
                           'java': JavaExecutor,
@@ -64,63 +69,69 @@ class ExecutionFeatures:
     def all_features(self):
         return self.executors.keys()
     
-    def get_executor(self, name, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
+    def get_executor(self, name):
         try:
             Executor = self.executors[name]
         except KeyError:
             raise FeatureUnavailableException(name)
-        return Executor(args, continuation, expected_output_ids, master_proxy, fetch_limit)
+        return Executor()
 
 class SWExecutor:
 
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        self.continuation = continuation
-        self.output_ids = expected_output_ids
-        self.output_refs = [None for id in self.output_ids]
-        self.fetch_limit = fetch_limit
-        self.master_proxy = master_proxy
-        self.succeeded = False
+    def __init__(self):
+        pass
+
+    def resolve_ref(self, ref, continuation):
+        continuation.mark_as_execd(ref)
+        return continuation.resolve_tasklocal_reference_with_ref(ref)
+
+    def resolve_required_refs(self, foreign_args, get_ref_callback):
         try:
-            self.debug_opts = args['debug_options']
+            foreign_args["inputs"] = [get_ref_callback(ref) for ref in foreign_args["inputs"]]
         except KeyError:
-            self.debug_opts = []
+            pass
 
-    def resolve_ref(self, ref):
-        if self.continuation is not None:
-            self.continuation.mark_as_execd(ref)
-            return self.continuation.resolve_tasklocal_reference_with_ref(ref)
-        else:
-            return ref        
+    def get_required_refs(self, foreign_args, required_callback):
+        try:
+            for input in foreign_args["inputs"]:
+                required_callback(input)
+        except KeyError:
+            pass
 
-    def mark_and_test_refs(self, refs):
-        # Mark all as execd before we risk faulting.
-        if self.continuation is not None:
-            map(self.continuation.mark_as_execd, refs)
-
-        real_refs = map(self.resolve_ref, refs)
-        for ref in real_refs:
-            assert isinstance(ref, SWRealReference)
-            if isinstance(ref, SW2_FutureReference):
-                cherrypy.log.error("Blocking because reference is %s" % repr(ref), 'EXEC', logging.INFO)
-                # Data is not yet available, so 
-                raise ReferenceUnavailableException(ref, self.continuation)
-        return real_refs
+    def check_args_valid(self, args, expected_output_ids):
+        pass
 
     def get_filenames(self, block_store, refs):
-        real_refs = self.mark_and_test_refs(refs)
-        return block_store.retrieve_filenames_for_refs(real_refs, "trace_io" in self.debug_opts)
+        # Refs should already have been tested.
+        return block_store.retrieve_filenames_for_refs(refs, "trace_io" in self.debug_opts)
 
     def get_filenames_eager(self, block_store, refs):
-        real_refs = self.mark_and_test_refs(refs)
-        return block_store.retrieve_filenames_for_refs_eager(real_refs)
+        return block_store.retrieve_filenames_for_refs_eager(refs)
 
     def get_filename(self, block_store, ref):
         files, ctx = self.get_filenames(block_store, [ref])
         return (files[0], ctx)
-        
-    def execute(self, block_store, task_id):
+
+    def execute(self, block_store, task_id, args, expected_output_ids, publish_callback, master_proxy, fetch_limit=None):
+        # On entry: args have been checked for validity and their relevant refs resolved to consumable references (i.e. Concrete, Streaming, DataValue).
+        self.output_ids = expected_output_ids
+        self.output_refs = [None for i in range(len(self.output_ids))]
+        self.fetch_limit = fetch_limit
+        self.master_proxy = master_proxy
+        self.succeeded = False
+        self.args = args
+        self.publish_callback = publish_callback
+        try:
+            self.debug_opts = args['debug_options']
+        except KeyError:
+            self.debug_opts = []
         try:
             self._execute(block_store, task_id)
+            for ref in self.output_refs:
+                if ref is not None:
+                    publish_callback(ref)
+                else:
+                    cherrypy.log.error("Executor failed to define output %s" % ref.id, "EXEC", logging.WARNING)
             self.succeeded = True
         except:
             cherrypy.log.error("Task execution failed", "EXEC", logging.ERROR, True)
@@ -147,16 +158,8 @@ class SWExecutor:
 
 class ProcessRunningExecutor(SWExecutor):
 
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.input_refs = args['inputs']
-        except KeyError:
-            self.input_refs = []
-        try:
-            self.stream_output = args['stream_output']
-        except KeyError:
-            self.stream_output = False
+    def __init__(self):
+        SWExecutor.__init__(self)
 
         self._lock = threading.Lock()
         self.proc = None
@@ -170,11 +173,20 @@ class ProcessRunningExecutor(SWExecutor):
                 self.transfer_ctx.notify_streams_done()
 
     def _execute(self, block_store, task_id):
+        try:
+            self.input_refs = self.args['inputs']
+        except KeyError:
+            self.input_refs = []
+        try:
+            self.stream_output = self.args['stream_output']
+        except KeyError:
+            self.stream_output = False
+
         file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
         with self._lock:
             self.transfer_ctx = transfer_ctx
         file_outputs = []
-        for i in range(len(self.output_refs)):
+        for i in range(len(self.output_ids)):
             with tempfile.NamedTemporaryFile(delete=False) as this_file:
                 file_outputs.append(this_file.name)
         
@@ -210,15 +222,22 @@ class ProcessRunningExecutor(SWExecutor):
             raise OSError()
         cherrypy.engine.publish("worker_event", "Executor: Storing outputs")
         for i, filename in enumerate(file_outputs):
-                    
-            if self.stream_output:
-                _, size_hint = block_store.commit_file(filename, self.output_ids[i], can_move=True)
+
+            file_size = os.path.getsize(filename)
+            if file_size < 1024 and not self.stream_output:
+                with open(filename, "r") as f:
+                    # DataValues must be ASCII so the JSON encoder won't explode.
+                    # Decoding gets done in the block store's retrieve routines.
+                    encoder = codecs.lookup("string_escape")
+                    real_ref = SWDataValue(self.output_ids[i], (encoder.encode(f.read()))[0])
             else:
-                _, size_hint = block_store.store_file(filename, self.output_ids[i], can_move=True)
-            
-            # XXX: fix provenance.
-            real_ref = SW2_ConcreteReference(self.output_ids[i], size_hint)
-            real_ref.add_location_hint(block_store.netloc)
+                if self.stream_output:
+                    block_store.commit_file(filename, self.output_ids[i], can_move=True)
+                else:
+                    block_store.store_file(filename, self.output_ids[i], can_move=True)
+                real_ref = SW2_ConcreteReference(self.output_ids[i], file_size)
+                real_ref.add_location_hint(block_store.netloc)
+
             self.output_refs[i] = real_ref
             
         cherrypy.engine.publish("worker_event", "Executor: Done")
@@ -241,21 +260,24 @@ class ProcessRunningExecutor(SWExecutor):
 
 class SWStdinoutExecutor(ProcessRunningExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        ProcessRunningExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
+    def __init__(self):
+        ProcessRunningExecutor.__init__(self)
+
+    def check_args_valid(self, args, expected_output_ids):
+
         if len(expected_output_ids) != 1:
             raise BlameUserException("Stdinout executor must have one output")
-        try:
-            self.command_line = args['command_line']
-        except KeyError:
+        if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
 
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
-        cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
+
+        command_line = self.args["command_line"]
+        cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
 
         with open(output_files[0], "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
-            return subprocess.Popen(map(str, self.command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
+            return subprocess.Popen(map(str, command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
 
     def await_process(self, block_store, input_files, output_files, transfer_ctx):
 
@@ -288,15 +310,18 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
         
 class EnvironmentExecutor(ProcessRunningExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        ProcessRunningExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.command_line = args['command_line']
-        except KeyError:
+    def __init__(self):
+        ProcessRunningExecutor.__init__(self)
+
+    def check_args_valid(self, args, expected_output_ids):
+
+        if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
 
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
-        cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, self.command_line)), 'EXEC', logging.INFO)
+
+        command_line = self.args["command_line"]
+        cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
 
         with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
             for filename in input_files:
@@ -313,7 +338,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         environment = {'INPUT_FILES'  : input_filenames_name,
                        'OUTPUT_FILES' : output_filenames_name}
             
-        proc = subprocess.Popen(map(str, self.command_line), env=environment, close_fds=True)
+        proc = subprocess.Popen(map(str, command_line), env=environment, close_fds=True)
 
         _ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
@@ -324,12 +349,9 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
 class FilenamesOnStdinExecutor(ProcessRunningExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        ProcessRunningExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.argv = args['argv']
-        except KeyError:
-            self.argv = []
+    def __init__(self):
+        ProcessRunningExecutor.__init__(self)
+
         self.last_event_time = None
         self.current_state = "Starting up"
         self.state_times = dict()
@@ -345,7 +367,27 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         self.last_event_time = time_now
         self.current_state = new_state
 
+    def resolve_required_refs(self, foreign_args, get_ref_callback):
+        SWExecutor.resolve_required_refs(self, foreign_args, get_ref_callback)
+        try:
+            foreign_args["lib"] = [get_ref_callback(ref) for ref in foreign_args["lib"]]
+        except KeyError:
+            pass
+
+    def get_required_refs(self, foreign_args, required_callback):
+        SWExecutor.get_required_refs(self, foreign_args, required_callback)
+        try:
+            for lib in foreign_args["lib"]:
+                required_callback(lib)
+        except KeyError:
+            pass
+
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
+
+        try:
+            self.argv = self.args['argv']
+        except KeyError:
+            self.argv = []
 
         self.before_execute(block_store)
         cherrypy.engine.publish("worker_event", "Executor: running")
@@ -428,15 +470,18 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
 
 class JavaExecutor(FilenamesOnStdinExecutor):
 
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        FilenamesOnStdinExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.jar_refs = args['lib']
-            self.class_name = args['class']
-        except KeyError:
+    def __init__(self):
+        FilenamesOnStdinExecutor.__init__(self)
+
+    def check_args_valid(self, args, expected_output_ids):
+
+        if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
     def before_execute(self, block_store):
+
+        self.jar_refs = self.args["lib"]
+        self.class_name = self.args["class"]
         cherrypy.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         cherrypy.engine.publish("worker_event", "Java: fetching JAR")
         self.jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
@@ -452,15 +497,19 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         
 class DotNetExecutor(FilenamesOnStdinExecutor):
 
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        FilenamesOnStdinExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.dll_refs = args['lib']
-            self.class_name = args['class']
-        except KeyError:
+    def __init__(self):
+        FilenamesOnStdinExecutor.__init__(self)
+
+    def check_args_valid(self, args, expected_output_ids):
+
+        if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the dotnet executor: %s' % repr(args))
 
     def before_execute(self, block_store):
+
+        self.dll_refs = self.args['lib']
+        self.class_name = self.args['class']
+
         cherrypy.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         cherrypy.engine.publish("worker_event", "Dotnet: fetching DLLs")
         self.dll_filenames = self.get_filenames_eager(block_store, self.dll_refs)
@@ -475,15 +524,17 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
 class CExecutor(FilenamesOnStdinExecutor):
 
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        FilenamesOnStdinExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.so_refs = args['lib']
-            self.entry_point_name = args['entry_point']
-        except KeyError:
-            raise BlameUserException('Incorrect arguments to the C executor: %s' % repr(args))
+    def __init__(self):
+        FilenamesOnStdinExecutor.__init__(self)
+
+    def check_args_valid(self, args, expected_output_ids):
+
+        if "lib" not in args or "entry_point" not in args:
+            raise BlameUserException('Incorrect arguments to the C-so executor: %s' % repr(args))
 
     def before_execute(self, block_store):
+        self.so_refs = args['lib']
+        self.entry_point_name = args['entry_point']
         cherrypy.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         cherrypy.engine.publish("worker_event", "C-exec: fetching SOs")
         self.so_filenames = self.get_filenames_eager(block_store, self.so_refs)
@@ -498,31 +549,40 @@ class CExecutor(FilenamesOnStdinExecutor):
     
 class GrabURLExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.urls = args['urls']
-            self.version = args['version']
-        except KeyError:
-            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
-        assert len(self.urls) == len(expected_output_ids)
+    def __init__(self):
+        SWExecutor.__init__(self)
     
+    def check_args_valid(self, args, expected_output_ids):
+        
+        if "urls" not in args or "version" not in args or len(args["urls"]) != len(expected_output_ids):
+            raise BlameUserException('Incorrect arguments to the grab executor: %s' % repr(args))
+
     def _execute(self, block_store, task_id):
+
+        urls = self.args['urls']
+        version = self.args['version']
+
         cherrypy.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
         
-        for i, url in enumerate(self.urls):
-            ref = block_store.get_ref_for_url(url, self.version, task_id)
-            self.output_refs[i] = SWDataValue(self.output_ids[i], ref)
+        for i, url in enumerate(urls):
+            ref = block_store.get_ref_for_url(url, version, task_id)
+            self.publish_callback(ref)
+            out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
+            block_store.cache_object(ref, "json", self.output_ids[i])
+            self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
+
+        cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
             
 class SyncExecutor(SWExecutor):
     
-    def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
-        SWExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
-        try:
-            self.inputs = args['inputs']
-        except KeyError:
-            raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
-        assert len(expected_output_ids) == 1
-    
+    def __init__(self):
+        SWExecutor.__init__(self)
+
+    def check_args_valid(self, args, expected_output_ids):
+        if "inputs" not in args or len(expected_output_ids) != 1:
+            raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
+
     def _execute(self, block_store, task_id):
-        self.output_refs[0] = SWDataValue(self.output_ids[0], True)
+        self.inputs = self.args['inputs']
+        block_store.cache_object(True, "json", self.output_ids[0])
+        self.output_refs[0] = SWDataValue(self.output_ids[0], simplejson.dumps(True))

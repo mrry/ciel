@@ -20,7 +20,7 @@ import pickle
 import simplejson
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,\
     json_decode_object_hook, sw_to_external_url
-from skywriting.runtime.references import SWDataValue, SWURLReference
+from shared.references import SWDataValue, SW2_ConcreteReference
 
 '''
 Created on 17 May 2010
@@ -56,11 +56,13 @@ class SWInteractiveShell(cmd.Cmd):
         # 2. POST the updated local continuation.
         http = httplib2.Http()
         master_data_uri = urlparse.urljoin(self.master_uri, "/data/")
-        (_, content) = http.request(master_data_uri, "POST", pickle.dumps(self.local_continuation))
-        continuation_uri, size_hint = simplejson.loads(content)
+        pickled_cont = pickle.dumps(self.local_continuation)
+        (_, content) = http.request(master_data_uri, "POST", pickled_cont)
+        cont_id = simplejson.loads(content)
         
         # 3. Submit a new task with the updated local continuation.
-        task_descriptor = {'dependencies': {'_cont' : SWURLReference([continuation_uri], size_hint)}, 'handler': 'swi', 'save_continuation': True}
+        master_netloc = urlparse.urlparse(self.master_uri).netloc
+        task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])}, 'handler': 'swi', 'save_continuation': True}
         master_task_submit_uri = urlparse.urljoin(self.master_uri, "/task/")
         (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
         submit_result = simplejson.loads(content)

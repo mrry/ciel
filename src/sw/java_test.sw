@@ -1,3 +1,6 @@
+
+include "grab";
+
 input_url = "file:///usr/share/dict/words";
 
 inputs = [ref(input_url),

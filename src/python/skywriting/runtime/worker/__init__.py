@@ -64,7 +64,7 @@ class Worker(plugins.SimplePlugin):
         self.upload_deferred_work.subscribe()
         self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)
         self.execution_features = ExecutionFeatures()
-        self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
+        self.task_executor = TaskExecutorPlugin(bus, options.skypybase, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
         self.server_root = WorkerRoot(self)
         self.pinger = Pinger(bus, self.master_proxy, None, 30)
@@ -80,8 +80,6 @@ class Worker(plugins.SimplePlugin):
             self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
         if options.lib is not None:
             self.cherrypy_conf["/stdlib"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.lib }
-
-
 
         self.subscribe()
 
@@ -148,12 +146,19 @@ class Worker(plugins.SimplePlugin):
             if self.stopping:
                 raise Exception("Worker stopping")
 
+def ipv4_fqdn():
+    (name, aliases, ips) = socket.gethostbyaddr("127.0.0.1")
+    to_check = [name] + aliases
+    for name in to_check:
+        if name.find(".") != -1:
+            return name
+
 def worker_main(options):
     local_hostname = None
     if options.hostname is not None:
         local_hostname = options.hostname
     else:
-        local_hostname = socket.getfqdn()
+        local_hostname = ipv4_fqdn()
     local_port = cherrypy.config.get('server.socket_port')
     assert(local_port)
     

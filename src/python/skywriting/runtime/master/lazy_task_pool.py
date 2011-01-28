@@ -15,7 +15,7 @@
 from Queue import Queue
 from cherrypy.process import plugins
 from skywriting.runtime.master.job_pool import Job
-from skywriting.runtime.references import SW2_FutureReference, \
+from shared.references import SW2_FutureReference, \
     SW2_ConcreteReference, SWErrorReference, combine_references, SW2_StreamReference
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
     TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED, TASK_QUEUED_STREAMING
@@ -292,12 +292,6 @@ class LazyTaskPool(plugins.SimplePlugin):
             # Otherwise, subscribe to the production of the named output.
             self.subscribe_task_to_ref(task, ref)
             return None
-
-        elif isinstance(ref, SW2_ConcreteReference):
-            # We have a concrete reference for this name, but others may
-            # be waiting on it, so publish it.
-            self._publish_ref(ref.id, ref, task.job, True)
-            return ref
         
         else:
             # We have an opaque reference, which can be accessed immediately.
@@ -366,7 +360,6 @@ class LazyTaskPool(plugins.SimplePlugin):
                         task.unfinished_input_streams.add(ref.id)
                         self.subscribe_task_to_ref(task, conc_ref)
                 else:
-                    
                     # The reference is a future that has not yet been produced,
                     # so block the task.
                     task_will_block = True

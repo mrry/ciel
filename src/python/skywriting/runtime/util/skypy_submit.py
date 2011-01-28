@@ -1,4 +1,4 @@
-# Copyright (c) 2010 Derek Murray <derek.murray@cl.cam.ac.uk>
+# Copyright (c) 2010 Christopher Smowton <chris.smowton@cl.cam.ac.uk>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -17,20 +17,18 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from skywriting.lang.parser import \
-    SWScriptParser
-from skywriting.runtime.task_executor import SWContinuation
 from shared.references import SW2_ConcreteReference
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
-from skywriting.lang.context import SimpleContext
 import time
 import datetime
 import simplejson
 import pickle
 import urlparse
 import httplib2
+import tempfile
 import sys
 import os
+import subprocess
 from optparse import OptionParser
 
 def now_as_timestamp():
@@ -40,7 +38,7 @@ def main():
     parser = OptionParser()
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
     parser.add_option("-i", "--id", action="store", dest="id", help="Job ID", metavar="ID", default="default")
-    parser.add_option("-e", "--env", action="store_true", dest="send_env", help="Set this flag to send the current environment with the script as _env", default=False)
+    parser.add_option("-s", "--skypy-stub", action="store", dest="skypy_stub", help="Path to Skypy stub.py", metavar="PATH", default=None)
     (options, args) = parser.parse_args()
    
     if not options.master:
@@ -48,50 +46,49 @@ def main():
         print >> sys.stderr, "Must specify master URI with --master"
         sys.exit(1)
 
-    if len(args) != 1:
-        parser.print_help()
-        print >> sys.stderr, "Must specify one script file to execute, as argument"
-        sys.exit(1)
-
-    script_name = args[0]
     master_uri = options.master
     id = options.id
     
+    initial_coro_fp, initial_coro_file = tempfile.mkstemp()
+
     print id, "STARTED", now_as_timestamp()
 
-    parser = SWScriptParser()
-    
-    script = parser.parse(open(script_name, 'r').read())
+    script_name = args[0]
+    pypy_args = ["pypy", options.skypy_stub, "--source", script_name] + args[1:]
+    pypy_process = subprocess.Popen(pypy_args, stdout=initial_coro_fp)
+    os.close(initial_coro_fp)
+    pypy_process.wait()
+    initial_coro_fp = open(initial_coro_file, "r")
+    initial_coro_text = initial_coro_fp.read()
+    initial_coro_fp.close()
+
+    pyfile_fp = open(script_name, "r")
+    pyfile_text = pyfile_fp.read()
+    pyfile_fp.close()
 
     print id, "FINISHED_PARSING", now_as_timestamp()
-    
-    if script is None:
-        print "Script did not parse :("
-        exit()
-    
-    cont = SWContinuation(script, SimpleContext())
-    if options.send_env:
-        cont.context.bind_identifier('env', os.environ)
+
+    if pypy_process.returncode != 0:
+        raise Exception("PyPy failed to parse script")
     
     http = httplib2.Http()
     
     master_data_uri = urlparse.urljoin(master_uri, "/data/")
-    pickled_cont = pickle.dumps(cont)
-    (_, content) = http.request(master_data_uri, "POST", pickled_cont)
+    (_, content) = http.request(master_data_uri, "POST", initial_coro_text)
     cont_id = simplejson.loads(content)
+    (_, content) = http.request(master_data_uri, "POST", pyfile_text)
+    pyfile_id = simplejson.loads(content)
     
-    print id, "SUBMITTED_CONT", now_as_timestamp()
-    
-    #print continuation_uri
+    print id, "SUBMITTED_CORO_AND_PY", now_as_timestamp()
     
     master_netloc = urlparse.urlparse(master_uri).netloc
-    task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])}, 'handler': 'swi'}
-    
+    task_descriptor = {'dependencies': {'_coro' : SW2_ConcreteReference(cont_id, len(initial_coro_text), [master_netloc]),
+                                        '_py' : SW2_ConcreteReference(pyfile_id, len(pyfile_text), [master_netloc])}, 'handler': 'skypy'}
+
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
     
     print id, "SUBMITTED_JOB", now_as_timestamp() 
-    
     
     out = simplejson.loads(content)
     

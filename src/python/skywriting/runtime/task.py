@@ -4,7 +4,7 @@ Created on 17 Aug 2010
 @author: dgm36
 '''
 import datetime
-from skywriting.runtime.references import SW2_FutureReference, SW2_StreamReference
+from shared.references import SW2_FutureReference, SW2_StreamReference
 import time
 import cherrypy
 import logging
