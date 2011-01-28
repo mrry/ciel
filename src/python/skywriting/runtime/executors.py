@@ -81,6 +81,29 @@ class SWExecutor:
     def __init__(self):
         pass
 
+    def create_task_descriptor(self, task_descriptor, args, n_outputs):
+
+        # TODO: Copied verbatim from TE; fix this
+
+        # Throw early if the args are bad
+        executor.check_args_valid(args, output_ids)
+
+        # Discover required ref IDs for this executor
+        l = RefList()
+        executor.get_required_refs(args, l.add_ref)
+
+        args_id = self.get_args_name_for_exec(exec_prefix)
+
+        args_ref = self.block_store.ref_from_object(args, "pickle", args_id)
+        self.publish_reference(args_ref)
+        
+        inputs = dict([(ref.id, ref) for ref in l.exec_deps])
+        inputs['_args'] = args_ref
+
+        task_descriptor = {'handler': executor_name, 
+                           'dependencies': inputs,
+                           'expected_outputs': output_ids}
+
     def resolve_ref(self, ref, continuation):
         continuation.mark_as_execd(ref)
         return continuation.resolve_tasklocal_reference_with_ref(ref)

@@ -119,7 +119,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             except AttributeError:
                 pass
             if self.root_executor is None:
-                self.root_executor = SWExecutorTaskExecutionRecord(new_task_handler, self)
+                self.root_executor = self.execution_features.get_executor(executor_name, self)
             self.root_task_id = input["task_id"]
 
         self.reference_cache = input["inputs"]
@@ -136,7 +136,9 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
     def spawn_task(self, new_task_descriptor, **args):
         new_task_descriptor["task_id"] = self.create_spawned_task_name()
-        target_executor = SWExecutorTaskExecutionRecord(new_task_descriptor["handler"], self)
+        if "dependencies" not in new_task_descriptor:
+            new_task_descriptor["dependencies"] = {}
+        target_executor = self.execution_features.get_executor(new_task_descriptor["handler"], self)
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
         target_executor.build_task_descriptor(new_task_descriptor, **args)
         # TODO here: use the master's task-graph apparatus.
@@ -174,228 +176,92 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
                 # Child can't run now
                 del producer_task["inputs"]
                 raise e
-            nested_executor = SWExecutorTaskExecutionRecord(producer_task["handler"], self)
+            nested_executor = self.execution_features.get_executor(producer_task["handler"], self)
             self.run_task_with_executor(producer_task, nested_executor)
             # Okay the child has run, and may or may not have defined its outputs.
             # If it hasn't, this will throw appropriately
             return self.resolve_ref(ref)
 
-class InterpreterTask:
+# Helper function for spawn
+def spawn_other(task_executor, executor_name, small_task, **executor_args):
 
+    new_task_descriptor = {"handler": executor_name}
+    if small_task:
+        new_task_descriptor["hint"] = "small_task"
+    task_executor.spawn_task(new_task_descriptor, **executor_args)
+    return [SW2_FutureReference(ref.id) for ref in new_task_descriptor["expected_outputs"]]
+
+class FileOrString:
+    
+    def __init__(self, in_dict, block_store):
+        self.block_store = block_store
+        if "outstr" in in_dict:
+            self.str = in_dict["outstr"]
+            self.filename = None
+        else:
+            self.str = None
+            self.filename = in_dict["filename"]
+
+    def toref(self, refid):
+        if self.str is not None:
+            ref = SWDataValue(refid, self.block_store.encode_datavalue(self.str))
+            return ref
+        else:
+            _, size = self.block_store.store_file(self.filename, refid, can_move=True)
+            ref = SW2_ConcreteReference(refid, size)
+            ref.add_location_hint(self.block_store.netloc)
+            return real_ref
+
+    def tostr(self):
+        if self.str is not None:
+            return pickle.loads(self.str)
+        else:
+            with open(self.filename, "r") as f:
+                return pickle.load(f)        
+
+class SkyPyInterpreterTask:
+    
     def __init__(self, task_executor):
 
         self.task_executor = task_executor
+        self.skypybase = task_executor.skypybase
+        self.block_store = task_executor.block_store
+        
+    # TODO: External spawns
+    def build_task_descriptor(self, task_descriptor, coro_data, pyfile_ref):
 
+        coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
+        self.task_executor.publish_reference(coro_ref)
+        task_descriptor["coro_ref"] = coro_ref
+        task_descriptor["dependencies"].insert(coro_ref)
+        task_descriptor["py_ref"] = pyfile_ref
+        task_descriptor["dependencies"].insert(pyfile_ref)
+        if "expected_outputs" not in task_descriptor:
+            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+        
     def run(self, task_descriptor):
 
-        self.task_id = task_descriptor['task_id']
-        self.expected_output = task_descriptor['expected_outputs'][0]
-        self.inputs = task_descriptor['inputs']
-        self.save_cont_uri = None
-        self.halt_dependencies = []
+        halt_dependencies = []
 
-        try:
-            self.should_save_continuation = task_descriptor['save_continuation']
-        except KeyError:
-            self.should_save_continuation = False
-
-        try:
-
-            successful_completion = self.run_interpreter()
-            if successful_completion:
-                self.task_executor.publish_ref(self.result_ref)
-                if self.should_save_continuation:
-                    self.save_continuation()
-            else:
-                cont_deps = dict([(ref.id, ref) for ref in self.halt_dependencies])
-                # Add interpreter-specific dependencies
-                self.add_cont_deps(cont_deps)
-                cont_task_descriptor = {'handler': self.handler_name,
-                                        'dependencies': cont_deps,
-                                        'expected_outputs': str(self.expected_output),
-                                        'save_continuation': self.should_save_continuation,
-                                        'continues_task': str(self.task_id)}
-                    
-                self.task_executor.spawn_task(cont_task_descriptor)
-
-        except MissingInputException as mie:
-            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'INTERPRETER', logging.WARNING)
-            raise
-        except Exception:
-            cherrypy.log.error('Interpreter error.', 'INTERPRETER', logging.ERROR, True)
-            self.save_continuation = True
-            raise
-
-    def build_task_descriptor(self, task_descriptor, entry_point=None, args=None, cont=None):
-        if entry_point is not None:
-            # Create new continuation for the spawned function.
-            # TODO: Need some reference for the appropriate SWI file.
-            spawned_task_stmt = ast.Return(ast.SpawnedFunction(entry_point, args))
-            cont = SWContinuation(spawned_task_stmt, SimpleContext())
-            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
-            # TODO: we could visit the spawn expression and try to guess what requirements
-            #       and executors we need in here. 
-            # TODO: should probably look at dereference wrapper objects in the spawn context
-            #       and ship them as inputs.
-        # else: cont is not None and this is a continuation of a previous SWI task
-        cont_id = "%s:cont" % task_descriptor["task_id"]
-        spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
-        self.task_executor.publish_reference(spawned_cont_ref)
-        task_descriptor["cont"] = spawned_cont_ref
-        task_descriptor["dependencies"].insert(spawned_cont_ref)
-
-    def get_saved_continuation_object_id(self):
-        return '%s:saved_cont' % (self.task_id, )
-
-    def spawn_exec_func(self, executor_name, args, n_outputs, exec_prefix):
-
-        executor = self.execution_features.get_executor(executor_name)
-        output_ids = get_exec_output_ids(exec_prefix, n_outputs)
-
-        # Throw early if the args are bad
-        executor.check_args_valid(args, output_ids)
-
-        # Discover required ref IDs for this executor
-        l = RefList()
-        executor.get_required_refs(args, l.add_ref)
-
-        args_id = self.get_args_name_for_exec(exec_prefix)
-
-        args_ref = self.block_store.ref_from_object(args, "pickle", args_id)
-        self.publish_reference(args_ref)
-        
-        inputs = dict([(ref.id, ref) for ref in l.exec_deps])
-        inputs['_args'] = args_ref
-
-        task_descriptor = {'handler': executor_name, 
-                           'dependencies': inputs,
-                           'expected_outputs': output_ids}
-        
-        self.add_spawned_task(task_descriptor)
-        
-    def get_args_name_for_exec(self, prefix):
-        return '%sargs' % (prefix, )
-
-    def publish_reference(self, ref):
-        self.refs_to_publish.append(ref)
-
-    def exec_func(self, executor_name, args, n_outputs):
-        
-        exec_prefix = get_exec_prefix(executor_name, args, n_outputs)
-        output_ids = get_exec_output_ids(exec_prefix, n_outputs)
-
-        l = RefList()
-        self.current_executor = self.execution_features.get_executor(executor_name)
-        # Resolve all interpreter-specific references to RealReferences, 
-        # and as a side-effect record all refs touched in the environment.
-        # Might throw a BlameUserException.
-        self.current_executor.check_args_valid(args, output_ids)
-        self.current_executor.get_required_refs(args, l.add_ref)
-        # Eagerly check all references for availability.
-        raise_ref = None
-        for ref in l.exec_deps:
-            if not self.is_ref_resolvable(ref):
-                self.halt_dependencies.extend(l.exec_deps)
-                raise ReferenceUnavailableException(ref)
-
-        # Okay, all ref are good to go: executor should pull them in and run.
-        env = RefCacheEnvironment(self.reference_cache)
-        self.current_executor.resolve_required_refs(args, env.resolve_ref)
-
-        # Might raise runtime errors
-        self.current_executor.execute(self.block_store, 
-                                      self.task_id, 
-                                      args, 
-                                      output_ids,
-                                      self.publish_reference,
-                                      self.master_proxy)
-
-        ret = self.current_executor.output_refs
-        self.current_executor = None
-        return ret
-    
-    def resolve_ref(self, ref):
-        if not ref.is_consumable():
-            try:
-                return self.reference_cache[ref.id]
-            except KeyError:
-                raise ReferenceUnavailableException(ref)
-        else:
-            return ref
-
-    def is_ref_resolvable(self, ref):
-        try:
-            self.resolve_ref(ref)
-            return True
-        except ReferenceUnavailableException:
-            return False
-    
-    def deref_json(self, ref):
-        cherrypy.log.error("Deref-as-JSON %s" % ref.id, "INTERPRETER", logging.INFO)
-        return self.block_store.retrieve_object_for_ref(self.resolve_ref(ref), "json")
-
-class SkyPyInterpreterTask(InterpreterTask):
-    
-    def __init__(self, task_descriptor, block_store, execution_features, master_proxy, skypybase):
-
-        InterpreterTask.__init__(self, task_descriptor, block_store, execution_features, master_proxy)
-        self.skypybase = skypybase
-        self.handler_name = "skypy"
-        
-    def fetch_inputs(self, block_store):
-
-        InterpreterTask.fetch_inputs(self, block_store)
-        
-        coroutine_ref = None
-        self.pyfile_ref = None
-
-        try:
-            coroutine_ref = self.reference_cache["_coro"]
-            self.pyfile_ref = self.reference_cache["_py"]
-        except KeyError:
-            raise Exception("SkyPy tasks must have a _coro and a _py input")
-
-        rq_list = [coroutine_ref, self.pyfile_ref]
+        coroutine_ref = self.task_executor.retrieve_ref(task_descriptor["coro_ref"])
+        pyfile_ref = self.task_executor.retrieve_ref(task_descriptor["py_ref"])
+        rq_list = [coroutine_ref, pyfile_ref]
 
         filenames = block_store.retrieve_filenames_for_refs_eager(rq_list)
 
-        self.coroutine_filename = filenames[0]
-        self.py_source_filename = filenames[1]
+        coroutine_filename = filenames[0]
+        py_source_filename = filenames[1]
         
         cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
-                           % (self.coroutine_filename, self.py_source_filename), 'SKYPY', logging.INFO)
-
-    def ref_from_pypy_dict(self, args_dict, refid):
-        try:
-            ref = SWDataValue(refid, self.block_store.encode_datavalue(args_dict["outstr"]))
-            cherrypy.log.error("SkyPy shipped a small ref (length %d)" 
-                               % len(args_dict["outstr"]), "SKYPY", logging.INFO)
-            return ref
-        except KeyError:
-            _, size = self.block_store.store_file(args_dict["filename"], refid, can_move=True)
-            real_ref = SW2_ConcreteReference(refid, size)
-            real_ref.add_location_hint(self.block_store.netloc)
-            cherrypy.log.error("SkyPy shipped a large ref as file %s (length %d)" 
-                               % (args_dict["filename"], size), "SKYPY", logging.INFO)
-            return real_ref
-
-    def str_from_pypy_dict(self, args_dict):
-        try:
-            return pickle.loads(args_dict["outstr"])
-        except KeyError:
-            with open(args_dict["filename"], "r") as f:
-                return pickle.load(f)
-
-    def run_interpreter(self):
+                           % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
 
         pypy_env = os.environ.copy()
         pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
 
         pypy_args = ["pypy", 
                      self.skypybase + "/stub.py", 
-                     "--resume_state", self.coroutine_filename, 
-                     "--source", self.py_source_filename, 
-                     "--taskid", self.task_id]
+                     "--resume_state", coroutine_filename, 
+                     "--source", py_source_filename]
 
         pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
@@ -412,68 +278,43 @@ class SkyPyInterpreterTask(InterpreterTask):
                     self.halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
                 pickle.dump(ret, pypy_process.stdin)
-            elif request == "deref_json":
-                try:
-                    pickle.dump({"obj": self.deref_json(**request_args), 
-                                 "success": True}, pypy_process.stdin)
-                except ReferenceUnavailableException:
-                    self.halt_dependencies.append(request_args["ref"])
-                    pickle.dump({"success": False}, pypy_process.stdin)
             elif request == "spawn":
                 self.spawn_func(**request_args)
-            elif request == "spawn_exec":
-                self.spawn_exec_func(**request_args)
             elif request == "exec":
-                try:
-                    output_refs = self.exec_func(**request_args)
-                    pickle.dump({"success": True, "outputs": output_refs}, pypy_process.stdin)
-                except ReferenceUnavailableException:
-                    pickle.dump({"success": False}, pypy_process.stdin)
-                except FeatureUnavailableException as exn:
-                    pickle.dump({"success": False}, pypy_process.stdin)
-                    self.halt_feature_requirement = exn.feature_name
-                    # The interpreter will now snapshot its own state and freeze; on resumption it will retry the exec.
+                output_refs = spawn_other(**request_args)
+                pickle.dump({"success": True, "outputs": output_refs}, pypy_process.stdin)
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                self.cont_ref = self.ref_from_pypy_dict(request_args, self.get_spawn_continuation_object_id())
-                self.publish_reference(self.cont_ref)
-                self.halt_dependencies.extend(list(request_args["additional_deps"]))
+                coro_data = FileOrString(request_args, self.block_store)
+                self.task_executor.spawn_task({"handler": "skypy", 
+                                               "expected_outputs": [self.expected_output], 
+                                               "dependencies": request_args["additional_deps"]},
+                                              coro_data=coro_data,
+                                              pyfile_ref=self.pyfile_ref)
                 return False
             elif request == "done":
                 # The interpreter is stopping because the function has completed
-                self.result_ref = self.ref_from_pypy_dict(request_args, self.expected_outputs[0])
+                self.task_executor.publish_reference(FileOrString(request_args, self.block_store).toref(self.expected_outputs[0]))
                 return True
             elif request == "exception":
-                report_text = self.str_from_pypy_dict(request_args)
+                report_text = FileOrString(request_args, self.block_store).tostr()
                 raise Exception("Fatal pypy exception: %s" % report_text)
 
-    def save_continuation(self):
-        # Nah
-        pass
+    # TODO: Use spawn-external code for this
+    def spawn_func(self, **otherargs):
 
-    def add_cont_deps(self, cont_deps):
-        cont_deps["_coro"] = self.cont_ref
-        cont_deps["_py"] = self.pyfile_ref
-
-    def spawn_func(self, output_id, **otherargs):
-
-        coro_ref = self.ref_from_pypy_dict(otherargs, self.get_spawn_continuation_object_id())
-        self.publish_reference(coro_ref)
-        new_task_deps = {"_py": self.pyfile_ref, "_coro": coro_ref}
-
-        self.spawn_task(new_task_deps, output_id)
+        new_task_descriptor = {"handler": "skypy"}
+        coro_data = FileOrString(otherargs, self.block_store)
+        self.task_executor.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
+        return SW2_FutureReference(new_task_descriptor.expected_outputs[0])
         
-    def deref_func(self, ref):
+    def deref_func(self, ref, decoder):
         cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
-        real_ref = self.resolve_ref(ref)
+        real_ref = self.task_executor.retrieve_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            cherrypy.log.error("Pypy dereferenced %s, returning data inline" % ref.id,
-                               "SKYPY", logging.INFO)
-            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
+            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, decoder)}
         else:
             filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
-            cherrypy.log.error("Pypy dereferenced %s, returning %s" 
-                               % (ref.id, filenames[0]), "SKYPY", logging.INFO)
             return {"success": True, "filename": filenames[0]}
 
 class SWContinuation:
@@ -485,7 +326,8 @@ class SWContinuation:
         self.context = context
       
     def __repr__(self):
-        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context))
+        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s)" % 
+           (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context))
 
 class SafeLambdaFunction(LambdaFunction):
     
@@ -497,34 +339,44 @@ class SafeLambdaFunction(LambdaFunction):
         safe_args = self.interpreter.do_eager_thunks(args_list)
         return LambdaFunction.call(self, safe_args, stack, stack_base, context)
 
-class SWRuntimeInterpreterTask(InterpreterTask):
+class SWRuntimeInterpreterTask:
     
-    def __init__(self, task_descriptor, block_store, execution_features, master_proxy):
+    def __init__(self, task_executor):
+        self.task_executor = task_executor
+        self.block_store = task_executor.block_store
 
-        InterpreterTask.__init__(self, task_descriptor, block_store, execution_features, master_proxy)
+    def build_task_descriptor(self, task_descriptor, entry_point=None, args=None, cont=None):
 
-        self.handler_name = "swi"
+        if entry_point is not None:
+            # Create new continuation for the spawned function.
+            # TODO: Need some reference for the appropriate SWI file.
+            spawned_task_stmt = ast.Return(ast.SpawnedFunction(entry_point, args))
+            cont = SWContinuation(spawned_task_stmt, SimpleContext())
+            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+            # TODO: we could visit the spawn expression and try to guess initial requirements 
+            # TODO: should probably look at dereference wrapper objects in the spawn context
+            #       and ship them as inputs.
+
+        # else: cont is not None and this is a continuation of a previous SWI task; expected_outputs is set
+        cont_id = "%s:cont" % task_descriptor["task_id"]
+        spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
+        self.task_executor.publish_reference(spawned_cont_ref)
+        task_descriptor["cont"] = spawned_cont_ref
+        task_descriptor["dependencies"].insert(spawned_cont_ref)
+
+    def run(self, task_descriptor):
+
+        try:
+            save_continuation = task_descriptor["save_continuation"]
+        except KeyError:
+            save_continuation = False
+
         self.lazy_derefs = set()
         self.continuation = None
         self.result = None
-        
-    def abort(self):
-        self.is_running = False
-        if self.current_executor is not None:
-            try:
-                self.current_executor.abort()
-            except:
-                pass
-            
-    def fetch_inputs(self, block_store):
 
-        InterpreterTask.fetch_inputs(self, block_store)
+        self.continuation = self.block_store.retrieve_object_for_ref(task_descriptor["cont"], 'pickle')
 
-        self.continuation = self.block_store.retrieve_object_for_ref(self.inputs["_cont"], 'pickle')
-        
-        cherrypy.log.error('Fetched continuation', 'SWI', logging.INFO)
-
-    def run_interpreter(self):
         self.continuation.context.restart()
         task_context = TaskContext(self.continuation.context, self)
         
@@ -546,7 +398,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         visitor = StatementExecutorVisitor(task_context)
         
         try:
-            self.result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
+            result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
 
             # The script finished successfully
 
@@ -554,40 +406,23 @@ class SWRuntimeInterpreterTask(InterpreterTask):
             # to completion without returning anything.
             # Could maybe use an ErrorRef here, but this might not be erroneous if, 
             # e.g. the interactive shell is used.
-            if self.result is None:
-                self.result = SWErrorReference('NO_RETURN_VALUE', 'null')
+            if result is None:
+                result = SWErrorReference('NO_RETURN_VALUE', 'null')
 
-            self.result_ref = self.block_store.ref_from_object(self.result, "json", self.expected_outputs[0])
-            return True
-
-#        except SelectException, se:
-#            
-#            local_select_group = se.select_group
-#            timeout = se.timeout
-#            
-#            select_group = map(self.continuation.resolve_tasklocal_reference_with_ref, local_select_group)
-#                        
-#            cont_task_id = self.create_spawned_task_name()
-#                        
-#            cont_task_descriptor = {'task_id': str(cont_task_id),
-#                                    'handler': 'swi',
-#                                    'dependencies': {},
-#                                    'select_group': select_group,
-#                                    'select_timeout': timeout,
-#                                    'expected_outputs': map(str, self.expected_outputs),
-#                                    'save_continuation': self.save_continuation}
-#            self.save_continuation = False
-#            self.spawn_list.append(SpawnListEntry(cont_task_id, cont_task_descriptor, self.continuation))
+            result_ref = self.block_store.ref_from_object(result, "json", task_descriptor["expected_outputs"][0])
+            self.task_executor.publish_reference(result_ref)
             
         except ExecutionInterruption, ei:
+           
+            self.task_executor.spawn_task({"handler": "swi", 
+                                           "expected_outputs": [str(self.expected_output)]}, 
+                                          cont=self.continuation)
+
+        if task_descriptor["save_continuation"]:
+            self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
+                                                                  'pickle', 
+                                                                  "%s:saved_cont" % task_descriptor["task_id"])
             
-            self.task_executor.spawn_task({"handler": "swi", "expected_outputs": [str(self.expected_output)]}, cont=self.continuation)
-
-    def save_continuation(self):
-        self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
-                                                              'pickle', 
-                                                              self.get_saved_continuation_object_id())
-
     def spawn_func(self, spawn_expr, args):
 
         args = self.do_eager_thunks(args)
@@ -607,23 +442,10 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         return map_leaf_values(resolve_thunks_mapper, args)
 
     def spawn_exec_func(self, executor_name, exec_args, num_outputs):
-
-        args = self.do_eager_thunks(exec_args)
-
-        exec_prefix = get_exec_prefix(executor_name, args, num_outputs)
-        output_ids = get_exec_output_ids(exec_prefix, num_outputs)
-
-        InterpreterTask.spawn_exec_func(self, executor_name, args, num_outputs, exec_prefix)
-
-        return [SW2_FutureReference(id) for id in output_ids]
+        return spawn_other(self.task_executor, executor_name, False, args=exec_args, n_outputs=num_outputs)
 
     def exec_func(self, executor_name, args, num_outputs):
-        
-        real_args = self.do_eager_thunks(args)
-        return InterpreterTask.exec_func(self, executor_name, real_args, num_outputs)
-
-    #def make_reference(self, urls):
-    #   return self.continuation.create_tasklocal_reference(SWURLReference(urls))
+        return spawn_other(self.task_executor, executor_name, True, args=exec_args, n_outputs=num_outputs)        
 
     def lazy_dereference(self, ref):
         self.lazy_derefs.add(ref)
@@ -631,7 +453,8 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
     def eager_dereference(self, ref):
         # For SWI, all decodes are JSON
-        ret = self.deref_json(ref)
+        real_ref = self.task_executor.retrieve_ref(ref)
+        ret = self.block_store.retrieve_object_for_ref(real_ref, "json")
         self.lazy_derefs.discard(ref)
         return ret
 
