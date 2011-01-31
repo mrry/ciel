@@ -266,6 +266,6 @@ def combine_references(original, update):
         else:
             return original
     
-    # If we return false, this means we should ignore the update.
-    return False    
+    # If we reach this point, we should ignore the update.
+    return original    
 

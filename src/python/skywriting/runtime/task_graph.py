@@ -22,7 +22,7 @@ class ReferenceTableEntry:
     
     def __init__(self, ref, producing_task=None): 
         self.ref = ref
-        self.producing_task = None
+        self.producing_task = producing_task
         self.consumers = None
 
     def update_producing_task(self, task):
@@ -35,6 +35,10 @@ class ReferenceTableEntry:
         return self.consumers is not None and len(self.consumers) > 0
 
     def add_consumer(self, task):
+        """
+        task must implement the notify_ref_table_updated(self, ref_table_entry)
+        method.
+        """
         if self.consumers is None:
             self.consumers = set([task])
         else:
@@ -99,6 +103,9 @@ class DynamicTaskGraph:
     def publish(self, reference, producing_task=None):
         """Updates the information held about a reference. Returns the updated
         reference table entry for the reference."""
+        
+        print 'Publishing:', reference, producing_task
+        
         try:
             ref_table_entry = self.get_reference_info(reference.id)
             ref_table_entry.update_producing_task(producing_task)
@@ -112,6 +119,24 @@ class DynamicTaskGraph:
             ref_table_entry = ReferenceTableEntry(reference, producing_task)
             self.references[reference.id] = ref_table_entry
         return ref_table_entry
+    
+    def subscribe(self, id, consumer):
+        """
+        Adds a consumer for the given ID. Typically, this is used to monitor
+        job completion (by adding a synthetic task).
+        """
+        try:
+            ref_table_entry = self.get_reference_info(id)
+            if ref_table_entry.ref.is_consumable():
+                consumer.notify_ref_table_updated(ref_table_entry)
+        except KeyError:
+            reference = SW2_FutureReference(id)
+            ref_table_entry = ReferenceTableEntry(reference, None)
+            self.references[reference.id] = ref_table_entry
+            
+        ref_table_entry.add_consumer(consumer)
+            
+    
     
     def notify_task_of_reference(self, task, ref_table_entry):
         if ref_table_entry.ref.is_consumable():
@@ -130,7 +155,6 @@ class DynamicTaskGraph:
             elif was_queued_streaming and not task.is_queued_streaming():
                 # Submit this to the scheduler again
                 self.task_runnable(task)
-    
     
     def reduce_graph_for_references(self, ref_ids):
     
@@ -165,9 +189,17 @@ class DynamicTaskGraph:
             # runnable.
             task_will_block = False
             for local_id, ref in task.dependencies.items():
-                
-                ref_table_entry = self.get_reference_info(ref.id)
-                ref_table_entry.combine_references(ref)
+
+                try:
+                    ref_table_entry = self.get_reference_info(ref.id)
+                    ref_table_entry.combine_references(ref)
+                except KeyError:
+                    ref_table_entry = ReferenceTableEntry(ref, None)
+                    self.references[ref.id] = ref_table_entry
+                except Exception, e:
+                    print e
+
+                print ref_table_entry.ref, ref_table_entry.producing_task
 
                 if ref_table_entry.ref.is_consumable():
                     conc_ref = ref_table_entry.ref
@@ -186,11 +218,9 @@ class DynamicTaskGraph:
                     
                     # We may need to recursively check the inputs on the
                     # producing task for this reference.
-                    try:
-                        producing_task = self.task_for_output[ref.id]
-                    except KeyError:
-                        #cherrypy.log.error('Task %s cannot access missing input %s and will block until this is produced' % (task.task_id, ref.id), 'TASKPOOL', logging.WARNING)
-                        continue
+                    producing_task = ref_table_entry.producing_task
+                    if producing_task is None:
+                        raise 'No such producing task'
                     
                     # The producing task is inactive, so recursively visit it.                    
                     if producing_task.state in (TASK_CREATED, TASK_COMMITTED):
@@ -208,7 +238,7 @@ class DynamicTaskGraph:
         Called when a task becomes runnable. Subclasses should provide their
         own implementation of this function.
         """
-        pass
+        raise NotImplementedError()
     
     def get_task(self, task_id):
         return self.tasks[task_id]
