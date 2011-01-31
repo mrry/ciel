@@ -24,16 +24,16 @@ import cherrypy
 from skywriting.runtime.worker.worker_view import DataRoot
 from skywriting.runtime.master.cluster_view import WebBrowserRoot
 import ciel
+import logging
 
 class MasterRoot:
     
-    def __init__(self, task_pool, worker_pool, block_store, global_name_directory, job_pool):
+    def __init__(self, task_pool, worker_pool, block_store, job_pool):
         self.worker = WorkersRoot(worker_pool)
         self.job = JobRoot(job_pool)
-        self.task = MasterTaskRoot(global_name_directory, task_pool)
-        self.streamtask = MasterStreamTaskRoot(global_name_directory, task_pool)
+        self.task = MasterTaskRoot(task_pool)
+        self.streamtask = MasterStreamTaskRoot(task_pool)
         self.data = DataRoot(block_store)
-        self.global_data = GlobalDataRoot(global_name_directory, task_pool, worker_pool)
         #self.cluster = ClusterDetailsRoot()
         self.shutdown = ShutdownRoot(worker_pool)
         self.refs = ReferenceInfoRoot(task_pool)
@@ -161,8 +161,7 @@ class JobRoot:
 
 class MasterStreamTaskRoot:
     
-    def __init__(self, global_name_directory, task_pool):
-        self.global_name_directory = global_name_directory
+    def __init__(self, task_pool):
         self.task_pool = task_pool
 
     @cherrypy.expose
@@ -194,8 +193,7 @@ class MasterStreamTaskRoot:
 
 class MasterTaskRoot:
     
-    def __init__(self, global_name_directory, task_pool):
-        self.global_name_directory = global_name_directory
+    def __init__(self, task_pool):
         self.task_pool = task_pool
         
     # TODO: decide how to submit tasks to the cluster. Effectively, we want to mirror
@@ -275,23 +273,8 @@ class MasterTaskRoot:
                     return simplejson.dumps(self.task_pool.get_task_by_id(task_id).as_descriptor(long=True), cls=SWReferenceJSONEncoder)
         elif cherrypy.request.method == 'POST':
             # New task spawning in here.
-            task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-            spawned_task_id = self.task_pool.generate_task_id()
-            task_descriptor['task_id'] = str(spawned_task_id)
-            try:
-                expected_outputs = task_descriptor['expected_outputs']
-                for output in expected_outputs:
-                    self.global_name_directory.create_global_id(spawned_task_id, output)
-            except KeyError:
-                try:
-                    num_outputs = task_descriptor['num_outputs']
-                    expected_outputs = map(lambda x: self.global_name_directory.create_global_id(spawned_task_id), range(0, num_outputs))
-                except:
-                    expected_outputs = [self.global_name_directory.create_global_id()]
-                task_descriptor['expected_outputs'] = expected_outputs
-            task = self.task_pool.add_task(task_descriptor)
-            return simplejson.dumps({'outputs': map(str, expected_outputs), 'task_id': str(task.task_id)})
-                        
+            ciel.log('Attempted to spawn a task using deprecated POST to /task/ API', 'MASTER', logging.WARN, False)
+            raise HTTPError(405)
         else:
             if cherrypy.request.method == 'GET':
                 task_fd, filename = tempfile.mkstemp()
@@ -311,74 +294,4 @@ class ReferenceInfoRoot:
             return simplejson.dumps(self.task_pool.get_reference_info(id), cls=SWReferenceJSONEncoder)
         except KeyError:
             raise HTTPError(404)
-                
-class GlobalDataRoot:
-    
-    def __init__(self, global_name_directory, task_pool, worker_pool):
-        self.global_name_directory = global_name_directory
-        self.task_pool = task_pool
-        self.worker_pool = worker_pool
-                
-    @cherrypy.expose
-    def index(self):
-        if cherrypy.request.method == 'POST':
-            # Create a new global ID, and add the POSTed URLs if any.
-            refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-            id = self.global_name_directory.create_global_id(refs)
-            return simplejson.dumps(str(id))
-        
-    @cherrypy.expose
-    def default(self, id, attribute=None):
-        
-        real_id = id
-        
-        if attribute is None:
-            if cherrypy.request.method == 'POST':
-                # Add a new URL for the global ID.
-                real_refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                assert real_refs is list
-                try:
-                    self.global_name_directory.add_refs_for_id(real_id, real_refs)
-                    return
-                except KeyError:
-                    raise HTTPError(404)
-            elif cherrypy.request.method == 'GET':
-                # Return all URLs for the global ID.
-                try:
-                    refs = self.global_name_directory.get_refs_for_id(real_id)
-                    if len(refs) == 0:
-                        cherrypy.response.status = 204
-                    return simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
-                except KeyError:
-                    raise HTTPError(404)
-            elif cherrypy.request.method == 'DELETE':
-                # Abort task producing the given global ID.
-                try:
-                    task_id = self.global_name_directory.get_task_for_id(real_id)
-                    self.task_pool.abort(task_id)
-                except KeyError:
-                    raise HTTPError(404)
-            raise HTTPError(405)
-        elif attribute == 'task':
-            if cherrypy.request.method == 'GET':
-                task_id = self.global_name_directory.get_task_for_id(real_id)
-                task = self.task_pool.get_task_by_id(task_id)
-                task_descriptor = task.as_descriptor(long=True)
-                task_descriptor['is_running'] = task.worker is not None
-                if task.worker is not None:
-                    task_descriptor['worker'] = task.worker.as_descriptor()
-                return simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder)
-            else:
-                raise HTTPError(405)
-        elif attribute == 'completion':
-            if cherrypy.request.method == 'GET':
-                try:
-                    ret = {"refs" : self.global_name_directory.wait_for_completion(real_id)}
-                    return simplejson.dumps(ret, cls=SWReferenceJSONEncoder)
-                except Exception as t:
-                    return simplejson.dumps({"error" : repr(t)})
 
-            else:
-                raise HTTPError(405)
-        else:
-            raise HTTPError(404)

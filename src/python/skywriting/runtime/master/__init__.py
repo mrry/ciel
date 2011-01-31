@@ -17,7 +17,6 @@ from skywriting.runtime.master.lazy_task_pool import LazyTaskPool,\
 from skywriting.runtime.master.lazy_scheduler import LazyScheduler
 from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 from skywriting.runtime.master.master_view import MasterRoot
-from skywriting.runtime.master.data_store import GlobalNameDirectory
 from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.block_store import BlockStore
 from skywriting.runtime.task_executor import TaskExecutorPlugin
@@ -40,9 +39,6 @@ def master_main(options):
     deferred_worker = DeferredWorkPlugin(ciel.engine)
     deferred_worker.subscribe()
 
-    global_name_directory = GlobalNameDirectory(ciel.engine)
-    global_name_directory.subscribe()
-
     worker_pool = WorkerPool(ciel.engine, deferred_worker)
     worker_pool.subscribe()
 
@@ -50,7 +46,7 @@ def master_main(options):
     task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
     lazy_task_pool.subscribe()
     
-    job_pool = JobPool(ciel.engine, lazy_task_pool, options.journaldir, global_name_directory)
+    job_pool = JobPool(ciel.engine, lazy_task_pool, options.journaldir)
     job_pool.subscribe()
 
     local_hostname = socket.getfqdn()
@@ -72,7 +68,7 @@ def master_main(options):
     scheduler = LazyScheduler(ciel.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory, job_pool)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, job_pool)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

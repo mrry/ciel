@@ -21,7 +21,6 @@ import simplejson
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import struct
 import logging
-import cherrypy
 import ciel
 
 JOB_ACTIVE = 0
@@ -132,11 +131,10 @@ class Job:
 
 class JobPool(plugins.SimplePlugin):
 
-    def __init__(self, bus, task_pool, journal_root, global_name_directory):
+    def __init__(self, bus, task_pool, journal_root):
         plugins.SimplePlugin.__init__(self, bus)
         self.task_pool = task_pool
         self.journal_root = journal_root
-        self.global_name_directory = global_name_directory
     
         # Mapping from job ID to job object.
         self.jobs = {}
@@ -187,17 +185,10 @@ class JobPool(plugins.SimplePlugin):
         # TODO: Here is where we will set up the job journal, etc.
         job_dir = self.make_job_directory(job_id)
         
-        # TODO: Remove the global name directory dependency.
         try:
             expected_outputs = task_descriptor['expected_outputs']
-            for output in expected_outputs:
-                self.global_name_directory.create_global_id(task_id, output)
         except KeyError:
-            try:
-                num_outputs = task_descriptor['num_outputs']
-                expected_outputs = map(lambda x: self.global_name_directory.create_global_id(task_id), range(0, num_outputs))
-            except:
-                expected_outputs = [self.global_name_directory.create_global_id()]
+            expected_outputs = ['%s:output' % job_id]
             task_descriptor['expected_outputs'] = expected_outputs
             
         task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, None)

@@ -100,56 +100,6 @@ class TaskPoolTask(Task):
         
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
-
-    def check_dependencies(self, global_name_directory):
-        
-        if self.select_group is None:
-
-            self.inputs = {}
-
-            for local_id, input in self.dependencies.items():
-                if isinstance(input, SW2_FutureReference):
-                    global_id = input.id
-                    refs = global_name_directory.get_refs_for_id(global_id)
-                    if len(refs) > 0:
-                        self.inputs[local_id] = refs[0]
-                    else:
-                        self.block_on(global_id, local_id)
-                else:
-                    self.inputs[local_id] = input
-    
-            if len(self._blocking_dict) > 0:
-                self.set_state(TASK_BLOCKING)
-            else:
-                self.set_state(TASK_RUNNABLE)
-                
-        else:
-            
-            # select()-handling code.
-            if self.select_result is None:
-                
-                self.select_result = []
-                for i, ref in enumerate(self.select_group):
-                    if isinstance(ref, SW2_FutureReference):
-                        global_id = ref.id
-                        refs = global_name_directory.get_refs_for_id(global_id)
-                        if len(refs) > 0:
-                            self.select_result.append(i)
-                        else:
-                            self.selecting_dict[global_id] = i
-                    else:
-                        self.select_result.append(i)
-
-                if len(self.select_group) > 0 and len(self.select_result) == 0:
-                    self.set_state(TASK_SELECTING)
-                else:
-                    self.set_state(TASK_RUNNABLE)
-        
-            else:
-                
-                # We are replaying a task that has previously returned from a call to select().
-                # TODO: We need to make sure we handle blocking/failure for this task correctly.
-                self.set_state(TASK_RUNNABLE)
         
     def is_replay_task(self):
         return self.replay_ref is not None

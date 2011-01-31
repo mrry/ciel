@@ -46,7 +46,8 @@ def main(default_role=None):
     parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
     parser.add_option("-l", "--lib", action="store", dest="lib", help="Path to standard library of Skywriting scripts (for workers)", metavar="PATH", default=os.path.join(os.path.dirname(__file__), '../../sw/stdlib'))
     parser.add_option("-x", "--ignore-blocks", action="store_true", dest="ignore_blocks", help="Flag to instruct the workers not to send existing blocks", default=False)
-    (options, _) = parser.parse_args()
+    parser.add_option("-n", "--num-workers", action="store", dest="num_workers", help="Number of worker threads to create (for all-in-one)", type="int", default=1)
+    (options, args) = parser.parse_args()
    
     if options.role == 'master':
         from skywriting.runtime.master import master_main
@@ -61,6 +62,9 @@ def main(default_role=None):
     elif options.role == 'interactive':
         from skywriting.runtime.interactive import interactive_main
         interactive_main(options)
+    elif options.role == 'allinone':
+        from skywriting.runtime.allinone import allinone_main
+        allinone_main(options, args) 
     else:
         raise
     

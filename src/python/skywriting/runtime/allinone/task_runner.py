@@ -96,7 +96,7 @@ class AllInOneMasterProxy:
         
 class TaskRunner:
     
-    def __init__(self, initial_task, initial_cont_ref, block_store, num_workers=1):
+    def __init__(self, initial_task, initial_cont_ref, block_store, options):
         self.block_store = block_store
         self.task_queue = Queue.Queue()
         self.task_graph = AllInOneDynamicTaskGraph(self.task_queue)
@@ -110,8 +110,10 @@ class TaskRunner:
         self.job_output = AllInOneJobOutput()
         self.task_graph.subscribe(self.initial_task.expected_outputs[0], self.job_output)
 
+        self.options = options
+
         self.is_running = False
-        self.num_workers = num_workers
+        self.num_workers = options.num_workers
         self.workers = None
 
     def run(self):
@@ -140,7 +142,7 @@ class TaskRunner:
     def worker_thread_main(self):
     
         # FIXME: Set skypybase appropriately.
-        thread_task_executor = TaskExecutorPlugin(ciel.engine, None, self.block_store, self.master_proxy, self.execution_features, 1)
+        thread_task_executor = TaskExecutorPlugin(ciel.engine, self.options.skypybase, self.options.lib, self.block_store, self.master_proxy, self.execution_features, 1)
     
         while self.is_running:
             

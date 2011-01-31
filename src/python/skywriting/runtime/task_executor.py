@@ -42,12 +42,13 @@ import ciel
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, skypybase, block_store, master_proxy, execution_features, num_threads=1):
+    def __init__(self, bus, skypybase, stdlibbase, block_store, master_proxy, execution_features, num_threads=1):
         AsynchronousExecutePlugin.__init__(self, bus, num_threads, "execute_task")
         self.block_store = block_store
         self.master_proxy = master_proxy
         self.execution_features = execution_features
         self.skypybase = skypybase
+        self.stdlibbase = stdlibbase
 
         self.current_task_id = None
         self.current_task_execution_record = None
@@ -73,7 +74,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         handler = input['handler']
 
         if handler == 'swi':
-            execution_record = SWInterpreterTaskExecutionRecord(input, self, SWRuntimeInterpreterTask)
+            execution_record = SWInterpreterTaskExecutionRecord(input, self, SWRuntimeInterpreterTask, stdlibbase=self.stdlibbase)
         elif handler == "skypy":
             execution_record = SWInterpreterTaskExecutionRecord(input, self, SkyPyInterpreterTask, skypybase=self.skypybase)
         else:
@@ -624,7 +625,7 @@ class SafeLambdaFunction(LambdaFunction):
 
 class SWRuntimeInterpreterTask(InterpreterTask):
     
-    def __init__(self, task_descriptor, block_store, execution_features, master_proxy):
+    def __init__(self, task_descriptor, block_store, execution_features, master_proxy, stdlibbase):
 
         InterpreterTask.__init__(self, task_descriptor, block_store, execution_features, master_proxy)
 
@@ -632,6 +633,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         self.lazy_derefs = set()
         self.continuation = None
         self.result = None
+        self.stdlibbase = stdlibbase
         
     def abort(self):
         self.is_running = False
@@ -795,8 +797,11 @@ class SWRuntimeInterpreterTask(InterpreterTask):
     def include_script(self, target_expr):
         if isinstance(target_expr, basestring):
             # Name may be relative to the local stdlib.
-            target_expr = urlparse.urljoin('http://%s/stdlib/' % self.block_store.netloc, target_expr)
-            target_ref = self.block_store.get_ref_for_url(target_expr, 0, self.task_id)
+            if not target_expr.startswith('http'):
+                target_url = 'file://%s' % os.path.join(self.stdlibbase, target_expr)
+            else:
+                target_url = target_expr
+            target_ref = self.block_store.get_ref_for_url(target_url, 0, self.task_id)
         elif isinstance(target_expr, SWRealReference):    
             target_ref = target_expr
         else:

@@ -24,23 +24,27 @@ import threading
 from skywriting.runtime.allinone.task_runner import TaskRunner
 import ciel
 import logging
+import skywriting
 
-
-def main():
+def allinone_main(options, args):
     
-    if len(sys.argv) < 2:
-        print >>sys.stderr, 'Usage: sw-allinone SCRIPT_FILENAME'
-    script_filename = sys.argv[1]
+    script_filename = args[0]
     
     base_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
     ciel.log('Writing block store files to %s' % base_dir, 'ALLINONE', logging.INFO)
+    
+    if options.blockstore is not None:
+        base_dir = options.blockstore
+    else:
+        base_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+        
     block_store = BlockStore(ciel.engine, 'localhost', 8000, base_dir, True)
     
     initial_task_descriptor, cont_ref = build_initial_task_descriptor(script_filename, block_store, 'root', 'root_cont', 'root_output')
         
     initial_task_object = build_taskpool_task_from_descriptor('root', initial_task_descriptor, None, None)
     
-    task_runner = TaskRunner(initial_task_object, cont_ref, block_store)
+    task_runner = TaskRunner(initial_task_object, cont_ref, block_store, options)
     
     try:
         result = task_runner.run()
@@ -53,4 +57,4 @@ def main():
     block_store.stop_thread()
 
 if __name__ == '__main__':
-    main()
+    skywriting.main("allinone")
