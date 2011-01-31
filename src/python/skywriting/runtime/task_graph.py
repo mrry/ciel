@@ -103,16 +103,14 @@ class DynamicTaskGraph:
     def publish(self, reference, producing_task=None):
         """Updates the information held about a reference. Returns the updated
         reference table entry for the reference."""
-        
-        print 'Publishing:', reference, producing_task
-        
         try:
             ref_table_entry = self.get_reference_info(reference.id)
             ref_table_entry.update_producing_task(producing_task)
             ref_table_entry.combine_references(reference)
             
             if ref_table_entry.has_consumers():
-                for task in ref_table_entry.consumers:
+                consumers_copy = ref_table_entry.consumers.copy()
+                for task in consumers_copy:
                     self.notify_task_of_reference(task, ref_table_entry)
                 
         except KeyError:
@@ -198,8 +196,6 @@ class DynamicTaskGraph:
                     self.references[ref.id] = ref_table_entry
                 except Exception, e:
                     print e
-
-                print ref_table_entry.ref, ref_table_entry.producing_task
 
                 if ref_table_entry.ref.is_consumable():
                     conc_ref = ref_table_entry.ref
