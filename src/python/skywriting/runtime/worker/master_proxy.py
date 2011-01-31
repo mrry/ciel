@@ -11,6 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+import ciel
 
 '''
 Created on 15 Apr 2010
@@ -72,14 +73,14 @@ class MasterProxy(SimplePlugin):
                 if response.status == 200:
                     return response, content
                 else:
-                    cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
-                    cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
+                    ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
+                    ciel.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
                     raise MasterNotRespondingException()
             except:
-                cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
+                ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
             self.stop_event.wait(initial_wait)
             initial_wait += initial_wait * random.uniform(0.5, 1.5)
-        cherrypy.log.error("Given up trying to contact master", "MSTRPRXY", logging.ERROR, True)
+        ciel.log.error("Given up trying to contact master", "MSTRPRXY", logging.ERROR, True)
         if self.stop_event.is_set():
             raise WorkerShutdownException()
         else:

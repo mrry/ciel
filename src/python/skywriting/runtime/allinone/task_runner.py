@@ -28,6 +28,7 @@ class AllInOneJobOutput:
     
     def __init__(self):
         self.event = threading.Event()
+        self.result = None
    
     def is_queued_streaming(self):
         return False
@@ -38,8 +39,10 @@ class AllInOneJobOutput:
    
     def join(self):
         self.event.wait()
+        return self.result
     
     def notify_ref_table_updated(self, ref_table_entry):
+        self.result = ref_table_entry.ref
         self.event.set()
 
 class AllInOneDynamicTaskGraph(DynamicTaskGraph):
@@ -123,13 +126,15 @@ class TaskRunner:
         for worker in self.workers:
             worker.start()
         
-        self.job_output.join()
+        result = self.job_output.join()
         
         self.is_running = False
         for worker in self.workers:
             self.task_queue.put(THREAD_TERMINATOR)
         for worker in self.workers:
             worker.join()
+            
+        return result
     
     def worker_thread_main(self):
     
@@ -141,8 +146,6 @@ class TaskRunner:
             task = self.task_queue.get()
             if task is THREAD_TERMINATOR:
                 return
-            
-            print 'Running task:', task
             
             task_descriptor = task.as_descriptor(False)
     

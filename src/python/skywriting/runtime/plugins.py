@@ -11,6 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+import ciel
 
 '''
 Created on 13 Apr 2010
@@ -21,7 +22,6 @@ from __future__ import with_statement
 from cherrypy.process.plugins import SimplePlugin
 from Queue import Queue
 import logging
-import cherrypy
 import threading
 
 class ThreadTerminator:
@@ -86,7 +86,7 @@ class AsynchronousExecutePlugin(SimplePlugin):
                 if self.publish_fail_event is not None:
                     self.bus.publish(self.publish_fail_event, input, ex)
                 else:
-                    cherrypy.log.error('Error handling input in %s' % (self.__class__, ), 'PLUGIN', logging.ERROR, True)
+                    ciel.log.error('Error handling input in %s' % (self.__class__, ), 'PLUGIN', logging.ERROR, True)
 
     def handle_input(self, input):
         """Override this method to specify the behaviour on processing a single input."""

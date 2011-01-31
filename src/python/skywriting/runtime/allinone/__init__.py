@@ -41,7 +41,10 @@ def main():
     task_runner = TaskRunner(initial_task_object, cont_ref, block_store)
     
     try:
-        task_runner.run()
+        result = task_runner.run()
+        
+        print block_store.retrieve_object_for_ref(result, 'json')
+        
     except:
         pass
     

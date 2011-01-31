@@ -38,6 +38,7 @@ import os.path
 from shared.references import SWDataValue, SWRealReference,\
     SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
 from shared.exec_helpers import get_exec_prefix, get_exec_output_ids
+import ciel
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -83,13 +84,13 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_execution_record = execution_record
         
         cherrypy.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
-        cherrypy.log.error("Starting task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
+        ciel.log.error("Starting task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         try:
             execution_record.execute()
             cherrypy.engine.publish("worker_event", "Completed execution " + repr(input['task_id']))
-            cherrypy.log.error("Completed task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
+            ciel.log.error("Completed task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         except:
-            cherrypy.log.error("Error in task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.ERROR, True)
+            ciel.log.error("Error in task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.ERROR, True)
 
         with self._lock:
             self.current_task_id = None
@@ -195,10 +196,10 @@ class SWExecutorTaskExecutionRecord:
             else:
                 self.task_executor.master_proxy.failed_task(self.task_id)
         except MissingInputException as mie:
-            cherrypy.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
+            ciel.log.error('Missing input during SWI task execution', 'SWI', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
         except:
-            cherrypy.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
+            ciel.log.error('Error during executor task execution', 'EXEC', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')
 
 class SWInterpreterTaskExecutionRecord:
@@ -214,7 +215,7 @@ class SWInterpreterTaskExecutionRecord:
         try:
             self.interpreter = interpreter_class(task_descriptor, self.task_executor.block_store, self.task_executor.execution_features, self.task_executor.master_proxy, **interpreter_args)
         except:
-            cherrypy.log.error('Error during SkyPy task creation', 'SKYPY', logging.ERROR, True)
+            ciel.log.error('Error during SkyPy task creation', 'SKYPY', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id)
 
     def execute(self):
@@ -235,14 +236,14 @@ class SWInterpreterTaskExecutionRecord:
                 self.task_executor.master_proxy.failed_task(self.task_id)
         
         except MissingInputException as mie:
-            cherrypy.log.error('Missing input during SKYPY task execution', 'SKYPY', logging.ERROR, True)
+            ciel.log.error('Missing input during SKYPY task execution', 'SKYPY', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'MISSING_INPUT', bindings=mie.bindings)
               
         except MasterNotRespondingException:
-            cherrypy.log.error('Could not commit task results to the master', 'SKYPY', logging.ERROR, True)
+            ciel.log.error('Could not commit task results to the master', 'SKYPY', logging.ERROR, True)
                 
         except:
-            cherrypy.log.error('Error during SKYPY task execution', 'SKYPY', logging.ERROR, True)
+            ciel.log.error('Error during SKYPY task execution', 'SKYPY', logging.ERROR, True)
             self.task_executor.master_proxy.failed_task(self.task_id, 'RUNTIME_EXCEPTION')    
 
     def abort(self):
@@ -320,10 +321,10 @@ class InterpreterTask:
                 self.add_spawned_task(cont_task_descriptor)
 
         except MissingInputException as mie:
-            cherrypy.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
+            ciel.log.error('Cannot retrieve inputs for task: %s' % repr(mie.bindings), 'SKYPY', logging.WARNING)
             raise
         except Exception:
-            cherrypy.log.error('Interpreter error.', 'SKYPY', logging.ERROR, True)
+            ciel.log.error('Interpreter error.', 'SKYPY', logging.ERROR, True)
             self.save_continuation = True
             raise
 
@@ -455,7 +456,7 @@ class InterpreterTask:
             return False
     
     def deref_json(self, ref):
-        cherrypy.log.error("Deref-as-JSON %s" % ref.id, "INTERPRETER", logging.INFO)
+        ciel.log.error("Deref-as-JSON %s" % ref.id, "INTERPRETER", logging.INFO)
         return self.block_store.retrieve_object_for_ref(self.resolve_ref(ref), "json")
 
 class SkyPyInterpreterTask(InterpreterTask):
@@ -486,20 +487,20 @@ class SkyPyInterpreterTask(InterpreterTask):
         self.coroutine_filename = filenames[0]
         self.py_source_filename = filenames[1]
         
-        cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
+        ciel.log.error('Fetched coroutine image to %s, .py source to %s' 
                            % (self.coroutine_filename, self.py_source_filename), 'SKYPY', logging.INFO)
 
     def ref_from_pypy_dict(self, args_dict, refid):
         try:
             ref = SWDataValue(refid, self.block_store.encode_datavalue(args_dict["outstr"]))
-            cherrypy.log.error("SkyPy shipped a small ref (length %d)" 
+            ciel.log.error("SkyPy shipped a small ref (length %d)" 
                                % len(args_dict["outstr"]), "SKYPY", logging.INFO)
             return ref
         except KeyError:
             _, size = self.block_store.store_file(args_dict["filename"], refid, can_move=True)
             real_ref = SW2_ConcreteReference(refid, size)
             real_ref.add_location_hint(self.block_store.netloc)
-            cherrypy.log.error("SkyPy shipped a large ref as file %s (length %d)" 
+            ciel.log.error("SkyPy shipped a large ref as file %s (length %d)" 
                                % (args_dict["filename"], size), "SKYPY", logging.INFO)
             return real_ref
 
@@ -528,7 +529,7 @@ class SkyPyInterpreterTask(InterpreterTask):
             request_args = pickle.load(pypy_process.stdout)
             request = request_args["request"]
             del request_args["request"]
-            cherrypy.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
+            ciel.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
             if request == "deref":
                 try:
                     ret = self.deref_func(**request_args)
@@ -588,15 +589,15 @@ class SkyPyInterpreterTask(InterpreterTask):
         self.spawn_task(new_task_deps, output_id)
         
     def deref_func(self, ref):
-        cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
+        ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.resolve_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            cherrypy.log.error("Pypy dereferenced %s, returning data inline" % ref.id,
+            ciel.log.error("Pypy dereferenced %s, returning data inline" % ref.id,
                                "SKYPY", logging.INFO)
             return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
         else:
             filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
-            cherrypy.log.error("Pypy dereferenced %s, returning %s" 
+            ciel.log.error("Pypy dereferenced %s, returning %s" 
                                % (ref.id, filenames[0]), "SKYPY", logging.INFO)
             return {"success": True, "filename": filenames[0]}
 
@@ -646,7 +647,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
 
         self.continuation = self.block_store.retrieve_object_for_ref(self.inputs["_cont"], 'pickle')
         
-        cherrypy.log.error('Fetched continuation', 'SWI', logging.INFO)
+        ciel.log.error('Fetched continuation', 'SWI', logging.INFO)
 
     def run_interpreter(self):
         self.continuation.context.restart()
@@ -804,7 +805,7 @@ class SWRuntimeInterpreterTask(InterpreterTask):
         try:
             script = self.block_store.retrieve_object_for_ref(target_ref, 'script')
         except:
-            cherrypy.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
+            ciel.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
             raise BlameUserException('The included script did not parse successfully')
         return script
 

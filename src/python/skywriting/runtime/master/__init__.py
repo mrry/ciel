@@ -33,6 +33,7 @@ import cherrypy
 from skywriting.runtime.master.job_pool import JobPool
 import os
 from skywriting.runtime.master.recovery import RecoveryManager
+import ciel
 
 def master_main(options):
 
@@ -101,7 +102,7 @@ def master_main(options):
                     http.request(urllib2.urlparse.urljoin(worker_url, '/master/'), "POST", master_details_as_json)
                     # Worker will be created by a callback.
                 except:
-                    cherrypy.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)
+                    ciel.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)
                     
     cherrypy.engine.block()
 

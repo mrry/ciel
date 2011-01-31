@@ -23,6 +23,7 @@ import httplib2
 import uuid
 import cherrypy
 import logging
+import ciel
 
 class FeatureQueues:
     def __init__(self):
@@ -115,7 +116,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.workers[id] = worker
             try:
                 previous_worker_at_netloc = self.netlocs[worker.netloc]
-                cherrypy.log.error('Worker at netloc %s has reappeared' % worker.netloc, 'WORKER_POOL', logging.WARNING)
+                ciel.log.error('Worker at netloc %s has reappeared' % worker.netloc, 'WORKER_POOL', logging.WARNING)
                 self.worker_failed(previous_worker_at_netloc)
             except KeyError:
                 pass
@@ -130,7 +131,7 @@ class WorkerPool(plugins.SimplePlugin):
             has_blocks = False
             
         if has_blocks:
-            cherrypy.log.error('%s has blocks, so will fetch' % str(worker), 'WORKER_POOL', logging.INFO)
+            ciel.log.error('%s has blocks, so will fetch' % str(worker), 'WORKER_POOL', logging.INFO)
             self.bus.publish('fetch_block_list', worker)
             
         self.bus.publish('schedule')
@@ -186,7 +187,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.worker_failed(worker)
     
     def worker_failed(self, worker):
-        cherrypy.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
+        ciel.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         with self._lock:
             self.event_count += 1
             self.event_condvar.notify_all()
@@ -244,7 +245,7 @@ class WorkerPool(plugins.SimplePlugin):
             return self.event_count
 
     def investigate_worker_failure(self, worker):
-        cherrypy.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
+        ciel.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         try:
             _, content = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
             id = simplejson.loads(content)

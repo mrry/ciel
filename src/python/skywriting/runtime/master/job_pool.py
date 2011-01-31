@@ -22,6 +22,7 @@ from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import struct
 import logging
 import cherrypy
+import ciel
 
 JOB_ACTIVE = 0
 JOB_COMPLETED = 1
@@ -58,7 +59,7 @@ class Job:
         self._condition = Condition(self._lock)
 
     def completed(self, result_ref):
-        cherrypy.log.error('Job %s completed' % self.id, 'JOB', logging.INFO)
+        ciel.log.error('Job %s completed' % self.id, 'JOB', logging.INFO)
         self.state = JOB_COMPLETED
         self.result_ref = result_ref
         with self._lock:
