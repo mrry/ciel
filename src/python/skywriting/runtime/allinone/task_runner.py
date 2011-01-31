@@ -19,6 +19,7 @@ from skywriting.runtime.executors import ExecutionFeatures
 import cherrypy
 from skywriting.runtime.task import build_taskpool_task_from_descriptor,\
     TASK_COMMITTED
+import ciel
 
 class ThreadTerminator:
     pass
@@ -139,7 +140,7 @@ class TaskRunner:
     def worker_thread_main(self):
     
         # FIXME: Set skypybase appropriately.
-        thread_task_executor = TaskExecutorPlugin(cherrypy.engine, None, self.block_store, self.master_proxy, self.execution_features, 1)
+        thread_task_executor = TaskExecutorPlugin(ciel.engine, None, self.block_store, self.master_proxy, self.execution_features, 1)
     
         while self.is_running:
             

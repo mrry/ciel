@@ -22,6 +22,8 @@ from skywriting.runtime.task import TaskPoolTask,\
 from skywriting.runtime.task_graph import DynamicTaskGraph
 import threading
 from skywriting.runtime.allinone.task_runner import TaskRunner
+import ciel
+import logging
 
 
 def main():
@@ -31,8 +33,8 @@ def main():
     script_filename = sys.argv[1]
     
     base_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
-    print >>sys.stderr, 'Writing block store files to %s' % base_dir
-    block_store = BlockStore(cherrypy.engine, 'localhost', 8000, base_dir, True)
+    ciel.log('Writing block store files to %s' % base_dir, 'ALLINONE', logging.INFO)
+    block_store = BlockStore(ciel.engine, 'localhost', 8000, base_dir, True)
     
     initial_task_descriptor, cont_ref = build_initial_task_descriptor(script_filename, block_store, 'root', 'root_cont', 'root_output')
         

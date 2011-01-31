@@ -12,9 +12,24 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from ciel.logger import CielLogger
+import logging
 
 try:
     import cherrypy
     log = cherrypy.log
 except ImportError:
     log = CielLogger()
+    
+try:
+    import cherrypy
+    engine = cherrypy.engine
+except ImportError:
+    
+    class EngineStub:
+        def __getattr__(self, name):
+            log.error('Attempted to access method %s of stub engine' % name, 'ENGINE', logging.WARN, False)
+            def method(*args):
+                return
+            return method
+    
+    engine = EngineStub()

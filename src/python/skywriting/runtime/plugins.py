@@ -11,14 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-import ciel
-
-'''
-Created on 13 Apr 2010
-
-@author: dgm36
-'''
 from __future__ import with_statement
+import ciel
 from cherrypy.process.plugins import SimplePlugin
 from Queue import Queue
 import logging

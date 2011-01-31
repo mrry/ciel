@@ -83,11 +83,11 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_id = input['task_id']
             self.current_task_execution_record = execution_record
         
-        cherrypy.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
+        ciel.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
         ciel.log.error("Starting task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         try:
             execution_record.execute()
-            cherrypy.engine.publish("worker_event", "Completed execution " + repr(input['task_id']))
+            ciel.engine.publish("worker_event", "Completed execution " + repr(input['task_id']))
             ciel.log.error("Completed task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.INFO, False)
         except:
             ciel.log.error("Error in task %s with handler %s" % (str(self.current_task_id), handler), 'TASK', logging.ERROR, True)
@@ -168,21 +168,21 @@ class SWExecutorTaskExecutionRecord:
     def execute(self):        
         try:
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Fetching args")
+                ciel.engine.publish("worker_event", "Fetching args")
                 parsed_args = self.fetch_executor_args(self.inputs)
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Fetching executor")
+                ciel.engine.publish("worker_event", "Fetching executor")
                 executor = self.task_executor.execution_features.get_executor(self.executor_name)
                 with self._lock:
                     self.executor = executor
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Rewriting references")
+                ciel.engine.publish("worker_event", "Rewriting references")
                 env = RefCacheEnvironment(self.inputs)
                 # Rewrite refs this executor needs using our inputs as a name table
                 self.executor.resolve_required_refs(self.exec_args, env.resolve_ref)
                 # No need to check args: they were checked earlier by whoever made this task
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Executing")
+                ciel.engine.publish("worker_event", "Executing")
                 self.executor.execute(self.task_executor.block_store, 
                                       self.task_id, 
                                       self.exec_args, 
@@ -191,7 +191,7 @@ class SWExecutorTaskExecutionRecord:
                                       self.task_executor.master_proxy)
 
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Committing")
+                ciel.engine.publish("worker_event", "Committing")
                 self.commit()
             else:
                 self.task_executor.master_proxy.failed_task(self.task_id)
@@ -221,16 +221,16 @@ class SWInterpreterTaskExecutionRecord:
     def execute(self):
         try:
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Fetching args")
+                ciel.engine.publish("worker_event", "Fetching args")
                 self.interpreter.fetch_inputs(self.task_executor.block_store)
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Interpreting")
+                ciel.engine.publish("worker_event", "Interpreting")
                 self.interpreter.interpret()
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Spawning")
+                ciel.engine.publish("worker_event", "Spawning")
                 self.interpreter.spawn_all(self.task_executor.block_store, self.task_executor.master_proxy)
             if self.is_running:
-                cherrypy.engine.publish("worker_event", "Committing")
+                ciel.engine.publish("worker_event", "Committing")
                 self.interpreter.commit_result(self.task_executor.block_store, self.task_executor.master_proxy)
             else:
                 self.task_executor.master_proxy.failed_task(self.task_id)

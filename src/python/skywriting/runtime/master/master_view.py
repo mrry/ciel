@@ -23,6 +23,7 @@ import simplejson
 import cherrypy
 from skywriting.runtime.worker.worker_view import DataRoot
 from skywriting.runtime.master.cluster_view import WebBrowserRoot
+import ciel
 
 class MasterRoot:
     
@@ -100,9 +101,9 @@ class WorkersRoot:
             raise HTTPError(404)
         if cherrypy.request.method == 'POST':
             if action == 'ping':
-                cherrypy.engine.publish('worker_ping', worker)
+                ciel.engine.publish('worker_ping', worker)
             elif action == 'stopping':
-                cherrypy.engine.publish('worker_failed', worker)
+                ciel.engine.publish('worker_failed', worker)
             else:
                 raise HTTPError(404)
         else:
@@ -257,7 +258,7 @@ class MasterTaskRoot:
                 if cherrypy.request.method == 'POST':
                     task = self.task_pool.get_task_by_id(task_id)
                     failure_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    cherrypy.engine.publish('task_failed', task, failure_payload)
+                    ciel.engine.publish('task_failed', task, failure_payload)
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)
@@ -266,7 +267,7 @@ class MasterTaskRoot:
                     task = self.task_pool.get_task_by_id(task_id)
                     refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
                     self.task_pool.publish_refs(task, refs)
-                    cherrypy.engine.publish('schedule')
+                    ciel.engine.publish('schedule')
             elif action == 'abort':
                 self.task_pool.abort(task_id)
             elif action is None:

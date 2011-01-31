@@ -526,7 +526,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
         def log_trace(self):
             for (t, e) in self.io_trace:
-                cherrypy.engine.publish("worker_event", "Fetch FIFO trace %d %f %s" % (self.report_index, t, e))
+                ciel.engine.publish("worker_event", "Fetch FIFO trace %d %f %s" % (self.report_index, t, e))
 
         def write_without_blocking(self, fd, _str):
             total_written = 0
@@ -677,7 +677,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def log_trace(self):
         for (t, e) in self.io_trace:
-            cherrypy.engine.publish("worker_event", "Fetch trace %d %f %s" % (self.report_index, t, e))
+            ciel.engine.publish("worker_event", "Fetch trace %d %f %s" % (self.report_index, t, e))
         self.fifo_sink.log_trace()
 
     def start(self):

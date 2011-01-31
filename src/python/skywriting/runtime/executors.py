@@ -208,7 +208,7 @@ class ProcessRunningExecutor(SWExecutor):
 
         self.proc = None
 
-        cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
+        ciel.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
         transfer_ctx.wait_for_all_transfers()
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
@@ -221,7 +221,7 @@ class ProcessRunningExecutor(SWExecutor):
 
         if rc != 0:
             raise OSError()
-        cherrypy.engine.publish("worker_event", "Executor: Storing outputs")
+        ciel.engine.publish("worker_event", "Executor: Storing outputs")
         for i, filename in enumerate(file_outputs):
 
             file_size = os.path.getsize(filename)
@@ -241,7 +241,7 @@ class ProcessRunningExecutor(SWExecutor):
 
             self.output_refs[i] = real_ref
             
-        cherrypy.engine.publish("worker_event", "Executor: Done")
+        ciel.engine.publish("worker_event", "Executor: Done")
 
     def start_process(self, block_store, input_files, output_files, transfer_ctx):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
@@ -391,7 +391,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             self.argv = []
 
         self.before_execute(block_store)
-        cherrypy.engine.publish("worker_event", "Executor: running")
+        ciel.engine.publish("worker_event", "Executor: running")
 
         if "go_slow" in self.debug_opts:
             ciel.log.error("DEBUG: Executor sleep(3)'ing", "EXEC", logging.DEBUG)
@@ -431,13 +431,13 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                     if c == ",":
                         if message[0] == "C":
                            timestamp = float(message[1:])
-                           cherrypy.engine.publish("worker_event", "Process log %f Computing" % timestamp)
+                           ciel.engine.publish("worker_event", "Process log %f Computing" % timestamp)
                         elif message[0] == "I":
                             try:
                                 params = message[1:].split("|")
                                 stream_id = int(params[0])
                                 timestamp = float(params[1])
-                                cherrypy.engine.publish("worker_event", "Process log %f Waiting %d" % (timestamp, stream_id))
+                                ciel.engine.publish("worker_event", "Process log %f Waiting %d" % (timestamp, stream_id))
                             except:
                                 ciel.log.error("Malformed data from stdout: %s" % message)
                                 raise
@@ -484,7 +484,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         self.jar_refs = self.args["lib"]
         self.class_name = self.args["class"]
         ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
-        cherrypy.engine.publish("worker_event", "Java: fetching JAR")
+        ciel.engine.publish("worker_event", "Java: fetching JAR")
         self.jar_filenames = self.get_filenames_eager(block_store, self.jar_refs)
 
     def get_process_args(self):
@@ -512,7 +512,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
         self.class_name = self.args['class']
 
         ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
-        cherrypy.engine.publish("worker_event", "Dotnet: fetching DLLs")
+        ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
         self.dll_filenames = self.get_filenames_eager(block_store, self.dll_refs)
 
     def get_process_args(self):
@@ -537,7 +537,7 @@ class CExecutor(FilenamesOnStdinExecutor):
         self.so_refs = args['lib']
         self.entry_point_name = args['entry_point']
         ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
-        cherrypy.engine.publish("worker_event", "C-exec: fetching SOs")
+        ciel.engine.publish("worker_event", "C-exec: fetching SOs")
         self.so_filenames = self.get_filenames_eager(block_store, self.so_refs)
 
     def get_process_args(self):

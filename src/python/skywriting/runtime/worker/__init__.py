@@ -13,12 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.worker.upload_manager import UploadManager
 from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
-
-'''
-Created on 4 Feb 2010
-
-@author: dgm36
-'''
+import ciel
 from skywriting.runtime.worker.master_proxy import MasterProxy
 from skywriting.runtime.task_executor import TaskExecutorPlugin
 from skywriting.runtime.block_store import BlockStore
@@ -58,7 +53,7 @@ class Worker(plugins.SimplePlugin):
             block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         else:
             block_store_dir = options.blockstore
-        self.block_store = BlockStore(cherrypy.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
+        self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.build_pin_set()
         self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
         self.upload_deferred_work.subscribe()
@@ -104,13 +99,13 @@ class Worker(plugins.SimplePlugin):
 
     def start_running(self):
 
-        cherrypy.engine.start()
+        ciel.engine.start()
         cherrypy.tree.mount(self.server_root, "", self.cherrypy_conf)
-        if hasattr(cherrypy.engine, "signal_handler"):
-            cherrypy.engine.signal_handler.subscribe()
-        if hasattr(cherrypy.engine, "console_control_handler"):
-            cherrypy.engine.console_control_handler.subscribe()
-        cherrypy.engine.block()
+        if hasattr(ciel.engine, "signal_handler"):
+            ciel.engine.signal_handler.subscribe()
+        if hasattr(ciel.engine, "console_control_handler"):
+            ciel.engine.console_control_handler.subscribe()
+        ciel.engine.block()
 
     def stop(self):
         with self.log_lock:
@@ -118,11 +113,11 @@ class Worker(plugins.SimplePlugin):
             self.log_condition.notify_all()
     
     def submit_task(self, task_descriptor):
-        cherrypy.engine.publish("worker_event", "Start task " + repr(task_descriptor["task_id"]))
-        cherrypy.engine.publish('execute_task', task_descriptor)
+        ciel.engine.publish("worker_event", "Start task " + repr(task_descriptor["task_id"]))
+        ciel.engine.publish('execute_task', task_descriptor)
                 
     def abort_task(self, task_id):
-        cherrypy.engine.publish("worker_event", "Abort task " + repr(task_id))
+        ciel.engine.publish("worker_event", "Abort task " + repr(task_id))
         self.task_executor.abort_task(task_id)
 
     def notify_task_streams_done(self, task_id):
@@ -162,7 +157,7 @@ def worker_main(options):
     local_port = cherrypy.config.get('server.socket_port')
     assert(local_port)
     
-    w = Worker(cherrypy.engine, local_hostname, local_port, options)
+    w = Worker(ciel.engine, local_hostname, local_port, options)
     w.start_running()
 
 if __name__ == '__main__':
