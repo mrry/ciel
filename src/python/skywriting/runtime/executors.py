@@ -324,6 +324,8 @@ from skywriting.lang.context import SimpleContext, TaskContext,\
 from skywriting.lang.visitors import \
     StatementExecutorVisitor, SWDereferenceWrapper
 from skywriting.lang import ast
+from skywriting.lang.parser import \
+    SWScriptParser
 
 # Helpers for Skywriting
 
@@ -355,24 +357,40 @@ class SkywritingExecutor:
         self.task_executor = task_executor
         self.block_store = task_executor.block_store
 
-    def build_task_descriptor(self, task_descriptor, entry_point=None, args=None, cont=None):
+    def build_task_descriptor(self, task_descriptor, sw_file_ref=None, start_env=None, start_args=None, cont=None):
 
-        if entry_point is not None:
-            # Create new continuation for the spawned function.
-            # TODO: Need some reference for the appropriate SWI file.
-            spawned_task_stmt = ast.Return(ast.SpawnedFunction(entry_point, args))
-            cont = SWContinuation(spawned_task_stmt, SimpleContext())
+        if "expected_outputs" not in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
-            # TODO: we could visit the spawn expression and try to guess initial requirements 
-            # TODO: should probably look at dereference wrapper objects in the spawn context
-            #       and ship them as inputs.
+        if cont is not None:
+            cont_id = "%s:cont" % task_descriptor["task_id"]
+            spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
+            self.task_executor.publish_reference(spawned_cont_ref)
+            task_descriptor["cont"] = spawned_cont_ref
+            task_descriptor["dependencies"].insert(spawned_cont_ref)
+        else:
+            # External call: SW file should be started from the beginning.
+            task_descriptor["swfile_ref"] = sw_file_ref
+            task_descriptor["dependencies"].insert(sw_file_ref)
+            task_descriptor["start_env"] = start_env
+            task_descriptor["start_args"] = start_args
+        add_package_dep(self.task_executor, task_descriptor)
 
-        # else: cont is not None and this is a continuation of a previous SWI task; expected_outputs is set
-        cont_id = "%s:cont" % task_descriptor["task_id"]
-        spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
-        self.task_executor.publish_reference(spawned_cont_ref)
-        task_descriptor["cont"] = spawned_cont_ref
-        task_descriptor["dependencies"].insert(spawned_cont_ref)
+    def start_sw_script(self, swref, args, env):
+
+        sw_file = self.block_store.get_filenames_for_refs_eager([swref])[0]
+        parser = SWScriptParser()
+        with open("sw_file", "r") as sw_fp:
+        script = parser.parse(sw_fp.read())
+
+        if script is None:
+            raise Exception("Couldn't parse %s" % swref)
+    
+        cont = SWContinuation(script, SimpleContext())
+        if env is not None:
+            cont.context.bind_identifier('env', env)
+        if args is not None:
+            cont.context.bind_identifier('argv', args)
+        return cont
 
     def run(self, task_descriptor):
 
@@ -385,7 +403,10 @@ class SkywritingExecutor:
         self.continuation = None
         self.result = None
 
-        self.continuation = self.block_store.retrieve_object_for_ref(task_descriptor["cont"], 'pickle')
+        if "cont" in task_descriptor:
+            self.continuation = self.block_store.retrieve_object_for_ref(task_descriptor["cont"], 'pickle')
+        else:
+            self.continuation = self.start_sw_script(task_descriptor["swfile_ref"], task_descriptor["start_args"], task_descriptor["start_env"])
 
         self.continuation.context.restart()
         task_context = TaskContext(self.continuation.context, self)
@@ -420,7 +441,8 @@ class SkywritingExecutor:
         except ExecutionInterruption, ei:
            
             self.task_executor.spawn_task({"handler": "swi", 
-                                           "expected_outputs": [str(self.expected_output)]}, 
+                                           "expected_outputs": [str(self.expected_output)],
+                                           "dependencies": self.lazy_derefs},
                                           cont=self.continuation)
 
         if task_descriptor["save_continuation"]:
@@ -431,7 +453,9 @@ class SkywritingExecutor:
     def spawn_func(self, spawn_expr, args):
 
         args = self.do_eager_thunks(args)
-        new_task = self.task_executor.spawn_task({"handler": "swi"}, entry_point=spawn_expr, args=args)
+        spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
+        cont = SWContinuation(spawned_task_stmt, SimpleContext())
+        new_task = self.task_executor.spawn_task({"handler": "swi"}, cont=cont)
 
         # Return new future reference to the interpreter
         return SW2_FutureReference(new_task["expected_outputs"][0])
