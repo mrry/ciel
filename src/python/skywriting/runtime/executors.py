@@ -84,6 +84,11 @@ def spawn_other(task_executor, executor_name, small_task, **executor_args):
     task_executor.spawn_task(new_task_descriptor, **executor_args)
     return [SW2_FutureReference(ref.id) for ref in new_task_descriptor["expected_outputs"]]
 
+def add_package_dep(task_descriptor, task_executor):
+    if task_executor.package_ref is not None:
+        task_descriptor["dependencies"].insert(task_executor.package_ref)
+        task_descriptor["package_ref"] = task_executor.package_ref
+
 def hash_update_with_structure(hash, value):
     """
     Recurses over a Skywriting data structure (containing lists, dicts and 
@@ -183,43 +188,59 @@ class SkyPyExecutor:
         self.skypybase = task_executor.skypybase
         self.block_store = task_executor.block_store
         
-    # TODO: External spawns
-    def build_task_descriptor(self, task_descriptor, coro_data, pyfile_ref):
+    def build_task_descriptor(self, task_descriptor, pyfile_ref, coro_data=None, entry_point=None, entry_args=None):
 
-        coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
-        self.task_executor.publish_reference(coro_ref)
-        task_descriptor["coro_ref"] = coro_ref
-        task_descriptor["dependencies"].insert(coro_ref)
+        if coro_data is not None:
+            coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
+            self.task_executor.publish_reference(coro_ref)
+            task_descriptor["coro_ref"] = coro_ref
+            task_descriptor["dependencies"].insert(coro_ref)
+        else:
+            task_descriptor["entry_point"] = entry_point
+            task_descriptor["entry_args"] = entry_args
         task_descriptor["py_ref"] = pyfile_ref
         task_descriptor["dependencies"].insert(pyfile_ref)
         if "expected_outputs" not in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+        add_package_dep(self.task_executor, task_descriptor)
         
     def run(self, task_descriptor):
 
         halt_dependencies = []
 
-        coroutine_ref = self.task_executor.retrieve_ref(task_descriptor["coro_ref"])
         pyfile_ref = self.task_executor.retrieve_ref(task_descriptor["py_ref"])
-        rq_list = [coroutine_ref, pyfile_ref]
+        rq_list = [pyfile_ref]
+        if "coro_ref" in task_descriptor:
+            coroutine_ref = self.task_executor.retrieve_ref(task_descriptor["coro_ref"])
+            rq_list.append(coroutine_ref)
 
         filenames = block_store.retrieve_filenames_for_refs_eager(rq_list)
 
-        coroutine_filename = filenames[0]
-        py_source_filename = filenames[1]
-        
-        cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
-                           % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
+        py_source_filename = filenames[0]
+        if "coro_ref" in task_descriptor:
+            coroutine_filename = filenames[1]
+            cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
+                               % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
+        else:
+            cherrypy.log.error("Fetched .py source to %s; starting from entry point %s, args %s"
+                               % (py_source_filename, task_descriptor["entry_pont"], task_descriptor["entry_args"]))
 
         pypy_env = os.environ.copy()
         pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
 
         pypy_args = ["pypy", 
                      self.skypybase + "/stub.py", 
-                     "--resume_state", coroutine_filename, 
                      "--source", py_source_filename]
 
+        if "coro_ref" in task_descriptor:
+            pypy_args.extend(["--resume_state", coroutine_filename])
+        else:
+            pypy_args.append("--await_entry_point")
+
         pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+
+        if "coro_ref" not in task_descriptor:
+            pickle.dump({"entry_point": task_descriptor["entry_point"], "entry_args": task_descriptor["entry_args"]}, pypy_process.stdin)
 
         while True:
             
@@ -249,6 +270,13 @@ class SkyPyExecutor:
             elif request == "exec":
                 out_refs = spawn_other(self.task_executor, **request_args)
                 pickle.dump({"outputs": output_refs}, pypy_process.stdin)
+            elif request == "package_lookup":
+                package_dict = self.block_store.get_object_for_ref(task_descriptor["package_ref"], "pickle")
+                try:
+                    result = package_dict[request_args["key"]]
+                except KeyError:
+                    result = None
+                pickle.dump({"value": result}, pypy_process.stdin)
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 coro_data = FileOrString(request_args, self.block_store)

@@ -108,6 +108,10 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.root_task_id = input["task_id"]
 
         self.reference_cache = input["inputs"]
+        if "package_ref" in input:
+            self.package_ref = input["package_ref"]
+        else:
+            self.package_ref = None
         self.run_task_with_executor(input, self.root_executor)
         self.commit()
         self.spawn_all()
@@ -143,27 +147,28 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
                 raise ReferenceUnavailableException(ref)
 
     def retrieve_ref(self, ref):
-        try:
-            return self.resolve_ref(ref)
-        except ReferenceUnavailableException as e:
+        # For the time being ignore the hint_small_task directive.
+#        try:
+        return self.resolve_ref(ref)
+#        except ReferenceUnavailableException as e:
             # Try running a small task to generate the required reference
-            try:
-                producer_task = task_for_output_id[id]
+#            try:
+#                producer_task = task_for_output_id[id]
                 # Presence implies hint_small_task: we should run this now
-            except KeyError:
-                raise e
+#            except KeyError:
+#                raise e
             # Try to resolve all the child's dependencies
-            try:
-                producer_task["inputs"] = dict()
-                for child_ref in producer_task["dependencies"]:
-                    producer_task["inputs"][child_ref.id] = self.resolve_ref(child_ref)
-            except ReferenceUnavailableException:
+  #          try:
+#                producer_task["inputs"] = dict()
+#                for child_ref in producer_task["dependencies"]:
+#                    producer_task["inputs"][child_ref.id] = self.resolve_ref(child_ref)
+#            except ReferenceUnavailableException:
                 # Child can't run now
-                del producer_task["inputs"]
-                raise e
-            nested_executor = self.execution_features.get_executor(producer_task["handler"], self)
-            self.run_task_with_executor(producer_task, nested_executor)
+#                del producer_task["inputs"]
+#                raise e
+#            nested_executor = self.execution_features.get_executor(producer_task["handler"], self)
+#            self.run_task_with_executor(producer_task, nested_executor)
             # Okay the child has run, and may or may not have defined its outputs.
             # If it hasn't, this will throw appropriately
-            return self.resolve_ref(ref)
+#            return self.resolve_ref(ref)
 

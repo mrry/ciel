@@ -21,8 +21,8 @@ parser.add_option("-r", "--resume_state", dest="state_file",
                   help="load state image from FILE", metavar="FILE")
 parser.add_option("-s", "--source", dest="source_file",
                   help="load user source from FILE", metavar="FILE")
-parser.add_option("-t", "--taskid", dest="taskid",
-                  help="task ID to use generating spawned task names", metavar="ID")
+parser.add_option("-a", "--await_entry_pont", action="store_true", dest="await_entry_point",
+                  default=False, help="wait to receive a pickled dict on stdin giving entry point and args")
 
 sys.stderr.write("SkyPy: Started with args %s\n" % sys.argv)
 
@@ -34,21 +34,29 @@ try:
 except:
     pass
 source_file = options.source_file
-skypy.taskid = options.taskid
 
 skypy.main_coro = stackless.coroutine.getcurrent()
 skypy.runtime_out = sys.stdout
 skypy.runtime_in = sys.stdin
 user_script_namespace = imp.load_source("user_script_namespace", source_file)
 
-if resume_file is not None:
-    print >>sys.stderr, "SkyPy: Resuming"
-    resume_fp = open(resume_file, "r")
-    resume_state = pickle.load(resume_fp)
-    resume_fp.close()
+if resume_file is not None or options.await_entry_point:
+    if resume_file is not None:
+        print >>sys.stderr, "SkyPy: Resuming"
+        resume_fp = open(resume_file, "r")
+        resume_state = pickle.load(resume_fp)
+        resume_fp.close()
 
-    skypy.persistent_state = resume_state.persistent_state
-    user_coro = resume_state.coro
+        skypy.persistent_state = resume_state.persistent_state
+        user_coro = resume_state.coro
+        user_coro.switch()
+    else:
+        print >>sys.stderr, "SkyPy: Awaiting entry point and arguments"
+        entry_dict = pickle.load(sys.stdin)
+        print >>sys.stderr, "Entering at ", entry_dict["entry_point"], "args", entry_dict["entry_args"]
+        skypy.persistent_state = skypy.PersistentState()
+        user_coro = stackless.coroutine()
+        user_coro.bind(user_script_namespace.__dict__[entry_dict["entry_point"]], *entry_dict["entry_args"])
     user_coro.switch()
     # We're back -- either the user script is done, or else it's stuck waiting on a reference.
     with MaybeFile() as output_fp:
