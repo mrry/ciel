@@ -21,7 +21,6 @@ import datetime
 import simplejson
 import httplib2
 import uuid
-import cherrypy
 import logging
 import ciel
 

@@ -28,7 +28,6 @@ import random
 import cherrypy
 import socket
 import httplib2
-from cherrypy.process.plugins import SimplePlugin
 from threading import Event
 
 import simplejson
@@ -36,10 +35,10 @@ import simplejson
 def get_worker_netloc():
     return '%s:%d' % (socket.getfqdn(), cherrypy.config.get('server.socket_port'))
 
-class MasterProxy(SimplePlugin):
+class MasterProxy:
     
     def __init__(self, worker, bus, master_url=None):
-        SimplePlugin.__init__(self, bus)
+        self.bus = bus
         self.worker = worker
         self.master_url = master_url
         self.stop_event = Event()

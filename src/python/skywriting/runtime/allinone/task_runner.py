@@ -16,10 +16,10 @@ import threading
 import Queue
 from skywriting.runtime.task_executor import TaskExecutorPlugin
 from skywriting.runtime.executors import ExecutionFeatures
-import cherrypy
 from skywriting.runtime.task import build_taskpool_task_from_descriptor,\
     TASK_COMMITTED
 import ciel
+import logging
 
 class ThreadTerminator:
     pass
@@ -125,7 +125,8 @@ class TaskRunner:
         self.workers = []
         for _ in range(self.num_workers):
             self.workers.append(threading.Thread(target=self.worker_thread_main))
-        
+
+        ciel.log('Starting %d worker threads.' % self.num_workers, 'TASKRUNNER', logging.INFO)        
         for worker in self.workers:
             worker.start()
         
@@ -143,7 +144,7 @@ class TaskRunner:
     
         # FIXME: Set skypybase appropriately.
         thread_task_executor = TaskExecutorPlugin(ciel.engine, self.options.skypybase, self.options.lib, self.block_store, self.master_proxy, self.execution_features, 1)
-    
+        
         while self.is_running:
             
             task = self.task_queue.get()

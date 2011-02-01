@@ -6,8 +6,6 @@ Created on 17 Aug 2010
 import datetime
 from shared.references import SW2_FutureReference, SW2_StreamReference
 import time
-import cherrypy
-import logging
 
 TASK_CREATED = -1
 TASK_BLOCKING = 0

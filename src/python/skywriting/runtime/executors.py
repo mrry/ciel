@@ -19,16 +19,13 @@ from shared.references import \
     SWDataValue, SW2_StreamReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
-    ReferenceUnavailableException, BlameUserException, MissingInputException,\
-    RuntimeSkywritingError
+    BlameUserException, MissingInputException
 import simplejson
 import logging
 import shutil
 import subprocess
 import tempfile
-import os
 import os.path
-import cherrypy
 import threading
 import time
 import codecs

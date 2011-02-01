@@ -14,7 +14,6 @@
 import sys
 from skywriting.runtime.allinone.sw_parser import build_initial_task_descriptor
 from skywriting.runtime.block_store import BlockStore
-import cherrypy
 import os
 import tempfile
 from skywriting.runtime.task import TaskPoolTask,\

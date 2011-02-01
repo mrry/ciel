@@ -13,8 +13,6 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from skywriting.lang.parser import CloudScriptParser
-import urlparse
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from skywriting.lang.context import SimpleContext, TaskContext,\
     LambdaFunction
@@ -23,17 +21,13 @@ from skywriting.lang.visitors import \
 from skywriting.lang import ast
 from skywriting.runtime.exceptions import ReferenceUnavailableException,\
     FeatureUnavailableException, ExecutionInterruption,\
-    SelectException, MissingInputException, MasterNotRespondingException,\
-    RuntimeSkywritingError, BlameUserException
-from skywriting.runtime.references import SWReferenceJSONEncoder
+    MissingInputException, MasterNotRespondingException,\
+    BlameUserException
 from threading import Lock
-import cherrypy
 import logging
-import uuid
 import hashlib
 import subprocess
 import pickle
-import simplejson
 import os.path
 from shared.references import SWDataValue, SWRealReference,\
     SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
@@ -170,7 +164,7 @@ class SWExecutorTaskExecutionRecord:
         try:
             if self.is_running:
                 ciel.engine.publish("worker_event", "Fetching args")
-                parsed_args = self.fetch_executor_args(self.inputs)
+                self.fetch_executor_args(self.inputs)
             if self.is_running:
                 ciel.engine.publish("worker_event", "Fetching executor")
                 executor = self.task_executor.execution_features.get_executor(self.executor_name)

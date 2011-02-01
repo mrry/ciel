@@ -20,11 +20,9 @@ from shared.references import SW2_FutureReference, \
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
     TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED, TASK_QUEUED_STREAMING
 from threading import Lock
-import cherrypy
 import collections
 import logging
 import uuid
-import simplejson
 import ciel
 
 class LazyTaskPool(plugins.SimplePlugin):

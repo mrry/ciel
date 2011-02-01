@@ -23,7 +23,6 @@ import os
 import uuid
 import struct
 import tempfile
-import cherrypy
 import logging
 import pycurl
 import select

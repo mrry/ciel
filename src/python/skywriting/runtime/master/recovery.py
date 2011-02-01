@@ -17,7 +17,6 @@ import urllib2
 from skywriting.runtime.block_store import BLOCK_LIST_RECORD_STRUCT,\
     json_decode_object_hook
 import logging
-import cherrypy
 import os
 import simplejson
 from skywriting.runtime.master.job_pool import RECORD_HEADER_STRUCT,\
