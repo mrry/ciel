@@ -84,7 +84,18 @@ def spawn_other(task_executor, executor_name, small_task, **executor_args):
     task_executor.spawn_task(new_task_descriptor, **executor_args)
     return [SW2_FutureReference(ref.id) for ref in new_task_descriptor["expected_outputs"]]
 
-def add_package_dep(task_descriptor, task_executor):
+def package_lookup(task_executor, key):
+    if task_executor.package_ref is None:
+        cherrypy.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
+        return None
+    package_dict = task_executor.block_store.get_object_for_ref(task_executor.package_ref, "pickle")
+    try:
+        return package_dict[request_args["key"]]
+    except KeyError:
+        cherrypy.log.error("Package lookup for %s: no such key" % key, "EXEC", logging.WARNING)
+        return None
+
+def add_package_dep(task_executor, task_descriptor):
     if task_executor.package_ref is not None:
         task_descriptor["dependencies"].insert(task_executor.package_ref)
         task_descriptor["package_ref"] = task_executor.package_ref
@@ -271,12 +282,7 @@ class SkyPyExecutor:
                 out_refs = spawn_other(self.task_executor, **request_args)
                 pickle.dump({"outputs": output_refs}, pypy_process.stdin)
             elif request == "package_lookup":
-                package_dict = self.block_store.get_object_for_ref(task_descriptor["package_ref"], "pickle")
-                try:
-                    result = package_dict[request_args["key"]]
-                except KeyError:
-                    result = None
-                pickle.dump({"value": result}, pypy_process.stdin)
+                pickle.dump({"value": package_lookup(task_executor, request_args["key"])}, pypy_process.stdin)
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 coro_data = FileOrString(request_args, self.block_store)

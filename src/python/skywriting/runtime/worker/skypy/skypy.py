@@ -143,6 +143,18 @@ def sync_exec(exec_name, exec_args_dict, n_outputs):
 
     return do_exec(exec_name, exec_args_dict, n_outputs, True)
 
+class PackageKeyError:
+    def __init__(self, key):
+        self.key = key
+
+def package_lookup(key):
+    
+    pickle.dump({"request": "package_lookup", "key": key}, runtime_out)
+    retval = pickle.load(runtime_in)["value"]
+    if retval is None:
+        raise PackageKeyError(key)
+    return retval
+
 def freeze_script_at_startup(entry_point):
 
     global halt_reason
