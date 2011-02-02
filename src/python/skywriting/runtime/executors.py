@@ -346,8 +346,7 @@ class SWContinuation:
         self.context = context
       
     def __repr__(self):
-        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s)" % 
-           (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context))
+        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context))
 
 class SafeLambdaFunction(LambdaFunction):
     
@@ -390,7 +389,7 @@ class SkywritingExecutor:
         sw_file = self.block_store.get_filenames_for_refs_eager([swref])[0]
         parser = SWScriptParser()
         with open("sw_file", "r") as sw_fp:
-        script = parser.parse(sw_fp.read())
+            script = parser.parse(sw_fp.read())
 
         if script is None:
             raise Exception("Couldn't parse %s" % swref)
@@ -611,10 +610,10 @@ class SimpleExecutor:
     def _abort(self):
         pass
 
-class ProcessRunningExecutor(SWExecutor):
+class ProcessRunningExecutor(SimpleExecutor):
 
     def __init__(self, task_executor):
-        SWExecutor.__init__(self, task_executor)
+        SimpleExecutor.__init__(self, task_executor)
 
         self._lock = threading.Lock()
         self.proc = None
@@ -823,14 +822,14 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         self.current_state = new_state
 
     def resolve_required_refs(self, args):
-        SWExecutor.resolve_required_refs(self, args, get_ref_callback)
+        SimpleExecutor.resolve_required_refs(self, args, get_ref_callback)
         try:
             foreign_args["lib"] = [self.task_executor.retrieve_ref(ref) for ref in args["lib"]]
         except KeyError:
             pass
 
     def get_required_refs(self, args):
-        l = SWExecutor.get_required_refs(self, args)
+        l = SimpleExecutor.get_required_refs(self, args)
         try:
             l.extend(args["lib"])
         except KeyError:
@@ -1001,10 +1000,10 @@ class CExecutor(FilenamesOnStdinExecutor):
         process_args.extend(self.so_filenames)
         return process_args
     
-class GrabURLExecutor(SWExecutor):
+class GrabURLExecutor(SimpleExecutor):
     
     def __init__(self):
-        SWExecutor.__init__(self)
+        SimpleExecutor.__init__(self)
     
     def check_args_valid(self, args, n_outputs):
         
@@ -1027,10 +1026,10 @@ class GrabURLExecutor(SWExecutor):
 
         cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
             
-class SyncExecutor(SWExecutor):
+class SyncExecutor(SimpleExecutor):
     
     def __init__(self):
-        SWExecutor.__init__(self)
+        SimpleExecutor.__init__(self)
 
     def check_args_valid(self, args, n_outputs):
         if "inputs" not in args or n_outputs != 1:

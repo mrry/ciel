@@ -8,6 +8,8 @@ import pickle
 import skywriting.runtime.executors
 import time
 import datetime
+import os
+import os.path
 from optparse import OptionParser
 
 def main():
@@ -32,20 +34,24 @@ def main():
             master_data_uri = urlparse.urljoin(master_uri, "/data/")
         else:
             master_data_uri = urlparse.urljoin(master_uri, "/data/" + id)
-        (_, content) = http.request(master_data_uri, "POST", file_data)
+        (_, content) = http.request(master_data_uri, "POST", val)
         newid = simplejson.loads(content)
         if id is None:
-            return SW2_ConcreteReference(newid, len(file_data), [master_netloc])
+            return SW2_ConcreteReference(newid, len(val), [master_netloc])
         else:
-            return SW2_ConcreteReference(id, len(file_data), [master_netloc])
+            return SW2_ConcreteReference(id, len(val), [master_netloc])
     
     def ref_of_object(val):
         if "filename" not in val:
             raise Exception("start_job can't handle resources that aren't files yet; package entries must have a 'filename' member")
+        if not os.path.isabs(val["filename"]):
+            # Construct absolute path by taking it as relative to package descriptor
+            (filehead, filetail) = os.path.split(args[0])
+            val["filename"] = os.path.join(filehead, val["filename"])
         if "index" in val and val["index"]:
             return load.do_uploads(master_uri, [val["filename"]])
         else:
-            with open(val, "r") as infile:
+            with open(val["filename"], "r") as infile:
                 file_data = infile.read()
             return ref_of_string(file_data)
 
