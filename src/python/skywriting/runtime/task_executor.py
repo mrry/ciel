@@ -57,7 +57,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
     # Helper functions for main
 
-    def run_task_with_executor(self, task_descriptor, executor)
+    def run_task_with_executor(self, task_descriptor, executor):
         cherrypy.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
         cherrypy.log.error("Starting task %s with handler %s" % (str(input['task_id']), new_task_handler), 'TASK', logging.INFO, False)
         try:
@@ -107,7 +107,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
                 self.root_executor = self.execution_features.get_executor(executor_name, self)
             self.root_task_id = input["task_id"]
 
-        self.reference_cache = input["inputs"]
+        self.reference_cache = dict([(ref.id, ref) for ref in input["inputs"]])
         if "package_ref" in input:
             self.package_ref = input["package_ref"]
         else:
@@ -126,7 +126,9 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
     def spawn_task(self, new_task_descriptor, **args):
         new_task_descriptor["task_id"] = self.create_spawned_task_name()
         if "dependencies" not in new_task_descriptor:
-            new_task_descriptor["dependencies"] = {}
+            new_task_descriptor["dependencies"] = []
+        if "task_private" not in new_task_descriptor:
+            new_task_descriptor["task_private"] = dict()
         target_executor = self.execution_features.get_executor(new_task_descriptor["handler"], self)
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
         target_executor.build_task_descriptor(new_task_descriptor, **args)

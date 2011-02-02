@@ -62,6 +62,7 @@ class Task:
         self.expected_outputs = expected_outputs
         
         self.save_continuation = save_continuation
+        self.task_private = task_private
         
         self.replay_uuids = replay_uuids
 
@@ -70,8 +71,8 @@ class Task:
 
 class TaskPoolTask(Task):
     
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None, job=None):
-        Task.__init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state)
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None, job=None):
+        Task.__init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
         
         self.task_pool = task_pool
         
@@ -90,7 +91,6 @@ class TaskPoolTask(Task):
         self.worker = None
         self.saved_continuation_uri = None
 
-        
         self.event_index = 0
         self.current_attempt = 0
 
@@ -229,10 +229,10 @@ class TaskPoolTask(Task):
 
     def as_descriptor(self, long=False):        
         descriptor = {'task_id': self.task_id,
-                      'dependencies': self.dependencies,
+                      'dependencies': self.dependencies.values(),
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
-                      'inputs': self.inputs,
+                      'inputs': self.inputs.values(),
                       'event_index': self.event_index}
 
         descriptor['parent'] = self.parent.task_id if self.parent is not None else None
@@ -256,6 +256,8 @@ class TaskPoolTask(Task):
             descriptor['continuation'] = self.continuation
         if self.replay_uuids is not None:
             descriptor['replay_uuids'] = self.replay_uuids
+        if self.task_private is not None:
+            descriptor['task_private'] = self.task_private
             
         if self.original_task_id is not None:
             descriptor['original_task_id'] = self.original_task_id
@@ -270,11 +272,11 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, par
     handler = task_descriptor['handler']
     
     try:
-        inputs = task_descriptor['inputs']
+        inputs = dict([(ref.id, ref) for ref in task_descriptor['inputs']])
     except KeyError:
         inputs = {}
         
-    dependencies = task_descriptor['dependencies']
+    dependencies = dict([(ref.id, ref) for ref in task_descriptor['dependencies']])
     expected_outputs = task_descriptor['expected_outputs']
 
     try:
@@ -288,6 +290,11 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, par
         continues_task = None
 
     try:
+        task_private = task_descriptor['task_private']
+    except KeyError:
+        task_private = None
+
+    try:
         select_group = task_descriptor['select_group']
     except:
         select_group = None
@@ -297,7 +304,7 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, par
     
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, replay_uuids, select_group, select_result, state, task_pool)
+    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state, task_pool)
 #
 #class Task:
 #    

@@ -97,8 +97,8 @@ def package_lookup(task_executor, key):
 
 def add_package_dep(task_executor, task_descriptor):
     if task_executor.package_ref is not None:
-        task_descriptor["dependencies"].insert(task_executor.package_ref)
-        task_descriptor["package_ref"] = task_executor.package_ref
+        task_descriptor["dependencies"].append(task_executor.package_ref)
+        task_descriptor["task_private"]["package_ref"] = task_executor.package_ref
 
 def hash_update_with_structure(hash, value):
     """
@@ -199,20 +199,22 @@ class SkyPyExecutor:
         self.skypybase = task_executor.skypybase
         self.block_store = task_executor.block_store
         
-    def build_task_descriptor(self, task_descriptor, pyfile_ref, coro_data=None, entry_point=None, entry_args=None):
+    def build_task_descriptor(self, task_descriptor, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None):
 
+        if pyfile_ref is None:
+            raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
         if coro_data is not None:
             if "task_id" not in task_descriptor:
                 raise Exception("Can't spawn SkyPy tasks from coroutines without a task id")
             coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
             self.task_executor.publish_reference(coro_ref)
-            task_descriptor["coro_ref"] = coro_ref
-            task_descriptor["dependencies"].insert(coro_ref)
+            task_descriptor["task_private"]["coro_ref"] = coro_ref
+            task_descriptor["dependencies"].append(coro_ref)
         else:
-            task_descriptor["entry_point"] = entry_point
-            task_descriptor["entry_args"] = entry_args
-        task_descriptor["py_ref"] = pyfile_ref
-        task_descriptor["dependencies"].insert(pyfile_ref)
+            task_descriptor["task_private"]["entry_point"] = entry_point
+            task_descriptor["task_private"]["entry_args"] = entry_args
+        task_descriptor["task_private"]["py_ref"] = pyfile_ref
+        task_descriptor["dependencies"].append(pyfile_ref)
         if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         add_package_dep(self.task_executor, task_descriptor)
@@ -220,23 +222,24 @@ class SkyPyExecutor:
     def run(self, task_descriptor):
 
         halt_dependencies = []
+        skypy_private = task_descriptor["task_private"]
 
-        pyfile_ref = self.task_executor.retrieve_ref(task_descriptor["py_ref"])
+        pyfile_ref = self.task_executor.retrieve_ref(skypy_private["py_ref"])
         rq_list = [pyfile_ref]
-        if "coro_ref" in task_descriptor:
-            coroutine_ref = self.task_executor.retrieve_ref(task_descriptor["coro_ref"])
+        if "coro_ref" in skypy_private:
+            coroutine_ref = self.task_executor.retrieve_ref(skypy_private["coro_ref"])
             rq_list.append(coroutine_ref)
 
         filenames = block_store.retrieve_filenames_for_refs_eager(rq_list)
 
         py_source_filename = filenames[0]
-        if "coro_ref" in task_descriptor:
+        if "coro_ref" in skypy_private:
             coroutine_filename = filenames[1]
             cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
                                % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
         else:
             cherrypy.log.error("Fetched .py source to %s; starting from entry point %s, args %s"
-                               % (py_source_filename, task_descriptor["entry_pont"], task_descriptor["entry_args"]))
+                               % (py_source_filename, skypy_private["entry_pont"], skypy_private["entry_args"]))
 
         pypy_env = os.environ.copy()
         pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
@@ -245,15 +248,15 @@ class SkyPyExecutor:
                      self.skypybase + "/stub.py", 
                      "--source", py_source_filename]
 
-        if "coro_ref" in task_descriptor:
+        if "coro_ref" in skypy_private:
             pypy_args.extend(["--resume_state", coroutine_filename])
         else:
             pypy_args.append("--await_entry_point")
 
         pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
-        if "coro_ref" not in task_descriptor:
-            pickle.dump({"entry_point": task_descriptor["entry_point"], "entry_args": task_descriptor["entry_args"]}, pypy_process.stdin)
+        if "coro_ref" not in skypy_private:
+            pickle.dump({"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}, pypy_process.stdin)
 
         while True:
             
@@ -374,14 +377,14 @@ class SkywritingExecutor:
             cont_id = "%s:cont" % task_descriptor["task_id"]
             spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
             self.task_executor.publish_reference(spawned_cont_ref)
-            task_descriptor["cont"] = spawned_cont_ref
-            task_descriptor["dependencies"].insert(spawned_cont_ref)
+            task_descriptor["task_private"]["cont"] = spawned_cont_ref
+            task_descriptor["dependencies"].append(spawned_cont_ref)
         else:
             # External call: SW file should be started from the beginning.
-            task_descriptor["swfile_ref"] = sw_file_ref
-            task_descriptor["dependencies"].insert(sw_file_ref)
-            task_descriptor["start_env"] = start_env
-            task_descriptor["start_args"] = start_args
+            task_descriptor["task_private"]["swfile_ref"] = sw_file_ref
+            task_descriptor["dependencies"].append(sw_file_ref)
+            task_descriptor["task_private"]["start_env"] = start_env
+            task_descriptor["task_private"]["start_args"] = start_args
         add_package_dep(self.task_executor, task_descriptor)
 
     def start_sw_script(self, swref, args, env):
@@ -403,6 +406,8 @@ class SkywritingExecutor:
 
     def run(self, task_descriptor):
 
+        sw_private = task_descriptor["task_private"]
+
         try:
             save_continuation = task_descriptor["save_continuation"]
         except KeyError:
@@ -413,9 +418,9 @@ class SkywritingExecutor:
         self.result = None
 
         if "cont" in task_descriptor:
-            self.continuation = self.block_store.retrieve_object_for_ref(task_descriptor["cont"], 'pickle')
+            self.continuation = self.block_store.retrieve_object_for_ref(sw_private["cont"], 'pickle')
         else:
-            self.continuation = self.start_sw_script(task_descriptor["swfile_ref"], task_descriptor["start_args"], task_descriptor["start_env"])
+            self.continuation = self.start_sw_script(sw_private["swfile_ref"], sw_private["start_args"], sw_private["start_env"])
 
         self.continuation.context.restart()
         task_context = TaskContext(self.continuation.context, self)
@@ -451,7 +456,7 @@ class SkywritingExecutor:
            
             self.task_executor.spawn_task({"handler": "swi", 
                                            "expected_outputs": [str(self.expected_output)],
-                                           "dependencies": self.lazy_derefs},
+                                           "dependencies": list(self.lazy_derefs)},
                                           cont=self.continuation)
 
         if task_descriptor["save_continuation"]:
@@ -527,7 +532,7 @@ class SimpleExecutor:
 
         # Discover required ref IDs for this executor
         reqd_refs = self.get_required_refs(args)
-        task_descriptor["dependencies"].update(reqd_refs)
+        task_descriptor["dependencies"].extend(reqd_refs)
 
         # Name our outputs
         sha = hashlib.sha1()
@@ -539,8 +544,8 @@ class SimpleExecutor:
         args_name = "%ssimple_exec_args" % name_prefix
         args_ref = self.block_store.ref_from_object(args, "pickle", args_name)
         self.task_executor.publish_reference(args_ref)
-        task_descriptor["dependencies"].add(args_ref)
-        task_descriptor["simple_exec_args"] = args_ref
+        task_descriptor["dependencies"].append(args_ref)
+        task_descriptor["task_private"]["simple_exec_args"] = args_ref
         
     def resolve_required_refs(self, args):
         try:
@@ -573,7 +578,7 @@ class SimpleExecutor:
         self.output_ids = task_descriptor["expected_outputs"]
         self.output_refs = [None for i in range(len(self.output_ids))]
         self.succeeded = False
-        self.args = args
+        self.args = self.block_store.retrieve_object_for_ref(task_descriptor["task_private"]["simple_exec_args"], "pickle")
 
         try:
             self.debug_opts = args['debug_options']

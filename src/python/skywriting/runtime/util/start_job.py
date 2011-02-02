@@ -10,6 +10,8 @@ import time
 import datetime
 import os
 import os.path
+from shared.references import SW2_ConcreteReference
+from skywriting.runtime.references import SWReferenceJSONEncoder
 from optparse import OptionParser
 
 def main():
@@ -25,11 +27,12 @@ def main():
 
     package_dict = job_dict["package"]
 
+    http = httplib2.Http()
+
     def now_as_timestamp():
         return (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())
 
     def ref_of_string(val, id=None):
-        http = httplib2.Http()
         if id is None:
             master_data_uri = urlparse.urljoin(master_uri, "/data/")
         else:
@@ -67,10 +70,10 @@ def main():
         if isinstance(value, list):
             return [resolve_package_refs(v) for v in value]
         elif isinstance(value, dict):
-            if "__ref__" in value:
-                return package_dict[value["__package__"]]
+            if "__package__" in value:
+                return submit_package_dict[value["__package__"]]
             else:
-                return dict([(resolve_package_refs(k), resolve_package_refs(v)) for (k, v) in value])
+                return dict([(resolve_package_refs(k), resolve_package_refs(v)) for (k, v) in value.items()])
         else:
             return value
 
@@ -79,12 +82,18 @@ def main():
     class FakeTaskExecutor:
         def __init__(self, package_ref):
             self.package_ref = package_ref
+            self.block_store = None
 
-    task_descriptor = {"handler": start_handler, "dependencies": set()}
-       
+    task_descriptor = {"handler": start_handler, "dependencies": []}
+
+    print "Fetching task executor for", start_handler
+
     fake_te = FakeTaskExecutor(package_ref)
     build_executor = skywriting.runtime.executors.ExecutionFeatures().get_executor(start_handler, fake_te)
-    build_executor.build_task_descriptor(**start_args)
+
+    print "Building initial descriptor using arguments", resolved_args
+
+    build_executor.build_task_descriptor(task_descriptor, **resolved_args)
 
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
