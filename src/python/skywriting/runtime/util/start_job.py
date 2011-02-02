@@ -10,6 +10,8 @@ import time
 import datetime
 import os
 import os.path
+from skywriting.runtime.util.sw_pprint import sw_pprint
+
 from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
 from shared.references import SW2_ConcreteReference
 from optparse import OptionParser
@@ -91,11 +93,13 @@ def main():
     fake_te = FakeTaskExecutor(package_ref)
     build_executor = skywriting.runtime.executors.ExecutionFeatures().get_executor(start_handler, fake_te)
 
-    print "Building initial descriptor using arguments", resolved_args
+    print "Building initial descriptor using arguments:"
+    sw_pprint(resolved_args, indent=2)
 
     build_executor.build_task_descriptor(task_descriptor, **resolved_args)
 
-    print "Submitting descriptor", task_descriptor
+    print "Submitting descriptor:"
+    sw_pprint(task_descriptor, indent=2)
 
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))

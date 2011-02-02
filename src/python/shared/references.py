@@ -80,6 +80,9 @@ class SW2_FutureReference(SWRealReference):
     def as_tuple(self):
         return ('f2', str(self.id))
 
+    def __str__(self):
+        return "<FutureRef: %s...>" % self.id[:10]
+
     def __repr__(self):
         return 'SW2_FutureReference(%s)' % (repr(self.id), )
         
@@ -117,6 +120,9 @@ class SW2_ConcreteReference(SWRealReference):
         
     def as_tuple(self):
         return('c2', str(self.id), self.size_hint, list(self.location_hints))
+
+    def __str__(self):
+        return "<ConcreteRef: %s..., length %d, held in %d locations>" % (self.id[:10], self.size_hint, len(self.location_hints))
         
     def __repr__(self):
         return 'SW2_ConcreteReference(%s, %s, %s)' % (repr(self.id), repr(self.size_hint), repr(self.location_hints))
@@ -152,6 +158,9 @@ class SW2_StreamReference(SWRealReference):
         
     def as_tuple(self):
         return('s2', str(self.id), list(self.location_hints))
+
+    def __str__(self):
+        return "<StreamRef: %s..., held in %d locations>" % (self.id[:10], len(self.location_hints))
         
     def __repr__(self):
         return 'SW2_StreamReference(%s, %s)' % (repr(self.id), repr(self.location_hints))
@@ -176,7 +185,10 @@ class SW2_TombstoneReference(SWRealReference):
         
     def as_tuple(self):
         return ('t2', str(self.id), list(self.netlocs))
-    
+
+    def __str__(self):
+        return "<Tombstone: %s...>" % self.id[:10]
+
     def __repr__(self):
         return 'SW2_TombstoneReference(%s, %s)' % (repr(self.id), repr(self.netlocs))
 
@@ -195,7 +207,10 @@ class SW2_FetchReference(SWRealReference):
     
     def as_tuple(self):
         return ('fetch2', str(self.id), str(self.url))
-    
+
+    def __str__(self):
+        return "<FetchRef: %s..., for %s...>" % (self.id[:10], self.url[:20])
+
     def __repr__(self):
         return 'SW2_FetchReference(%s, %s)' % (repr(self.id), repr(self.url))
 
@@ -214,7 +229,15 @@ class SWDataValue(SWRealReference):
     
     def as_binrepr(self):
         return reftype_to_packed('dv') + id_to_packed(self.id) + string_to_packed(self.value)
-    
+
+    def __str__(self):
+        string_repr = ""
+        if len(self.value) < 20:
+            string_repr = '"' + self.value + '"'
+        else:
+            string_repr = "%d bytes inline, starting with '%s'" % (len(self.value), self.value[:20])
+        return "<DataValue: %s...: %s>" % (self.id[:10], string_repr)
+
     def __repr__(self):
         return 'SWDataValue(%s, %s)' % (repr(self.id), repr(self.value))
 
