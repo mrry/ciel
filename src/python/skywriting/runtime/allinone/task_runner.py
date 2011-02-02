@@ -20,6 +20,14 @@ from skywriting.runtime.task import build_taskpool_task_from_descriptor,\
     TASK_COMMITTED
 import ciel
 import logging
+import multiprocessing
+from skywriting.runtime.block_store import BlockStore
+import sys
+
+ACTION_SPAWN = 0
+ACTION_PUBLISH = 1
+ACTION_COMPLETE = 2
+ACTION_STOP = 3
 
 class ThreadTerminator:
     pass
@@ -55,6 +63,20 @@ class AllInOneDynamicTaskGraph(DynamicTaskGraph):
     def task_runnable(self, task):
         self.task_queue.put(task)
 
+class QueueMasterProxy:
+    
+    def __init__(self, response_queue):
+        self.response_queue = response_queue
+        
+    def publish_refs(self, task_id, refs):
+        self.response_queue.put((ACTION_PUBLISH, (task_id, refs)))
+     
+    def spawn_tasks(self, parent_task_id, tasks):
+        self.response_queue.put(((ACTION_SPAWN), (parent_task_id, tasks)))
+
+    def commit_task(self, task_id, bindings, saved_continuation_uri=None, replay_uuid_list=None):
+        self.response_queue.put((ACTION_COMPLETE, (task_id, bindings)))
+        
 class AllInOneMasterProxy:
     
     def __init__(self, task_graph, task_runner):
@@ -98,7 +120,8 @@ class TaskRunner:
     
     def __init__(self, initial_task, initial_cont_ref, block_store, options):
         self.block_store = block_store
-        self.task_queue = Queue.Queue()
+        self.task_queue = multiprocessing.Queue()
+        self.response_queue = multiprocessing.Queue()
         self.task_graph = AllInOneDynamicTaskGraph(self.task_queue)
     
         self.master_proxy = AllInOneMasterProxy(self.task_graph, self)
@@ -123,8 +146,17 @@ class TaskRunner:
         self.is_running = True
         
         self.workers = []
+
+        ciel.log('Starting %d worker threads.' % self.num_workers, 'TASKRUNNER', logging.INFO)        
         for _ in range(self.num_workers):
-            self.workers.append(threading.Thread(target=self.worker_thread_main))
+            print 'Hi'
+            try:
+                self.workers.append(multiprocessing.Process(target=worker_process_main, args=(self.options.skypybase, self.options.lib, self.options.blockstore, self.task_queue, self.response_queue)))
+            except:
+                print sys.exc_info()
+
+        response_handler_thread = threading.Thread(target=self.response_handler_thread_main)
+        response_handler_thread.start()
 
         ciel.log('Starting %d worker threads.' % self.num_workers, 'TASKRUNNER', logging.INFO)        
         for worker in self.workers:
@@ -135,24 +167,43 @@ class TaskRunner:
         self.is_running = False
         for worker in self.workers:
             self.task_queue.put(THREAD_TERMINATOR)
+        self.response_queue.put((ACTION_STOP, None))
+        response_handler_thread.join()
         for worker in self.workers:
             worker.join()
             
         return result
     
-    def worker_thread_main(self):
-    
-        # FIXME: Set skypybase appropriately.
-        thread_task_executor = TaskExecutorPlugin(ciel.engine, self.options.skypybase, self.options.lib, self.block_store, self.master_proxy, self.execution_features, 1)
+    def response_handler_thread_main(self):
         
         while self.is_running:
             
-            task = self.task_queue.get()
-            if task is THREAD_TERMINATOR:
-                return
+            (action, args) = self.response_queue.get()
             
-            task_descriptor = task.as_descriptor(False)
+            if action == ACTION_SPAWN:
+                self.master_proxy.spawn_tasks(*args)
+            elif action == ACTION_PUBLISH:
+                self.master_proxy.publish_refs(*args)
+            elif action == ACTION_COMPLETE:
+                self.master_proxy.commit_task(*args)
+            elif action == ACTION_STOP:
+                return
     
-            thread_task_executor.handle_input(task_descriptor)
+def worker_process_main(skypybase, lib, base_dir, task_queue, response_queue):
     
+    master_proxy = QueueMasterProxy(response_queue)
+    execution_features = ExecutionFeatures()
+    block_store = BlockStore(ciel.engine, 'localhost', 8000, base_dir, True)
+    
+    thread_task_executor = TaskExecutorPlugin(ciel.engine, skypybase, lib, block_store, master_proxy, execution_features, 1)
+   
+    while True:
+        
+        task = task_queue.get()
+        if isinstance(task, ThreadTerminator):
+            return
+        
+        task_descriptor = task.as_descriptor(False)
+
+        thread_task_executor.handle_input(task_descriptor)
     

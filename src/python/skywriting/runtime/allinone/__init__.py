@@ -36,6 +36,7 @@ def allinone_main(options, args):
         base_dir = options.blockstore
     else:
         base_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+        options.blockstore = base_dir
         
     block_store = BlockStore(ciel.engine, 'localhost', 8000, base_dir, True)
     
