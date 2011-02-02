@@ -105,12 +105,12 @@ def main():
     notify_url = urlparse.urljoin(master_uri, "/job/%s/completion" % out['job_id'])
     job_url = urlparse.urljoin(master_uri, "/browse/job/%s" % out['job_id'])
 
-    print id, "JOB_URL", job_url
+    print "JOB_URL", job_url
     
     (_, content) = http.request(notify_url)
     completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
     if "error" in completion_result.keys():
-        print id, "ERROR", completion_result["error"]
+        print "ERROR", completion_result["error"]
     else:
-        print id, "GOT_RESULT", now_as_timestamp()
+        print "GOT_RESULT", now_as_timestamp()
         print completion_result["result_ref"]

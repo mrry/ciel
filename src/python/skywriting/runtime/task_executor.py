@@ -97,7 +97,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
     def handle_input(self, input):
 
-        print "Start task", input
         new_task_handler = input["handler"]
         with self._lock:
             if self.root_handler != new_task_handler:
@@ -110,8 +109,8 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.root_task_id = input["task_id"]
 
         self.reference_cache = dict([(ref.id, ref) for ref in input["inputs"]])
-        if "package_ref" in input:
-            self.package_ref = input["package_ref"]
+        if "package_ref" in input["task_private"]:
+            self.package_ref = input["task_private"]["package_ref"]
         else:
             self.package_ref = None
         self.run_task_with_executor(input, self.root_executor)
@@ -126,7 +125,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.reference_cache[ref.id] = ref
 
     def spawn_task(self, new_task_descriptor, **args):
-        print "Asked to spawn", new_task_descriptor
         new_task_descriptor["task_id"] = self.create_spawned_task_name()
         if "dependencies" not in new_task_descriptor:
             new_task_descriptor["dependencies"] = []
@@ -140,7 +138,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             for output in new_task_descriptor['expected_outputs']:
                 task_for_output_id[output] = new_task_descriptor
         self.spawned_tasks.append(new_task_descriptor)
-        print "Spawn task", new_task_descriptor
         return new_task_descriptor
 
     def resolve_ref(self, ref):

@@ -88,9 +88,9 @@ def package_lookup(task_executor, key):
     if task_executor.package_ref is None:
         cherrypy.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
         return None
-    package_dict = task_executor.block_store.get_object_for_ref(task_executor.package_ref, "pickle")
+    package_dict = task_executor.block_store.retrieve_object_for_ref(task_executor.package_ref, "pickle")
     try:
-        return package_dict[request_args["key"]]
+        return package_dict[key]
     except KeyError:
         cherrypy.log.error("Package lookup for %s: no such key" % key, "EXEC", logging.WARNING)
         return None
@@ -441,6 +441,7 @@ class SkywritingExecutor:
         task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0], self))
         task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
+        task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: package_lookup(self.task_executor, x[0])))
 
         visitor = StatementExecutorVisitor(task_context)
         
@@ -567,7 +568,10 @@ class SimpleExecutor:
             return []
 
     def check_args_valid(self, args, n_outputs):
-        pass
+        if "inputs" in args:
+            for ref in args["inputs"]:
+                if not isinstance(ref, SWRealReference):
+                    raise BlameUserException("Simple executors need args['inputs'] to be a list of references. %s is not a reference." % ref)
 
     def get_filenames(self, refs):
         # Refs should already have been tested.
@@ -671,7 +675,7 @@ class ProcessRunningExecutor(SimpleExecutor):
         self.proc = self.start_process(file_inputs, file_outputs, transfer_ctx)
         add_running_child(self.proc)
 
-        rc = self.await_process(self.block_store, file_inputs, file_outputs, transfer_ctx)
+        rc = self.await_process(file_inputs, file_outputs, transfer_ctx)
         remove_running_child(self.proc)
 
         self.proc = None
@@ -735,6 +739,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
 
     def check_args_valid(self, args, n_outputs):
 
+        ProcessRunningExecutor.check_args_valid(self, args, n_outputs)
         if n_outputs != 1:
             raise BlameUserException("Stdinout executor must have one output")
         if "command_line" not in args:
@@ -786,6 +791,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
     def check_args_valid(self, args, expected_output_ids):
 
+        ProcessRunningExecutor.check_args_valid(self, args, n_outputs)
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
 
@@ -851,6 +857,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             l.extend(args["lib"])
         except KeyError:
             pass
+        return l
 
     def start_process(self, input_files, output_files, transfer_ctx):
 
@@ -946,6 +953,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
 
     def check_args_valid(self, args, n_outputs):
 
+        FilenamesOnStdinExecutor.check_args_valid(self, args, n_outputs)
         if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
@@ -974,6 +982,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
     def check_args_valid(self, args, n_outputs):
 
+        FilenamesOnStdinExecutor.check_args_valid(self, args, n_outputs)
         if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the dotnet executor: %s' % repr(args))
 
@@ -1002,6 +1011,7 @@ class CExecutor(FilenamesOnStdinExecutor):
 
     def check_args_valid(self, args, n_outputs):
 
+        FilenamesOnStdinExecutor.check_args_valid(self, args, n_outputs)
         if "lib" not in args or "entry_point" not in args:
             raise BlameUserException('Incorrect arguments to the C-so executor: %s' % repr(args))
 
@@ -1028,6 +1038,7 @@ class GrabURLExecutor(SimpleExecutor):
     
     def check_args_valid(self, args, n_outputs):
         
+        SimpleExecutor.check_args_valid(self, args, n_outputs)
         if "urls" not in args or "version" not in args or len(args["urls"]) != n_outputs:
             raise BlameUserException('Incorrect arguments to the grab executor: %s' % repr(args))
 
@@ -1054,6 +1065,7 @@ class SyncExecutor(SimpleExecutor):
         self.handler_name = "sync"
 
     def check_args_valid(self, args, n_outputs):
+        SimpleExecutor.check_args_valid(self, args, n_outputs)
         if "inputs" not in args or n_outputs != 1:
             raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
 
