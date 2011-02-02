@@ -66,9 +66,6 @@ resolved_args = resolve_package_refs(start_args)
 class FakeTaskExecutor:
     def __init__(self, package_ref):
         self.package_ref = package_ref
-        self.published_refs = []
-    def publish_ref(self, ref):
-        self.published_refs.append(ref)
 
 task_descriptor = {"handler": start_handler, "dependencies": set()}
        
