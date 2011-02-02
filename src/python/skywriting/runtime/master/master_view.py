@@ -28,7 +28,7 @@ class MasterRoot:
     
     def __init__(self, task_pool, worker_pool, block_store, global_name_directory, job_pool):
         self.worker = WorkersRoot(worker_pool)
-        self.job = JobRoot(job_pool)
+        self.job = JobRoot(job_pool, block_store)
         self.task = MasterTaskRoot(global_name_directory, task_pool)
         self.streamtask = MasterStreamTaskRoot(global_name_directory, task_pool)
         self.data = DataRoot(block_store)
@@ -111,8 +111,9 @@ class WorkersRoot:
 
 class JobRoot:
     
-    def __init__(self, job_pool):
+    def __init__(self, job_pool, block_store):
         self.job_pool = job_pool
+        self.block_store = block_store
         
     @cherrypy.expose
     def index(self):
@@ -133,6 +134,17 @@ class JobRoot:
         elif cherrypy.request.method == 'GET':
             # Return a list of all jobs in the system.
             return simplejson.dumps(self.job_pool.get_all_job_ids())
+        else:
+            raise HTTPError(405)
+
+    @cherrypy.expose
+    def newsubmit(self):
+        if cherrypy.request.method == 'POST':
+            start_task_dict = simplejson.loads(cherrypy.request.body.read(),
+                                               object_hook = json_decode_object_hook)
+            job = self.job_pool.create_job_from_startup_dict(start_task_dict, self.block_store)
+            self.job_pool.start_job(job)
+            return simplejson.dumps(job.as_descriptor())
         else:
             raise HTTPError(405)
         

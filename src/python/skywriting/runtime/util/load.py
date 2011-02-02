@@ -36,7 +36,7 @@ def get_worker_netlocs(master_uri):
             netlocs.append(worker['netloc'])
     return netlocs
     
-def build_extent_list(filename, options):
+def build_extent_list(filename, size, count, delimiter):
 
     extents = []
     
@@ -45,14 +45,14 @@ def build_extent_list(filename, options):
     except:
         raise Exception("Could not get the size of the input file.")
     
-    if options.size is not None:
+    if size is not None:
         # Divide the input file into a variable number of fixed sized chunks.
-        if options.delimiter is not None:
+        if delimiter is not None:
             # Use the delimiter, and the size is an upper bound.
             with open(filename, 'rb') as f:
                 start = 0
                 while start < file_size:
-                    finish = min(start + options.size, file_size)
+                    finish = min(start + size, file_size)
                     curr = None
                     if finish == file_size:
                         # This is the last block, so take everything up to the
@@ -64,19 +64,19 @@ def build_extent_list(filename, options):
                         while finish > start: 
                             f.seek(finish)
                             curr = f.read(1)
-                            if curr == options.delimiter:
+                            if curr == delimiter:
                                 finish += 1
                                 break
                             finish -= 1
                             
-                        if curr != options.delimiter:
+                        if curr != delimiter:
                             # Need to seek forward.
-                            finish = min(file_size, start + options.size + 1)
+                            finish = min(file_size, start + size + 1)
                             f.seek(finish)
                             while finish < file_size:
                                 curr = f.read(1)
                                 finish += 1              
-                                if curr == options.delimiter:
+                                if curr == delimiter:
                                     break
               
                             
@@ -84,17 +84,17 @@ def build_extent_list(filename, options):
                         start = finish 
         else:
             # Chunks are a fixed number of bytes.    
-            for start in range(0, file_size, options.size):
-                extents.append((start, min(file_size, start + options.size)))
+            for start in range(0, file_size, size):
+                extents.append((start, min(file_size, start + size)))
         
-    elif options.count is not None:
+    elif count is not None:
         # Divide the input file into a fixed number of equal-sized chunks.
-        if options.delimiter is not None:
+        if delimiter is not None:
             # Use the delimiter to divide chunks.
-            chunk_size = int(math.ceil(file_size / float(options.count)))
+            chunk_size = int(math.ceil(file_size / float(count)))
             with open(filename, 'rb') as f:
                 start = 0
-                for i in range(0, options.count - 1):
+                for i in range(0, count - 1):
                     finish = min(start + chunk_size, file_size)
                     curr = None
                     if finish == file_size:
@@ -107,19 +107,19 @@ def build_extent_list(filename, options):
                         while finish > start: 
                             f.seek(finish)
                             curr = f.read(1)
-                            if curr == options.delimiter:
+                            if curr == delimiter:
                                 finish += 1
                                 break
                             finish -= 1
                             
-                        if curr != options.delimiter:
+                        if curr != delimiter:
                             # Need to seek forward.
                             finish = min(file_size, start + chunk_size + 1)
                             f.seek(finish)
                             while finish < file_size:
                                 curr = f.read(1)
                                 finish += 1                            
-                                if curr == options.delimiter:
+                                if curr == delimiter:
                                     break
                                 
                         extents.append((start, finish))
@@ -128,7 +128,7 @@ def build_extent_list(filename, options):
 
         else:
             # Chunks are an equal number of bytes.
-            chunk_size = int(math.ceil(file_size / float(options.count)))
+            chunk_size = int(math.ceil(file_size / float(count)))
             for start in range(0, file_size, chunk_size):
                 extents.append((start, min(file_size, start + chunk_size)))
     
@@ -179,39 +179,28 @@ def upload_string_to_targets(input, block_id, targets):
     for h, target in zip(https, targets):
         h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
         h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
-        
-def main():
-    parser = OptionParser()
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
-    parser.add_option("-s", "--size", action="store", dest="size", help="Block size in bytes", metavar="N", type="int", default=None)
-    parser.add_option("-n", "--num-blocks", action="store", dest="count", help="Number of blocks", metavar="N", type="int", default=1)
-    parser.add_option("-r", "--replication", action="store", dest="replication", help="Copies of each block", type="int", metavar="N", default=1)
-    parser.add_option("-d", "--delimiter", action="store", dest="delimiter", help="Block delimiter character", metavar="CHAR", default=None)
-    parser.add_option("-l", "--lines", action="store_const", dest="delimiter", const="\n", help="Use newline as block delimiter")
-    parser.add_option("-p", "--packet-size", action="store", dest="packet_size", help="Upload packet size in bytes", metavar="N", type="int",default=1048576)
-    parser.add_option("-i", "--id", action="store", dest="name", help="Block name prefix", metavar="NAME", default=None)
-    parser.add_option("-u", "--urls", action="store_true", dest="urls", help="Treat files as containing lists of URLs", default=False)
-    (options, args) = parser.parse_args()
+
+def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, packet_size=1048576, name=None, urls=False):
     
-    workers = get_worker_netlocs(options.master)
+    workers = get_worker_netlocs(master)
     
-    name_prefix = create_name_prefix(options.name)
+    name_prefix = create_name_prefix(name)
     
     output_references = []
     
     # Upload the data in extents.
-    if not options.urls:
+    if not urls:
         
         if len(args) == 1:
             input_filename = args[0] 
-            extent_list = build_extent_list(input_filename, options)
+            extent_list = build_extent_list(input_filename, size, count, delimiter)
         
             with open(input_filename, 'rb') as input_file:
                 for i, (start, finish) in enumerate(extent_list):
-                    targets = select_targets(workers, options.replication)
+                    targets = select_targets(workers, replication)
                     block_name = make_block_id(name_prefix, i)
                     print >>sys.stderr, 'Uploading %s to (%s)' % (block_name, ",".join(targets))
-                    upload_extent_to_targets(input_file, block_name, start, finish, targets, options.packet_size)
+                    upload_extent_to_targets(input_file, block_name, start, finish, targets, packet_size)
                     conc_ref = SW2_ConcreteReference(block_name, finish - start, targets)
                     output_references.append(conc_ref)
                     
@@ -219,11 +208,11 @@ def main():
             
             for i, input_filename in enumerate(args):
                 with open(input_filename, 'rb') as input_file:
-                    targets = select_targets(workers, options.replication)
+                    targets = select_targets(workers, replication)
                     block_name = make_block_id(name_prefix, i)
                     block_size = os.path.getsize(input_filename)
                     print >>sys.stderr, 'Uploading %s to (%s)' % (input_filename, ",".join(targets))
-                    upload_extent_to_targets(input_file, block_name, 0, block_size, targets, options.packet_size)
+                    upload_extent_to_targets(input_file, block_name, 0, block_size, targets, packet_size)
                     conc_ref = SW2_ConcreteReference(block_name, block_size, targets)
                     output_references.append(conc_ref)
 
@@ -238,7 +227,7 @@ def main():
         target_fetch_lists = {}
                     
         for i, url in enumerate(urls):
-            targets = select_targets(workers, options.replication)
+            targets = select_targets(workers, replication)
             block_name = make_block_id(name_prefix, i)
             ref = SW2_FetchReference(block_name, url, i)
             for target in targets:
@@ -314,10 +303,10 @@ def main():
                 target_fetch_lists = {}
 
                 # We refetch the worker list, in case any have failed in the mean time.
-                workers = get_worker_netlocs(options.master)
+                workers = get_worker_netlocs(master)
     
                 for ref in redistribute_refs.values():
-                    targets = select_targets(workers, options.replication)
+                    targets = select_targets(workers, replication)
                     for target in targets:
                         try:
                             tfl = target_fetch_lists[target]
@@ -335,11 +324,34 @@ def main():
                 
                 failed_targets = set()
 
-
     # Upload the index object.
     index = simplejson.dumps(output_references, cls=SWReferenceJSONEncoder)
     block_name = '%s:index' % name_prefix
     
+    index_targets = select_targets(workers, replication)
+    upload_string_to_targets(index, block_name, index_targets)
+    
+    index_ref = SW2_ConcreteReference(block_name, len(index), index_targets)
+        
+    return index_ref
+
+def main():
+    parser = OptionParser()
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
+    parser.add_option("-s", "--size", action="store", dest="size", help="Block size in bytes", metavar="N", type="int", default=None)
+    parser.add_option("-n", "--num-blocks", action="store", dest="count", help="Number of blocks", metavar="N", type="int", default=1)
+    parser.add_option("-r", "--replication", action="store", dest="replication", help="Copies of each block", type="int", metavar="N", default=1)
+    parser.add_option("-d", "--delimiter", action="store", dest="delimiter", help="Block delimiter character", metavar="CHAR", default=None)
+    parser.add_option("-l", "--lines", action="store_const", dest="delimiter", const="\n", help="Use newline as block delimiter")
+    parser.add_option("-p", "--packet-size", action="store", dest="packet_size", help="Upload packet size in bytes", metavar="N", type="int",default=1048576)
+    parser.add_option("-i", "--id", action="store", dest="name", help="Block name prefix", metavar="NAME", default=None)
+    parser.add_option("-u", "--urls", action="store_true", dest="urls", help="Treat files as containing lists of URLs", default=False)
+    (options, args) = parser.parse_args()
+    
+    index_ref = do_uploads(options.master, args, options.size, options.count, options.replication, options.delimiter, options.packet_size, options.name, options.urls)
+
+    block_name = index_ref.id
+    index_targets = index_ref.netlocs
     suffix = ''
     i = 0
     while os.path.exists(block_name + suffix):
@@ -349,14 +361,7 @@ def main():
     with open(filename, 'w') as f:
         simplejson.dump(output_references, f, cls=SWReferenceJSONEncoder)
     print >>sys.stderr, 'Wrote index to %s' % filename
-    
-    index_targets = select_targets(workers, options.replication)
-    upload_string_to_targets(index, block_name, index_targets)
-    
-    #index_ref = SW2_ConcreteReference(block_name, len(index), index_targets)
-        
-    #print index_ref
-    #print
+
     for target in index_targets:
         print 'swbs://%s/%s' % (target, block_name)
     

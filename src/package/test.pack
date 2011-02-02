@@ -1,5 +1,5 @@
 {"package": 
-	    {"main": "../sw/testscript4.sw"},
+	    {"main": {"filename": "../sw/testscript4.sw"}},
  "start": 
  	  { "handler": "swi",
  	    "args": {

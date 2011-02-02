@@ -19,6 +19,7 @@ from cherrypy.process import plugins
 import os
 import simplejson
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
+import skywriting.runtime.executors
 import struct
 import logging
 import cherrypy
@@ -178,11 +179,37 @@ class JobPool(plugins.SimplePlugin):
         job.state = JOB_FAILED
         self.jobs[job_id] = job
     
+    def create_job_from_startup_dict(self, startup_dict, block_store):
+
+        class FakeTaskExecutor:
+            def __init__(self, package_ref, block_store):
+                self.block_store = block_store
+                self.package_ref = package_ref
+                self.published_refs = []
+            def publish_ref(self, ref):
+                self.published_refs.append(ref)
+
+        job_id = self.allocate_job_id()
+        task_id = 'root:%s' % (job_id, )
+
+        task_descriptor = {"handler": startup_dict["handler"], "task_id": task_id}
+        
+        fake_te = FakeTaskExecutor(startup_dict["package_ref"], block_store)
+        build_executor = skywriting.runtime.executors.ExecutionFeatures().get_executor(startup_dict["handler"], fake_te)
+        build_executor.build_task_descriptor(**(startup_dict["args"]))
+        
+        # XXX I don't do anything with the references "published" during task creation. This matches previous
+        #     task submission methods which also didn't record those references anywhere in particular.
+
+        return self.create_job_task(job_id, task_id, task_descriptor)
+
     def create_job_for_task(self, task_descriptor):
         
         job_id = self.allocate_job_id()
         task_id = 'root:%s' % (job_id, ) 
+        return self.create_job_task(job_id, task_id, task_descriptor)
 
+    def create_job_task(self, job_id, task_id, task_descriptor):
         # TODO: Here is where we will set up the job journal, etc.
         job_dir = self.make_job_directory(job_id)
         
