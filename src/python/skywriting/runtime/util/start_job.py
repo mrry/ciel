@@ -47,7 +47,6 @@ submit_package_dict = dict([(k, ref_of_object(v)) for (k, v) in package_dict.ite
 package_ref = ref_of_string(pickle.dumps(submit_package_dict))
 
 start_dict = job_dict["start"]
-start_dict["package_ref"] = package_ref
 start_handler = start_dict["handler"]
 start_args = start_dict["args"]
 
@@ -63,10 +62,22 @@ def resolve_package_refs(value):
         return value
 
 resolved_args = resolve_package_refs(start_args)
-start_dict["args"] = resolved_args
 
-master_task_submit_uri = urlparse.urljoin(master_uri, "/job/newsubmit")
-(_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(start_dict, cls=SWReferenceJSONEncoder))
+class FakeTaskExecutor:
+    def __init__(self, package_ref):
+        self.package_ref = package_ref
+        self.published_refs = []
+    def publish_ref(self, ref):
+        self.published_refs.append(ref)
+
+task_descriptor = {"handler": start_handler, "dependencies": set()}
+       
+fake_te = FakeTaskExecutor(package_ref)
+build_executor = skywriting.runtime.executors.ExecutionFeatures().get_executor(start_handler, fake_te)
+build_executor.build_task_descriptor(**start_args)
+
+master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
+(_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
 
 out = simplejson.loads(content)
     

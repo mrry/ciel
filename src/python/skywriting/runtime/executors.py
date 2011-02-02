@@ -202,6 +202,8 @@ class SkyPyExecutor:
     def build_task_descriptor(self, task_descriptor, pyfile_ref, coro_data=None, entry_point=None, entry_args=None):
 
         if coro_data is not None:
+            if "task_id" not in task_descriptor:
+                raise Exception("Can't spawn SkyPy tasks from coroutines without a task id")
             coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
             self.task_executor.publish_reference(coro_ref)
             task_descriptor["coro_ref"] = coro_ref
@@ -211,7 +213,7 @@ class SkyPyExecutor:
             task_descriptor["entry_args"] = entry_args
         task_descriptor["py_ref"] = pyfile_ref
         task_descriptor["dependencies"].insert(pyfile_ref)
-        if "expected_outputs" not in task_descriptor:
+        if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         add_package_dep(self.task_executor, task_descriptor)
         
@@ -365,9 +367,11 @@ class SkywritingExecutor:
 
     def build_task_descriptor(self, task_descriptor, sw_file_ref=None, start_env=None, start_args=None, cont=None):
 
-        if "expected_outputs" not in task_descriptor:
+        if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         if cont is not None:
+            if "task_id" not in task_descriptor:
+                raise Exception("Can't build a Skywriting task from a continuation without a task id")
             cont_id = "%s:cont" % task_descriptor["task_id"]
             spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
             self.task_executor.publish_reference(spawned_cont_ref)
