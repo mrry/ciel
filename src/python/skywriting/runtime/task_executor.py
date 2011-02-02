@@ -34,6 +34,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.skypybase = skypybase
 
         self.root_executor = None
+        self.root_handler = None
         self._lock = Lock()
 
         self.reset()
@@ -42,9 +43,9 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
     def abort_task(self, task_id):
         with self._lock:
-            if self.current_task_id == task_id:
-                self.current_task_execution_record.abort()
-            self.current_task_id = None
+            if self.root_task_id == task_id:
+                self.root_executor.abort()
+            self.root_task_id = None
             self.current_task_execution_record = None
 
     def notify_streams_done(self, task_id):
@@ -58,30 +59,30 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
     # Helper functions for main
 
     def run_task_with_executor(self, task_descriptor, executor):
-        cherrypy.engine.publish("worker_event", "Start execution " + repr(input['task_id']) + " with handler " + input['handler'])
-        cherrypy.log.error("Starting task %s with handler %s" % (str(input['task_id']), new_task_handler), 'TASK', logging.INFO, False)
+        cherrypy.engine.publish("worker_event", "Start execution " + repr(task_descriptor['task_id']) + " with handler " + task_descriptor['handler'])
+        cherrypy.log.error("Starting task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.INFO, False)
         try:
-            executor.run(input)
-            cherrypy.engine.publish("worker_event", "Completed execution " + repr(input['task_id']))
-            cherrypy.log.error("Completed task %s with handler %s" % (str(input['task_id']), new_task_handler), 'TASK', logging.INFO, False)
+            executor.run(task_descriptor)
+            cherrypy.engine.publish("worker_event", "Completed execution " + repr(task_descriptor['task_id']))
+            cherrypy.log.error("Completed task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.INFO, False)
         except:
-            cherrypy.log.error("Error in task %s with handler %s" % (str(input['task_id']), new_task_handler), 'TASK', logging.ERROR, True)
+            cherrypy.log.error("Error in task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.ERROR, True)
 
     def spawn_all(self):
         if len(self.spawned_tasks) == 0:
             return
-        master_proxy.spawn_tasks(self.root_task_id, self.spawned_tasks)
+        self.master_proxy.spawn_tasks(self.root_task_id, self.spawned_tasks)
 
     def create_spawned_task_name(self):
         sha = hashlib.sha1()
-        sha.update('%s:%d' % (self.task_id, self.spawn_counter))
+        sha.update('%s:%d' % (self.root_task_id, self.spawn_counter))
         ret = sha.hexdigest()
         self.spawn_counter += 1
         return ret
 
     def commit(self):
         commit_bindings = dict([(ref.id, ref) for ref in self.published_refs])
-        self.task_executor.master_proxy.commit_task(self.task_id, commit_bindings)
+        self.master_proxy.commit_task(self.root_task_id, commit_bindings)
 
     def reset(self):
         self.published_refs = []
@@ -96,15 +97,16 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
     def handle_input(self, input):
 
+        print "Start task", input
         new_task_handler = input["handler"]
         with self._lock:
-            try:
-                if self.root_executor.handler != new_task_handler:
-                    self.root_executor = None
-            except AttributeError:
-                pass
+            if self.root_handler != new_task_handler:
+                if self.root_executor is not None:
+                    self.root_executor.cleanup()
+                self.root_executor = None
             if self.root_executor is None:
-                self.root_executor = self.execution_features.get_executor(executor_name, self)
+                self.root_executor = self.execution_features.get_executor(new_task_handler, self)
+            self.root_handler = new_task_handler
             self.root_task_id = input["task_id"]
 
         self.reference_cache = dict([(ref.id, ref) for ref in input["inputs"]])
@@ -124,6 +126,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.reference_cache[ref.id] = ref
 
     def spawn_task(self, new_task_descriptor, **args):
+        print "Asked to spawn", new_task_descriptor
         new_task_descriptor["task_id"] = self.create_spawned_task_name()
         if "dependencies" not in new_task_descriptor:
             new_task_descriptor["dependencies"] = []
@@ -137,6 +140,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             for output in new_task_descriptor['expected_outputs']:
                 task_for_output_id[output] = new_task_descriptor
         self.spawned_tasks.append(new_task_descriptor)
+        print "Spawn task", new_task_descriptor
         return new_task_descriptor
 
     def resolve_ref(self, ref):

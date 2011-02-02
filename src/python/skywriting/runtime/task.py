@@ -39,7 +39,7 @@ for (name, number) in TASK_STATES.items():
 
 class Task:
 
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED):
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED):
         self.task_id = task_id
         
         # Task creation graph.

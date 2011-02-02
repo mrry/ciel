@@ -10,8 +10,8 @@ import time
 import datetime
 import os
 import os.path
+from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
 from shared.references import SW2_ConcreteReference
-from skywriting.runtime.references import SWReferenceJSONEncoder
 from optparse import OptionParser
 
 def main():
@@ -84,7 +84,7 @@ def main():
             self.package_ref = package_ref
             self.block_store = None
 
-    task_descriptor = {"handler": start_handler, "dependencies": []}
+    task_descriptor = {"handler": start_handler, "dependencies": [], "task_private": dict()}
 
     print "Fetching task executor for", start_handler
 
@@ -94,6 +94,8 @@ def main():
     print "Building initial descriptor using arguments", resolved_args
 
     build_executor.build_task_descriptor(task_descriptor, **resolved_args)
+
+    print "Submitting descriptor", task_descriptor
 
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
