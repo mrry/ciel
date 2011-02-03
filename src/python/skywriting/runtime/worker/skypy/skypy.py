@@ -11,7 +11,6 @@ from StringIO import StringIO
 
 import shared.references
 from shared.references import SW2_FutureReference
-from shared.exec_helpers import get_exec_prefix, get_exec_output_ids
 from shared.io_helpers import MaybeFile
 
 # Changes from run to run; set externally
@@ -71,7 +70,7 @@ def fetch_ref(ref, verb):
                 else:
                     raise Exeception("Double failure trying to deref %s" % ref.id)
             # We're back -- the ref should be available now.
-    
+            return runtime_response
 
 def deref_json(ref):
     
@@ -112,16 +111,17 @@ class RequiredRefs():
         for ref in self.refs:
             remove_ref_dependency(ref)
 
-def spawn(spawn_callable):
+def spawn(spawn_callable, *args):
     
     new_coro = stackless.coroutine()
-    new_coro.bind(spawn_callable)
+    new_coro.bind(start_script, spawn_callable, args)
     save_obj = ResumeState(PersistentState(), new_coro)
     with MaybeFile() as new_coro_fp:
         pickle.dump(save_obj, new_coro_fp)
         out_dict = {"request": "spawn"}
         describe_maybe_file(new_coro_fp, out_dict)
     pickle.dump(out_dict, runtime_out)
+    runtime_out.flush()
     response = pickle.load(runtime_in)
     return response["output"]
 
@@ -133,6 +133,7 @@ def do_exec(exec_name, args_dict, n_outputs, small_task):
                  "n_outputs": n_outputs,
                  "small_task": small_task},
                 runtime_out)
+    runtime_out.flush()
     return pickle.load(runtime_in)["outputs"]
 
 def spawn_exec(exec_name, exec_args_dict, n_outputs):
@@ -155,16 +156,14 @@ def package_lookup(key):
         raise PackageKeyError(key)
     return retval
 
-def freeze_script_at_startup(entry_point):
+def start_script(entry_point, entry_args):
 
     global halt_reason
     global script_return_val
     global script_backtrace
 
-    local_args = initial_run_args
-    main_coro.switch()
     try:
-        script_return_val = entry_point(*local_args)
+        script_return_val = entry_point(*entry_args)
         halt_reason = HALT_DONE
     except Exception, e:
         script_return_val = e

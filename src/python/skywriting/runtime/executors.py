@@ -30,6 +30,7 @@ import subprocess
 import tempfile
 import os.path
 import threading
+import pickle
 import time
 import codecs
 from subprocess import PIPE
@@ -178,12 +179,11 @@ class FileOrString:
     def toref(self, refid):
         if self.str is not None:
             ref = SWDataValue(refid, self.block_store.encode_datavalue(self.str))
-            return ref
         else:
             _, size = self.block_store.store_file(self.filename, refid, can_move=True)
             ref = SW2_ConcreteReference(refid, size)
             ref.add_location_hint(self.block_store.netloc)
-            return real_ref
+        return ref
 
     def tostr(self):
         if self.str is not None:
@@ -229,6 +229,7 @@ class SkyPyExecutor:
         skypy_private = task_descriptor["task_private"]
 
         pyfile_ref = self.task_executor.retrieve_ref(skypy_private["py_ref"])
+        self.pyfile_ref = pyfile_ref
         rq_list = [pyfile_ref]
         if "coro_ref" in skypy_private:
             coroutine_ref = self.task_executor.retrieve_ref(skypy_private["coro_ref"])
@@ -243,7 +244,7 @@ class SkyPyExecutor:
                                % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
         else:
             ciel.log.error("Fetched .py source to %s; starting from entry point %s, args %s"
-                               % (py_source_filename, skypy_private["entry_pont"], skypy_private["entry_args"]))
+                               % (py_source_filename, skypy_private["entry_point"], skypy_private["entry_args"]))
 
         pypy_env = os.environ.copy()
         pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
@@ -273,15 +274,16 @@ class SkyPyExecutor:
             if request == "deref":
                 try:
                     ret = self.deref_func(**request_args)
+                    print "Returning", ret
                 except ReferenceUnavailableException:
-                    self.halt_dependencies.append(request_args["ref"])
+                    halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
                 pickle.dump(ret, pypy_process.stdin)
             elif request == "deref_json":
                 try:
                     ret = self.deref_json(**request_args)
                 except ReferenceUnavailableException:
-                    self.halt_dependencies.append(request_args["ref"])
+                    halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
                 pickle.dump(ret, pypy_process.stdin)                
             elif request == "spawn":
@@ -295,19 +297,23 @@ class SkyPyExecutor:
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 coro_data = FileOrString(request_args, self.block_store)
-                self.task_executor.spawn_task({"handler": "skypy", 
-                                               "expected_outputs": [self.expected_output], 
-                                               "dependencies": request_args["additional_deps"]},
+                cont_deps = halt_dependencies
+                cont_deps.extend(request_args["additional_deps"])
+                self.task_executor.spawn_task({"handler": "skypy",
+                                               "expected_outputs": task_descriptor["expected_outputs"], 
+                                               "dependencies": cont_deps},
                                               coro_data=coro_data,
-                                              pyfile_ref=self.pyfile_ref)
-                return False
+                                              pyfile_ref=pyfile_ref)
+                return
             elif request == "done":
                 # The interpreter is stopping because the function has completed
-                self.task_executor.publish_ref(FileOrString(request_args, self.block_store).toref(self.expected_outputs[0]))
-                return True
+                self.task_executor.publish_ref(FileOrString(request_args, self.block_store).toref(task_descriptor["expected_outputs"][0]))
+                return
             elif request == "exception":
                 report_text = FileOrString(request_args, self.block_store).tostr()
                 raise Exception("Fatal pypy exception: %s" % report_text)
+            else:
+                raise Exception("Pypy requested bad operation: %s / %s" % (request, request_args))
 
     # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
     def spawn_func(self, **otherargs):
@@ -315,7 +321,7 @@ class SkyPyExecutor:
         new_task_descriptor = {"handler": "skypy"}
         coro_data = FileOrString(otherargs, self.block_store)
         self.task_executor.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
-        return SW2_FutureReference(new_task_descriptor.expected_outputs[0])
+        return SW2_FutureReference(new_task_descriptor["expected_outputs"][0])
         
     def deref_func(self, ref):
         ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
@@ -1080,9 +1086,8 @@ class SyncExecutor(SimpleExecutor):
             raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
 
     def _execute(self):
-        self.block_store.cache_object(True, "json", self.output_ids[0])
         reflist = [self.task_executor.retrieve_ref(x) for x in self.args["inputs"]]
-        self.output_refs[0] = SWDataValue(self.output_ids[0], simplejson.dumps(reflist, cls=SWReferenceJSONEncoder))
+        self.output_refs[0] = self.block_store.ref_from_object(reflist, "json", self.output_ids[0])
 
 def build_init_descriptor(handler, args, package_ref):
     return {"handler": "init", 

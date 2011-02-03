@@ -17,19 +17,16 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from shared.references import SW2_ConcreteReference
-from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
+import skywriting.runtime.util.start_job
+from skywriting.runtime.block_store import BlockStore,json_decode_object_hook
 import time
 import datetime
 import simplejson
-import pickle
-import urlparse
-import httplib2
-import tempfile
 import sys
 import os
-import subprocess
 from optparse import OptionParser
+
+import ciel
 
 def now_as_timestamp():
     return (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())
@@ -37,7 +34,6 @@ def now_as_timestamp():
 def main():
     parser = OptionParser()
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
-    parser.add_option("-i", "--id", action="store", dest="id", help="Job ID", metavar="ID", default="default")
     parser.add_option("-s", "--skypy-stub", action="store", dest="skypy_stub", help="Path to Skypy stub.py", metavar="PATH", default=None)
     (options, args) = parser.parse_args()
    
@@ -47,66 +43,21 @@ def main():
         sys.exit(1)
 
     master_uri = options.master
-    id = options.id
     
-    initial_coro_fp, initial_coro_file = tempfile.mkstemp()
-
-    print id, "STARTED", now_as_timestamp()
-
     script_name = args[0]
-    pypy_args = ["pypy", options.skypy_stub, "--source", script_name] + args[1:]
-    pypy_process = subprocess.Popen(pypy_args, stdout=initial_coro_fp)
-    os.close(initial_coro_fp)
-    pypy_process.wait()
-    initial_coro_fp = open(initial_coro_file, "r")
-    initial_coro_text = initial_coro_fp.read()
-    initial_coro_fp.close()
+    script_args = args[1:]
 
-    pyfile_fp = open(script_name, "r")
-    pyfile_text = pyfile_fp.read()
-    pyfile_fp.close()
+    sp_package = {"skypymain": {"filename": script_name}}
+    sp_args = {"pyfile_ref": {"__package__": "skypymain"}, "entry_point": "skypy_main", "entry_args": script_args}
 
-    print id, "FINISHED_PARSING", now_as_timestamp()
+    new_job = skywriting.runtime.util.start_job.submit_job_with_package(sp_package, "skypy", sp_args, os.getcwd(), master_uri)
+    
+    result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
 
-    if pypy_process.returncode != 0:
-        raise Exception("PyPy failed to parse script")
-    
-    http = httplib2.Http()
-    
-    master_data_uri = urlparse.urljoin(master_uri, "/data/")
-    (_, content) = http.request(master_data_uri, "POST", initial_coro_text)
-    cont_id = simplejson.loads(content)
-    (_, content) = http.request(master_data_uri, "POST", pyfile_text)
-    pyfile_id = simplejson.loads(content)
-    
-    print id, "SUBMITTED_CORO_AND_PY", now_as_timestamp()
-    
-    master_netloc = urlparse.urlparse(master_uri).netloc
-    task_descriptor = {'dependencies': {'_coro' : SW2_ConcreteReference(cont_id, len(initial_coro_text), [master_netloc]),
-                                        '_py' : SW2_ConcreteReference(pyfile_id, len(pyfile_text), [master_netloc])}, 'handler': 'skypy'}
-
-    master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
-    (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
-    
-    print id, "SUBMITTED_JOB", now_as_timestamp() 
-    
-    out = simplejson.loads(content)
-    
-    notify_url = urlparse.urljoin(master_uri, "/job/%s/completion" % out['job_id'])
-    job_url = urlparse.urljoin(master_uri, "/browse/job/%s" % out['job_id'])
-
-    print id, "JOB_URL", job_url
-    
-    #print "Blocking to get final result"
-    (_, content) = http.request(notify_url)
-    completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
-    if "error" in completion_result.keys():
-        print id, "ERROR", completion_result["error"]
-        return None
-    else:
-        print id, "GOT_RESULT", now_as_timestamp()
-        #print content
-        return completion_result["result_ref"]
+    fakeBlockStore = BlockStore(ciel.engine, None, None, "/tmp")
+    reflist = fakeBlockStore.retrieve_object_for_ref(result, "json")
+    fakeBlockStore.stop_thread()
+    return reflist[0]
 
 if __name__ == '__main__':
     main()
