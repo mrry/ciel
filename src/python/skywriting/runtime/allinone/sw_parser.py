@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.lang.parser import SWScriptParser
 import sys
-from skywriting.runtime.task_executor import SWContinuation
+from skywriting.runtime.executors import SWContinuation
 from skywriting.lang.context import SimpleContext
 import os
 from shared.references import SW2_ConcreteReference
@@ -37,7 +37,7 @@ def build_initial_task_descriptor(filename, block_store, task_name='root', cont_
     _, cont_len = block_store.store_object(cont, 'pickle', cont_id)
     cont_ref = SW2_ConcreteReference(cont_id, cont_len, [block_store.netloc])
     expected_output_id = 'root_output'
-    task_descriptor = {'id' : 'root', 'dependencies': {'_cont' : cont_ref}, 'handler': 'swi', 'expected_outputs' : [expected_output_id]}
+    task_descriptor = {'id' : 'root', 'dependencies': [cont_ref], 'task_private':{'cont':cont_ref}, 'handler': 'swi', 'expected_outputs' : [expected_output_id]}
     
     return task_descriptor, cont_ref
     
