@@ -86,13 +86,13 @@ def spawn_other(task_executor, executor_name, small_task, **executor_args):
 
 def package_lookup(task_executor, key):
     if task_executor.package_ref is None:
-        cherrypy.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
+        ciel.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
         return None
     package_dict = task_executor.block_store.retrieve_object_for_ref(task_executor.package_ref, "pickle")
     try:
         return package_dict[key]
     except KeyError:
-        cherrypy.log.error("Package lookup for %s: no such key" % key, "EXEC", logging.WARNING)
+        ciel.log.error("Package lookup for %s: no such key" % key, "EXEC", logging.WARNING)
         return None
 
 def add_package_dep(task_executor, task_descriptor):
@@ -238,10 +238,10 @@ class SkyPyExecutor:
         py_source_filename = filenames[0]
         if "coro_ref" in skypy_private:
             coroutine_filename = filenames[1]
-            cherrypy.log.error('Fetched coroutine image to %s, .py source to %s' 
+            ciel.log.error('Fetched coroutine image to %s, .py source to %s' 
                                % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
         else:
-            cherrypy.log.error("Fetched .py source to %s; starting from entry point %s, args %s"
+            ciel.log.error("Fetched .py source to %s; starting from entry point %s, args %s"
                                % (py_source_filename, skypy_private["entry_pont"], skypy_private["entry_args"]))
 
         pypy_env = os.environ.copy()
@@ -266,7 +266,7 @@ class SkyPyExecutor:
             request_args = pickle.load(pypy_process.stdout)
             request = request_args["request"]
             del request_args["request"]
-            cherrypy.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
+            ciel.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
             # The key difference between deref and deref_json is that the JSON variant MUST be decoded locally
             # This is a hack around the fact that the simplejson library hasn't been ported to pypy.
             if request == "deref":
@@ -317,7 +317,7 @@ class SkyPyExecutor:
         return SW2_FutureReference(new_task_descriptor.expected_outputs[0])
         
     def deref_func(self, ref):
-        cherrypy.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
+        ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.task_executor.retrieve_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
