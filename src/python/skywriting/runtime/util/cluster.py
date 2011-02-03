@@ -85,7 +85,8 @@ def main():
     #print continuation_uri
     
     master_netloc = urlparse.urlparse(master_uri).netloc
-    task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])}, 'handler': 'swi'}
+    cont_ref = SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])
+    task_descriptor = {'dependencies': [cont_ref], 'task_private':{'cont':cont_ref} 'handler': 'swi'}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
