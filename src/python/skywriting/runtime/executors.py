@@ -67,7 +67,8 @@ class ExecutionFeatures:
                           'dotnet': DotNetExecutor,
                           'c': CExecutor,
                           'grab': GrabURLExecutor,
-                          'sync': SyncExecutor}
+                          'sync': SyncExecutor,
+                          'init': InitExecutor}
     
     def all_features(self):
         return self.executors.keys()
@@ -546,11 +547,13 @@ class SimpleExecutor:
         reqd_refs = self.get_required_refs(args)
         task_descriptor["dependencies"].extend(reqd_refs)
 
-        # Name our outputs
         sha = hashlib.sha1()
         hash_update_with_structure(sha, [args, n_outputs])
         name_prefix = "%s:%s:" % (self.handler_name, sha.hexdigest())
-        task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]
+
+        # Name our outputs
+        if "expected_outputs" not in task_descriptor:
+            task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]
 
         # Add the args dict
         args_name = "%ssimple_exec_args" % name_prefix
@@ -1078,4 +1081,37 @@ class SyncExecutor(SimpleExecutor):
 
     def _execute(self):
         self.block_store.cache_object(True, "json", self.output_ids[0])
-        self.output_refs[0] = SWDataValue(self.output_ids[0], simplejson.dumps(True))
+        reflist = [self.task_executor.retrieve_ref(x) for x in self.args["inputs"]]
+        self.output_refs[0] = SWDataValue(self.output_ids[0], simplejson.dumps(reflist, cls=SWReferenceJSONEncoder))
+
+def build_init_descriptor(handler, args, package_ref):
+    return {"handler": "init", 
+            "dependencies": [package_ref], 
+            "task_private": {"package_ref": package_ref, 
+                             "start_handler": handler, 
+                             "start_args": args
+                             } 
+            }
+
+class InitExecutor:
+
+    def __init__(self, task_executor):
+        self.task_executor = task_executor
+
+    def build_task_descriptor(self, descriptor, **args):
+        raise BlameUserException("Can't spawn init tasks directly; build them from outside the cluster using 'build_init_descriptor'")
+
+    def run(self, task_descriptor):
+        
+        initial_task_out_refs = spawn_other(self.task_executor,
+                                            task_descriptor["task_private"]["start_handler"], 
+                                            False,
+                                            **(task_descriptor["task_private"]["start_args"]))
+        # Spawn this one manually so I can delegate my output
+        final_task_descriptor = {"handler": "sync",
+                                 "dependencies": initial_task_out_refs,
+                                 "expected_outputs": task_descriptor["expected_outputs"]}
+        self.task_executor.spawn_task(final_task_descriptor, args={"inputs": initial_task_out_refs}, n_outputs=1)
+
+    def cleanup(self):
+        pass

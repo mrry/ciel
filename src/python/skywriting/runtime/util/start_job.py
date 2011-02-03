@@ -81,22 +81,7 @@ def main():
 
     resolved_args = resolve_package_refs(start_args)
 
-    class FakeTaskExecutor:
-        def __init__(self, package_ref):
-            self.package_ref = package_ref
-            self.block_store = None
-
-    task_descriptor = {"handler": start_handler, "dependencies": [], "task_private": dict()}
-
-    print "Fetching task executor for", start_handler
-
-    fake_te = FakeTaskExecutor(package_ref)
-    build_executor = skywriting.runtime.executors.ExecutionFeatures().get_executor(start_handler, fake_te)
-
-    print "Building initial descriptor using arguments:"
-    sw_pprint(resolved_args, indent=2)
-
-    build_executor.build_task_descriptor(task_descriptor, **resolved_args)
+    task_descriptor = skywriting.runtime.executors.build_init_descriptor(start_handler, resolved_args, package_ref)
 
     print "Submitting descriptor:"
     sw_pprint(task_descriptor, indent=2)
