@@ -16,12 +16,12 @@ from cherrypy.process import plugins
 from Queue import Queue
 from threading import Condition, RLock
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
-import random
 import datetime
 import simplejson
 import httplib2
 import uuid
 import cherrypy
+import random
 import logging
 
 class FeatureQueues:
@@ -149,7 +149,8 @@ class WorkerPool(plugins.SimplePlugin):
         
     def get_idle_workers(self):
         with self._lock:
-            return map(lambda x: self.workers[x], self.idle_set)
+            worker_list = map(lambda x: self.workers[x], self.idle_set)
+        return worker_list
     
     def execute_task_on_worker(self, worker, task):
         with self._lock:
