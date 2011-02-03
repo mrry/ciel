@@ -125,24 +125,21 @@ def spawn(spawn_callable, *args):
     response = pickle.load(runtime_in)
     return response["output"]
 
-def do_exec(exec_name, args_dict, n_outputs, small_task):
+def do_exec(executor_name, small_task, **args):
     
-    pickle.dump({"request": "exec",
-                 "args": args_dict,
-                 "executor_name": exec_name,
-                 "n_outputs": n_outputs,
-                 "small_task": small_task},
+    args["request"] = "exec"
+    args["small_task"] = small_task
+    args["executor_name"] = executor_name
+    pickle.dump(args,
                 runtime_out)
     runtime_out.flush()
     return pickle.load(runtime_in)["outputs"]
 
-def spawn_exec(exec_name, exec_args_dict, n_outputs):
+def spawn_exec(executor_name, **args):
+    return do_exec(executor_name, False, **args)
 
-    return do_exec(exec_name, exec_args_dict, n_outputs, False)
-
-def sync_exec(exec_name, exec_args_dict, n_outputs):
-
-    return do_exec(exec_name, exec_args_dict, n_outputs, True)
+def sync_exec(executor_name, **args):
+    return do_exec(executor_name, True, **args)
 
 class PackageKeyError:
     def __init__(self, key):
@@ -151,6 +148,7 @@ class PackageKeyError:
 def package_lookup(key):
     
     pickle.dump({"request": "package_lookup", "key": key}, runtime_out)
+    runtime_out.flush()
     retval = pickle.load(runtime_in)["value"]
     if retval is None:
         raise PackageKeyError(key)

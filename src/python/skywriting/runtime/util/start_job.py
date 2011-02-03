@@ -85,6 +85,7 @@ def main():
 
     parser = OptionParser()
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
+    
     (options, args) = parser.parse_args()
     master_uri = options.master
     
@@ -103,9 +104,6 @@ def main():
     job_url = urlparse.urljoin(master_uri, "/browse/job/%s" % new_job['job_id'])
     print "JOB_URL", job_url
 
-#    try:
     result = await_job(new_job['job_id'], master_uri)
     print "GOT_RESULT", now_as_timestamp()
-    print result
-#    except Exception as e:
-#        print "ERROR", e
+    print repr(result)

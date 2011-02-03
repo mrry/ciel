@@ -225,6 +225,7 @@ class SkyPyExecutor:
         
     def run(self, task_descriptor):
 
+        self.task_descriptor = task_descriptor
         halt_dependencies = []
         skypy_private = task_descriptor["task_private"]
 
@@ -274,7 +275,6 @@ class SkyPyExecutor:
             if request == "deref":
                 try:
                     ret = self.deref_func(**request_args)
-                    print "Returning", ret
                 except ReferenceUnavailableException:
                     halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
@@ -291,9 +291,9 @@ class SkyPyExecutor:
                 pickle.dump({"output": out_ref}, pypy_process.stdin)
             elif request == "exec":
                 out_refs = spawn_other(self.task_executor, **request_args)
-                pickle.dump({"outputs": output_refs}, pypy_process.stdin)
+                pickle.dump({"outputs": out_refs}, pypy_process.stdin)
             elif request == "package_lookup":
-                pickle.dump({"value": package_lookup(task_executor, request_args["key"])}, pypy_process.stdin)
+                pickle.dump({"value": package_lookup(self.task_executor, request_args["key"])}, pypy_process.stdin)
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 coro_data = FileOrString(request_args, self.block_store)
@@ -333,7 +333,7 @@ class SkyPyExecutor:
             return {"success": True, "filename": filenames[0]}
 
     def deref_json(self, ref):
-        real_ref = self.task_descriptor.retrieve_ref(ref)
+        real_ref = self.task_executor.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
 
 # Imports for Skywriting
@@ -442,6 +442,7 @@ class SkywritingExecutor:
         
         task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
         task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
+        task_context.bind_tasklocal_identifier("spawn_other", LambdaFunction(lambda x: self.spawn_other(x[0], x[1])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
         task_context.bind_tasklocal_identifier("int", SafeLambdaFunction(lambda x: int(x[0]), self))
         task_context.bind_tasklocal_identifier("range", SafeLambdaFunction(lambda x: range(*x), self))
@@ -499,6 +500,11 @@ class SkywritingExecutor:
                 return leaf
 
         return map_leaf_values(resolve_thunks_mapper, args)
+
+    def spawn_other(self, executor_name, executor_args_dict):
+        # Args dict arrives from sw with unicode keys :(
+        str_args = dict([(str(k), v) for (k, v) in executor_args_dict.items()])
+        return spawn_other(self.task_executor, executor_name, False, **str_args)
 
     def spawn_exec_func(self, executor_name, args, num_outputs):
         return spawn_other(self.task_executor, executor_name, False, args=args, n_outputs=num_outputs)
