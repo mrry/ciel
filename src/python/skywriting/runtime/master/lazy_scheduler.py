@@ -15,6 +15,7 @@ from shared.references import SW2_ConcreteReference
 from skywriting.runtime.task import TASK_QUEUED, TASK_QUEUED_STREAMING
 import logging
 import ciel
+import random
 
 '''
 Created on 15 Apr 2010
@@ -45,6 +46,9 @@ class LazyScheduler(AsynchronousExecutePlugin):
         
         # 2. Assign workers tasks from their respective queues.
         idle_workers = self.worker_pool.get_idle_workers()
+
+        # XXX: Shuffle the idle workers to prevent all tasks ending up on the same worker (when we have an idle cluster).
+        random.shuffle(idle_workers)
         attempt_count = 0
         while len(idle_workers) > 0:
             retry_workers = []
