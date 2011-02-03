@@ -146,35 +146,35 @@ do
 	CORE_PIN_CMD="taskset -c $I"
     fi
     
-    if [[ $LOCAL_CLUSTER -eq 1 ]]; then
-	STORENAME="store/store$I"
-	LOGNAME="worker$I"
-	WORKER_PORT=`expr $WORKER_PORT + 1` 
-    else
-	STORENAME="store"
-	LOGNAME="worker"
-    fi
-    
     if [ "$I" -eq "0" ]; then
 	echo "... as a master."
 	if [[ ($VERBOSE -eq 1) && ($SKIPMASTER -eq 0) ]]; then
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    sh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ;  $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/master.log"
+	    sh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ;  nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/master.log"
 	elif [[ $SKIPMASTER -eq 0 ]]; then
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/master.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/master.log"
 	fi
 	MASTER=$myLine
     else
+        if [[ $LOCAL_CLUSTER -eq 1 ]]; then
+	    STORENAME="store/store$I"
+	    LOGNAME="worker$I"
+	    WORKER_PORT=`expr $WORKER_PORT + 1` 
+	else
+	    STORENAME="store"
+	    LOGNAME="worker"
+	fi
+
 	echo "... as a worker for $MASTER, port $WORKER_PORT"
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -x -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 | tee $SWROOT/logs/$LOGNAME.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -x -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 | tee $SWROOT/logs/$LOGNAME.log"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/$LOGNAME.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/$LOGNAME.log"
 	fi
     fi
     I=`expr $I + 1`
