@@ -490,14 +490,14 @@ class StreamTransferContext(pycURLContextCallbacks):
                     self.response_code = int(match_obj.group(1))
             if _str.startswith("Pragma") != -1 and _str.find("streaming") != -1:
                 self.response_had_stream = True
+
+            # XXX: If response does not contain a Content-Length header, 
+            #      self.request_length will be set to None.
             match_obj = length_regex.match(_str)
             if match_obj is not None:
                 self.request_length = int(match_obj.group(1))
 
         def success(self):
-            cherrypy.log.error("Fetch %s succeeded (length %d)" 
-                               % (self.description, self.request_length), 
-                               "CURL_FETCH", logging.DEBUG)
             self.ctx.request_succeeded()
 
         def failure(self, errno, errstr):
@@ -764,7 +764,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         else:
             req_bytes = (req_end - req_start) + 1
         rx_length = self.current_fetch.request_length
-        if req_bytes is None or req_bytes > rx_length:
+        if req_bytes is None or rx_length is None or req_bytes > rx_length:
             # Potentially the end
             if not self.current_fetch.response_had_stream:
                 self.report_completion(True)
