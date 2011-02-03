@@ -12,10 +12,10 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from shared.references import SW2_ConcreteReference
-from skywriting.runtime.block_store import get_netloc_for_sw_url
 from skywriting.runtime.task import TASK_QUEUED, TASK_QUEUED_STREAMING
-import cherrypy
 import logging
+import ciel
+import random
 
 '''
 Created on 15 Apr 2010
@@ -46,6 +46,9 @@ class LazyScheduler(AsynchronousExecutePlugin):
         
         # 2. Assign workers tasks from their respective queues.
         idle_workers = self.worker_pool.get_idle_workers()
+
+        # XXX: Shuffle the idle workers to prevent all tasks ending up on the same worker (when we have an idle cluster).
+        random.shuffle(idle_workers)
         attempt_count = 0
         while len(idle_workers) > 0:
             retry_workers = []
@@ -95,5 +98,5 @@ class LazyScheduler(AsynchronousExecutePlugin):
             for good_worker in self.compute_good_workers_for_task(task):
                 good_worker.local_queue.put(task)
         else:
-            cherrypy.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
+            ciel.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
                                "SCHEDULER", logging.ERROR)

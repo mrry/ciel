@@ -6,8 +6,6 @@ Created on 17 Aug 2010
 import datetime
 from shared.references import SW2_FutureReference, SW2_StreamReference
 import time
-import cherrypy
-import logging
 
 TASK_CREATED = -1
 TASK_BLOCKING = 0
@@ -71,11 +69,9 @@ class Task:
 
 class TaskPoolTask(Task):
     
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, task_pool=None, job=None):
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, job=None):
         Task.__init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
-        
-        self.task_pool = task_pool
-        
+
         self.unfinished_input_streams = set()
 
         self._blocking_dict = {}
@@ -102,56 +98,6 @@ class TaskPoolTask(Task):
         
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
-
-    def check_dependencies(self, global_name_directory):
-        
-        if self.select_group is None:
-
-            self.inputs = {}
-
-            for local_id, input in self.dependencies.items():
-                if isinstance(input, SW2_FutureReference):
-                    global_id = input.id
-                    refs = global_name_directory.get_refs_for_id(global_id)
-                    if len(refs) > 0:
-                        self.inputs[local_id] = refs[0]
-                    else:
-                        self.block_on(global_id, local_id)
-                else:
-                    self.inputs[local_id] = input
-    
-            if len(self._blocking_dict) > 0:
-                self.set_state(TASK_BLOCKING)
-            else:
-                self.set_state(TASK_RUNNABLE)
-                
-        else:
-            
-            # select()-handling code.
-            if self.select_result is None:
-                
-                self.select_result = []
-                for i, ref in enumerate(self.select_group):
-                    if isinstance(ref, SW2_FutureReference):
-                        global_id = ref.id
-                        refs = global_name_directory.get_refs_for_id(global_id)
-                        if len(refs) > 0:
-                            self.select_result.append(i)
-                        else:
-                            self.selecting_dict[global_id] = i
-                    else:
-                        self.select_result.append(i)
-
-                if len(self.select_group) > 0 and len(self.select_result) == 0:
-                    self.set_state(TASK_SELECTING)
-                else:
-                    self.set_state(TASK_RUNNABLE)
-        
-            else:
-                
-                # We are replaying a task that has previously returned from a call to select().
-                # TODO: We need to make sure we handle blocking/failure for this task correctly.
-                self.set_state(TASK_RUNNABLE)
         
     def is_replay_task(self):
         return self.replay_ref is not None
@@ -180,10 +126,10 @@ class TaskPoolTask(Task):
         except KeyError:
             self._blocking_dict[global_id] = set([local_id])
             
-    def notify_reference_changed(self, global_id, ref):
+    def notify_reference_changed(self, global_id, ref, task_pool):
         if global_id in self.unfinished_input_streams:
             self.unfinished_input_streams.remove(global_id)
-            self.task_pool.unsubscribe_task_from_ref(self, ref)
+            task_pool.unsubscribe_task_from_ref(self, ref)
             if len(self.unfinished_input_streams) == 0:
                 if self.state == TASK_ASSIGNED_STREAMING:
                     self.set_state(TASK_ASSIGNED)
@@ -199,7 +145,32 @@ class TaskPoolTask(Task):
                     self.unfinished_input_streams.add(global_id)
                 else:
                     # Don't need to hear about this again
-                    self.task_pool.unsubscribe_task_from_ref(self, ref)
+                    task_pool.unsubscribe_task_from_ref(self, ref)
+                if len(self._blocking_dict) == 0:
+                    self.set_state(TASK_RUNNABLE)
+
+    def notify_ref_table_updated(self, ref_table_entry):
+        global_id = ref_table_entry.ref.id
+        ref = ref_table_entry.ref
+        if global_id in self.unfinished_input_streams:
+            self.unfinished_input_streams.remove(global_id)
+            ref_table_entry.remove_consumer(self)
+            if len(self.unfinished_input_streams) == 0:
+                if self.state == TASK_ASSIGNED_STREAMING:
+                    self.set_state(TASK_ASSIGNED)
+                elif self.state == TASK_QUEUED_STREAMING:
+                    self.set_state(TASK_QUEUED)
+        else:
+            if self.state == TASK_BLOCKING:
+                local_ids = self._blocking_dict.pop(global_id)
+                for local_id in local_ids:
+                    self.inputs[local_id] = ref
+                if isinstance(ref, SW2_StreamReference):
+                    # Stay subscribed; this ref is still interesting
+                    self.unfinished_input_streams.add(global_id)
+                else:
+                    # Don't need to hear about this again
+                    ref_table_entry.remove_consumer(self)
                 if len(self._blocking_dict) == 0:
                     self.set_state(TASK_RUNNABLE)
         
@@ -219,13 +190,6 @@ class TaskPoolTask(Task):
         for local_id, ref in self.dependencies.items(): 
             new_deps[local_id] = ref.as_future()
         self.dependencies = new_deps
-
-    def make_replay_task(self, replay_task_id, replay_ref):
-        
-        ret = TaskPoolTask(replay_task_id, self.parent, self.handler, self.inputs, self.dependencies, self.expected_outputs, self.save_continuation, self.continues_task, self.replay_uuids, self.select_group, self.select_result, TASK_RUNNABLE, self.task_pool)
-        ret.original_task_id = self.task_id
-        ret.replay_ref = replay_ref
-        return ret
 
     def as_descriptor(self, long=False):        
         descriptor = {'task_id': self.task_id,
@@ -304,7 +268,8 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, par
     
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state, task_pool)
+    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
+
 #
 #class Task:
 #    

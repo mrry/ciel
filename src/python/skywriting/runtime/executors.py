@@ -13,14 +13,13 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from subprocess import PIPE
+
 from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
     SWDataValue, SW2_StreamReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
-
-from shared.references import SWDataValue, SWRealReference,\
-    SWErrorReference, SW2_FutureReference, SW2_ConcreteReference
+from skywriting.runtime.exceptions import FeatureUnavailableException,\
+    BlameUserException, MissingInputException
 
 import hashlib
 import urlparse
@@ -29,15 +28,16 @@ import logging
 import shutil
 import subprocess
 import tempfile
-import os
 import os.path
-import cherrypy
 import threading
 import time
 import codecs
+from subprocess import PIPE
 from datetime import datetime
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
+
+import ciel
 
 running_children = {}
 
@@ -368,6 +368,7 @@ class SkywritingExecutor:
     
     def __init__(self, task_executor):
         self.task_executor = task_executor
+        self.stdlibbase = task_executor.stdlibbase
         self.block_store = task_executor.block_store
 
     def cleanup(self):
@@ -512,8 +513,11 @@ class SkywritingExecutor:
     def include_script(self, target_expr):
         if isinstance(target_expr, basestring):
             # Name may be relative to the local stdlib.
-            target_expr = urlparse.urljoin('http://%s/stdlib/' % self.block_store.netloc, target_expr)
-            target_ref = self.block_store.get_ref_for_url(target_expr, 0, self.task_id)
+            if not target_expr.startswith('http'):
+                target_url = 'file://%s' % os.path.join(self.stdlibbase, target_expr)
+            else:
+                target_url = target_expr
+            target_ref = self.block_store.get_ref_for_url(target_url, 0, self.task_id)
         elif isinstance(target_expr, SWRealReference):    
             target_ref = target_expr
         else:
@@ -522,7 +526,7 @@ class SkywritingExecutor:
         try:
             script = self.block_store.retrieve_object_for_ref(target_ref, 'script')
         except:
-            cherrypy.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
+            ciel.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
             raise BlameUserException('The included script did not parse successfully')
         return script
 
@@ -601,10 +605,10 @@ class SimpleExecutor:
                 if ref is not None:
                     self.task_executor.publish_ref(ref)
                 else:
-                    cherrypy.log.error("Executor failed to define output %s" % ref.id, "EXEC", logging.WARNING)
+                    ciel.log.error("Executor failed to define output %s" % ref.id, "EXEC", logging.WARNING)
             self.succeeded = True
         except:
-            cherrypy.log.error("Task execution failed", "EXEC", logging.ERROR, True)
+            ciel.log.error("Task execution failed", "EXEC", logging.ERROR, True)
             raise
         finally:
             self.cleanup_task()
@@ -680,7 +684,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         self.proc = None
 
-        cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
+        ciel.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
         transfer_ctx.wait_for_all_transfers()
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
@@ -693,7 +697,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         if rc != 0:
             raise OSError()
-        cherrypy.engine.publish("worker_event", "Executor: Storing outputs")
+        ciel.engine.publish("worker_event", "Executor: Storing outputs")
         for i, filename in enumerate(file_outputs):
 
             file_size = os.path.getsize(filename)
@@ -713,7 +717,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
             self.output_refs[i] = real_ref
             
-        cherrypy.engine.publish("worker_event", "Executor: Done")
+        ciel.engine.publish("worker_event", "Executor: Done")
 
     def start_process(self, input_files, output_files, transfer_ctx):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
@@ -748,7 +752,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
     def start_process(self, input_files, output_files, transfer_ctx):
 
         command_line = self.args["command_line"]
-        cherrypy.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
+        ciel.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
 
         with open(output_files[0], "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
@@ -773,7 +777,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
                     shutil.copyfileobj(fileobj, self.proc.stdin)
                 except IOError, e:
                     if e.errno == EPIPE:
-                        cherrypy.log.error('Abandoning cat due to EPIPE', 'EXEC', logging.WARNING)
+                        ciel.log.error('Abandoning cat due to EPIPE', 'EXEC', logging.WARNING)
                         break
                     else:
                         raise
@@ -798,7 +802,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
     def start_process(self, input_files, output_files, transfer_ctx):
 
         command_line = self.args["command_line"]
-        cherrypy.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
+        ciel.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
 
         with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
             for filename in input_files:
@@ -867,10 +871,10 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             self.argv = []
 
         self.before_execute()
-        cherrypy.engine.publish("worker_event", "Executor: running")
+        ciel.engine.publish("worker_event", "Executor: running")
 
         if "go_slow" in self.debug_opts:
-            cherrypy.log.error("DEBUG: Executor sleep(3)'ing", "EXEC", logging.DEBUG)
+            ciel.log.error("DEBUG: Executor sleep(3)'ing", "EXEC", logging.DEBUG)
             time.sleep(3)
 
         proc = subprocess.Popen(self.get_process_args(), shell=False, stdin=PIPE, stdout=PIPE, stderr=None, close_fds=True)
@@ -907,18 +911,18 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                     if c == ",":
                         if message[0] == "C":
                            timestamp = float(message[1:])
-                           cherrypy.engine.publish("worker_event", "Process log %f Computing" % timestamp)
+                           ciel.engine.publish("worker_event", "Process log %f Computing" % timestamp)
                         elif message[0] == "I":
                             try:
                                 params = message[1:].split("|")
                                 stream_id = int(params[0])
                                 timestamp = float(params[1])
-                                cherrypy.engine.publish("worker_event", "Process log %f Waiting %d" % (timestamp, stream_id))
+                                ciel.engine.publish("worker_event", "Process log %f Waiting %d" % (timestamp, stream_id))
                             except:
-                                cherrypy.log.error("Malformed data from stdout: %s" % message)
+                                ciel.log.error("Malformed data from stdout: %s" % message)
                                 raise
                         else:
-                            cherrypy.log.error("Malformed data from stdout: %s" % message)
+                            ciel.log.error("Malformed data from stdout: %s" % message)
                             raise Exception("Malformed stuff")
                         break
                     elif c == "":
@@ -932,14 +936,14 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
     def await_process(self, input_files, output_files, transfer_ctx):
         self.change_state("Running")
         if "trace_io" in self.debug_opts:
-            cherrypy.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.INFO)
+            ciel.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.INFO)
             self.gather_io_trace()
         rc = self.proc.wait()
         self.change_state("Done")
         transfer_ctx.consumers_detached()
-        cherrypy.log.error("Process terminated. Stats:", "EXEC", logging.INFO)
+        ciel.log.error("Process terminated. Stats:", "EXEC", logging.INFO)
         for key, value in self.state_times.items():
-            cherrypy.log.error("Time in state %s: %s seconds" % (key, value), "EXEC", logging.INFO)
+            ciel.log.error("Time in state %s: %s seconds" % (key, value), "EXEC", logging.INFO)
         return rc
 
     def get_process_args(self):
@@ -961,8 +965,10 @@ class JavaExecutor(FilenamesOnStdinExecutor):
 
         self.jar_refs = self.args["lib"]
         self.class_name = self.args["class"]
-        cherrypy.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
-        cherrypy.engine.publish("worker_event", "Java: fetching JAR")
+
+        ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
+        ciel.engine.publish("worker_event", "Java: fetching JAR")
+
         self.jar_filenames = self.get_filenames_eager(self.jar_refs)
 
     def get_process_args(self):
@@ -991,8 +997,8 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
         self.dll_refs = self.args['lib']
         self.class_name = self.args['class']
 
-        cherrypy.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
-        cherrypy.engine.publish("worker_event", "Dotnet: fetching DLLs")
+        ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
+        ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
         self.dll_filenames = self.get_filenames_eager(self.dll_refs)
 
     def get_process_args(self):
@@ -1018,8 +1024,9 @@ class CExecutor(FilenamesOnStdinExecutor):
     def before_execute(self, block_store):
         self.so_refs = args['lib']
         self.entry_point_name = args['entry_point']
-        cherrypy.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
-        cherrypy.engine.publish("worker_event", "C-exec: fetching SOs")
+
+        ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
+        ciel.engine.publish("worker_event", "C-exec: fetching SOs")
         self.so_filenames = self.get_filenames_eager(self.so_refs)
 
     def get_process_args(self):
@@ -1047,7 +1054,7 @@ class GrabURLExecutor(SimpleExecutor):
         urls = self.args['urls']
         version = self.args['version']
 
-        cherrypy.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
+        ciel.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
         
         for i, url in enumerate(urls):
             ref = self.block_store.get_ref_for_url(url, version, self.task_id)
@@ -1056,7 +1063,7 @@ class GrabURLExecutor(SimpleExecutor):
             self.block_store.cache_object(ref, "json", self.output_ids[i])
             self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
 
-        cherrypy.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
+        ciel.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
             
 class SyncExecutor(SimpleExecutor):
     

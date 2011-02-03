@@ -20,11 +20,10 @@ from shared.references import SW2_FutureReference, \
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
     TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED, TASK_QUEUED_STREAMING
 from threading import Lock
-import cherrypy
 import collections
 import logging
 import uuid
-import simplejson
+import ciel
 
 class LazyTaskPool(plugins.SimplePlugin):
     
@@ -124,7 +123,7 @@ class LazyTaskPool(plugins.SimplePlugin):
 
         (reason, details, bindings) = payload
 
-        cherrypy.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
+        ciel.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
         worker = None
         should_notify_outputs = False
 
@@ -143,7 +142,7 @@ class LazyTaskPool(plugins.SimplePlugin):
                     task.set_state(TASK_FAILED)
                     should_notify_outputs = True
                 else:
-                    cherrypy.log.error('Rescheduling task %s after worker failure' % task.task_id, 'TASKPOOL', logging.WARNING)
+                    ciel.log.error('Rescheduling task %s after worker failure' % task.task_id, 'TASKPOOL', logging.WARNING)
                     task.set_state(TASK_FAILED)
                     self.add_runnable_task(task)
                     self.bus.publish('schedule')
@@ -233,12 +232,12 @@ class LazyTaskPool(plugins.SimplePlugin):
             was_queued_streaming = task.is_queued_streaming()
             was_assigned_streaming = task.is_assigned_streaming()
             was_blocked = task.is_blocked()
-            task.notify_reference_changed(id, ref)
+            task.notify_reference_changed(id, ref, self)
             if was_blocked and not task.is_blocked():
                 self.add_runnable_task(task)
             elif was_assigned_streaming and not task.is_assigned_streaming():
                 # All input streams have finished; poke the task for prompt finish
-                cherrypy.log.error("Assigned task %s all streams done, notifying" % task.task_id, 
+                ciel.log.error("Assigned task %s all streams done, notifying" % task.task_id, 
                                    "TASKPOOL", logging.INFO)
                 self.worker_pool.notify_task_streams_done(task.worker, task)
             elif was_queued_streaming and not task.is_queued_streaming():
@@ -260,7 +259,7 @@ class LazyTaskPool(plugins.SimplePlugin):
             if len(subscribers) == 0:
                 del self.consumers_for_output[ref_id]
         except:
-            cherrypy.log.error("Job %s failed to unsubscribe from ref %s" % (job, ref_id), "TASKPOOL", logging.WARNING)
+            ciel.log.error("Job %s failed to unsubscribe from ref %s" % (job, ref_id), "TASKPOOL", logging.WARNING)
 
     def subscribe_task_to_ref(self, task, ref):
         try:
@@ -277,7 +276,7 @@ class LazyTaskPool(plugins.SimplePlugin):
             if len(subscribers) == 0:
                 del self.consumers_for_output[ref.id]
         except:
-            cherrypy.log.error("Task %s failed to unsubscribe from ref %s" % (task, ref.id), "TASKPOOL", logging.WARNING)
+            ciel.log.error("Task %s failed to unsubscribe from ref %s" % (task, ref.id), "TASKPOOL", logging.WARNING)
             
     def register_task_interest_for_ref(self, task, ref):
         if isinstance(ref, SW2_FutureReference):
@@ -370,7 +369,7 @@ class LazyTaskPool(plugins.SimplePlugin):
                     try:
                         producing_task = self.task_for_output[ref.id]
                     except KeyError:
-                        cherrypy.log.error('Task %s cannot access missing input %s and will block until this is produced' % (task.task_id, ref.id), 'TASKPOOL', logging.WARNING)
+                        ciel.log.error('Task %s cannot access missing input %s and will block until this is produced' % (task.task_id, ref.id), 'TASKPOOL', logging.WARNING)
                         continue
                     
                     # The producing task is inactive, so recursively visit it.                    

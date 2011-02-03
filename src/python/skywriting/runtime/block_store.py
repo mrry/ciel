@@ -23,7 +23,6 @@ import os
 import uuid
 import struct
 import tempfile
-import cherrypy
 import logging
 import pycurl
 import select
@@ -50,6 +49,7 @@ import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
 import skywriting
+import ciel
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -188,14 +188,14 @@ class pycURLThread:
         self.event_queue.post_event(callback_obj)
 
     def _add_context(self, ctx):
-        cherrypy.log.error("Event source registered", "CURL_FETCH", logging.INFO)
+        ciel.log.error("Event source registered", "CURL_FETCH", logging.INFO)
         self.contexts.append(ctx)
 
     def add_context(self, ctx):
         self.event_queue.post_event(lambda: self._add_context(ctx))
 
     def _remove_context(self, ctx):
-        cherrypy.log.error("Event source unregistered", "CURL_FETCH", logging.INFO)
+        ciel.log.error("Event source unregistered", "CURL_FETCH", logging.INFO)
         self.contexts.remove(ctx)
 
     def remove_context(self, ctx):
@@ -225,7 +225,7 @@ class pycURLThread:
                     for c in ok_list:
                         self.curl_ctx.remove_handle(c)
                         response_code = c.getinfo(pycurl.RESPONSE_CODE)
-#                        cherrypy.log.error("Curl success: %s -- %s" % (c.ctx.description, str(response_code)))
+#                        ciel.log.error("Curl success: %s -- %s" % (c.ctx.description, str(response_code)))
                         if str(response_code).startswith("2"):
                             c.ctx.callbacks.success()
                         else:
@@ -234,7 +234,7 @@ class pycURLThread:
                         self.active_fetches.remove(c.ctx)
                     for c, errno, errmsg in err_list:
                         self.curl_ctx.remove_handle(c)
-                        cherrypy.log.error("Curl failure: %s, %s" % 
+                        ciel.log.error("Curl failure: %s, %s" % 
                                            (str(errno), str(errmsg)), "CURL_FETCH", logging.WARNING)
                         c.ctx.callbacks.failure(errno, errmsg)
                         c.ctx.cleanup()
@@ -334,7 +334,7 @@ class RetryTransferContext(pycURLFetchCallbacks):
         try:
             self.multi.add_fetch(self, self.urls[self.failures])
         except IndexError:
-            cherrypy.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
+            ciel.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
             self.has_completed = True
             self.has_succeeded = False
             self.done_callback()
@@ -352,26 +352,26 @@ class FileTransferContext(RetryTransferContext):
         self.save_id = save_id
 
     def write_data(self, _str):
-        cherrypy.log.error("Fetching file syncly %s writing %d bytes" % 
+        ciel.log.error("Fetching file syncly %s writing %d bytes" % 
                            (self.save_id, len(_str)), 'CURL_FETCH', logging.DEBUG)
         self.bytes_written += len(_str)
         ret = self.sink_fp.write(_str)
-        cherrypy.log.error("Now at position %d (result of write was %s)" % 
+        ciel.log.error("Now at position %d (result of write was %s)" % 
                            (self.sink_fp.tell(), str(ret)), 'CURL_FETCH', logging.DEBUG)
 
     def reset(self):
-        cherrypy.log.error('Failed to fetch %s from %s, retrying...' % 
+        ciel.log.error('Failed to fetch %s from %s, retrying...' % 
                            (self.save_id, self.urls[self.failures-1]), 
                            'BLOCKSTORE', logging.WARNING)
         self.sink_fp.seek(0)
         self.sink_fp.truncate(0)
 
     def cleanup(self):
-        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % 
+        ciel.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' % 
                            (self.save_id, self.bytes_written, self.sink_fp.tell(), str(self.sink_fp.errors)), 
                            'CURL_FETCH', logging.DEBUG)
         self.sink_fp.close()
-        cherrypy.log.error('File now closed (errors = %s)' % 
+        ciel.log.error('File now closed (errors = %s)' % 
                            self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
 
     def save_result(self, block_store):
@@ -492,14 +492,14 @@ class StreamTransferContext(pycURLContextCallbacks):
                     self.response_code = int(match_obj.group(1))
             if _str.startswith("Pragma") != -1 and _str.find("streaming") != -1:
                 self.response_had_stream = True
+
+            # XXX: If response does not contain a Content-Length header, 
+            #      self.request_length will be set to None.
             match_obj = length_regex.match(_str)
             if match_obj is not None:
                 self.request_length = int(match_obj.group(1))
 
         def success(self):
-            cherrypy.log.error("Fetch %s succeeded (length %d)" 
-                               % (self.description, self.request_length), 
-                               "CURL_FETCH", logging.DEBUG)
             self.ctx.request_succeeded()
 
         def failure(self, errno, errstr):
@@ -525,7 +525,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
         def log_trace(self):
             for (t, e) in self.io_trace:
-                cherrypy.engine.publish("worker_event", "Fetch FIFO trace %d %f %s" % (self.report_index, t, e))
+                ciel.engine.publish("worker_event", "Fetch FIFO trace %d %f %s" % (self.report_index, t, e))
 
         def write_without_blocking(self, fd, _str):
             total_written = 0
@@ -664,7 +664,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         self.completion_callback = completion_callback
         self.report_index = report_index
         if do_io_trace:
-            cherrypy.log.error("DEBUG: pycURL trace active", "CURL_FETCH", logging.INFO)
+            ciel.log.error("DEBUG: pycURL trace active", "CURL_FETCH", logging.INFO)
             self.io_trace = []
         else:
             self.io_trace = None
@@ -676,7 +676,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def log_trace(self):
         for (t, e) in self.io_trace:
-            cherrypy.engine.publish("worker_event", "Fetch trace %d %f %s" % (self.report_index, t, e))
+            ciel.engine.publish("worker_event", "Fetch trace %d %f %s" % (self.report_index, t, e))
         self.fifo_sink.log_trace()
 
     def start(self):
@@ -698,7 +698,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def consider_restart(self):
         if self.dormant_until is None and not self.requests_paused:
-            cherrypy.log.error("Restart %s fetch" % self.description,
+            ciel.log.error("Restart %s fetch" % self.description,
                                'CURL_FETCH', logging.DEBUG)
             self.start_next_fetch()
 
@@ -741,11 +741,11 @@ class StreamTransferContext(pycURLContextCallbacks):
     def start_next_fetch(self):
         fifo_fetch_limit = self.fifo_sink.max_allowable_fetch()
         if fifo_fetch_limit is None:
-            cherrypy.log.error("Unbounded fetch %s offset %d" %
+            ciel.log.error("Unbounded fetch %s offset %d" %
                                (self.description, self.current_start_byte))
             fetch_end = None
         else:
-            cherrypy.log.error("Bounded fetch %s offset %d length %d" % 
+            ciel.log.error("Bounded fetch %s offset %d length %d" % 
                                (self.description, self.current_start_byte, fifo_fetch_limit), 'CURL_FETCH', logging.DEBUG)
             fetch_end = self.current_start_byte + fifo_fetch_limit
         self.trace_event("Request-sent")
@@ -755,7 +755,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         assert self.dormant_until is None
         self.trace_event("Dormant")
         self.dormant_until = datetime.now() + timedelta(0, secs)
-        cherrypy.log.error("Pausing %s fetch due to producer buffer empty" 
+        ciel.log.error("Pausing %s fetch due to producer buffer empty" 
                            % self.description, 'CURL_FETCH', logging.DEBUG)
 
     def request_succeeded(self):
@@ -766,7 +766,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         else:
             req_bytes = (req_end - req_start) + 1
         rx_length = self.current_fetch.request_length
-        if req_bytes is None or req_bytes > rx_length:
+        if req_bytes is None or rx_length is None or req_bytes > rx_length:
             # Potentially the end
             if not self.current_fetch.response_had_stream:
                 self.report_completion(True)
@@ -780,13 +780,13 @@ class StreamTransferContext(pycURLContextCallbacks):
             else:
                 # We should hold off on ordering another chunk until the process has consumed this one
                 # The restart will happen when the buffer drains.
-                cherrypy.log.error("Pausing %s fetch consumer buffer overfull" % self.description, 
+                ciel.log.error("Pausing %s fetch consumer buffer overfull" % self.description, 
                                    'CURL_FETCH', logging.DEBUG)
                 self.requests_paused = True
 
     def report_completion(self, succeeded):
         self.trace_event("EOF")
-        cherrypy.log.error("%s reporting EOF to client" % self.description, "CURL_FETCH", logging.INFO)
+        ciel.log.error("%s reporting EOF to client" % self.description, "CURL_FETCH", logging.INFO)
         self.fifo_sink.write_data_eof()
         self.has_completed = True
         self.has_succeeded = succeeded
@@ -803,7 +803,7 @@ class StreamTransferContext(pycURLContextCallbacks):
                 self.pause_for(1)
 
         else:
-            cherrypy.log.error("Fetch %s failed (error %s)" % 
+            ciel.log.error("Fetch %s failed (error %s)" % 
                                (self.description, str(errno)), 
                                "CURL_FETCH", logging.WARNING)
             if self.have_written_to_process:
@@ -819,7 +819,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def _consumer_attached(self):
         # Called from cURL thread
-        cherrypy.log.error("Client process for %s attached" % self.description, "CURL_FETCH", logging.INFO)
+        ciel.log.error("Client process for %s attached" % self.description, "CURL_FETCH", logging.INFO)
         self.fifo_sink.consumer_attached()
 
     def consumer_attached(self):
@@ -828,7 +828,7 @@ class StreamTransferContext(pycURLContextCallbacks):
 
     def _consumer_detached(self):
         # Called from cURL thread
-        cherrypy.log.error("Client process for %s detached" % self.description, "CURL_FETCH", logging.INFO)
+        ciel.log.error("Client process for %s detached" % self.description, "CURL_FETCH", logging.INFO)
         self.fifo_sink.consumer_detached()
         if self.requests_paused and not self.has_completed:
             self.requests_paused = False
@@ -841,7 +841,7 @@ class StreamTransferContext(pycURLContextCallbacks):
     def _try_again_now(self):
         # Called from cURL thread
         if not self.has_completed:
-            cherrypy.log.error("Transfer %s trying again immediately (producer reported done via master)" % self.description, "CURL_FETCH", logging.INFO)
+            ciel.log.error("Transfer %s trying again immediately (producer reported done via master)" % self.description, "CURL_FETCH", logging.INFO)
             if self.dormant_until is not None:
                 self.dormant_until = None
                 self.consider_restart()
@@ -852,12 +852,12 @@ class StreamTransferContext(pycURLContextCallbacks):
         
     def cleanup(self):
         # Called from arbitrary thread, but only after all cURL callbacks have completed
-        cherrypy.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' 
+        ciel.log.error('Closing sink file for %s (wrote %d bytes, tell = %d, errors = %s)' 
                            % (self.save_id, self.current_start_byte, self.sink_fp.tell(), str(self.sink_fp.errors)), 
                            'CURL_FETCH', logging.DEBUG)
         self.sink_fp.flush()
         self.sink_fp.close()
-        cherrypy.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
+        ciel.log.error('File now closed (errors = %s)' % self.sink_fp.errors, 'CURL_FETCH', logging.DEBUG)
         os.unlink(self.fifo_name)
         os.rmdir(self.fifo_dir)
         self.multi.remove_context(self)
@@ -1017,13 +1017,13 @@ class BlockStore(plugins.SimplePlugin):
         Called when an executor wants its output to be streamable.
         This method only prepares the block store, and
         '''
-        cherrypy.log.error('Prepublishing file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Prepublishing file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
         with self._lock:
             self.streaming_id_set.add(id)
             os.symlink(filename, self.streaming_filename(id))
                    
     def commit_file(self, filename, id, can_move=False):
-        cherrypy.log.error('Committing streamed file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Committing streamed file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
         if can_move:
             # Moving the file under the lock should be cheap.
             # N.B. We need to protect all operations because the streaming
@@ -1044,7 +1044,7 @@ class BlockStore(plugins.SimplePlugin):
         return url, file_size
 
     def rollback_file(self, id):
-        cherrypy.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
+        ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
         with self._lock:
             self.streaming_id_set.remove(id)
             os.unlink(self.streaming_filename(id))
@@ -1314,23 +1314,23 @@ class BlockStore(plugins.SimplePlugin):
             return random.choice(urls)
         
     def block_list_generator(self):
-        cherrypy.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
         for block_name in os.listdir(self.base_dir):
             if not block_name.startswith('.'):
                 block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
                 yield block_name, block_size
     
     def build_pin_set(self):
-        cherrypy.log.error('Building pin set', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Building pin set', 'BLOCKSTORE', logging.INFO)
         initial_size = len(self.pin_set)
         for filename in os.listdir(self.base_dir):
             if filename.startswith(PIN_PREFIX):
                 self.pin_set.add(filename[len(PIN_PREFIX):])
-                cherrypy.log.error('Pinning block %s' % filename[len(PIN_PREFIX):], 'BLOCKSTORE', logging.INFO)
-        cherrypy.log.error('Pinned %d new blocks' % (len(self.pin_set) - initial_size), 'BLOCKSTORE', logging.INFO)
+                ciel.log.error('Pinning block %s' % filename[len(PIN_PREFIX):], 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Pinned %d new blocks' % (len(self.pin_set) - initial_size), 'BLOCKSTORE', logging.INFO)
     
     def generate_block_list_file(self):
-        cherrypy.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
             filename = block_list_file.name
             for block_name, block_size in self.block_list_generator():
@@ -1346,10 +1346,10 @@ class BlockStore(plugins.SimplePlugin):
     def pin_ref_id(self, id):
         open(self.pin_filename(id), 'w').close()
         self.pin_set.add(id)
-        cherrypy.log.error('Pinned block %s' % id, 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Pinned block %s' % id, 'BLOCKSTORE', logging.INFO)
         
     def flush_unpinned_blocks(self, really=True):
-        cherrypy.log.error('Flushing unpinned blocks', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Flushing unpinned blocks', 'BLOCKSTORE', logging.INFO)
         files_kept = 0
         files_removed = 0
         for block_name in os.listdir(self.base_dir):
@@ -1360,9 +1360,9 @@ class BlockStore(plugins.SimplePlugin):
             elif not block_name.startswith(PIN_PREFIX):
                 files_kept += 1
         if really:
-            cherrypy.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+            ciel.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
         else:
-            cherrypy.log.error('If we flushed block store, would keep %d blocks, remove %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+            ciel.log.error('If we flushed block store, would keep %d blocks, remove %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
         return (files_kept, files_removed)
 
     def is_empty(self):

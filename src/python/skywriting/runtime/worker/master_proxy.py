@@ -11,6 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+import ciel
 
 '''
 Created on 15 Apr 2010
@@ -27,7 +28,6 @@ import random
 import cherrypy
 import socket
 import httplib2
-from cherrypy.process.plugins import SimplePlugin
 from threading import Event
 
 import simplejson
@@ -35,10 +35,10 @@ import simplejson
 def get_worker_netloc():
     return '%s:%d' % (socket.getfqdn(), cherrypy.config.get('server.socket_port'))
 
-class MasterProxy(SimplePlugin):
+class MasterProxy:
     
     def __init__(self, worker, bus, master_url=None):
-        SimplePlugin.__init__(self, bus)
+        self.bus = bus
         self.worker = worker
         self.master_url = master_url
         self.stop_event = Event()
@@ -72,14 +72,14 @@ class MasterProxy(SimplePlugin):
                 if response.status == 200:
                     return response, content
                 else:
-                    cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
-                    cherrypy.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
+                    ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
+                    ciel.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
                     raise MasterNotRespondingException()
             except:
-                cherrypy.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
+                ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
             self.stop_event.wait(initial_wait)
             initial_wait += initial_wait * random.uniform(0.5, 1.5)
-        cherrypy.log.error("Given up trying to contact master", "MSTRPRXY", logging.ERROR, True)
+        ciel.log.error("Given up trying to contact master", "MSTRPRXY", logging.ERROR, True)
         if self.stop_event.is_set():
             raise WorkerShutdownException()
         else:
@@ -122,12 +122,3 @@ class MasterProxy(SimplePlugin):
     def ping(self):
         message_url = urljoin(self.master_url, 'worker/%s/ping/' % (str(self.worker.id), ))
         self.backoff_request(message_url, "POST", "PING", 1, 0)
-        
-    def get_task_descriptor_for_future(self, ref):
-        message_url = urljoin(self.master_url, 'global_data/%d/task' % (ref.id, ))
-        (_, result) = self.backoff_request(message_url, "GET")
-        return simplejson.loads(result, object_hook=json_decode_object_hook)
-    
-    def abort_production_of_output(self, ref):
-        message_url = urljoin(self.master_url, 'global_data/%d' % (ref.id, ))
-        self.backoff_request(message_url, "DELETE")

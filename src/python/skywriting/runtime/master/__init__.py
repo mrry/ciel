@@ -17,7 +17,6 @@ from skywriting.runtime.master.lazy_task_pool import LazyTaskPool,\
 from skywriting.runtime.master.lazy_scheduler import LazyScheduler
 from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 from skywriting.runtime.master.master_view import MasterRoot
-from skywriting.runtime.master.data_store import GlobalNameDirectory
 from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.block_store import BlockStore
 from skywriting.runtime.task_executor import TaskExecutorPlugin
@@ -33,23 +32,21 @@ import cherrypy
 from skywriting.runtime.master.job_pool import JobPool
 import os
 from skywriting.runtime.master.recovery import RecoveryManager
+import ciel
 
 def master_main(options):
 
-    deferred_worker = DeferredWorkPlugin(cherrypy.engine)
+    deferred_worker = DeferredWorkPlugin(ciel.engine)
     deferred_worker.subscribe()
 
-    global_name_directory = GlobalNameDirectory(cherrypy.engine)
-    global_name_directory.subscribe()
-
-    worker_pool = WorkerPool(cherrypy.engine, deferred_worker)
+    worker_pool = WorkerPool(ciel.engine, deferred_worker)
     worker_pool.subscribe()
 
-    lazy_task_pool = LazyTaskPool(cherrypy.engine, worker_pool)
+    lazy_task_pool = LazyTaskPool(ciel.engine, worker_pool)
     task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
     lazy_task_pool.subscribe()
     
-    job_pool = JobPool(cherrypy.engine, lazy_task_pool, options.journaldir, global_name_directory)
+    job_pool = JobPool(ciel.engine, lazy_task_pool, options.journaldir)
     job_pool.subscribe()
 
     local_hostname = socket.getfqdn()
@@ -62,16 +59,16 @@ def master_main(options):
     else:
         block_store_dir = options.blockstore
 
-    block_store = BlockStore(cherrypy.engine, local_hostname, local_port, block_store_dir)
+    block_store = BlockStore(ciel.engine, local_hostname, local_port, block_store_dir)
     block_store.build_pin_set()
 
-    recovery_manager = RecoveryManager(cherrypy.engine, job_pool, lazy_task_pool, block_store, deferred_worker)
+    recovery_manager = RecoveryManager(ciel.engine, job_pool, lazy_task_pool, block_store, deferred_worker)
     recovery_manager.subscribe()
 
-    scheduler = LazyScheduler(cherrypy.engine, lazy_task_pool, worker_pool)
+    scheduler = LazyScheduler(ciel.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory, job_pool)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, job_pool)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 
@@ -82,12 +79,12 @@ def master_main(options):
 
     cherrypy.tree.mount(root, "", cherrypy_conf)
     
-    if hasattr(cherrypy.engine, "signal_handler"):
-        cherrypy.engine.signal_handler.subscribe()
-    if hasattr(cherrypy.engine, "console_control_handler"):
-        cherrypy.engine.console_control_handler.subscribe()
+    if hasattr(ciel.engine, "signal_handler"):
+        ciel.engine.signal_handler.subscribe()
+    if hasattr(ciel.engine, "console_control_handler"):
+        ciel.engine.console_control_handler.subscribe()
 
-    cherrypy.engine.start()
+    ciel.engine.start()
     
     
     
@@ -101,23 +98,23 @@ def master_main(options):
                     http.request(urllib2.urlparse.urljoin(worker_url, '/master/'), "POST", master_details_as_json)
                     # Worker will be created by a callback.
                 except:
-                    cherrypy.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)
+                    ciel.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)
                     
-    cherrypy.engine.block()
+    ciel.engine.block()
 
-#    sch = SchedulerProxy(cherrypy.engine)
+#    sch = SchedulerProxy(ciel.engine)
 #    sch.subscribe()
 #
-#    reaper = WorkerReaper(cherrypy.engine)
+#    reaper = WorkerReaper(ciel.engine)
 #    reaper.subscribe()
 #
-#    wr = WorkflowRunner(cherrypy.engine)
+#    wr = WorkflowRunner(ciel.engine)
 #    wr.subscribe()
 #
-#    te = TaskExecutor(cherrypy.engine)
+#    te = TaskExecutor(ciel.engine)
 #    te.subscribe()
 #
-#    ph = PingHandler(cherrypy.engine)
+#    ph = PingHandler(ciel.engine)
 #    ph.subscribe()
 
 if __name__ == '__main__':

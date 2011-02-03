@@ -16,22 +16,19 @@ from __future__ import with_statement
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from skywriting.runtime.exceptions import ReferenceUnavailableException
 from threading import Lock
-import cherrypy
 import logging
 import hashlib
-import subprocess
-import pickle
-import simplejson
-import os.path
+import ciel
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, skypybase, block_store, master_proxy, execution_features, num_threads=1):
+    def __init__(self, bus, skypybase, stdlibbase, block_store, master_proxy, execution_features, num_threads=1):
         AsynchronousExecutePlugin.__init__(self, bus, num_threads, "execute_task")
         self.block_store = block_store
         self.master_proxy = master_proxy
         self.execution_features = execution_features
         self.skypybase = skypybase
+        self.stdlibbase = stdlibbase
 
         self.root_executor = None
         self.root_handler = None
@@ -59,14 +56,14 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
     # Helper functions for main
 
     def run_task_with_executor(self, task_descriptor, executor):
-        cherrypy.engine.publish("worker_event", "Start execution " + repr(task_descriptor['task_id']) + " with handler " + task_descriptor['handler'])
-        cherrypy.log.error("Starting task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.INFO, False)
+        ciel.engine.publish("worker_event", "Start execution " + repr(task_descriptor['task_id']) + " with handler " + task_descriptor['handler'])
+        ciel.log.error("Starting task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.INFO, False)
         try:
             executor.run(task_descriptor)
-            cherrypy.engine.publish("worker_event", "Completed execution " + repr(task_descriptor['task_id']))
-            cherrypy.log.error("Completed task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.INFO, False)
+            ciel.engine.publish("worker_event", "Completed execution " + repr(task_descriptor['task_id']))
+            ciel.log.error("Completed task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.INFO, False)
         except:
-            cherrypy.log.error("Error in task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.ERROR, True)
+            ciel.log.error("Error in task %s with handler %s" % (str(task_descriptor['task_id']), task_descriptor['handler']), 'TASK', logging.ERROR, True)
 
     def spawn_all(self):
         if len(self.spawned_tasks) == 0:

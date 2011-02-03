@@ -25,9 +25,13 @@ SWUSER="root"
 SWROOT="/opt/skywriting"
 VERBOSE=0
 SKIPMASTER=0
+LOCAL_CLUSTER=0
+CORE_PINNING=0
 WORKER_PORT=8001
 MASTER_PORT=8000
 LOG_OPERATOR=">"
+STORENAME="store"
+LOGNAME="worker"
 
 # ---------------------------------------------
 # option processing
@@ -38,6 +42,11 @@ do
   in
     --al)
       LOG_OPERATOR=">>"
+      shift 1
+    ;;
+    
+    --core-pin)
+      CORE_PINNING=1
       shift 1
     ;;
 
@@ -55,6 +64,11 @@ do
          SOURCE=$2
       fi
       shift 2
+    ;;
+    
+    --lc|--localcluster)
+      LOCAL_CLUSTER=1
+      shift 1
     ;;
     
     --mp)
@@ -99,10 +113,13 @@ do
       echo "usage: sw-launch-cluster [-f cluster-file|(-i|-k) key|-r swroot|-u swuser|-v]"
       echo "--al: appends to the log file instead of overwriting it (default: off)."
       echo "      Ignored if -v is set."
+      echo "--core-pin: pins worker processes to processors. N.B.: this assumes you actually "
+      echo "            have at least as many processors as workers!"
       echo "-f: the file listing the machines in the cluster, one per line."
       echo "    If '--' is passed, STDIN is assumed."
       echo "-i|-k: the private key to use for authentication to cluster machines"
       echo "       (defaults to 'sw-masterkey')"
+      echo "--lc|--localcluster: runs a local cluster, i.e. increments worker port numbers"
       echo "--mp: allows specification of a master port (default: 8000)"
       echo "-r|--swroot: the root directory of the remote Skywriting installation"
       echo "             (defaults to '/opt/skywriting')"
@@ -125,26 +142,39 @@ I=0
 cat $SOURCE | while myLine=`line`
 do
     echo -n "Setting up instance $I "
+    if [[ $CORE_PINNING -eq 1 ]]; then 
+	CORE_PIN_CMD="taskset -c $I"
+    fi
+    
     if [ "$I" -eq "0" ]; then
 	echo "... as a master."
 	if [[ ($VERBOSE -eq 1) && ($SKIPMASTER -eq 0) ]]; then
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/master.log"
+	    sh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ;  nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/master.log"
 	elif [[ $SKIPMASTER -eq 0 ]]; then
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/master.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/master.log"
 	fi
 	MASTER=$myLine
     else
-	echo "... as a worker for $MASTER"
-	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -x -p ${WORKER_PORT} -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/worker.log"
+        if [[ $LOCAL_CLUSTER -eq 1 ]]; then
+	    STORENAME="store/store$I"
+	    LOGNAME="worker$I"
+	    WORKER_PORT=`expr $WORKER_PORT + 1` 
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -p ${WORKER_PORT} -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/worker.log"
+	    STORENAME="store"
+	    LOGNAME="worker"
+	fi
+
+	echo "... as a worker for $MASTER, port $WORKER_PORT"
+	if [[ $VERBOSE -eq 1 ]]; then
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -x -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 | tee $SWROOT/logs/$LOGNAME.log"
+	else
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/$LOGNAME.log"
 	fi
     fi
     I=`expr $I + 1`

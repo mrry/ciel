@@ -13,10 +13,9 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import tempfile
 import shutil
-from skywriting.runtime.master import deferred_work
-import cherrypy
 import logging
 import os
+import ciel
 
 class UploadSession:
     
@@ -66,7 +65,7 @@ class UploadManager:
         self.deferred_work.do_deferred(lambda: self.fetch_refs_deferred(session_id, refs))
         
     def fetch_refs_deferred(self, session_id, refs):
-        cherrypy.log.error('Fetching session %s' % session_id, 'UPLOAD', logging.INFO)
+        ciel.log.error('Fetching session %s' % session_id, 'UPLOAD', logging.INFO)
         try:
             self.block_store.retrieve_filenames_for_refs_eager(refs)
             self.current_fetches[session_id] = 200
@@ -74,4 +73,4 @@ class UploadManager:
                 self.block_store.pin_ref_id(ref.id)
         except:
             self.current_fetches[session_id] = 500
-        cherrypy.log.error('Finished session %s, status = %d' % (session_id, self.current_fetches[session_id]), 'UPLOAD', logging.INFO)
+        ciel.log.error('Finished session %s, status = %d' % (session_id, self.current_fetches[session_id]), 'UPLOAD', logging.INFO)

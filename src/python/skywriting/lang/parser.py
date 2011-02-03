@@ -233,7 +233,7 @@ class CloudScriptParser:
         p[0] = p[1]
     
     def p_unary_expression_2(self, p):
-        """ unary_expression : STAR binary_expression
+        """ unary_expression : STAR unary_expression
         """
         p[0] = ast.Dereference(p[2])
 

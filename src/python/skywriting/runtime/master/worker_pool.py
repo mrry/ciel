@@ -16,13 +16,13 @@ from cherrypy.process import plugins
 from Queue import Queue
 from threading import Condition, RLock
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
-import random
 import datetime
 import simplejson
 import httplib2
 import uuid
-import cherrypy
+import random
 import logging
+import ciel
 
 class FeatureQueues:
     def __init__(self):
@@ -115,7 +115,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.workers[id] = worker
             try:
                 previous_worker_at_netloc = self.netlocs[worker.netloc]
-                cherrypy.log.error('Worker at netloc %s has reappeared' % worker.netloc, 'WORKER_POOL', logging.WARNING)
+                ciel.log.error('Worker at netloc %s has reappeared' % worker.netloc, 'WORKER_POOL', logging.WARNING)
                 self.worker_failed(previous_worker_at_netloc)
             except KeyError:
                 pass
@@ -130,7 +130,7 @@ class WorkerPool(plugins.SimplePlugin):
             has_blocks = False
             
         if has_blocks:
-            cherrypy.log.error('%s has blocks, so will fetch' % str(worker), 'WORKER_POOL', logging.INFO)
+            ciel.log.error('%s has blocks, so will fetch' % str(worker), 'WORKER_POOL', logging.INFO)
             self.bus.publish('fetch_block_list', worker)
             
         self.bus.publish('schedule')
@@ -149,7 +149,8 @@ class WorkerPool(plugins.SimplePlugin):
         
     def get_idle_workers(self):
         with self._lock:
-            return map(lambda x: self.workers[x], self.idle_set)
+            worker_list = map(lambda x: self.workers[x], self.idle_set)
+        return worker_list
     
     def execute_task_on_worker(self, worker, task):
         with self._lock:
@@ -186,7 +187,7 @@ class WorkerPool(plugins.SimplePlugin):
             self.worker_failed(worker)
     
     def worker_failed(self, worker):
-        cherrypy.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
+        ciel.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         with self._lock:
             self.event_count += 1
             self.event_condvar.notify_all()
@@ -244,7 +245,7 @@ class WorkerPool(plugins.SimplePlugin):
             return self.event_count
 
     def investigate_worker_failure(self, worker):
-        cherrypy.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
+        ciel.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         try:
             _, content = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
             id = simplejson.loads(content)
