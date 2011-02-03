@@ -1107,9 +1107,9 @@ class InitExecutor:
                                             task_descriptor["task_private"]["start_handler"], 
                                             False,
                                             **(task_descriptor["task_private"]["start_args"]))
+
         # Spawn this one manually so I can delegate my output
         final_task_descriptor = {"handler": "sync",
-                                 "dependencies": initial_task_out_refs,
                                  "expected_outputs": task_descriptor["expected_outputs"]}
         self.task_executor.spawn_task(final_task_descriptor, args={"inputs": initial_task_out_refs}, n_outputs=1)
 

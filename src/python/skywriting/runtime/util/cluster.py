@@ -17,21 +17,16 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from skywriting.lang.parser import \
-    SWScriptParser
-from skywriting.runtime.task_executor import SWContinuation
-from shared.references import SW2_ConcreteReference
-from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook
-from skywriting.lang.context import SimpleContext
+from skywriting.runtime.block_store import BlockStore, json_decode_object_hook
+import skywriting.runtime.util.start_job
 import time
 import datetime
 import simplejson
-import pickle
-import urlparse
-import httplib2
 import sys
 import os
 from optparse import OptionParser
+
+import ciel
 
 def now_as_timestamp():
     return (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())
@@ -59,58 +54,20 @@ def main():
     
     print id, "STARTED", now_as_timestamp()
 
-    parser = SWScriptParser()
-    
-    script = parser.parse(open(script_name, 'r').read())
-
-    print id, "FINISHED_PARSING", now_as_timestamp()
-    
-    if script is None:
-        print "Script did not parse :("
-        exit()
-    
-    cont = SWContinuation(script, SimpleContext())
+    swi_package = {"swimain": {"filename": script_name}}
+    swi_args = {"sw_file_ref": {"__package__": "swimain"}}
     if options.send_env:
-        cont.context.bind_identifier('env', os.environ)
-    
-    http = httplib2.Http()
-    
-    master_data_uri = urlparse.urljoin(master_uri, "/data/")
-    pickled_cont = pickle.dumps(cont)
-    (_, content) = http.request(master_data_uri, "POST", pickled_cont)
-    cont_id = simplejson.loads(content)
-    
-    print id, "SUBMITTED_CONT", now_as_timestamp()
-    
-    #print continuation_uri
-    
-    master_netloc = urlparse.urlparse(master_uri).netloc
-    cont_ref = SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])
-    task_descriptor = {'dependencies': [cont_ref], 'task_private':{'cont':cont_ref} 'handler': 'swi'}
-    
-    master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
-    (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
-    
-    print id, "SUBMITTED_JOB", now_as_timestamp() 
-    
-    
-    out = simplejson.loads(content)
-    
-    notify_url = urlparse.urljoin(master_uri, "/job/%s/completion" % out['job_id'])
-    job_url = urlparse.urljoin(master_uri, "/browse/job/%s" % out['job_id'])
+        swi_args["env"] = os.environ
 
-    print id, "JOB_URL", job_url
+    new_job = skywriting.runtime.util.start_job.submit_job_with_package(swi_package, "swi", swi_args, os.getcwd(), master_uri)
     
-    #print "Blocking to get final result"
-    (_, content) = http.request(notify_url)
-    completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
-    if "error" in completion_result.keys():
-        print id, "ERROR", completion_result["error"]
-        return None
-    else:
-        print id, "GOT_RESULT", now_as_timestamp()
-        #print content
-        return completion_result["result_ref"]
-
+    result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
+    
+    fakeBlockStore = BlockStore(ciel.engine, None, None, "/tmp")
+    reflist = fakeBlockStore.retrieve_object_for_ref(result, "json")
+    sw_return = fakeBlockStore.retrieve_object_for_ref(reflist[0], "json")
+    fakeBlockStore.stop_thread()
+    return sw_return
+    
 if __name__ == '__main__':
     main()
