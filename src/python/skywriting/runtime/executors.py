@@ -614,6 +614,7 @@ class SimpleExecutor:
             self.debug_opts = self.args['debug_options']
         except KeyError:
             self.debug_opts = []
+        self.resolve_required_refs(self.args)
         try:
             self._execute()
             for ref in self.output_refs:
@@ -703,8 +704,10 @@ class ProcessRunningExecutor(SimpleExecutor):
         transfer_ctx.wait_for_all_transfers()
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
-
-        transfer_ctx.cleanup(self.block_store)
+            
+        with self._lock:
+            transfer_ctx.cleanup(self.block_store)
+            self.transfer_ctx = None
 
         failure_bindings = transfer_ctx.get_failed_refs()
         if failure_bindings is not None:
@@ -864,9 +867,9 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         self.current_state = new_state
 
     def resolve_required_refs(self, args):
-        SimpleExecutor.resolve_required_refs(self, args, get_ref_callback)
+        SimpleExecutor.resolve_required_refs(self, args)
         try:
-            foreign_args["lib"] = [self.task_executor.retrieve_ref(ref) for ref in args["lib"]]
+            args["lib"] = [self.task_executor.retrieve_ref(ref) for ref in args["lib"]]
         except KeyError:
             pass
 
