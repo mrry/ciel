@@ -133,7 +133,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         # TODO here: use the master's task-graph apparatus.
         if "hint_small_task" in new_task_descriptor:
             for output in new_task_descriptor['expected_outputs']:
-                task_for_output_id[output] = new_task_descriptor
+                self.task_for_output_id[output] = new_task_descriptor
         self.spawned_tasks.append(new_task_descriptor)
         return new_task_descriptor
 

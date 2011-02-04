@@ -16,7 +16,7 @@ from __future__ import with_statement
 
 from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference
+    SWDataValue, SW2_StreamReference, SWErrorReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
@@ -821,7 +821,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         ProcessRunningExecutor.__init__(self, task_executor)
         self.handler_name = "env"
 
-    def check_args_valid(self, args, expected_output_ids):
+    def check_args_valid(self, args, n_outputs):
 
         ProcessRunningExecutor.check_args_valid(self, args, n_outputs)
         if "command_line" not in args:
@@ -1050,8 +1050,8 @@ class CExecutor(FilenamesOnStdinExecutor):
             raise BlameUserException('Incorrect arguments to the C-so executor: %s' % repr(args))
 
     def before_execute(self, block_store):
-        self.so_refs = args['lib']
-        self.entry_point_name = args['entry_point']
+        self.so_refs = self.args['lib']
+        self.entry_point_name = self.args['entry_point']
 
         ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         ciel.engine.publish("worker_event", "C-exec: fetching SOs")
