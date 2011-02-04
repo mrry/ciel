@@ -14,11 +14,13 @@
 from ciel.logger import CielLogger
 import logging
 
-try:
-    import cherrypy
-    log = cherrypy.log
-except ImportError:
-    log = CielLogger()
+#try:
+#    import cherrypy
+#    log = cherrypy.log
+#except ImportError:
+#    log = CielLogger()
+ 
+log = CielLogger()
     
 try:
     import cherrypy

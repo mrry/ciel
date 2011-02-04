@@ -15,6 +15,7 @@ import logging
 import sys
 import datetime
 import rfc822
+import time
 
 class CielLogger:
     
@@ -45,11 +46,12 @@ class CielLogger:
         self.log.log(severity, ' '.join((self.time(), context, msg)))
     
     def time(self):
-        """Return now() in Apache Common Log Format (no timezone)."""
-        now = datetime.datetime.now()
-        month = rfc822._monthnames[now.month - 1].capitalize()
-        return ('[%02d/%s/%04d:%02d:%02d:%02d]' %
-                (now.day, month, now.year, now.hour, now.minute, now.second))
+        return '[%f]' % (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())
+        #"""Return now() in Apache Common Log Format (no timezone)."""
+        #now = datetime.datetime.now()
+        #month = rfc822._monthnames[now.month - 1].capitalize()
+        #return ('[%02d/%s/%04d:%02d:%02d:%02d]' %
+        #        (now.day, month, now.year, now.hour, now.minute, now.second))
     
 def format_exc(exc=None):
     """Return exc (or sys.exc_info if None), formatted."""

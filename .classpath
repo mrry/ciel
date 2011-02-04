@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="src" path="src/java"/>
-	<classpathentry kind="src" path="examples/hadoop"/>
 	<classpathentry kind="src" path="examples/skyhout/src/java"/>
 	<classpathentry kind="src" path="examples/tests/src/java"/>
 	<classpathentry kind="src" path="examples/Pi/src/java"/>
