@@ -1114,10 +1114,13 @@ class InitExecutor:
 
     def run(self, task_descriptor):
         
+        args_dict = task_descriptor["task_private"]["start_args"]
+        # Some versions of simplejson make these ascii keys into unicode objects :(
+        args_dict = dict([(str(k), v) for (k, v) in args_dict.items()])
         initial_task_out_refs = spawn_other(self.task_executor,
                                             task_descriptor["task_private"]["start_handler"], 
                                             False,
-                                            **(task_descriptor["task_private"]["start_args"]))
+                                            **args_dict)
 
         # Spawn this one manually so I can delegate my output
         final_task_descriptor = {"handler": "sync",
