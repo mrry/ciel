@@ -200,7 +200,9 @@ class ProcessRunningExecutor(SWExecutor):
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
 
-        transfer_ctx.cleanup(block_store)
+        with self._lock:
+            transfer_ctx.cleanup(block_store)
+            self.transfer_ctx = None
 
         failure_bindings = transfer_ctx.get_failed_refs()
         if failure_bindings is not None:

@@ -160,6 +160,11 @@ class SelectableEventQueue:
     def get_select_fds(self):
         return [self.event_pipe_read], [], []
 
+    # Called after all event-posting and dispatching is complete
+    def cleanup(self):
+        os.close(self.event_pipe_read)
+        os.close(self.event_pipe_write)
+
 class pycURLThread:
 
     def __init__(self):
@@ -192,12 +197,16 @@ class pycURLThread:
     def add_context(self, ctx):
         self.event_queue.post_event(lambda: self._add_context(ctx))
 
-    def _remove_context(self, ctx):
+    def _remove_context(self, ctx, e):
         cherrypy.log.error("Event source unregistered", "CURL_FETCH", logging.INFO)
         self.contexts.remove(ctx)
+        e.set()
 
+    # Synchronous so that when this call returns the caller definitely will not get any more callbacks
     def remove_context(self, ctx):
-        self.event_queue.post_event(lambda: self._remove_context(ctx))
+        e = threading.Event()
+        self.event_queue.post_event(lambda: self._remove_context(ctx, e))
+        e.wait()
 
     def _stop_thread(self):
         self.dying = True
@@ -859,6 +868,7 @@ class StreamTransferContext(pycURLContextCallbacks):
         os.unlink(self.fifo_name)
         os.rmdir(self.fifo_dir)
         self.multi.remove_context(self)
+        self.event_queue.cleanup()
 
     def save_result(self, block_store):
         # Called from arbitrary thread, but only after all cURL callbacks have completed
