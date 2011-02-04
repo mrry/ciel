@@ -52,6 +52,24 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
         elif isinstance(value, dict):
             if "__package__" in value:
                 return submit_package_dict[value["__package__"]]
+            elif "__args__" in value:
+                try:
+                    return sys.argv[value["__args__"]]
+                except IndexError:
+                    if "default" in value:
+                        print "Positional argument", value["__args__"], "not specified; using default", value["default"]
+                        return value["default"]
+                    else:
+                        raise Exception("Package requires at least %d args" % value["__args__"])
+            elif "__env__" in value:
+                try:
+                    return os.environ[value["__env__"]]
+                except KeyError:
+                    if "default" in value:
+                        print "Environment variable", value["__env__"], "not specified; using default", value["default"]
+                        return value["default"]
+                    else:
+                        raise Exception("Package requires environment variable '%s'" % value["__env__"])
             else:
                 return dict([(resolve_package_refs(k), resolve_package_refs(v)) for (k, v) in value.items()])
         else:

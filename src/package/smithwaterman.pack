@@ -1,0 +1,15 @@
+{"package":
+	{
+	"swmain": {"filename": "../sw/smithwaterman.sw"},
+	"smithwaterman_jar": {"filename": "../../examples/SmithWaterman/src/java/SmithWaterman.jar"},
+	"input1": {"filename": "/home/dgm36/public_html/horizontal_string_random", "index": true},
+	"input2": {"filename": "/home/dgm36/public_html/vertical_string_random", "index": true}
+	},
+"start":
+	{"handler": "swi",
+	 "args": {
+	 	 "sw_file_ref": {"__package__": "swmain"},
+		 "start_env": {"NUM_ROWS": {"__env__": "NUM_ROWS", "default": "10"}, "NUM_COLS": {"__env__": "NUM_COLS", "default": "10"}}
+		 }
+	}
+}
