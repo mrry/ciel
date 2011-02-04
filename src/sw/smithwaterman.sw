@@ -51,6 +51,4 @@ for (i in range(1, num_rows)) {
 
 // -----------------------------------------
 
-ignore = spawn_exec("sync", {"inputs":[blocks[i][j][0]]}, 1);
-
-return *(ignore[0]);
+return (*(spawn_exec("sync", {"inputs":[blocks[i][j][0]]}, 1)))[0];

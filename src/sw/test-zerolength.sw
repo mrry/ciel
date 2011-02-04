@@ -4,6 +4,4 @@ prod = spawn_exec("stdinout", {"command_line":["sleep", "10"], "inputs":[], "str
 
 cons = spawn_exec("java", {"argv":["foo", "bar"], "lib":[jar], "inputs":prod, "class":"tests.Test1"}, 1);
 
-ign = spawn_exec("sync", {"inputs":cons}, 1);
-
-return *(ign[0]);
+return *((spawn_exec("sync", {"inputs":cons}, 1))[0]);

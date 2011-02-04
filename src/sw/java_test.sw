@@ -30,6 +30,4 @@ worker_jar = package("workerjar");
 
 test3_out = exec("java", {"inputs":inputs, "lib":[master_jar, worker_jar], "class":"Test3Master", "argv":["1", 234, 23]}, 2);
 
-demand = exec("sync", {"inputs": [test1_out[0], test2_out[0], test3_out[0]]}, 1);
-
-return *(demand[0]);
+return (*exec("sync", {"inputs": [test1_out[0], test2_out[0], test3_out[0]]}, 1))[0];

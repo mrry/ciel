@@ -48,11 +48,6 @@ reduce_outputs2 = java("skywriting.examples.grep.GrepReducer2", reduce_outputs, 
 
 // -----------------------------------------
 
-ignore = *(spawn_exec("sync", {"inputs" : reduce_outputs2}, 1)[0]);
-
-while (!ignore) { foo = 1; }
-
-return reduce_outputs2[0];
-
+return (*(spawn_exec("sync", {"inputs" : reduce_outputs2}, 1)[0]))[0];
  
 

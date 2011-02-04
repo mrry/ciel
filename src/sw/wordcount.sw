@@ -45,11 +45,8 @@ for(i in range(0, num_reducers)) {
 
 // -----------------------------------------
 
-ignore = *(spawn_exec("sync", {"inputs" : reduce_outputs}, 1)[0]);
+return (*(spawn_exec("sync", {"inputs" : reduce_outputs}, 1)[0]))[0];
 
-while (!ignore) { foo = 1; }
-
-return reduce_outputs;
 
  
 
