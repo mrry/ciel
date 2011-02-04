@@ -17,7 +17,7 @@
     	<sequential>
         	<jar destfile="${dir.dist}/sky-eg-@{example}.jar">
         	    <fileset dir="${dir.build}" includes="skywriting/examples/@{example}/**"/>            
-    	    </jar>
+    		</jar>
     	</sequential>
 	</macrodef>
 

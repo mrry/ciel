@@ -190,7 +190,10 @@ class FileOrString:
             return pickle.loads(self.str)
         else:
             with open(self.filename, "r") as f:
-                return pickle.load(f)        
+                return pickle.load(f)
+
+    def toobj(self):
+        return self.tostr()
 
 class SkyPyExecutor:
     
@@ -203,7 +206,7 @@ class SkyPyExecutor:
     def cleanup(self):
         pass
         
-    def build_task_descriptor(self, task_descriptor, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None):
+    def build_task_descriptor(self, task_descriptor, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False):
 
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
@@ -219,6 +222,7 @@ class SkyPyExecutor:
             task_descriptor["task_private"]["entry_args"] = entry_args
         task_descriptor["task_private"]["py_ref"] = pyfile_ref
         task_descriptor["dependencies"].append(pyfile_ref)
+        task_descriptor["task_private"]["export_json"] = export_json
         if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         add_package_dep(self.task_executor, task_descriptor)
@@ -258,7 +262,7 @@ class SkyPyExecutor:
             pypy_args.extend(["--resume_state", coroutine_filename])
         else:
             pypy_args.append("--await_entry_point")
-
+            
         pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
         if "coro_ref" not in skypy_private:
@@ -303,11 +307,17 @@ class SkyPyExecutor:
                                                "expected_outputs": task_descriptor["expected_outputs"], 
                                                "dependencies": cont_deps},
                                               coro_data=coro_data,
-                                              pyfile_ref=pyfile_ref)
+                                              pyfile_ref=pyfile_ref,
+                                              export_json=skypy_private["export_json"])
                 return
             elif request == "done":
                 # The interpreter is stopping because the function has completed
-                self.task_executor.publish_ref(FileOrString(request_args, self.block_store).toref(task_descriptor["expected_outputs"][0]))
+                result = FileOrString(request_args, self.block_store)
+                if skypy_private["export_json"]:
+                    result_ref = self.block_store.ref_from_object(result.toobj(), "json", task_descriptor["expected_outputs"][0])
+                else:
+                    result_ref = result.toref(task_descriptor["expected_outputs"][0])
+                self.task_executor.publish_ref(result_ref)
                 return
             elif request == "exception":
                 report_text = FileOrString(request_args, self.block_store).tostr()

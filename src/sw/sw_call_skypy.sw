@@ -1,4 +1,4 @@
 
-skypy_result = spawn_other("skypy", {"pyfile_ref": package("skypy_main"), "entry_point": "skypy_callback", "entry_args": ["Hello from SW"]});
+skypy_result = spawn_other("skypy", {"pyfile_ref": package("skypy_main"), "entry_point": "skypy_callback", "entry_args": ["Hello from SW"], "export_json": true});
 
-return skypy_result;
+return ["SW returning", *(skypy_result[0])];
