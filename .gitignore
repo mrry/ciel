@@ -1,4 +1,5 @@
 /dist
+/ext
 parser.out
 parsetab.py
 *.pyc
