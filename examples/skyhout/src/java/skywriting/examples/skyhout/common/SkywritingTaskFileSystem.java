@@ -74,6 +74,11 @@ public class SkywritingTaskFileSystem extends FileSystem {
 	}
 	
 	@Override
+	public boolean delete(Path arg0) throws IOException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public boolean delete(Path arg0, boolean arg1) throws IOException {
 		throw new UnsupportedOperationException();
 	}
