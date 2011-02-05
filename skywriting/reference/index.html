@@ -47,7 +47,7 @@ for interacting with a CIEL cluster.</p>
 <tbody>
 <tr>
 <td><code>executor</code></td>
-      <td>The name of the CIEL <a href="/ciel/executors/">executor</a>  to invoke.</td>
+      <td>The name of the CIEL <a href="../executors/">executor</a>  to invoke.</td>
     </tr>
 <tr>
 <td><code>args</code></td>
@@ -101,7 +101,7 @@ for interacting with a CIEL cluster.</p>
 <tbody>
 <tr>
 <td><code>executor</code></td>
-      <td>The name of the CIEL <a href="/ciel/executors/">executor</a>  to invoke.</td>
+      <td>The name of the CIEL <a href="../executors/">executor</a>  to invoke.</td>
     </tr>
 <tr>
 <td><code>args</code></td>
@@ -336,7 +336,7 @@ result = range(start, stop);</code></pre>
 
 <h3 id="environ">environ()</h3>
 
-<p>Convenience function for spawning a task using the <a href="/ciel/executors/environ"><code>environ</code> executor</a>.</p>
+<p>Convenience function for spawning a task using the <a href="../executors/environ"><code>environ</code> executor</a>.</p>
 
 <pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">environ</span><span class="dl">"</span></span>;
 result = environ(input_refs, command_line, num_outputs);</code></pre>
@@ -386,7 +386,7 @@ result = grab(url);</code></pre>
     </tr></tfoot>
 </table><h3 id="java">java()</h3>
 
-<p>Convenience function for spawning a task using the <a href="/ciel/executors/java"><code>java</code> executor</a>.</p>
+<p>Convenience function for spawning a task using the <a href="../executors/java"><code>java</code> executor</a>.</p>
 
 <pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">java</span><span class="dl">"</span></span>;
 result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
@@ -416,7 +416,7 @@ result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
     </tr></tfoot>
 </table><h3 id="stdinout">stdinout()</h3>
 
-<p>Convenience function for spawning a task using the <a href="/ciel/executors/stdinout"><code>stdinout</code> executor</a></p>
+<p>Convenience function for spawning a task using the <a href="../executors/stdinout"><code>stdinout</code> executor</a></p>
 
 <pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">stdinout</span><span class="dl">"</span></span>;
 result = stdinout(input_refs, command_line);
