@@ -25,7 +25,7 @@ Let's have something else in here.
 
 |Argument|Description|
 |--------------------|
-| `executor` |The name of the CIEL [executor](../executors/)  to invoke.|
+| `executor` |The name of the CIEL [executor](../../executors/)  to invoke.|
 | `args` |A structure containing arguments for the executor. (Usually a dictionary.)|
 | `num_outputs` |The number of outputs to expect.|
 |===|
@@ -52,7 +52,7 @@ Creates a new task to execute and external piece of code.
 
 |Argument|Description|
 |--------------------|
-| `executor` |The name of the CIEL [executor](../executors/)  to invoke.|
+| `executor` |The name of the CIEL [executor](../../executors/)  to invoke.|
 | `args` |A structure containing arguments for the executor. (Usually a dictionary.)|
 | `num_outputs` |The number of outputs to expect.|
 |===|
@@ -190,7 +190,7 @@ The *wrapper functions* are convenience functions for invoking executors.
 
 ### environ()
 
-Convenience function for spawning a task using the [`environ` executor](../executors/environ).
+Convenience function for spawning a task using the [`environ` executor](../../executors/environ).
 
 <pre><code class="CodeRay language-c">include "environ";
 result = environ(input_refs, command_line, num_outputs);</code></pre>
@@ -218,7 +218,7 @@ result = grab(url);</code></pre>
 
 ### java()
 
-Convenience function for spawning a task using the [`java` executor](../executors/java).
+Convenience function for spawning a task using the [`java` executor](../../executors/java).
 
 <pre><code class="CodeRay language-c">include "java";
 result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
@@ -233,7 +233,7 @@ result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
 
 ### stdinout()
 
-Convenience function for spawning a task using the [`stdinout` executor](../executors/stdinout)
+Convenience function for spawning a task using the [`stdinout` executor](../../executors/stdinout)
 
 <pre><code class="CodeRay language-c">include "stdinout";
 result = stdinout(input_refs, command_line);
