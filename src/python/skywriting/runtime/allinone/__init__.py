@@ -24,10 +24,12 @@ from skywriting.runtime.allinone.task_runner import TaskRunner
 import ciel
 import logging
 import skywriting
+from skywriting.runtime.util.cluster import now_as_timestamp
 
 def allinone_main(options, args):
     
     script_filename = args[0]
+    run_id = args[1] if len(args) > 1 else 'allinone'
     
     base_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
     ciel.log('Writing block store files to %s' % base_dir, 'ALLINONE', logging.INFO)
@@ -47,8 +49,9 @@ def allinone_main(options, args):
     task_runner = TaskRunner(initial_task_object, cont_ref, block_store, options)
     
     try:
+        print run_id, 'SUBMITTED_JOB', now_as_timestamp()
         result = task_runner.run()
-        
+        print run_id, 'GOT_RESULT', now_as_timestamp()
         print block_store.retrieve_object_for_ref(result, 'json')
         
     except:

@@ -149,7 +149,6 @@ class TaskRunner:
 
         ciel.log('Starting %d worker threads.' % self.num_workers, 'TASKRUNNER', logging.INFO)        
         for _ in range(self.num_workers):
-            print 'Hi'
             try:
                 self.workers.append(multiprocessing.Process(target=worker_process_main, args=(self.options.skypybase, self.options.lib, self.options.blockstore, self.task_queue, self.response_queue)))
             except:
