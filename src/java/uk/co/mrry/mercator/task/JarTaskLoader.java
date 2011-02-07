@@ -22,6 +22,11 @@ public class JarTaskLoader {
 	
     public static void main(String[] args) {
 
+	if(args[0].equals("--version")) {
+	    System.out.println("Ciel Java bindings v1.0\n");
+	    return;
+	}
+
 	if(args.length < 2) {
 	    System.err.println("Usage: java JarTaskLoader fully.qualified.TaskClass file:///path/to/jar [further jars...]");
 	    System.exit(1);

@@ -61,6 +61,7 @@ class Worker(plugins.SimplePlugin):
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, options.skypybase, options.lib, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
+        self.runnable_executors = self.execution_features.check_executors(self.task_executor)
         self.server_root = WorkerRoot(self)
         self.pinger = Pinger(bus, self.master_proxy, None, 30)
         self.pinger.subscribe()
@@ -85,12 +86,12 @@ class Worker(plugins.SimplePlugin):
     def unsubscribe(self):
         self.bus.unsubscribe('stop', self.stop)
         self.bus.unsubscribe("worker_event", self.add_log_entry)
-        
+
     def netloc(self):
         return '%s:%d' % (self.hostname, self.port)
 
     def as_descriptor(self):
-        return {'netloc': self.netloc(), 'features': self.execution_features.all_features(), 'has_blocks': not self.block_store.is_empty()}
+        return {'netloc': self.netloc(), 'features': self.runnable_executors, 'has_blocks': not self.block_store.is_empty()}
 
     def set_master(self, master_details):
         self.master_url = master_details['master']

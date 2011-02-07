@@ -55,7 +55,15 @@ def kill_all_running_children():
             child.wait()
         except:
             pass
-        
+
+can_run_executors = dict()
+
+def check_executors(task_executor):
+    features = ExecutionFeatures()
+    for executor in features.executors:
+        inst = features.get_executor(executor, task_executor)
+        can_run_executors[executor] = inst.can_run()
+
 class ExecutionFeatures:
     
     def __init__(self):
@@ -70,9 +78,21 @@ class ExecutionFeatures:
                           'grab': GrabURLExecutor,
                           'sync': SyncExecutor,
                           'init': InitExecutor}
-    
+
     def all_features(self):
         return self.executors.keys()
+
+    def check_executors(self, task_executor):
+        ciel.log.error("Checking executors:", "EXEC", logging.INFO)
+        retval = []
+        for executor in self.executors:
+            inst = self.get_executor(executor, task_executor)
+            if inst.can_run():
+                ciel.log.error("Executor '%s' can run" % executor, "EXEC", logging.INFO)
+                retval.append(executor)
+            else:
+                ciel.log.error("Executor '%s' CANNOT run" % executor, "EXEC", logging.WARNING)
+        return retval
     
     def get_executor(self, name, task_executor):
         return self.executors[name](task_executor)
@@ -96,6 +116,28 @@ def package_lookup(task_executor, key):
     except KeyError:
         ciel.log.error("Package lookup for %s: no such key" % key, "EXEC", logging.WARNING)
         return None
+
+def multi_to_single_line(s):
+    lines = s.split("\n")
+    lines = filter(lambda x: len(x) > 0, lines)
+    s = " // ".join(lines)
+    if len(s) > 100:
+        s = s[:99] + "..."
+    return s
+
+def test_program(args, friendly_name):
+    try:
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (outstr, errstr) = proc.communicate()
+        if proc.returncode == 0:
+            ciel.log.error("Successfully tested %s: wrote '%s'" % (friendly_name, multi_to_single_line(outstr)), "EXEC", logging.INFO)
+            return True
+        else:
+            ciel.log.error("Can't run %s: returned %d, stdout: '%s', stderr: '%s'" % (friendly_name, proc.returncode, outstr, errstr), "EXEC", logging.WARNING)
+            return False
+    except Exception as e:
+        ciel.log.error("Can't run %s: exception '%s'" % (friendly_name, e), "EXEC", logging.WARNING)
+        return False
 
 def add_package_dep(task_executor, task_descriptor):
     if task_executor.package_ref is not None:
@@ -226,6 +268,9 @@ class SkyPyExecutor:
         if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         add_package_dep(self.task_executor, task_descriptor)
+
+    def can_run(self):
+        return test_program(["pypy", "--version"], "PyPy")
         
     def run(self, task_descriptor):
 
@@ -428,6 +473,9 @@ class SkywritingExecutor:
             cont.context.bind_identifier('argv', args)
         return cont
 
+    def can_run(self):
+        return True
+
     def run(self, task_descriptor):
 
         sw_private = task_descriptor["task_private"]
@@ -613,6 +661,9 @@ class SimpleExecutor:
     def get_filename(self, ref):
         files, ctx = self.get_filenames([ref])
         return (files[0], ctx)
+
+    def can_run(self):
+        return True
 
     def run(self, task_descriptor):
         self.task_id = task_descriptor["task_id"]
@@ -984,6 +1035,14 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         FilenamesOnStdinExecutor.__init__(self, task_executor)
         self.handler_name = "java"
 
+    def can_run(self):
+        cp = os.getenv("CLASSPATH")
+        if cp is None:
+            ciel.log.error("Can't run Java: no CLASSPATH set")
+            return False
+        else:
+            return test_program(["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", "--version"], "Java")
+
     def check_args_valid(self, args, n_outputs):
 
         FilenamesOnStdinExecutor.check_args_valid(self, args, n_outputs)
@@ -1014,6 +1073,10 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
     def __init__(self, task_executor):
         FilenamesOnStdinExecutor.__init__(self, task_executor)
         self.handler_name = "dotnet"
+
+    def can_run(self):
+        # TODO: Locate bindings properly
+        return test_program(["mono", "--version"], "Mono")
 
     def check_args_valid(self, args, n_outputs):
 
@@ -1122,6 +1185,9 @@ class InitExecutor:
 
     def __init__(self, task_executor):
         self.task_executor = task_executor
+
+    def can_run(self):
+        return True
 
     def build_task_descriptor(self, descriptor, **args):
         raise BlameUserException("Can't spawn init tasks directly; build them from outside the cluster using 'build_init_descriptor'")
