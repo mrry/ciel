@@ -32,6 +32,7 @@ MASTER_PORT=8000
 LOG_OPERATOR=">"
 STORENAME="store"
 LOGNAME="worker"
+SEPARATE_STORES=0
 
 # ---------------------------------------------
 # option processing
@@ -106,6 +107,11 @@ do
       shift 1
     ;;
 
+    --sep-stores)
+      SEPARATE_STORES=1
+      shift 1
+    ;;
+
     -h|*)
       echo "Launches a Skywriting/Ciel cluster given a list of machines. The master is "
       echo "lauched on the first machine in the list unless --skip-master is specified."
@@ -161,9 +167,11 @@ do
 	fi
 	MASTER=$myLine
     else
-        if [[ $LOCAL_CLUSTER -eq 1 ]]; then
+        if [[ $LOCAL_CLUSTER -eq 1 && $SEPARATE_STORES -eq 1 ]]; then
 	    STORENAME="store/store$I"
 	    LOGNAME="worker$I"
+	    WORKER_PORT=`expr $WORKER_PORT + 1` 
+        elif [[ $LOCAL_CLUSTER -eq 1 ]]; then
 	    WORKER_PORT=`expr $WORKER_PORT + 1` 
 	else
 	    STORENAME="store"
