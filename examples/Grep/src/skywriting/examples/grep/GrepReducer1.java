@@ -35,7 +35,8 @@ public class GrepReducer1 implements Task {
 		try {
 			for(int i = 0; i < nInputs; i++) {
 				dis[i] = new DataInputStream(new BufferedInputStream(inputs[i]));
-				if (dis[i].read() != 0) throw new IOException();
+				int ret = dis[i].read();
+				if (ret != 0) throw new IOException("Reading DIS " + i + " got " + ret);
 			}
 			
 			for(int i = 0; i < nOutputs; i++) {
@@ -57,7 +58,7 @@ public class GrepReducer1 implements Task {
 						break;
 					}
 
-					System.out.println(word + " = " + value);
+					System.err.println(word + " = " + value);
 					outMap.collect(word, value);
 				}
 			}
@@ -66,7 +67,7 @@ public class GrepReducer1 implements Task {
 			SortedPartialHashOutputCollector<IntWritable, Set<Text>> sortedMap = new SortedPartialHashOutputCollector<IntWritable, Set<Text>>(icomb);
 			
 			for (Map.Entry<Text, IntWritable> entry : outMap){
-				System.out.println("SORTED " + entry.getValue() + " = " + entry.getKey());
+				System.err.println("SORTED " + entry.getValue() + " = " + entry.getKey());
 				sortedMap.collect(entry.getValue(), Collections.singleton(entry.getKey()));
 			}
 			
@@ -81,7 +82,7 @@ public class GrepReducer1 implements Task {
 				d.close();
 			
 		} catch (IOException e) {
-			System.out.println("IOException while running reducer");
+			System.err.println("IOException while running reducer" + e);
 			e.printStackTrace();
 			System.exit(1);
 		}

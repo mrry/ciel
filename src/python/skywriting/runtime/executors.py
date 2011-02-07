@@ -592,7 +592,8 @@ class SimpleExecutor:
 
     def get_required_refs(self, args):
         try:
-            return args["inputs"]
+            # Shallow copy
+            return list(args["inputs"])
         except KeyError:
             return []
 

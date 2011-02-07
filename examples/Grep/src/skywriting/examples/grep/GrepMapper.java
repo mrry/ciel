@@ -53,12 +53,12 @@ public class GrepMapper implements Task {
 			IncrementerCombiner comb = new IncrementerCombiner();
 			PartialHashOutputCollector<Text, IntWritable> outMap = new PartialHashOutputCollector<Text, IntWritable>(dos, nReducers, 1000, comb);
 			while ((line = dis[0].readLine()) != null) { 
-				//System.out.println(line);
+			    //System.err.println(line);
 				Matcher match = regEx.matcher(line);
 				
 				while (match.find()) {
 					Text word = new Text(match.group());
-					//System.out.println("found " + match.group());
+					//System.err.println("found " + match.group());
 					outMap.collect(word, one);
 				}
 			}
@@ -66,7 +66,7 @@ public class GrepMapper implements Task {
 			for (DataOutputStream d : dos) 
 				d.close();
 		} catch (IOException e) {
-			System.out.println("IOException while running mapper");
+			System.err.println("IOException while running mapper");
 			e.printStackTrace();
 			System.exit(1);
 		}

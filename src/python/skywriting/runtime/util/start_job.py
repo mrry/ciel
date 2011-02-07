@@ -21,6 +21,21 @@ http = httplib2.Http()
 def now_as_timestamp():
     return (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())
 
+def resolve_vars(value, callback_map):
+    
+    def resolve_vars_val(value):
+        if isinstance(value, list):
+            return [resolve_vars_val(v) for v in value]
+        elif isinstance(value, dict):
+            for callback_key in callback_map:
+                if callback_key in value:
+                    return callback_map[callback_key](value)
+            return dict([(resolve_vars_val(k), resolve_vars_val(v)) for (k, v) in value.items()])
+        else:
+            return value
+
+    return resolve_vars_val(value)
+
 def ref_of_string(val, master_uri):
     master_data_uri = urlparse.urljoin(master_uri, "/data/")
     master_netloc = urlparse.urlparse(master_uri).netloc
@@ -43,39 +58,35 @@ def ref_of_object(val, package_path, master_uri):
 
 def task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri):
 
+    def resolve_arg(value):
+        try:
+            return sys.argv[value["__args__"]]
+        except IndexError:
+            if "default" in value:
+                print "Positional argument", value["__args__"], "not specified; using default", value["default"]
+                return value["default"]
+            else:
+                raise Exception("Package requires at least %d args" % value["__args__"])        
+
+    def resolve_env(value):
+        try:
+            return os.environ[value["__env__"]]
+        except KeyError:
+            if "default" in value:
+                print "Environment variable", value["__env__"], "not specified; using default", value["default"]
+                return value["default"]
+            else:
+                raise Exception("Package requires environment variable '%s'" % value["__env__"])
+
+    env_and_args_callbacks = {"__args__": resolve_arg,
+                              "__env__": resolve_env}
+    package_dict = resolve_vars(package_dict, env_and_args_callbacks)
+    start_args = resolve_vars(start_args, env_and_args_callbacks)
+
     submit_package_dict = dict([(k, ref_of_object(v, package_path, master_uri)) for (k, v) in package_dict.items()])
     package_ref = ref_of_string(pickle.dumps(submit_package_dict), master_uri)
 
-    def resolve_package_refs(value):
-        if isinstance(value, list):
-            return [resolve_package_refs(v) for v in value]
-        elif isinstance(value, dict):
-            if "__package__" in value:
-                return submit_package_dict[value["__package__"]]
-            elif "__args__" in value:
-                try:
-                    return sys.argv[value["__args__"]]
-                except IndexError:
-                    if "default" in value:
-                        print "Positional argument", value["__args__"], "not specified; using default", value["default"]
-                        return value["default"]
-                    else:
-                        raise Exception("Package requires at least %d args" % value["__args__"])
-            elif "__env__" in value:
-                try:
-                    return os.environ[value["__env__"]]
-                except KeyError:
-                    if "default" in value:
-                        print "Environment variable", value["__env__"], "not specified; using default", value["default"]
-                        return value["default"]
-                    else:
-                        raise Exception("Package requires environment variable '%s'" % value["__env__"])
-            else:
-                return dict([(resolve_package_refs(k), resolve_package_refs(v)) for (k, v) in value.items()])
-        else:
-            return value
-
-    resolved_args = resolve_package_refs(start_args)
+    resolved_args = resolve_vars(start_args, {"__package__": lambda x: submit_package_dict[x["__package__"]]})
 
     return skywriting.runtime.executors.build_init_descriptor(start_handler, resolved_args, package_ref)
 

@@ -1,0 +1,9 @@
+{"package":
+	{"dataref": {"filename": {"__env__": "DATAREF", "default": "/usr/share/dict/words"}, "index": true},
+	 "grep_jar": {"filename": "../../dist/sky-eg-Grep.jar"},
+	 "swmain": {"filename": "../sw/grep.sw"}},
+ "start":
+	{"handler": "swi",
+	 "args": {"sw_file_ref": {"__package__": "swmain"}}
+	}
+}
