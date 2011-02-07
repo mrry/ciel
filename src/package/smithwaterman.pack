@@ -1,9 +1,9 @@
 {"package":
 	{
 	"swmain": {"filename": "../sw/smithwaterman.sw"},
-	"smithwaterman_jar": {"filename": "../../examples/SmithWaterman/src/java/SmithWaterman.jar"},
-	"input1": {"filename": "/home/dgm36/public_html/horizontal_string_random", "index": true},
-	"input2": {"filename": "/home/dgm36/public_html/vertical_string_random", "index": true}
+	"smithwaterman_jar": {"filename": "../../dist/sky-eg-SmithWaterman.jar"},
+	"input1": {"filename": "../../data/horizontal_string_random", "index": true},
+	"input2": {"filename": "../../data/vertical_string_random", "index": true}
 	},
 "start":
 	{"handler": "swi",
