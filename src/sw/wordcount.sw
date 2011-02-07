@@ -1,31 +1,23 @@
-// Library functions
-include "grab";
-//include "java";
 
 function java(class_name, input_refs, argv, jar_refs, num_outputs) {
-   f = env["FOO"];
-	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f}, num_outputs);
+	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv}, num_outputs);
 }  
 
-// Input data - MODIFY THIS FOR EACH RUN
-// Use sw-load to put input data into the cluster
-// and paste the reference returned into here
-url = env["DATA_REF"];
-input_refs = *grab(url);
-
+url = package("dataref");
+input_refs = *url;
 
 num_mappers = len(input_refs);
-num_reducers = env["NUM_REDUCERS"];
+num_reducers = int(env["NUM_REDUCERS"]);
 
 // Java code
-jar_lib = [grab("http://www.cl.cam.ac.uk/~ms705/sky-eg-wordcount.jar")];
+jar_lib = [package("wordcount-jar"), package("grep-jar")];
 
 // -----------------------------------------
 
 // Map stage
 map_outputs = [];
 for (i in range(0, num_mappers)) {
-    map_outputs[i] = java("WordCountMapper", [input_refs[i]], [], jar_lib, num_reducers);
+    map_outputs[i] = java("skywriting.examples.wordcount.WordCountMapper", [input_refs[i]], [], jar_lib, num_reducers);
 }
 
 // Shuffle stage
@@ -40,12 +32,17 @@ for(i in range(0, num_reducers)) {
 // Reduce stage
 reduce_outputs = [];
 for(i in range(0, num_reducers)) {
-      reduce_outputs[i] = java("WordCountReducer", reduce_inputs[i], [], jar_lib, 1);
+      reduce_outputs[i] = java("skywriting.examples.wordcount.WordCountReducer", reduce_inputs[i], [], jar_lib, 1);
+}
+
+all_reducers = [];
+for(i in range(0, num_reducers)) {
+      all_reducers = all_reducers + reduce_outputs[i];
 }
 
 // -----------------------------------------
 
-return (*(spawn_exec("sync", {"inputs" : reduce_outputs}, 1)[0]))[0];
+return (*(spawn_exec("sync", {"inputs" : all_reducers}, 1)[0]))[0];
 
 
  
