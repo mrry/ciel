@@ -1,21 +1,13 @@
-include "grab";
 include "mapreduce";
 include "java";
 
-jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/mahout-core-0.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/mahout-math-0.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/mahout-collections-0.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/commons-logging-1.1.1.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/slf4j-api-1.5.8.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/slf4j-jcl-1.5.8.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/uncommons-maths-1.2.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/gson-1.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/hadoop-core-0.20.2.jar")];
+jar_lib = [package("skyhout"), package("mahout-core"), package("mahout-math"), package("mahout-coll"), 
+	   package("logging"), package("slf4j-api"), package("slf4j-jcl"), package("uc-maths"), 
+	   package("gson"), package("hadoop-core")];
 
-input = *grab(env["GRAPH_INDEX_URL"]);
+input = *package("graph-in");
 
-num_partitions = 300;
+num_partitions = 10;
 
 links = mapreduce(input, lambda x: java("skywriting.examples.skyhout.pagerank.PageRankInitTask", [x], [], jar_lib, num_partitions),
          	              lambda xs: java("skywriting.examples.skyhout.pagerank.PageRankInitMergeTask", xs, [], jar_lib, 1)[0], num_partitions);

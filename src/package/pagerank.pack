@@ -1,7 +1,6 @@
 {"package":
-	{"sw-main": {"filename": "../sw/skyhout-kmeans.sw"},
-	 "vector-input": {"filename": {"__env__": "KMEANS_VECTORS", "default": "../../data/kmeans-vector_0"}, "index": true},
-	 "cluster-input": {"filename": {"__env__": "KMEANS_CLUSTERS", "default": "../../data/kmeans-cluster_0"}, "index": true},
+	{"sw-main": {"filename": "../sw/skyhout-pagerank.sw"},
+	 "graph-in": {"filename": {"__env__": "PAGERANK_GRAPH_FILE", "default": "../../data/pagerank_graph"}, "index": true},
 	 "skyhout": {"filename": "../../dist/sky-eg-skyhout.jar"},
 	 "mahout-core": {"filename": "../../ext/mahout-0.3/mahout-core-0.3.jar"},
 	 "mahout-math": {"filename": "../../ext/mahout-0.3/mahout-math-0.3.jar"},
