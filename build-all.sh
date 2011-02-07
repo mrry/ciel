@@ -1,4 +1,5 @@
 #!/bin/bash
 
 ./fetch-externals.sh
-ant build-tests build-examples -Ddir.build build -Ddir.dist dist
+./build-java.sh
+./gen-data.sh
