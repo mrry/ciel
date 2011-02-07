@@ -1,22 +1,13 @@
-include "grab";
 include "mapreduce";
 //include "java";
 
 function java(class_name, input_refs, argv, jar_refs, num_outputs) {
-   f = env["FOO"];
-        return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f}, num_outputs);
+	 return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv}, num_outputs);
 }  
 
-jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/mahout-core-0.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/mahout-math-0.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/mahout-collections-0.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/commons-logging-1.1.1.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/slf4j-api-1.5.8.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/slf4j-jcl-1.5.8.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/uncommons-maths-1.2.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/gson-1.3.jar"),
-           grab("http://www.cl.cam.ac.uk/~dgm36/hadoop-core-0.20.2.jar")];
+jar_lib = [package("skyhout"), package("mahout-core"), package("mahout-math"), package("mahout-coll"), 
+	   package("logging"), package("slf4j-api"), package("slf4j-jcl"), package("uc-maths"), 
+	   package("gson"), package("hadoop-core")];
 
 function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reducers) {
 
@@ -50,9 +41,9 @@ function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reduc
 	return {"converged" : converged, "clusters" : new_clusters[0]};
 }
 
-input_vectors = *grab(env["VECTOR_INPUT_URL"]);
+input_vectors = *package("vector-input");
 
-input_clusters = (*grab(env["CLUSTER_INPUT_URL"]))[0];
+input_clusters = (*package("cluster-input"))[0];
 
 convergence_delta = "0.00000001";
 
