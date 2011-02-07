@@ -1,8 +1,7 @@
-include "grab";
 
 num_mappers = 99;
 num_samples = 1;
-jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/sky-eg-pi.jar")];
+jar_lib = [package("pi-jar")];
 
 map_outputs = [];
 offset = 0;
@@ -12,4 +11,5 @@ for (i in range(0, num_mappers)) {
 }
 
 reduce_output = exec("java", {"inputs":map_outputs, "argv":[], "class":"skywriting.examples.pi.PiReducer", "lib":jar_lib}, 1);
-return reduce_output;
+
+return *(exec("sync", {"inputs":reduce_output}, 1)[0]);
