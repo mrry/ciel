@@ -1,7 +1,7 @@
 
 using System;
 using System.IO;
-using uk.co.mrry.mercator.task;
+using ciel;
 
 public class HelloMaster : Task
 {

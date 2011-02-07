@@ -20,11 +20,16 @@ using System.Text;
 using System.IO;
 using System.Collections.Generic;
 
-namespace uk.co.mrry.mercator.task {
+namespace ciel {
 
   public class SWDotNetLoader {
 
     public static void Main(String[] args) {
+
+      if(args[0].Equals("--version")) {
+	Console.Out.WriteLine("Ciel Mono bindings v0.1");
+	return;
+      }
 
       /* Step 1: Open assemblies and instantiate an appropriate class */
 

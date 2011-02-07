@@ -26,6 +26,11 @@
 
 int main(int argc, char** argv) {
 
+  if(argc > 1 && !strcmp(argv[1], "--version")) {
+    printf("Ciel C bindings v0.1\n");
+    return 0;
+  }
+
   if(argc < 3) {
 
     fprintf(stderr, "Usage: loader entry_point_name /fully/qualified/libname.so [other libs]\n");

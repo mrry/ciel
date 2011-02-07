@@ -23,7 +23,7 @@ public class JarTaskLoader {
     public static void main(String[] args) {
 
 	if(args[0].equals("--version")) {
-	    System.out.println("Ciel Java bindings v1.0\n");
+	    System.out.println("Ciel Java bindings v0.1\n");
 	    return;
 	}
 

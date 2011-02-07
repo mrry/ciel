@@ -1038,7 +1038,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
     def can_run(self):
         cp = os.getenv("CLASSPATH")
         if cp is None:
-            ciel.log.error("Can't run Java: no CLASSPATH set")
+            ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
             return False
         else:
             return test_program(["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", "--version"], "Java")
@@ -1060,7 +1060,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         self.jar_filenames = self.get_filenames_eager(self.jar_refs)
 
     def get_process_args(self):
-        cp = os.getenv('CLASSPATH',"/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/java/JavaBindings.jar")
+        cp = os.getenv('CLASSPATH')
         process_args = ["java", "-cp", cp]
         if "trace_io" in self.debug_opts:
             process_args.append("-Dskywriting.trace_io=1")
@@ -1075,8 +1075,11 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
         self.handler_name = "dotnet"
 
     def can_run(self):
-        # TODO: Locate bindings properly
-        return test_program(["mono", "--version"], "Mono")
+        mono_loader = os.getenv('SW_MONO_LOADER_PATH')
+        if mono_loader is None:
+            ciel.log.error("Can't run Mono: SW_MONO_LOADER_PATH not set", "DOTNET", logging.WARNING)
+            return False
+        return test_program(["mono", mono_loader, "--version"], "Mono")
 
     def check_args_valid(self, args, n_outputs):
 
@@ -1095,8 +1098,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
     def get_process_args(self):
 
-        mono_loader = os.getenv('SW_MONO_LOADER_PATH', 
-                                "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/csharp/loader/loader.exe")
+        mono_loader = os.getenv('SW_MONO_LOADER_PATH')
         process_args = ["mono", mono_loader, self.class_name]
         process_args.extend(self.dll_filenames)
         return process_args
@@ -1106,6 +1108,13 @@ class CExecutor(FilenamesOnStdinExecutor):
     def __init__(self, task_executor):
         FilenamesOnStdinExecutor.__init__(self, task_executor)
         self.handler_name = "cso"
+
+    def can_run(self):
+        c_loader = os.getenv("SW_C_LOADER_PATH")
+        if c_loader is None:
+            ciel.log.error("Can't run C tasks: SW_C_LOADER_PATH not set", "CEXEC", logging.WARNING)
+            return False
+        return test_program([c_loader, "--version"], "C-loader")
 
     def check_args_valid(self, args, n_outputs):
 
@@ -1123,8 +1132,7 @@ class CExecutor(FilenamesOnStdinExecutor):
 
     def get_process_args(self):
 
-        c_loader = os.getenv('SW_C_LOADER_PATH', 
-                             "/local/scratch/dgm36/eclipse/workspace/mercator.hg/src/c/src/loader")
+        c_loader = os.getenv('SW_C_LOADER_PATH')
         process_args = [c_loader, self.entry_point_name]
         process_args.extend(self.so_filenames)
         return process_args

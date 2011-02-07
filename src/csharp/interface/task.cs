@@ -17,7 +17,7 @@
 using System;
 using System.IO;
 
-namespace uk.co.mrry.mercator.task {
+namespace ciel {
 
   public interface Task {
 
