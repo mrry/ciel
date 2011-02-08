@@ -84,7 +84,12 @@ class MasterProxy:
             raise WorkerShutdownException()
         else:
             raise MasterNotRespondingException()
-            
+
+    def get_public_hostname(self):
+        message_url = urljoin(self.master_url, "gethostname/")
+        _, result = self.backoff_request(message_url, 'GET')
+        return simplejson.loads(result)
+
     def register_as_worker(self):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
         message_url = urljoin(self.master_url, 'worker/')

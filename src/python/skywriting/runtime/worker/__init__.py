@@ -41,14 +41,17 @@ WORKER_ASSOCIATED = WorkerState()
 
 class Worker(plugins.SimplePlugin):
     
-    def __init__(self, bus, hostname, port, options):
+    def __init__(self, bus, port, options):
         plugins.SimplePlugin.__init__(self, bus)
         self.id = None
-        self.hostname = hostname
         self.port = port
         self.master_url = options.master
         self.master_proxy = MasterProxy(self, bus, self.master_url)
         self.master_proxy.subscribe()
+        if options.hostname is None:
+            self.hostname = self.master_proxy.get_public_hostname()
+        else:
+            self.hostname = options.hostname
         if options.blockstore is None:
             block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         else:
@@ -142,23 +145,11 @@ class Worker(plugins.SimplePlugin):
             if self.stopping:
                 raise Exception("Worker stopping")
 
-def ipv4_fqdn():
-    (name, aliases, ips) = socket.gethostbyaddr("127.0.0.1")
-    to_check = [name] + aliases
-    for name in to_check:
-        if name.find(".") != -1:
-            return name
-
 def worker_main(options):
-    local_hostname = None
-    if options.hostname is not None:
-        local_hostname = options.hostname
-    else:
-        local_hostname = ipv4_fqdn()
     local_port = cherrypy.config.get('server.socket_port')
     assert(local_port)
     
-    w = Worker(ciel.engine, local_hostname, local_port, options)
+    w = Worker(ciel.engine, local_port, options)
     w.start_running()
 
 if __name__ == '__main__':

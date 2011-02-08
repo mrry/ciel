@@ -25,6 +25,7 @@ from skywriting.runtime.worker.worker_view import DataRoot
 from skywriting.runtime.master.cluster_view import WebBrowserRoot
 import ciel
 import logging
+import socket
 
 class MasterRoot:
     
@@ -34,6 +35,7 @@ class MasterRoot:
         self.task = MasterTaskRoot(task_pool)
         self.streamtask = MasterStreamTaskRoot(task_pool)
         self.data = DataRoot(block_store)
+        self.gethostname = HostnameRoot()
         #self.cluster = ClusterDetailsRoot()
         self.shutdown = ShutdownRoot(worker_pool)
         self.refs = ReferenceInfoRoot(task_pool)
@@ -42,6 +44,13 @@ class MasterRoot:
     @cherrypy.expose
     def index(self):
         return "Hello from the master!"
+
+class HostnameRoot:
+
+    @cherrypy.expose
+    def index(self):
+        (name, aliases, addresses) = socket.gethostbyaddr(cherrypy.request.remote.ip)
+        return simplejson.dumps(name)
 
 class ShutdownRoot:
     
