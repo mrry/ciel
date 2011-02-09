@@ -64,7 +64,7 @@ class Worker(plugins.SimplePlugin):
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
-        self.runnable_executors = self.execution_features.check_executors()
+        self.runnable_executors = self.execution_features.runnable_executors.keys()
         self.server_root = WorkerRoot(self)
         self.pinger = Pinger(bus, self.master_proxy, None, 30)
         self.pinger.subscribe()

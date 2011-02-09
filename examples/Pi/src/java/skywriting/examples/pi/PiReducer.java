@@ -1,7 +1,7 @@
 package skywriting.examples.pi;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.OutputStreamWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -49,8 +49,9 @@ public class PiReducer implements Task {
 			/**
 			 * output: single file containing (double) result.
 			 */
-			DataOutputStream out = new DataOutputStream(fos[0]);
-			out.writeDouble(actualResult);
+		
+			OutputStreamWriter out = new OutputStreamWriter(fos[0]);
+			out.write(actualResult + "");
 			out.close();
 	      
 		} catch (IOException ioe) {

@@ -91,7 +91,9 @@ class DynamicTaskGraph:
         # We will need to reduce this task if any of its outputs have consumers. 
         should_reduce = False
         for output_id in task.expected_outputs:
+            print "Task will make", output_id
             ref_table_entry = self.publish(SW2_FutureReference(output_id), task)
+            print "Reftable interested:", ref_table_entry.has_consumers()
             should_reduce = should_reduce or ref_table_entry.has_consumers()
             
         if should_reduce:

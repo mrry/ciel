@@ -60,16 +60,10 @@ class ExecutionFeatures:
     
     def __init__(self):
 
-        self.executors = {'swi': SkywritingExecutor,
-                          'skypy': SkyPyExecutor,
-                          'stdinout': SWStdinoutExecutor,
-                          'environ': EnvironmentExecutor,
-                          'java': JavaExecutor,
-                          'dotnet': DotNetExecutor,
-                          'c': CExecutor,
-                          'grab': GrabURLExecutor,
-                          'sync': SyncExecutor,
-                          'init': InitExecutor}
+        self.executors = dict([(x.handler_name, x) for x in [SkywritingExecutor, SkyPyExecutor, SWStdinoutExecutor, 
+                                                           EnvironmentExecutor, JavaExecutor, DotNetExecutor, 
+                                                           CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor]])
+        self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
 
     def all_features(self):
         return self.executors.keys()
@@ -86,7 +80,13 @@ class ExecutionFeatures:
         return retval
     
     def get_executor(self, name, block_store):
-        return self.executors[name](block_store)
+        try:
+            return self.runnable_executors[name](block_store)
+        except KeyError:
+            raise Exception("Can't run %s here" % name)
+
+    def get_executor_class(self, name):
+        return self.executors[name]
 
 # Helper functions
 def spawn_other(task_record, executor_name, small_task, **executor_args):
@@ -132,10 +132,10 @@ def test_program(args, friendly_name):
         ciel.log.error("Can't run %s: exception '%s'" % (friendly_name, e), "EXEC", logging.WARNING)
         return False
 
-def add_package_dep(task_record, task_descriptor):
-    if task_record.package_ref is not None:
-        task_descriptor["dependencies"].append(task_record.package_ref)
-        task_descriptor["task_private"]["package_ref"] = task_record.package_ref
+def add_package_dep(package_ref, task_descriptor):
+    if package_ref is not None:
+        task_descriptor["dependencies"].append(package_ref)
+        task_descriptor["task_private"]["package_ref"] = package_ref
 
 def hash_update_with_structure(hash, value):
     """
@@ -231,6 +231,8 @@ class FileOrString:
         return self.tostr()
 
 class SkyPyExecutor:
+
+    handler_name = "skypy"
     
     def __init__(self, block_store):
         self.block_store = block_store
@@ -239,7 +241,8 @@ class SkyPyExecutor:
     def cleanup(self):
         pass
         
-    def build_task_descriptor(self, task_descriptor, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False):
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False):
 
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
@@ -247,7 +250,7 @@ class SkyPyExecutor:
             if "task_id" not in task_descriptor:
                 raise Exception("Can't spawn SkyPy tasks from coroutines without a task id")
             coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
-            self.task_record.publish_ref(coro_ref)
+            parent_task_record.publish_ref(coro_ref)
             task_descriptor["task_private"]["coro_ref"] = coro_ref
             task_descriptor["dependencies"].append(coro_ref)
         else:
@@ -258,7 +261,7 @@ class SkyPyExecutor:
         task_descriptor["task_private"]["export_json"] = export_json
         if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
-        add_package_dep(self.task_record, task_descriptor)
+        add_package_dep(parent_task_record.package_ref, task_descriptor)
 
     @staticmethod
     def can_run():
@@ -339,7 +342,7 @@ class SkyPyExecutor:
                 out_refs = spawn_other(self.task_record, **request_args)
                 pickle.dump({"outputs": out_refs}, pypy_process.stdin)
             elif request == "package_lookup":
-                pickle.dump({"value": package_lookup(self.task_record, request_args["key"])}, pypy_process.stdin)
+                pickle.dump({"value": package_lookup(self.task_record, self.block_store, request_args["key"])}, pypy_process.stdin)
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 coro_data = FileOrString(request_args, self.block_store)
@@ -424,7 +427,9 @@ class SafeLambdaFunction(LambdaFunction):
         return LambdaFunction.call(self, safe_args, stack, stack_base, context)
 
 class SkywritingExecutor:
-    
+
+    handler_name = "swi"
+
     def __init__(self, block_store):
         self.block_store = block_store
         self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
@@ -432,7 +437,8 @@ class SkywritingExecutor:
     def cleanup(self):
         pass
 
-    def build_task_descriptor(self, task_descriptor, sw_file_ref=None, start_env=None, start_args=None, cont=None):
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, sw_file_ref=None, start_env=None, start_args=None, cont=None):
 
         if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
@@ -440,8 +446,8 @@ class SkywritingExecutor:
             if "task_id" not in task_descriptor:
                 raise Exception("Can't build a Skywriting task from a continuation without a task id")
             cont_id = "%s:cont" % task_descriptor["task_id"]
-            spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
-            self.task_record.publish_ref(spawned_cont_ref)
+            spawned_cont_ref = block_store.ref_from_object(cont, "pickle", cont_id)
+            parent_task_record.publish_ref(spawned_cont_ref)
             task_descriptor["task_private"]["cont"] = spawned_cont_ref
             task_descriptor["dependencies"].append(spawned_cont_ref)
         else:
@@ -450,7 +456,7 @@ class SkywritingExecutor:
             task_descriptor["dependencies"].append(sw_file_ref)
             task_descriptor["task_private"]["start_env"] = start_env
             task_descriptor["task_private"]["start_args"] = start_args
-        add_package_dep(self.task_record, task_descriptor)
+        add_package_dep(parent_task_record.package_ref, task_descriptor)
 
     def start_sw_script(self, swref, args, env):
 
@@ -506,7 +512,7 @@ class SkywritingExecutor:
         task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0], self))
         task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
-        task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: package_lookup(self.task_record, x[0])))
+        task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: package_lookup(self.task_record, self.block_store, x[0])))
 
         visitor = StatementExecutorVisitor(task_context)
         
@@ -604,18 +610,19 @@ class SimpleExecutor:
     def __init__(self, block_store):
         self.block_store = block_store
 
-    def build_task_descriptor(self, task_descriptor, args, n_outputs):
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs):
 
         # Throw early if the args are bad
-        self.check_args_valid(args, n_outputs)
+        cls.check_args_valid(args, n_outputs)
 
         # Discover required ref IDs for this executor
-        reqd_refs = self.get_required_refs(args)
+        reqd_refs = cls.get_required_refs(args)
         task_descriptor["dependencies"].extend(reqd_refs)
 
         sha = hashlib.sha1()
         hash_update_with_structure(sha, [args, n_outputs])
-        name_prefix = "%s:%s:" % (self.handler_name, sha.hexdigest())
+        name_prefix = "%s:%s:" % (cls.handler_name, sha.hexdigest())
 
         # Name our outputs
         if "expected_outputs" not in task_descriptor:
@@ -623,8 +630,8 @@ class SimpleExecutor:
 
         # Add the args dict
         args_name = "%ssimple_exec_args" % name_prefix
-        args_ref = self.block_store.ref_from_object(args, "pickle", args_name)
-        self.task_record.publish_ref(args_ref)
+        args_ref = block_store.ref_from_object(args, "pickle", args_name)
+        parent_task_record.publish_ref(args_ref)
         task_descriptor["dependencies"].append(args_ref)
         task_descriptor["task_private"]["simple_exec_args"] = args_ref
         
@@ -634,14 +641,16 @@ class SimpleExecutor:
         except KeyError:
             pass
 
-    def get_required_refs(self, args):
+    @classmethod
+    def get_required_refs(cls, args):
         try:
             # Shallow copy
             return list(args["inputs"])
         except KeyError:
             return []
 
-    def check_args_valid(self, args, n_outputs):
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
         if "inputs" in args:
             for ref in args["inputs"]:
                 if not isinstance(ref, SWRealReference):
@@ -815,13 +824,15 @@ class ProcessRunningExecutor(SimpleExecutor):
 
 class SWStdinoutExecutor(ProcessRunningExecutor):
     
+    handler_name = "stdinout"
+
     def __init__(self, block_store):
         ProcessRunningExecutor.__init__(self, block_store)
-        self.handler_name = "stdinout"
 
-    def check_args_valid(self, args, n_outputs):
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
 
-        ProcessRunningExecutor.check_args_valid(self, args, n_outputs)
+        ProcessRunningExecutor.check_args_valid(args, n_outputs)
         if n_outputs != 1:
             raise BlameUserException("Stdinout executor must have one output")
         if "command_line" not in args:
@@ -866,14 +877,16 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
         return rc
         
 class EnvironmentExecutor(ProcessRunningExecutor):
-    
+
+    handler_name = "env"
+
     def __init__(self, block_store):
         ProcessRunningExecutor.__init__(self, block_store)
-        self.handler_name = "env"
 
-    def check_args_valid(self, args, n_outputs):
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
 
-        ProcessRunningExecutor.check_args_valid(self, args, n_outputs)
+        ProcessRunningExecutor.check_args_valid(args, n_outputs)
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
 
@@ -933,8 +946,9 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
         except KeyError:
             pass
 
-    def get_required_refs(self, args):
-        l = SimpleExecutor.get_required_refs(self, args)
+    @classmethod
+    def get_required_refs(cls, args):
+        l = SimpleExecutor.get_required_refs(args)
         try:
             l.extend(args["lib"])
         except KeyError:
@@ -1029,9 +1043,10 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
 
 class JavaExecutor(FilenamesOnStdinExecutor):
 
+    handler_name = "java"
+
     def __init__(self, block_store):
         FilenamesOnStdinExecutor.__init__(self, block_store)
-        self.handler_name = "java"
 
     @staticmethod
     def can_run():
@@ -1042,9 +1057,10 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         else:
             return test_program(["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", "--version"], "Java")
 
-    def check_args_valid(self, args, n_outputs):
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
 
-        FilenamesOnStdinExecutor.check_args_valid(self, args, n_outputs)
+        FilenamesOnStdinExecutor.check_args_valid(args, n_outputs)
         if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the java executor: %s' % repr(args))
 
@@ -1069,9 +1085,10 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         
 class DotNetExecutor(FilenamesOnStdinExecutor):
 
+    handler_name = "dotnet"
+
     def __init__(self, block_store):
         FilenamesOnStdinExecutor.__init__(self, block_store)
-        self.handler_name = "dotnet"
 
     @staticmethod
     def can_run():
@@ -1081,9 +1098,10 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
             return False
         return test_program(["mono", mono_loader, "--version"], "Mono")
 
-    def check_args_valid(self, args, n_outputs):
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
 
-        FilenamesOnStdinExecutor.check_args_valid(self, args, n_outputs)
+        FilenamesOnStdinExecutor.check_args_valid(args, n_outputs)
         if "lib" not in args or "class" not in args:
             raise BlameUserException('Incorrect arguments to the dotnet executor: %s' % repr(args))
 
@@ -1105,9 +1123,10 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
 class CExecutor(FilenamesOnStdinExecutor):
 
+    handler_name = "cso"
+
     def __init__(self, block_store):
         FilenamesOnStdinExecutor.__init__(self, block_store)
-        self.handler_name = "cso"
 
     @staticmethod
     def can_run():
@@ -1117,9 +1136,10 @@ class CExecutor(FilenamesOnStdinExecutor):
             return False
         return test_program([c_loader, "--version"], "C-loader")
 
-    def check_args_valid(self, args, n_outputs):
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
 
-        FilenamesOnStdinExecutor.check_args_valid(self, args, n_outputs)
+        FilenamesOnStdinExecutor.check_args_valid(args, n_outputs)
         if "lib" not in args or "entry_point" not in args:
             raise BlameUserException('Incorrect arguments to the C-so executor: %s' % repr(args))
 
@@ -1139,14 +1159,16 @@ class CExecutor(FilenamesOnStdinExecutor):
         return process_args
     
 class GrabURLExecutor(SimpleExecutor):
+
+    handler_name = "grab"
     
     def __init__(self, block_store):
         SimpleExecutor.__init__(self, block_store)
-        self.handler_name = "grab"
     
-    def check_args_valid(self, args, n_outputs):
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
         
-        SimpleExecutor.check_args_valid(self, args, n_outputs)
+        SimpleExecutor.check_args_valid(args, n_outputs)
         if "urls" not in args or "version" not in args or len(args["urls"]) != n_outputs:
             raise BlameUserException('Incorrect arguments to the grab executor: %s' % repr(args))
 
@@ -1167,13 +1189,15 @@ class GrabURLExecutor(SimpleExecutor):
         ciel.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
             
 class SyncExecutor(SimpleExecutor):
+
+    handler_name = "sync"
     
     def __init__(self, block_store):
         SimpleExecutor.__init__(self, block_store)
-        self.handler_name = "sync"
 
-    def check_args_valid(self, args, n_outputs):
-        SimpleExecutor.check_args_valid(self, args, n_outputs)
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
+        SimpleExecutor.check_args_valid(args, n_outputs)
         if "inputs" not in args or n_outputs != 1:
             raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
 
@@ -1192,6 +1216,8 @@ def build_init_descriptor(handler, args, package_ref):
 
 class InitExecutor:
 
+    handler_name = "init"
+
     def __init__(self, block_store):
         pass
 
@@ -1199,7 +1225,8 @@ class InitExecutor:
     def can_run():
         return True
 
-    def build_task_descriptor(self, descriptor, **args):
+    @classmethod
+    def build_task_descriptor(cls, descriptor, parent_task_record, **args):
         raise BlameUserException("Can't spawn init tasks directly; build them from outside the cluster using 'build_init_descriptor'")
 
     def run(self, task_descriptor, task_record):

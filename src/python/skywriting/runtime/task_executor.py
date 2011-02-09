@@ -15,6 +15,7 @@
 from __future__ import with_statement
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from skywriting.runtime.exceptions import ReferenceUnavailableException
+from skywriting.runtime.worker.local_task_graph import LocalTaskGraph, LocalJobOutput
 from threading import Lock
 import logging
 import hashlib
@@ -53,6 +54,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_set = new_task_set
         new_task_set.run()
         report_data = [(tr.task_descriptor["task_id"], tr.spawned_tasks, tr.published_refs) for tr in new_task_set.task_records]
+        print "Report", report_data
         self.master_proxy.report_tasks(report_data)
         with self._lock:
             self.current_task_set = None
@@ -68,9 +70,9 @@ class ExecutorCache:
         self.idle_executors = dict()
     
     def get_executor(self, handler):
-        if handler in self.idle_executors:
-            return self.idle_executors.pop()
-        else:
+        try:
+            return self.idle_executors.pop(handler)
+        except KeyError:
             return self.execution_features.get_executor(handler, self.block_store)
 
     def put_executor(self, handler, executor):
@@ -89,18 +91,20 @@ class TaskSetExecutionRecord:
         self.executor_cache = executor_cache
         self.reference_cache = dict([(ref.id, ref) for ref in root_task_descriptor["inputs"]])
         self.initial_td = root_task_descriptor
-        self.initial_task = build_taskpool_task_from_descriptor('local_root', input, None, None)
-        self.job_output = LocalJobOutput(initial_td["expected_outputs"])
-        self.task_graph = LocalTaskGraph()
-        self.task_graph.spawn_and_publish([initial_task_object], initial_td["inputs"])
-        for ref in initial_td["expected_outputs"]:
-            task_graph.subscribe(ref, self.job_output)
+        self.task_graph = LocalTaskGraph(self.initial_td["task_id"])
+        self.job_output = LocalJobOutput(self.initial_td["expected_outputs"])
+        for ref in self.initial_td["expected_outputs"]:
+            print "Interested in", ref
+            self.task_graph.subscribe(ref, self.job_output)
+        self.task_graph.spawn_and_publish([self.initial_td], self.initial_td["inputs"])
 
     def run(self):
+        ciel.log.error("Running taskset starting at %s" % self.initial_td["task_id"], "TASKEXEC", logging.INFO)
         while not self.job_output.is_complete():
             try:
-                next_td = self.task_graph.get_task()
+                next_td = self.task_graph.get_runnable_task()
             except IndexError:
+                ciel.log.error("No more runnable tasks", "TASKEXEC", logging.INFO)
                 break
             next_td["inputs"] = [self.retrieve_ref(ref) for ref in next_td["dependencies"]]
             task_record = TaskExecutionRecord(next_td, self, self.executor_cache)
@@ -114,6 +118,7 @@ class TaskSetExecutionRecord:
                 self.current_td = None
             self.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
             self.task_records.append(task_record)
+        ciel.log.error("Taskset complete", "TASKEXEC", logging.INFO)
 
     def retrieve_ref(self, ref):
         try:
@@ -121,15 +126,15 @@ class TaskSetExecutionRecord:
         except KeyError:
             raise ReferenceUnavailableException(ref.id)
 
-    def publish_ref(ref):
+    def publish_ref(self, ref):
         self.reference_cache[ref.id] = ref
 
-    def abort_task(task_id):
+    def abort_task(self, task_id):
         with self._lock:
             if self.current_td["task_id"] == task_id:
                 self.current_task.executor.abort()
 
-    def notify_streams_done(task_id):
+    def notify_streams_done(self, task_id):
         with self._lock:
             if self.current_td["task_id"] == task_id:
                 self.current_task.executor.notify_streams_done()
@@ -168,7 +173,7 @@ class TaskExecutionRecord:
 
     def create_spawned_task_name(self):
         sha = hashlib.sha1()
-        sha.update('%s:%d' % (self.root_task_id, self.spawn_counter))
+        sha.update('%s:%d' % (self.task_descriptor["task_id"], self.spawn_counter))
         ret = sha.hexdigest()
         self.spawn_counter += 1
         return ret
@@ -180,10 +185,9 @@ class TaskExecutionRecord:
         if "task_private" not in new_task_descriptor:
             new_task_descriptor["task_private"] = dict()
                      
-        target_executor = self.executor_cache.get_executor(new_task_descriptor["handler"])
+        executor_class = self.executor_cache.execution_features.get_executor_class(new_task_descriptor["handler"])
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
-        target_executor.build_task_descriptor(new_task_descriptor, **args)
-        self.executor_cache.put_executor(new_task_descriptor["handler"], target_executor)
+        executor_class.build_task_descriptor(new_task_descriptor, self, self.executor_cache.block_store, **args)
         self.spawned_tasks.append(new_task_descriptor)
         return new_task_descriptor
 

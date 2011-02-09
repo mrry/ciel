@@ -332,8 +332,11 @@ class LazyTaskPool(plugins.SimplePlugin):
         # Initially, start with the root set of tasks, based on the desired
         # object IDs.
         for object_id in object_ids:
-            if ref_for_output[object_id].is_consumable():
-                continue
+            try:
+                if self.ref_for_output[object_id].is_consumable():
+                    continue
+            except KeyError:
+                pass
             task = self.task_for_output[object_id]
             if task.state == TASK_CREATED:
                 # Task has not yet been scheduled, so add it to the queue.
@@ -461,9 +464,10 @@ class LazyTaskPoolAdapter:
         for (parent_id, spawned, published) in report:
             parent_task = self.get_task_by_id(parent_id)
             self.spawn_child_tasks(parent_task, spawned, may_reduce=False)
-            self.commit_task(parent_id, {"bindings": published}, should_publish=False)
+            self.commit_task(parent_id, {"bindings": dict([(ref.id, ref) for ref in published])}, should_publish=False)
         toplevel_task = self.get_task_by_id(report[0][0])
         self.lazy_task_pool.do_graph_reduction(toplevel_task.expected_outputs)
+        self.lazy_task_pool.worker_pool.worker_idle(toplevel_task.worker)
 
     def commit_task(self, task_id, commit_payload, should_publish=True):
         
