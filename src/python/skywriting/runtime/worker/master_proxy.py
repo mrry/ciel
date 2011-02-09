@@ -105,6 +105,11 @@ class MasterProxy:
         message_payload = simplejson.dumps(tasks, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'task/%s/spawn' % (str(parent_task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
+
+    def report_tasks(self, report):
+        message_payload = simplejson.dumps(report, cls=SWReferenceJSONEncoder)
+        message_url = urljoin(self.master_url, 'task/report')
+        self.backoff_request(message_url, "POST", message_payload)
     
     def commit_task(self, task_id, bindings, saved_continuation_uri=None, replay_uuid_list=None):
         serializable_bindings = {}

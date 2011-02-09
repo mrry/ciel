@@ -83,7 +83,7 @@ class LazyTaskPool(plugins.SimplePlugin):
             task = self.task_for_output[id]
             return {'ref': ref, 'consumers': list(consumers), 'task': task.as_descriptor()}
         
-    def add_task(self, task, is_root_task=False):
+    def add_task(self, task, is_root_task=False, may_reduce=True):
         # We don't add tasks multiple times (for example, when replaying a
         # failed task.
         if task.task_id in self.tasks:
@@ -101,20 +101,21 @@ class LazyTaskPool(plugins.SimplePlugin):
         # If any of the task outputs are being waited on, we should reduce this
         # task's graph. 
         with self._lock:
-            should_reduce = self.register_task_outputs(task)
+            should_reduce = self.register_task_outputs(task) and may_reduce
             if should_reduce:
                 self.do_graph_reduction(root_tasks=[task])
             elif is_root_task:
                 self.do_root_graph_reduction()
             
-    def task_completed(self, task, commit_bindings):
+    def task_completed(self, task, commit_bindings, should_publish=True):
         task.set_state(TASK_COMMITTED)
-        worker = task.worker
         
         # Need to notify all of the consumers, which may make other tasks
         # runnable.
         self.publish_refs(commit_bindings, task.job)
-        self.bus.publish('worker_idle', worker)
+        if should_publish:
+            worker = task.worker
+            self.bus.publish('worker_idle', worker)
         
     def get_task_queue(self):
         return self.task_queue
@@ -331,6 +332,8 @@ class LazyTaskPool(plugins.SimplePlugin):
         # Initially, start with the root set of tasks, based on the desired
         # object IDs.
         for object_id in object_ids:
+            if ref_for_output[object_id].is_consumable():
+                continue
             task = self.task_for_output[object_id]
             if task.state == TASK_CREATED:
                 # Task has not yet been scheduled, so add it to the queue.
@@ -399,7 +402,7 @@ class LazyTaskPoolAdapter:
         # XXX: This exposes the task pool to the view.
         self.tasks = lazy_task_pool.tasks
      
-    def add_task(self, task_descriptor, parent_task=None, job=None):
+    def add_task(self, task_descriptor, parent_task=None, job=None, may_reduce=True):
         try:
             task_id = task_descriptor['task_id']
         except:
@@ -408,7 +411,7 @@ class LazyTaskPoolAdapter:
         task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, parent_task)
         task.job = job
         
-        self.lazy_task_pool.add_task(task, parent_task is None)
+        self.lazy_task_pool.add_task(task, parent_task is None, may_reduce)
         
         #add_event = self.new_event(task)
         #add_event["task_descriptor"] = task.as_descriptor(long=True)
@@ -436,7 +439,7 @@ class LazyTaskPoolAdapter:
     def publish_refs(self, task, refs):
         self.lazy_task_pool.publish_refs(refs, task.job, True)
     
-    def spawn_child_tasks(self, parent_task, spawned_task_descriptors):
+    def spawn_child_tasks(self, parent_task, spawned_task_descriptors, may_reduce=True):
 
         if parent_task.is_replay_task():
             return
@@ -447,18 +450,27 @@ class LazyTaskPoolAdapter:
             except KeyError:
                 raise
             
-            task = self.add_task(child, parent_task, parent_task.job)
+            task = self.add_task(child, parent_task, parent_task.job, may_reduce)
             parent_task.children.append(task)
             
             if task.continues_task is not None:
                 parent_task.continuation = spawned_task_id
 
-    def commit_task(self, task_id, commit_payload):
+    def report_tasks(self, report):
+        
+        for (parent_id, spawned, published) in report:
+            parent_task = self.get_task_by_id(parent_id)
+            self.spawn_child_tasks(parent_task, spawned, may_reduce=False)
+            self.commit_task(parent_id, {"bindings": published}, should_publish=False)
+        toplevel_task = self.get_task_by_id(report[0][0])
+        self.lazy_task_pool.do_graph_reduction(toplevel_task.expected_outputs)
+
+    def commit_task(self, task_id, commit_payload, should_publish=True):
         
         commit_bindings = commit_payload['bindings']
         task = self.lazy_task_pool.get_task_by_id(task_id)
         
-        self.lazy_task_pool.task_completed(task, commit_bindings)
+        self.lazy_task_pool.task_completed(task, commit_bindings, should_publish)
         
         # Saved continuation URI, if necessary.
         try:

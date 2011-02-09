@@ -56,14 +56,6 @@ def kill_all_running_children():
         except:
             pass
 
-can_run_executors = dict()
-
-def check_executors(task_executor):
-    features = ExecutionFeatures()
-    for executor in features.executors:
-        inst = features.get_executor(executor, task_executor)
-        can_run_executors[executor] = inst.can_run()
-
 class ExecutionFeatures:
     
     def __init__(self):
@@ -82,35 +74,36 @@ class ExecutionFeatures:
     def all_features(self):
         return self.executors.keys()
 
-    def check_executors(self, task_executor):
+    def check_executors(self):
         ciel.log.error("Checking executors:", "EXEC", logging.INFO)
         retval = []
-        for executor in self.executors:
-            inst = self.get_executor(executor, task_executor)
-            if inst.can_run():
+        for executor in self.executors.values():
+            if executor.can_run():
                 ciel.log.error("Executor '%s' can run" % executor, "EXEC", logging.INFO)
                 retval.append(executor)
             else:
                 ciel.log.error("Executor '%s' CANNOT run" % executor, "EXEC", logging.WARNING)
         return retval
     
-    def get_executor(self, name, task_executor):
-        return self.executors[name](task_executor)
+    def get_executor(self, name, block_store):
+        return self.executors[name](block_store)
 
 # Helper functions
-def spawn_other(task_executor, executor_name, small_task, **executor_args):
+def spawn_other(task_record, executor_name, small_task, **executor_args):
 
     new_task_descriptor = {"handler": executor_name}
     if small_task:
-        new_task_descriptor["hint"] = "small_task"
-    task_executor.spawn_task(new_task_descriptor, **executor_args)
+        if "task_private" not in new_task_descriptor:
+            new_task_descriptor["task_private"] = dict()
+        new_task_descriptor["task_private"]["hint"] = "small_task"
+    task_record.spawn_task(new_task_descriptor, **executor_args)
     return [SW2_FutureReference(id) for id in new_task_descriptor["expected_outputs"]]
 
-def package_lookup(task_executor, key):
-    if task_executor.package_ref is None:
+def package_lookup(task_record, block_store, key):
+    if task_record.package_ref is None:
         ciel.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
         return None
-    package_dict = task_executor.block_store.retrieve_object_for_ref(task_executor.package_ref, "pickle")
+    package_dict = block_store.retrieve_object_for_ref(task_record.package_ref, "pickle")
     try:
         return package_dict[key]
     except KeyError:
@@ -139,10 +132,10 @@ def test_program(args, friendly_name):
         ciel.log.error("Can't run %s: exception '%s'" % (friendly_name, e), "EXEC", logging.WARNING)
         return False
 
-def add_package_dep(task_executor, task_descriptor):
-    if task_executor.package_ref is not None:
-        task_descriptor["dependencies"].append(task_executor.package_ref)
-        task_descriptor["task_private"]["package_ref"] = task_executor.package_ref
+def add_package_dep(task_record, task_descriptor):
+    if task_record.package_ref is not None:
+        task_descriptor["dependencies"].append(task_record.package_ref)
+        task_descriptor["task_private"]["package_ref"] = task_record.package_ref
 
 def hash_update_with_structure(hash, value):
     """
@@ -239,11 +232,9 @@ class FileOrString:
 
 class SkyPyExecutor:
     
-    def __init__(self, task_executor):
-
-        self.task_executor = task_executor
-        self.skypybase = task_executor.skypybase
-        self.block_store = task_executor.block_store
+    def __init__(self, block_store):
+        self.block_store = block_store
+        self.skypybase = os.getenv("CIEL_SKYPY_BASE")
 
     def cleanup(self):
         pass
@@ -256,7 +247,7 @@ class SkyPyExecutor:
             if "task_id" not in task_descriptor:
                 raise Exception("Can't spawn SkyPy tasks from coroutines without a task id")
             coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
-            self.task_executor.publish_ref(coro_ref)
+            self.task_record.publish_ref(coro_ref)
             task_descriptor["task_private"]["coro_ref"] = coro_ref
             task_descriptor["dependencies"].append(coro_ref)
         else:
@@ -267,22 +258,27 @@ class SkyPyExecutor:
         task_descriptor["task_private"]["export_json"] = export_json
         if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
-        add_package_dep(self.task_executor, task_descriptor)
+        add_package_dep(self.task_record, task_descriptor)
 
-    def can_run(self):
-        return test_program(["pypy", "--version"], "PyPy")
+    def can_run():
+        if "CIEL_SKYPY_BASE" not in os.environ:
+            ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
+            return False
+        else:
+            return test_program(["pypy", "--version"], "PyPy")
         
-    def run(self, task_descriptor):
+    def run(self, task_descriptor, task_record):
 
         self.task_descriptor = task_descriptor
+        self.task_record = task_record
         halt_dependencies = []
         skypy_private = task_descriptor["task_private"]
 
-        pyfile_ref = self.task_executor.retrieve_ref(skypy_private["py_ref"])
+        pyfile_ref = self.task_record.retrieve_ref(skypy_private["py_ref"])
         self.pyfile_ref = pyfile_ref
         rq_list = [pyfile_ref]
         if "coro_ref" in skypy_private:
-            coroutine_ref = self.task_executor.retrieve_ref(skypy_private["coro_ref"])
+            coroutine_ref = self.task_record.retrieve_ref(skypy_private["coro_ref"])
             rq_list.append(coroutine_ref)
 
         filenames = self.block_store.retrieve_filenames_for_refs_eager(rq_list)
@@ -339,16 +335,16 @@ class SkyPyExecutor:
                 out_ref = self.spawn_func(**request_args)
                 pickle.dump({"output": out_ref}, pypy_process.stdin)
             elif request == "exec":
-                out_refs = spawn_other(self.task_executor, **request_args)
+                out_refs = spawn_other(self.task_record, **request_args)
                 pickle.dump({"outputs": out_refs}, pypy_process.stdin)
             elif request == "package_lookup":
-                pickle.dump({"value": package_lookup(self.task_executor, request_args["key"])}, pypy_process.stdin)
+                pickle.dump({"value": package_lookup(self.task_record, request_args["key"])}, pypy_process.stdin)
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 coro_data = FileOrString(request_args, self.block_store)
                 cont_deps = halt_dependencies
                 cont_deps.extend(request_args["additional_deps"])
-                self.task_executor.spawn_task({"handler": "skypy",
+                self.task_record.spawn_task({"handler": "skypy",
                                                "expected_outputs": task_descriptor["expected_outputs"], 
                                                "dependencies": cont_deps},
                                               coro_data=coro_data,
@@ -362,7 +358,7 @@ class SkyPyExecutor:
                     result_ref = self.block_store.ref_from_object(result.toobj(), "json", task_descriptor["expected_outputs"][0])
                 else:
                     result_ref = result.toref(task_descriptor["expected_outputs"][0])
-                self.task_executor.publish_ref(result_ref)
+                self.task_record.publish_ref(result_ref)
                 return
             elif request == "exception":
                 report_text = FileOrString(request_args, self.block_store).tostr()
@@ -375,12 +371,12 @@ class SkyPyExecutor:
 
         new_task_descriptor = {"handler": "skypy"}
         coro_data = FileOrString(otherargs, self.block_store)
-        self.task_executor.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
+        self.task_record.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
         return SW2_FutureReference(new_task_descriptor["expected_outputs"][0])
         
     def deref_func(self, ref):
         ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
-        real_ref = self.task_executor.retrieve_ref(ref)
+        real_ref = self.task_record.retrieve_ref(ref)
         if isinstance(real_ref, SWDataValue):
             return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
         else:
@@ -388,7 +384,7 @@ class SkyPyExecutor:
             return {"success": True, "filename": filenames[0]}
 
     def deref_json(self, ref):
-        real_ref = self.task_executor.retrieve_ref(ref)
+        real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
 
 # Imports for Skywriting
@@ -428,10 +424,9 @@ class SafeLambdaFunction(LambdaFunction):
 
 class SkywritingExecutor:
     
-    def __init__(self, task_executor):
-        self.task_executor = task_executor
-        self.stdlibbase = task_executor.stdlibbase
-        self.block_store = task_executor.block_store
+    def __init__(self, block_store):
+        self.block_store = block_store
+        self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
 
     def cleanup(self):
         pass
@@ -445,7 +440,7 @@ class SkywritingExecutor:
                 raise Exception("Can't build a Skywriting task from a continuation without a task id")
             cont_id = "%s:cont" % task_descriptor["task_id"]
             spawned_cont_ref = self.block_store.ref_from_object(cont, "pickle", cont_id)
-            self.task_executor.publish_ref(spawned_cont_ref)
+            self.task_record.publish_ref(spawned_cont_ref)
             task_descriptor["task_private"]["cont"] = spawned_cont_ref
             task_descriptor["dependencies"].append(spawned_cont_ref)
         else:
@@ -454,7 +449,7 @@ class SkywritingExecutor:
             task_descriptor["dependencies"].append(sw_file_ref)
             task_descriptor["task_private"]["start_env"] = start_env
             task_descriptor["task_private"]["start_args"] = start_args
-        add_package_dep(self.task_executor, task_descriptor)
+        add_package_dep(self.task_record, task_descriptor)
 
     def start_sw_script(self, swref, args, env):
 
@@ -473,13 +468,14 @@ class SkywritingExecutor:
             cont.context.bind_identifier('argv', args)
         return cont
 
-    def can_run(self):
+    def can_run():
         return True
 
-    def run(self, task_descriptor):
+    def run(self, task_descriptor, task_record):
 
         sw_private = task_descriptor["task_private"]
         self.task_id = task_descriptor["task_id"]
+        self.task_record = task_record
 
         try:
             save_continuation = task_descriptor["save_continuation"]
@@ -508,7 +504,7 @@ class SkywritingExecutor:
         task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0], self))
         task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
-        task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: package_lookup(self.task_executor, x[0])))
+        task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: package_lookup(self.task_record, x[0])))
 
         visitor = StatementExecutorVisitor(task_context)
         
@@ -525,11 +521,11 @@ class SkywritingExecutor:
                 result = SWErrorReference('NO_RETURN_VALUE', 'null')
 
             result_ref = self.block_store.ref_from_object(result, "json", task_descriptor["expected_outputs"][0])
-            self.task_executor.publish_ref(result_ref)
+            self.task_record.publish_ref(result_ref)
             
         except ExecutionInterruption, ei:
            
-            self.task_executor.spawn_task({"handler": "swi", 
+            self.task_record.spawn_task({"handler": "swi", 
                                            "expected_outputs": task_descriptor["expected_outputs"],
                                            "dependencies": list(self.lazy_derefs)},
                                           cont=self.continuation)
@@ -544,7 +540,7 @@ class SkywritingExecutor:
         args = self.do_eager_thunks(args)
         spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
         cont = SWContinuation(spawned_task_stmt, SimpleContext())
-        new_task = self.task_executor.spawn_task({"handler": "swi"}, cont=cont)
+        new_task = self.task_record.spawn_task({"handler": "swi"}, cont=cont)
 
         # Return new future reference to the interpreter
         return SW2_FutureReference(new_task["expected_outputs"][0])
@@ -562,13 +558,13 @@ class SkywritingExecutor:
     def spawn_other(self, executor_name, executor_args_dict):
         # Args dict arrives from sw with unicode keys :(
         str_args = dict([(str(k), v) for (k, v) in executor_args_dict.items()])
-        return spawn_other(self.task_executor, executor_name, False, **str_args)
+        return spawn_other(self.task_record, executor_name, False, **str_args)
 
     def spawn_exec_func(self, executor_name, args, num_outputs):
-        return spawn_other(self.task_executor, executor_name, False, args=args, n_outputs=num_outputs)
+        return spawn_other(self.task_record, executor_name, False, args=args, n_outputs=num_outputs)
 
     def exec_func(self, executor_name, args, num_outputs):
-        return spawn_other(self.task_executor, executor_name, True, args=args, n_outputs=num_outputs)        
+        return spawn_other(self.task_record, executor_name, True, args=args, n_outputs=num_outputs)        
 
     def lazy_dereference(self, ref):
         self.lazy_derefs.add(ref)
@@ -576,7 +572,7 @@ class SkywritingExecutor:
 
     def eager_dereference(self, ref):
         # For SWI, all decodes are JSON
-        real_ref = self.task_executor.retrieve_ref(ref)
+        real_ref = self.task_record.retrieve_ref(ref)
         ret = self.block_store.retrieve_object_for_ref(real_ref, "json")
         self.lazy_derefs.discard(ref)
         return ret
@@ -603,10 +599,8 @@ class SkywritingExecutor:
 
 class SimpleExecutor:
 
-    def __init__(self, task_executor):
-        self.task_executor = task_executor
-        self.block_store = task_executor.block_store
-        self.master_proxy = task_executor.master_proxy
+    def __init__(self, block_store):
+        self.block_store = block_store
 
     def build_task_descriptor(self, task_descriptor, args, n_outputs):
 
@@ -628,13 +622,13 @@ class SimpleExecutor:
         # Add the args dict
         args_name = "%ssimple_exec_args" % name_prefix
         args_ref = self.block_store.ref_from_object(args, "pickle", args_name)
-        self.task_executor.publish_ref(args_ref)
+        self.task_record.publish_ref(args_ref)
         task_descriptor["dependencies"].append(args_ref)
         task_descriptor["task_private"]["simple_exec_args"] = args_ref
         
     def resolve_required_refs(self, args):
         try:
-            args["inputs"] = [self.task_executor.retrieve_ref(ref) for ref in args["inputs"]]
+            args["inputs"] = [self.task_record.retrieve_ref(ref) for ref in args["inputs"]]
         except KeyError:
             pass
 
@@ -662,10 +656,11 @@ class SimpleExecutor:
         files, ctx = self.get_filenames([ref])
         return (files[0], ctx)
 
-    def can_run(self):
+    def can_run():
         return True
 
-    def run(self, task_descriptor):
+    def run(self, task_descriptor, task_record):
+        self.task_record = task_record
         self.task_id = task_descriptor["task_id"]
         self.output_ids = task_descriptor["expected_outputs"]
         self.output_refs = [None for i in range(len(self.output_ids))]
@@ -681,7 +676,7 @@ class SimpleExecutor:
             self._execute()
             for ref in self.output_refs:
                 if ref is not None:
-                    self.task_executor.publish_ref(ref)
+                    self.task_record.publish_ref(ref)
                 else:
                     ciel.log.error("Executor failed to define output %s" % ref.id, "EXEC", logging.WARNING)
             self.succeeded = True
@@ -713,8 +708,8 @@ class SimpleExecutor:
 
 class ProcessRunningExecutor(SimpleExecutor):
 
-    def __init__(self, task_executor):
-        SimpleExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        SimpleExecutor.__init__(self, block_store)
 
         self._lock = threading.Lock()
         self.proc = None
@@ -817,8 +812,8 @@ class ProcessRunningExecutor(SimpleExecutor):
 
 class SWStdinoutExecutor(ProcessRunningExecutor):
     
-    def __init__(self, task_executor):
-        ProcessRunningExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        ProcessRunningExecutor.__init__(self, block_store)
         self.handler_name = "stdinout"
 
     def check_args_valid(self, args, n_outputs):
@@ -869,8 +864,8 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
         
 class EnvironmentExecutor(ProcessRunningExecutor):
     
-    def __init__(self, task_executor):
-        ProcessRunningExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        ProcessRunningExecutor.__init__(self, block_store)
         self.handler_name = "env"
 
     def check_args_valid(self, args, n_outputs):
@@ -910,8 +905,8 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
 class FilenamesOnStdinExecutor(ProcessRunningExecutor):
     
-    def __init__(self, task_executor):
-        ProcessRunningExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        ProcessRunningExecutor.__init__(self, block_store)
 
         self.last_event_time = None
         self.current_state = "Starting up"
@@ -931,7 +926,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
     def resolve_required_refs(self, args):
         SimpleExecutor.resolve_required_refs(self, args)
         try:
-            args["lib"] = [self.task_executor.retrieve_ref(ref) for ref in args["lib"]]
+            args["lib"] = [self.task_record.retrieve_ref(ref) for ref in args["lib"]]
         except KeyError:
             pass
 
@@ -1031,11 +1026,11 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
 
 class JavaExecutor(FilenamesOnStdinExecutor):
 
-    def __init__(self, task_executor):
-        FilenamesOnStdinExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        FilenamesOnStdinExecutor.__init__(self, block_store)
         self.handler_name = "java"
 
-    def can_run(self):
+    def can_run():
         cp = os.getenv("CLASSPATH")
         if cp is None:
             ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
@@ -1070,11 +1065,11 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         
 class DotNetExecutor(FilenamesOnStdinExecutor):
 
-    def __init__(self, task_executor):
-        FilenamesOnStdinExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        FilenamesOnStdinExecutor.__init__(self, block_store)
         self.handler_name = "dotnet"
 
-    def can_run(self):
+    def can_run():
         mono_loader = os.getenv('SW_MONO_LOADER_PATH')
         if mono_loader is None:
             ciel.log.error("Can't run Mono: SW_MONO_LOADER_PATH not set", "DOTNET", logging.WARNING)
@@ -1105,11 +1100,11 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
 class CExecutor(FilenamesOnStdinExecutor):
 
-    def __init__(self, task_executor):
-        FilenamesOnStdinExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        FilenamesOnStdinExecutor.__init__(self, block_store)
         self.handler_name = "cso"
 
-    def can_run(self):
+    def can_run():
         c_loader = os.getenv("SW_C_LOADER_PATH")
         if c_loader is None:
             ciel.log.error("Can't run C tasks: SW_C_LOADER_PATH not set", "CEXEC", logging.WARNING)
@@ -1139,8 +1134,8 @@ class CExecutor(FilenamesOnStdinExecutor):
     
 class GrabURLExecutor(SimpleExecutor):
     
-    def __init__(self, task_executor):
-        SimpleExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        SimpleExecutor.__init__(self, block_store)
         self.handler_name = "grab"
     
     def check_args_valid(self, args, n_outputs):
@@ -1158,7 +1153,7 @@ class GrabURLExecutor(SimpleExecutor):
         
         for i, url in enumerate(urls):
             ref = self.block_store.get_ref_for_url(url, version, self.task_id)
-            self.task_executor.publish_ref(ref)
+            self.task_record.publish_ref(ref)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
             self.block_store.cache_object(ref, "json", self.output_ids[i])
             self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
@@ -1167,8 +1162,8 @@ class GrabURLExecutor(SimpleExecutor):
             
 class SyncExecutor(SimpleExecutor):
     
-    def __init__(self, task_executor):
-        SimpleExecutor.__init__(self, task_executor)
+    def __init__(self, block_store):
+        SimpleExecutor.__init__(self, block_store)
         self.handler_name = "sync"
 
     def check_args_valid(self, args, n_outputs):
@@ -1177,7 +1172,7 @@ class SyncExecutor(SimpleExecutor):
             raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
 
     def _execute(self):
-        reflist = [self.task_executor.retrieve_ref(x) for x in self.args["inputs"]]
+        reflist = [self.task_record.retrieve_ref(x) for x in self.args["inputs"]]
         self.output_refs[0] = self.block_store.ref_from_object(reflist, "json", self.output_ids[0])
 
 def build_init_descriptor(handler, args, package_ref):
@@ -1191,21 +1186,21 @@ def build_init_descriptor(handler, args, package_ref):
 
 class InitExecutor:
 
-    def __init__(self, task_executor):
-        self.task_executor = task_executor
+    def __init__(self, block_store):
+        pass
 
-    def can_run(self):
+    def can_run():
         return True
 
     def build_task_descriptor(self, descriptor, **args):
         raise BlameUserException("Can't spawn init tasks directly; build them from outside the cluster using 'build_init_descriptor'")
 
-    def run(self, task_descriptor):
+    def run(self, task_descriptor, task_record):
         
         args_dict = task_descriptor["task_private"]["start_args"]
         # Some versions of simplejson make these ascii keys into unicode objects :(
         args_dict = dict([(str(k), v) for (k, v) in args_dict.items()])
-        initial_task_out_refs = spawn_other(self.task_executor,
+        initial_task_out_refs = spawn_other(task_record,
                                             task_descriptor["task_private"]["start_handler"], 
                                             False,
                                             **args_dict)
@@ -1213,7 +1208,7 @@ class InitExecutor:
         # Spawn this one manually so I can delegate my output
         final_task_descriptor = {"handler": "sync",
                                  "expected_outputs": task_descriptor["expected_outputs"]}
-        self.task_executor.spawn_task(final_task_descriptor, args={"inputs": initial_task_out_refs}, n_outputs=1)
+        task_record.spawn_task(final_task_descriptor, args={"inputs": initial_task_out_refs}, n_outputs=1)
 
     def cleanup(self):
         pass

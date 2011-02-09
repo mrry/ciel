@@ -62,7 +62,7 @@ class Worker(plugins.SimplePlugin):
         self.upload_deferred_work.subscribe()
         self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)
         self.execution_features = ExecutionFeatures()
-        self.task_executor = TaskExecutorPlugin(bus, options.skypybase, options.lib, self.block_store, self.master_proxy, self.execution_features, 1)
+        self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
         self.runnable_executors = self.execution_features.check_executors(self.task_executor)
         self.server_root = WorkerRoot(self)
@@ -77,8 +77,6 @@ class Worker(plugins.SimplePlugin):
     
         if options.staticbase is not None:
             self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
-        if options.lib is not None:
-            self.cherrypy_conf["/stdlib"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.lib }
 
         self.subscribe()
 

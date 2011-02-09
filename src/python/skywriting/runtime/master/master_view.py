@@ -245,6 +245,11 @@ class MasterTaskRoot:
                                 "next_event_to_fetch": finish_event_index, 
                                 "first_unavailable_event": report_event_index}
                 return simplejson.dumps(events_reply, cls=SWReferenceJSONEncoder)
+
+            elif id == "report":
+                # Multi-spawn-and-commit
+                report = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                self.task_pool.report_tasks(report)
             
             if action == 'spawn':
                 if cherrypy.request.method == 'POST':
