@@ -28,7 +28,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.master_proxy = master_proxy
         self.execution_features = execution_features
 
-        self.executor_cache = ExecutorCache(self.execution_features)
+        self.executor_cache = ExecutorCache(self.execution_features, self.block_store)
         self.current_task_set = None
         self._lock = Lock()
     

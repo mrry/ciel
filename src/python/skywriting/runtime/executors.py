@@ -77,12 +77,12 @@ class ExecutionFeatures:
     def check_executors(self):
         ciel.log.error("Checking executors:", "EXEC", logging.INFO)
         retval = []
-        for executor in self.executors.values():
+        for (name, executor) in self.executors.items():
             if executor.can_run():
-                ciel.log.error("Executor '%s' can run" % executor, "EXEC", logging.INFO)
-                retval.append(executor)
+                ciel.log.error("Executor '%s' can run" % name, "EXEC", logging.INFO)
+                retval.append(name)
             else:
-                ciel.log.error("Executor '%s' CANNOT run" % executor, "EXEC", logging.WARNING)
+                ciel.log.error("Executor '%s' CANNOT run" % name, "EXEC", logging.WARNING)
         return retval
     
     def get_executor(self, name, block_store):
@@ -260,6 +260,7 @@ class SkyPyExecutor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         add_package_dep(self.task_record, task_descriptor)
 
+    @staticmethod
     def can_run():
         if "CIEL_SKYPY_BASE" not in os.environ:
             ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
@@ -468,6 +469,7 @@ class SkywritingExecutor:
             cont.context.bind_identifier('argv', args)
         return cont
 
+    @staticmethod
     def can_run():
         return True
 
@@ -656,6 +658,7 @@ class SimpleExecutor:
         files, ctx = self.get_filenames([ref])
         return (files[0], ctx)
 
+    @staticmethod
     def can_run():
         return True
 
@@ -1030,6 +1033,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         FilenamesOnStdinExecutor.__init__(self, block_store)
         self.handler_name = "java"
 
+    @staticmethod
     def can_run():
         cp = os.getenv("CLASSPATH")
         if cp is None:
@@ -1069,6 +1073,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
         FilenamesOnStdinExecutor.__init__(self, block_store)
         self.handler_name = "dotnet"
 
+    @staticmethod
     def can_run():
         mono_loader = os.getenv('SW_MONO_LOADER_PATH')
         if mono_loader is None:
@@ -1104,6 +1109,7 @@ class CExecutor(FilenamesOnStdinExecutor):
         FilenamesOnStdinExecutor.__init__(self, block_store)
         self.handler_name = "cso"
 
+    @staticmethod
     def can_run():
         c_loader = os.getenv("SW_C_LOADER_PATH")
         if c_loader is None:
@@ -1189,6 +1195,7 @@ class InitExecutor:
     def __init__(self, block_store):
         pass
 
+    @staticmethod
     def can_run():
         return True
 

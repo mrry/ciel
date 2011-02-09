@@ -16,4 +16,6 @@ WORKER_PORT=${WORKER_PORT:-9001}
 export CLASSPATH=${BASE}/dist/skywriting.jar
 export SW_MONO_LOADER_PATH=${BASE}/src/csharp/bin/loader.exe
 export SW_C_LOADER_PATH=${BASE}/src/c/src/loader
-${PYTHON} ${BASE}/src/python/skywriting/__init__.py --role worker --master ${MASTER} --port $WORKER_PORT --staticbase $BASE/src/js/skyweb_worker/ --skypybase $BASE/src/python/skywriting/runtime/worker/skypy
+export CIEL_SKYPY_BASE=${BASE}/src/python/skywriting/runtime/worker/skypy
+export CIEL_SW_STDLIB=${BASE}/src/sw/stdlib
+${PYTHON} ${BASE}/src/python/skywriting/__init__.py --role worker --master ${MASTER} --port $WORKER_PORT --staticbase $BASE/src/js/skyweb_worker/
