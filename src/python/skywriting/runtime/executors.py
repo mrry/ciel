@@ -350,7 +350,8 @@ class SkyPyExecutor:
                 cont_deps.extend(request_args["additional_deps"])
                 self.task_record.spawn_task({"handler": "skypy",
                                                "expected_outputs": task_descriptor["expected_outputs"], 
-                                               "dependencies": cont_deps},
+                                               "dependencies": cont_deps,
+                                               "task_private": {"hint": "small_task"}},
                                               coro_data=coro_data,
                                               pyfile_ref=pyfile_ref,
                                               export_json=skypy_private["export_json"])
@@ -443,8 +444,6 @@ class SkywritingExecutor:
         if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         if cont is not None:
-            if "task_id" not in task_descriptor:
-                raise Exception("Can't build a Skywriting task from a continuation without a task id")
             cont_id = "%s:cont" % task_descriptor["task_id"]
             spawned_cont_ref = block_store.ref_from_object(cont, "pickle", cont_id)
             parent_task_record.publish_ref(spawned_cont_ref)
@@ -535,7 +534,8 @@ class SkywritingExecutor:
            
             self.task_record.spawn_task({"handler": "swi", 
                                            "expected_outputs": task_descriptor["expected_outputs"],
-                                           "dependencies": list(self.lazy_derefs)},
+                                           "dependencies": list(self.lazy_derefs),
+                                           "task_private": { "hint": "small_task" }},
                                           cont=self.continuation)
 
         if "save_continuation" in task_descriptor and task_descriptor["save_continuation"]:
@@ -1236,7 +1236,7 @@ class InitExecutor:
         args_dict = dict([(str(k), v) for (k, v) in args_dict.items()])
         initial_task_out_refs = spawn_other(task_record,
                                             task_descriptor["task_private"]["start_handler"], 
-                                            False,
+                                            True,
                                             **args_dict)
 
         # Spawn this one manually so I can delegate my output
