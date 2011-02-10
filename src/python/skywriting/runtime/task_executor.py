@@ -49,7 +49,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
     def handle_input(self, input):
 
-        new_task_set = TaskSetExecutionRecord(self.executor_cache, input, self.block_store, self.master_proxy)
+        new_task_set = TaskSetExecutionRecord(self.executor_cache, input, self.block_store, self.master_proxy, self.execution_features)
         with self._lock:
             self.current_task_set = new_task_set
         new_task_set.run()
@@ -82,7 +82,7 @@ class ExecutorCache:
 
 class TaskSetExecutionRecord:
 
-    def __init__(self, executor_cache, root_task_descriptor, block_store, master_proxy):
+    def __init__(self, executor_cache, root_task_descriptor, block_store, master_proxy, execution_features):
         self._lock = Lock()
         self.task_records = []
         self.current_task = None
@@ -92,7 +92,7 @@ class TaskSetExecutionRecord:
         self.executor_cache = executor_cache
         self.reference_cache = dict([(ref.id, ref) for ref in root_task_descriptor["inputs"]])
         self.initial_td = root_task_descriptor
-        self.task_graph = LocalTaskGraph(self.initial_td["task_id"])
+        self.task_graph = LocalTaskGraph(self.initial_td["task_id"], execution_features)
         self.job_output = LocalJobOutput(self.initial_td["expected_outputs"])
         for ref in self.initial_td["expected_outputs"]:
             self.task_graph.subscribe(ref, self.job_output)

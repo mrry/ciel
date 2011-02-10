@@ -79,6 +79,9 @@ class ExecutionFeatures:
                 ciel.log.error("Executor '%s' CANNOT run" % name, "EXEC", logging.WARNING)
         return retval
     
+    def can_run(self, name):
+        return name in self.runnable_executors
+
     def get_executor(self, name, block_store):
         try:
             return self.runnable_executors[name](block_store)
