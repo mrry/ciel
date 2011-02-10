@@ -272,7 +272,7 @@ class SkyPyExecutor:
             ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
             return False
         else:
-            return test_program(["pypy", "--version"], "PyPy")
+            return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
         
     def run(self, task_descriptor, task_record):
 

@@ -23,10 +23,15 @@ parser.add_option("-s", "--source", dest="source_file",
                   help="load user source from FILE", metavar="FILE")
 parser.add_option("-a", "--await_entry_point", action="store_true", dest="await_entry_point",
                   default=False, help="wait to receive a pickled dict on stdin giving entry point and args")
+parser.add_option("-v", "--version", action="store_true", dest="version", default=False, help="Display version info")
 
 sys.stderr.write("SkyPy: Started with args %s\n" % sys.argv)
-
 (options, args) = parser.parse_args()
+
+if options.version:
+    print "Ciel SkyPy v0.1. Python:"
+    print sys.version
+    sys.exit(0)
 
 resume_file = None
 try:
