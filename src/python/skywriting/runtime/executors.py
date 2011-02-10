@@ -759,7 +759,7 @@ class ProcessRunningExecutor(SimpleExecutor):
                 stream_ref = SW2_StreamReference(self.output_ids[i])
                 stream_ref.add_location_hint(self.block_store.netloc)
                 stream_refs[self.output_ids[i]] = stream_ref
-            self.master_proxy.publish_refs(self.task_id, stream_refs)
+            self.task_record.prepublish_refs(stream_refs)
 
         self.proc = self.start_process(file_inputs, file_outputs, transfer_ctx)
         add_running_child(self.proc)
