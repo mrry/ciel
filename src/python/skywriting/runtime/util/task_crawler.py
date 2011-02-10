@@ -49,7 +49,7 @@ def main():
         for (time, state) in descriptor["history"]:
             if state == 'CREATED':
                 created_at = time
-            elif state == 'ASSIGNED':
+            elif assigned_at is None and (state == 'ASSIGNED' or state == 'ASSIGNED_STREAMING'):
                 assigned_at = time
             elif state == 'COMMITTED':
                 committed_at = time
