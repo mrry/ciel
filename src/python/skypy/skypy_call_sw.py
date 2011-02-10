@@ -7,6 +7,6 @@ def skypy_callback(str):
     return (str + " and Skypy too")
 
 def skypy_main():
-    sw_ret = skypy.spawn_exec("swi", sw_file_ref=skypy.package_lookup("sw_main"))
+    sw_ret = skypy.sync_exec("swi", sw_file_ref=skypy.package_lookup("sw_main"))
     sw_str = skypy.deref_json(sw_ret[0])
     return "SW returned: %s" % str(sw_str)

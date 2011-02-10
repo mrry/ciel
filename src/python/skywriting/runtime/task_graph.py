@@ -215,13 +215,11 @@ class DynamicTaskGraph:
                     # We may need to recursively check the inputs on the
                     # producing task for this reference.
                     producing_task = ref_table_entry.producing_task
-                    if producing_task is None:
-                        raise 'No such producing task'
-                    
-                    # The producing task is inactive, so recursively visit it.                    
-                    if producing_task.state in (TASK_CREATED, TASK_COMMITTED):
-                        producing_task.set_state(TASK_BLOCKING)
-                        newly_active_task_queue.append(producing_task)
+                    if producing_task is not None:
+                        # The producing task is inactive, so recursively visit it.                    
+                        if producing_task.state in (TASK_CREATED, TASK_COMMITTED):
+                            producing_task.set_state(TASK_BLOCKING)
+                            newly_active_task_queue.append(producing_task)
             
             # If all inputs are available, we can now run this task. Otherwise,
             # it will run when its inputs are published.

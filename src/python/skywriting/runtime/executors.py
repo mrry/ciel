@@ -566,7 +566,11 @@ class SkywritingExecutor:
     def spawn_other(self, executor_name, executor_args_dict):
         # Args dict arrives from sw with unicode keys :(
         str_args = dict([(str(k), v) for (k, v) in executor_args_dict.items()])
-        return spawn_other(self.task_record, executor_name, False, **str_args)
+        try:
+            small_task = str_args.pop("small_task")
+        except:
+            small_task = False
+        return spawn_other(self.task_record, executor_name, small_task, **str_args)
 
     def spawn_exec_func(self, executor_name, args, num_outputs):
         return spawn_other(self.task_record, executor_name, False, args=args, n_outputs=num_outputs)
@@ -1241,7 +1245,8 @@ class InitExecutor:
 
         # Spawn this one manually so I can delegate my output
         final_task_descriptor = {"handler": "sync",
-                                 "expected_outputs": task_descriptor["expected_outputs"]}
+                                 "expected_outputs": task_descriptor["expected_outputs"],
+                                 "task_private": {"hint": "small_task"}}
         task_record.spawn_task(final_task_descriptor, args={"inputs": initial_task_out_refs}, n_outputs=1)
 
     def cleanup(self):
