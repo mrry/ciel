@@ -54,7 +54,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_set = new_task_set
         new_task_set.run()
         report_data = [(tr.task_descriptor["task_id"], tr.spawned_tasks, tr.published_refs) for tr in new_task_set.task_records]
-        print "Report", report_data
         self.master_proxy.report_tasks(report_data)
         with self._lock:
             self.current_task_set = None
@@ -94,7 +93,6 @@ class TaskSetExecutionRecord:
         self.task_graph = LocalTaskGraph(self.initial_td["task_id"])
         self.job_output = LocalJobOutput(self.initial_td["expected_outputs"])
         for ref in self.initial_td["expected_outputs"]:
-            print "Interested in", ref
             self.task_graph.subscribe(ref, self.job_output)
         self.task_graph.spawn_and_publish([self.initial_td], self.initial_td["inputs"])
 
@@ -121,10 +119,13 @@ class TaskSetExecutionRecord:
         ciel.log.error("Taskset complete", "TASKEXEC", logging.INFO)
 
     def retrieve_ref(self, ref):
-        try:
-            return self.reference_cache[ref.id]
-        except KeyError:
-            raise ReferenceUnavailableException(ref.id)
+        if ref.is_consumable():
+            return ref
+        else:
+            try:
+                return self.reference_cache[ref.id]
+            except KeyError:
+                raise ReferenceUnavailableException(ref.id)
 
     def publish_ref(self, ref):
         self.reference_cache[ref.id] = ref
@@ -192,7 +193,5 @@ class TaskExecutionRecord:
         return new_task_descriptor
 
     def retrieve_ref(self, ref):
-        if ref.is_consumable():
-            return ref
-        else:
-            return self.task_set.retrieve_ref(ref)
+        return self.task_set.retrieve_ref(ref)
+
