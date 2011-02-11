@@ -18,4 +18,4 @@ export SW_MONO_LOADER_PATH=${BASE}/src/csharp/bin/loader.exe
 export SW_C_LOADER_PATH=${BASE}/src/c/src/loader
 export CIEL_SKYPY_BASE=${BASE}/src/python/skywriting/runtime/worker/skypy
 export CIEL_SW_STDLIB=${BASE}/src/sw/stdlib
-${PYTHON} ${BASE}/src/python/skywriting/__init__.py --role worker --master ${MASTER} --port $WORKER_PORT --staticbase $BASE/src/js/skyweb_worker/
+${PYTHON} ${BASE}/src/python/skywriting/__init__.py --role worker --master ${MASTER} --port $WORKER_PORT --staticbase $BASE/src/js/skyweb_worker/ --lighttpd-conf $BASE/src/python/skywriting/runtime/lighttpd.conf

@@ -30,8 +30,10 @@ import os
 import socket
 import urlparse
 import simplejson
+import subprocess
 from threading import Lock, Condition
 from datetime import datetime
+import flup.server.fcgi
 
 class WorkerState:
     pass
@@ -52,10 +54,16 @@ class Worker(plugins.SimplePlugin):
             self.hostname = self.master_proxy.get_public_hostname()
         else:
             self.hostname = options.hostname
+        self.lighty_conf_template = options.lighty_conf
         if options.blockstore is None:
-            block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+            self.static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         else:
-            block_store_dir = options.blockstore
+            self.static_content_root = options.blockstore
+        block_store_dir = os.path.join(self.static_content_root, "data")
+        try:
+            os.mkdir(block_store_dir)
+        except:
+            pass
         self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.build_pin_set()
         self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
@@ -101,8 +109,28 @@ class Worker(plugins.SimplePlugin):
 
     def start_running(self):
 
+        app = cherrypy.tree.mount(self.server_root, "", self.cherrypy_conf)
+
+        if self.lighty_conf_template is not None:
+            lighty_ancillary_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/ciel-lighttpd-'))
+            lighty_conf = os.path.join(lighty_ancillary_dir, "ciel-lighttpd.conf")
+            socket_path = os.path.join(lighty_ancillary_dir, "ciel-socket")
+            with open(self.lighty_conf_template, "r") as conf_in:
+                with open(lighty_conf, "w") as conf_out:
+                    m4_args = ["m4", "-DCIEL_PORT=%d" % self.port, 
+                               "-DCIEL_LOG=%s" % lighty_ancillary_dir, 
+                               "-DCIEL_STATIC_CONTENT=%s" % self.static_content_root,
+                               "-DCIEL_SOCKET=%s" % socket_path]
+                    subprocess.check_call(m4_args, stdin=conf_in, stdout=conf_out)
+            self.lighty_proc = subprocess.Popen(["lighttpd", "-D", "-f", lighty_conf])
+            # Zap CherryPy's original flavour server
+            cherrypy.server.unsubscribe()
+            server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=socket_path)
+            adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=socket_path)
+            # Insert a FastCGI server in its place
+            adapter.subscribe()
+
         ciel.engine.start()
-        cherrypy.tree.mount(self.server_root, "", self.cherrypy_conf)
         if hasattr(ciel.engine, "signal_handler"):
             ciel.engine.signal_handler.subscribe()
         if hasattr(ciel.engine, "console_control_handler"):

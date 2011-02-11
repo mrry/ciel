@@ -86,29 +86,29 @@ class MasterProxy:
             raise MasterNotRespondingException()
 
     def get_public_hostname(self):
-        message_url = urljoin(self.master_url, "gethostname/")
+        message_url = urljoin(self.master_url, "control/gethostname/")
         _, result = self.backoff_request(message_url, 'GET')
         return simplejson.loads(result)
 
     def register_as_worker(self):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
-        message_url = urljoin(self.master_url, 'worker/')
+        message_url = urljoin(self.master_url, 'control/worker/')
         _, result = self.backoff_request(message_url, 'POST', message_payload)
         self.worker.id = simplejson.loads(result)
     
     def publish_refs(self, task_id, refs):
         message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'task/%s/publish' % (task_id, ))
+        message_url = urljoin(self.master_url, 'control/task/%s/publish' % (task_id, ))
         self.backoff_request(message_url, "POST", message_payload)
         
     def spawn_tasks(self, parent_task_id, tasks):
         message_payload = simplejson.dumps(tasks, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'task/%s/spawn' % (str(parent_task_id), ))
+        message_url = urljoin(self.master_url, 'control/task/%s/spawn' % (str(parent_task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
 
     def report_tasks(self, report):
         message_payload = simplejson.dumps(report, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'task/report')
+        message_url = urljoin(self.master_url, 'control/task/report')
         self.backoff_request(message_url, "POST", message_payload)
     
     def commit_task(self, task_id, bindings, saved_continuation_uri=None, replay_uuid_list=None):
@@ -121,14 +121,14 @@ class MasterProxy:
         if replay_uuid_list is not None:
             payload_dict['replay_uuids'] = map(str, replay_uuid_list)
         message_payload = simplejson.dumps(payload_dict, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'task/%s/commit' % (str(task_id), ))
+        message_url = urljoin(self.master_url, 'control/task/%s/commit' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
         
     def failed_task(self, task_id, reason=None, details=None, bindings={}):
         message_payload = simplejson.dumps((reason, details, bindings), cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'task/%s/failed' % (str(task_id), ))
+        message_url = urljoin(self.master_url, 'control/task/%s/failed' % (str(task_id), ))
         self.backoff_request(message_url, "POST", message_payload)
 
     def ping(self):
-        message_url = urljoin(self.master_url, 'worker/%s/ping/' % (str(self.worker.id), ))
+        message_url = urljoin(self.master_url, 'control/worker/%s/ping/' % (str(self.worker.id), ))
         self.backoff_request(message_url, "POST", "PING", 1, 0)

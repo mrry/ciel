@@ -46,6 +46,7 @@ def main(default_role=None):
     parser.add_option("-l", "--lib", action="store", dest="lib", help="Path to standard library of Skywriting scripts (for workers)", metavar="PATH", default=os.path.join(os.path.dirname(__file__), '../../sw/stdlib'))
     parser.add_option("-x", "--ignore-blocks", action="store_true", dest="ignore_blocks", help="Flag to instruct the workers not to send existing blocks", default=False)
     parser.add_option("-n", "--num-workers", action="store", dest="num_workers", help="Number of worker threads to create (for all-in-one)", type="int", default=1)
+    parser.add_option("-L", "--lighttpd-conf", action="store", dest="lighty_conf", help="Lighttpd configuration template to use instead of CherryPy builtin server", default=None)
     (options, args) = parser.parse_args()
    
     if options.role == 'master':

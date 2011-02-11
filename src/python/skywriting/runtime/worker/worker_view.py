@@ -33,6 +33,12 @@ class WorkerRoot:
     
     def __init__(self, worker):
         self.worker = worker
+        self.control = ControlRoot(worker)
+        self.data = self.control.data
+
+class ControlRoot:
+
+    def __init__(self, worker):
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)

@@ -63,20 +63,20 @@ class SWInteractiveShell(cmd.Cmd):
         # 3. Submit a new task with the updated local continuation.
         master_netloc = urlparse.urlparse(self.master_uri).netloc
         task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])}, 'handler': 'swi', 'save_continuation': True}
-        master_task_submit_uri = urlparse.urljoin(self.master_uri, "/task/")
+        master_task_submit_uri = urlparse.urljoin(self.master_uri, "control/task/")
         (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
         submit_result = simplejson.loads(content)
         
         # 4. Block to get the final result.
         expected_output_id = submit_result['outputs'][0]
-        notify_url = urlparse.urljoin(self.master_uri, "/global_data/%d/completion" % expected_output_id)
+        notify_url = urlparse.urljoin(self.master_uri, "control/global_data/%d/completion" % expected_output_id)
         (_, result_content) = http.request(notify_url)
         completion_result = simplejson.loads(result_content, object_hook=json_decode_object_hook)
         if completion_result["exited"]:
             raise Exception("Server exited")
 
         # 5. Get updated local continuation. N.B. The originally-spawned task may have delegated, so we need to find the task from the actual producer of the expected output.
-        task_for_output_url = urlparse.urljoin(self.master_uri, "/global_data/%d/task" % expected_output_id)
+        task_for_output_url = urlparse.urljoin(self.master_uri, "control/global_data/%d/task" % expected_output_id)
         (_, content) = http.request(task_for_output_url, "GET")
         end_task_descriptor = simplejson.loads(content, object_hook=json_decode_object_hook)
         saved_continuation_url = sw_to_external_url(end_task_descriptor['saved_continuation_uri'])

@@ -139,7 +139,7 @@ class WorkerPool(plugins.SimplePlugin):
     def shutdown(self):
         for worker in self.workers.values():
             try:
-                httplib2.Http().request('http://%s/kill/' % worker.netloc)
+                httplib2.Http().request('http://%s/control/kill/' % worker.netloc)
             except:
                 pass
         
@@ -161,13 +161,13 @@ class WorkerPool(plugins.SimplePlugin):
             self.event_condvar.notify_all()
             
         try:
-            httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
+            httplib2.Http().request("http://%s/control/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
             self.worker_failed(worker)
 
     def notify_task_streams_done(self, worker, task):
         try:
-            httplib2.Http().request("http://%s/task/%s/streams_done" % (worker.netloc, task.task_id), "POST", "done")
+            httplib2.Http().request("http://%s/control/task/%s/streams_done" % (worker.netloc, task.task_id), "POST", "done")
         except:
             pass
 
@@ -176,7 +176,7 @@ class WorkerPool(plugins.SimplePlugin):
     
         try:
             print "Aborting task %d on worker %s" % (task.task_id, worker)
-            response, _ = httplib2.Http().request('http://%s/task/%d/abort' % (worker.netloc, task.task_id), 'POST')
+            response, _ = httplib2.Http().request('http://%s/control/task/%d/abort' % (worker.netloc, task.task_id), 'POST')
             if response.status == 200:
                 self.worker_idle(worker)
             else:
@@ -247,7 +247,7 @@ class WorkerPool(plugins.SimplePlugin):
     def investigate_worker_failure(self, worker):
         ciel.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         try:
-            _, content = httplib2.Http().request('http://%s/' % (worker.netloc, ), 'GET')
+            _, content = httplib2.Http().request('http://%s/control' % (worker.netloc, ), 'GET')
             id = simplejson.loads(content)
             assert id == worker.id
         except:

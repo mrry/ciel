@@ -30,6 +30,12 @@ import socket
 class MasterRoot:
     
     def __init__(self, task_pool, worker_pool, block_store, job_pool):
+        self.control = ControlRoot(task_pool, worker_pool, block_store, job_pool)
+        self.data = self.control.data
+
+class ControlRoot:
+
+    def __init__(self, task_pool, worker_pool, block_store, job_pool):
         self.worker = WorkersRoot(worker_pool)
         self.job = JobRoot(job_pool)
         self.task = MasterTaskRoot(task_pool)
@@ -43,7 +49,7 @@ class MasterRoot:
 
     @cherrypy.expose
     def index(self):
-        return "Hello from the master!"
+        return "Hello from the master!"    
 
 class HostnameRoot:
 

@@ -43,7 +43,7 @@ def main():
     if options.list:
         id_to_netloc = {}
         for netloc in workers:
-            response, content = h.request('http://%s/admin/pin/' % netloc, 'GET')
+            response, content = h.request('http://%s/control/admin/pin/' % netloc, 'GET')
             assert response.status == 200
             pin_set = simplejson.loads(content, object_hook=json_decode_object_hook)
             for ref in pin_set:
@@ -62,7 +62,7 @@ def main():
         id_to_ref = {}
         
         for netloc in workers:
-            response, content = h.request('http://%s/admin/pin/' % netloc, 'GET')
+            response, content = h.request('http://%s/control/admin/pin/' % netloc, 'GET')
             assert response.status == 200
             pin_set = simplejson.loads(content, object_hook=json_decode_object_hook)
             for ref in pin_set:

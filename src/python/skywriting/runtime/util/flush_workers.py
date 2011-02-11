@@ -30,11 +30,11 @@ def main():
     
     for netloc in workers:
         if options.force:
-            response, content = h.request('http://%s/admin/flush/really' % (netloc), 'POST', 'flush')
+            response, content = h.request('http://%s/control/admin/flush/really' % (netloc), 'POST', 'flush')
             assert response.status == 200
             print >>sys.stderr, 'Flushed worker: %s' % netloc
         else:
-            response, content = h.request('http://%s/admin/flush/' % (netloc), 'POST', 'flush')
+            response, content = h.request('http://%s/control/admin/flush/' % (netloc), 'POST', 'flush')
             assert response.status == 200
             print >>sys.stderr, 'Worker: %s' % netloc
         print '---', content

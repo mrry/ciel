@@ -38,7 +38,7 @@ def resolve_vars(value, callback_map):
     return resolve_vars_val(value)
 
 def ref_of_string(val, master_uri):
-    master_data_uri = urlparse.urljoin(master_uri, "/data/")
+    master_data_uri = urlparse.urljoin(master_uri, "control/data/")
     master_netloc = urlparse.urlparse(master_uri).netloc
     (_, content) = http.request(master_data_uri, "POST", val)
     newid = simplejson.loads(content)
@@ -98,12 +98,12 @@ def submit_job_with_package(package_dict, start_handler, start_args, package_pat
     print "Submitting descriptor:"
     sw_pprint(task_descriptor, indent=2)
 
-    master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
+    master_task_submit_uri = urlparse.urljoin(master_uri, "control/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
     return simplejson.loads(content)
 
 def await_job(jobid, master_uri):
-    notify_url = urlparse.urljoin(master_uri, "/job/%s/completion" % jobid)
+    notify_url = urlparse.urljoin(master_uri, "control/job/%s/completion" % jobid)
     (_, content) = http.request(notify_url)
     completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
     if "error" in completion_result:
@@ -131,7 +131,7 @@ def main():
 
     new_job = submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri)
     
-    job_url = urlparse.urljoin(master_uri, "/browse/job/%s" % new_job['job_id'])
+    job_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % new_job['job_id'])
     print "JOB_URL", job_url
 
     result = await_job(new_job['job_id'], master_uri)

@@ -29,6 +29,7 @@ import httplib2
 import tempfile
 import socket
 import cherrypy
+import subprocess
 from skywriting.runtime.master.job_pool import JobPool
 import os
 from skywriting.runtime.master.recovery import RecoveryManager
@@ -55,9 +56,14 @@ def master_main(options):
     print 'Local port is', local_port
     
     if options.blockstore is None:
-        block_store_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+        static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
     else:
-        block_store_dir = options.blockstore
+        static_content_root = options.blockstore
+    block_store_dir = os.path.join(static_content_root, "data")
+    try:
+        os.mkdir(block_store_dir)
+    except:
+        pass
 
     block_store = BlockStore(ciel.engine, local_hostname, local_port, block_store_dir)
     block_store.build_pin_set()
@@ -77,7 +83,26 @@ def master_main(options):
     if options.staticbase is not None:
         cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
 
-    cherrypy.tree.mount(root, "", cherrypy_conf)
+    app = cherrypy.tree.mount(root, "", cherrypy_conf)
+    lighty_conf_template = options.lighty_conf
+    if lighty_conf_template is not None:
+        lighty_ancillary_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/ciel-lighttpd-'))
+        lighty_conf = os.path.join(lighty_ancillary_dir, "ciel-lighttpd.conf")
+        socket_path = os.path.join(lighty_ancillary_dir, "ciel-socket")
+        with open(lighty_conf_template, "r") as conf_in:
+            with open(lighty_conf, "w") as conf_out:
+                m4_args = ["m4", "-DCIEL_PORT=%d" % local_port, 
+                           "-DCIEL_LOG=%s" % lighty_ancillary_dir, 
+                           "-DCIEL_STATIC_CONTENT=%s" % static_content_root,
+                           "-DCIEL_SOCKET=%s" % socket_path]
+                subprocess.check_call(m4_args, stdin=conf_in, stdout=conf_out)
+        lighty_proc = subprocess.Popen(["lighttpd", "-D", "-f", lighty_conf])
+        # Zap CherryPy's original flavour server
+        cherrypy.server.unsubscribe()
+        server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=socket_path)
+        adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=socket_path)
+        # Insert a FastCGI server in its place
+        adapter.subscribe()
     
     if hasattr(ciel.engine, "signal_handler"):
         ciel.engine.signal_handler.subscribe()
@@ -86,8 +111,6 @@ def master_main(options):
 
     ciel.engine.start()
     
-    
-    
     if options.workerlist is not None:
         master_details = {'netloc': master_netloc}
         master_details_as_json = simplejson.dumps(master_details)
@@ -95,7 +118,7 @@ def master_main(options):
             for worker_url in f.readlines():
                 try:
                     http = httplib2.Http()
-                    http.request(urllib2.urlparse.urljoin(worker_url, '/master/'), "POST", master_details_as_json)
+                    http.request(urllib2.urlparse.urljoin(worker_url, 'control/master/'), "POST", master_details_as_json)
                     # Worker will be created by a callback.
                 except:
                     ciel.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)

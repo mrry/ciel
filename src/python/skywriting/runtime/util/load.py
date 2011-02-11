@@ -26,7 +26,7 @@ import time
 
 def get_worker_netlocs(master_uri):
     http = httplib2.Http()
-    response, content = http.request(urlparse.urljoin(master_uri, '/worker/', 'GET'))
+    response, content = http.request(urlparse.urljoin(master_uri, 'control/worker/', 'GET'))
     if response.status != 200:
         raise Exception("Error: Could not contact master")
     workers = simplejson.loads(content)
@@ -155,30 +155,30 @@ def upload_extent_to_targets(input_file, block_id, start, finish, targets, packe
     https = [httplib2.Http() for _ in targets]
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s' % (target, block_id), 'POST', 'start')
+        h.request('http://%s/control/upload/%s' % (target, block_id), 'POST', 'start')
         
     for packet_start in range(start, finish, packet_size):
         packet = input_file.read(min(packet_size, finish - packet_start))
         for h, target in zip(https, targets):
-            h.request('http://%s/upload/%s/%d' % (target, block_id, packet_start - start), 'POST', packet)
+            h.request('http://%s/control/upload/%s/%d' % (target, block_id, packet_start - start), 'POST', packet)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(finish - start))
-        h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
+        h.request('http://%s/control/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(finish - start))
+        h.request('http://%s/control/admin/pin/%s' % (target, block_id), 'POST', 'pin')
         
 def upload_string_to_targets(input, block_id, targets):
 
     https = [httplib2.Http() for _ in targets]
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s' % (target, block_id), 'POST', 'start')
+        h.request('http://%s/control/upload/%s' % (target, block_id), 'POST', 'start')
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/%d' % (target, block_id, 0), 'POST', input)
+        h.request('http://%s/control/upload/%s/%d' % (target, block_id, 0), 'POST', input)
         
     for h, target in zip(https, targets):
-        h.request('http://%s/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
-        h.request('http://%s/admin/pin/%s' % (target, block_id), 'POST', 'pin')
+        h.request('http://%s/control/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
+        h.request('http://%s/control/admin/pin/%s' % (target, block_id), 'POST', 'pin')
 
 def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, packet_size=1048576, name=None, urls=False):
     
@@ -254,7 +254,7 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
             h2 = httplib2.Http()
             print >>sys.stderr, 'Uploading to %s' % target
             id = uuid.uuid4()
-            response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
+            response, _ = h2.request('http://%s/control/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
             if response.status != 202:
                 print >>sys.stderr, 'Failed... %s' % target
                 failed_targets.add(target)
@@ -268,7 +268,7 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
                 time.sleep(3)
                 for target, id in list(pending_targets.items()):
                     try:
-                        response, _ = h2.request('http://%s/fetch/%s' % (target, id), 'GET')
+                        response, _ = h2.request('http://%s/control/fetch/%s' % (target, id), 'GET')
                         if response.status == 408:
                             print >>sys.stderr, 'Continuing to wait for %s' % target
                             continue
@@ -319,7 +319,7 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
                     print >>sys.stderr, 'Retrying... uploading to %s' % target
                     h2 = httplib2.Http()
                     id = uuid.uuid4()
-                    _, _ = h2.request('http://%s/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
+                    _, _ = h2.request('http://%s/control/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
                     pending_targets[target] = id
                 
                 failed_targets = set()
