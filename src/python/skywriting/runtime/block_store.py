@@ -1134,8 +1134,11 @@ class BlockStore(plugins.SimplePlugin):
 
     def get_fetch_urls_for_ref(self, ref):
 
-        if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+        if isinstance(ref, SW2_ConcreteReference):
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+        elif isinstance(ref, SW2_StreamReference):
+            # TODO: Figure out a better way to stream that avoids using CherryPy!
+            return ["http://%s/control/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SW2_FetchReference):
             return [ref.url]
                 
