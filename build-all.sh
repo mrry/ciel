@@ -1,5 +1,6 @@
 #!/bin/bash
 
+mkdir -p logs store journal
 ./fetch-externals.sh || exit
 ./build-java.sh || echo "Failed to build Java bindings and examples"
 ./gen-data.sh || echo "Failed to generate test data"
