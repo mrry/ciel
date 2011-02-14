@@ -24,12 +24,6 @@
 # this and otherwise throw an error.
 #
 
-# list of packages to be installed (space-delimited)
-PACKAGES="python python-ply python-httplib2 python-simplejson python-cherrypy3 python-pycurl"
-
-# the JDK to install
-JDK="openjdk-6-jre"
-
 if [[ $1 == '' ]]; then
     SWROOT='/opt/skywriting'
 else
@@ -48,18 +42,12 @@ export DEBIAN_FRONTEND="noninteractive"
 # install stuff
 # XXX this requires root privileges, which the $SWUSER might not have!
 apt-get -qq -y update 1>&2 2>/dev/null
-apt-get -qq -y install git-core curl 1>&2 2>/dev/null
-
-# pre-accept Java license agreement :)
-echo sun-java6-jre shared/accepted-sun-dlj-v1-1 boolean true | debconf-set-selections
-
-# install more stuff
-apt-get -qq -y install $PACKAGES 1>&2 2>/dev/null
-apt-get -qq -y install $JDK 1>&2 2>/dev/null
+apt-get -qq -y install git-core 1>&2 2>/dev/null
 
 # git checkout
 git clone -q http://github.com/$2/skywriting.git $1
 cd $1
+./install-deps-ubuntu.sh
 ./build-all.sh
 #mkdir -p /mnt/store
 #ln -s /mnt/store /opt/skywriting/store

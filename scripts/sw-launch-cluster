@@ -158,12 +158,12 @@ do
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    sh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ;  nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 | tee $SWROOT/logs/master.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "MASTER_PORT=$MASTER_PORT nohup $CORE_PIN_CMD $SWROOT/scripts/run_master.sh 2>&1 | tee $SWROOT/logs/master.log"
 	elif [[ $SKIPMASTER -eq 0 ]]; then
 	    if [[ $WIPEJOURNAL -eq 1 ]]; then
 		ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "rm -rf $SWROOT/journal/*"
 	    fi
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-master -p ${MASTER_PORT} -j $SWROOT/journal/ -b $SWROOT/store/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/master.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "MASTER_PORT=$MASTER_PORT nohup $CORE_PIN_CMD $SWROOT/scripts/run_master.sh 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/master.log"
 	fi
 	MASTER=$myLine
     else
@@ -180,9 +180,9 @@ do
 
 	echo "... as a worker for $MASTER, port $WORKER_PORT"
 	if [[ $VERBOSE -eq 1 ]]; then
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -x -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 | tee $SWROOT/logs/$LOGNAME.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "WORKER_PORT=${WORKER_PORT} MASTER_HOST='http://$MASTER:${MASTER_PORT}' REL_BLOCK_LOCATION=$STORENAME nohup $CORE_PIN_CMD $SWROOT/scripts/run_worker.sh 2>&1 | tee $SWROOT/logs/$LOGNAME.log"
 	else
-	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "export PYTHONPATH=$SWROOT/src/python/ ; export CLASSPATH=$SWROOT/src/java/JavaBindings.jar ; nohup $CORE_PIN_CMD python $SWROOT/scripts/sw-worker -m 'http://$MASTER:${MASTER_PORT}' -p ${WORKER_PORT} -b $SWROOT/$STORENAME/ 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/$LOGNAME.log"
+	    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "WORKER_PORT=${WORKER_PORT} MASTER_HOST='http://$MASTER:${MASTER_PORT}' REL_BLOCK_LOCATION=$STORENAME nohup $CORE_PIN_CMD $SWROOT/scripts/run_worker.sh 2>&1 2${LOG_OPERATOR}${SWROOT}/logs/$LOGNAME.log"
 	fi
     fi
     I=`expr $I + 1`

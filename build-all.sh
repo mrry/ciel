@@ -1,5 +1,9 @@
 #!/bin/bash
 
+cd scripts
+./check-deps.sh || exit 1
+cd ..
+
 mkdir -p logs store journal
 ./fetch-externals.sh || exit
 ./build-java.sh || echo "Failed to build Java bindings and examples"
