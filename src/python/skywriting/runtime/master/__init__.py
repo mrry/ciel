@@ -34,6 +34,7 @@ from skywriting.runtime.master.job_pool import JobPool
 import os
 from skywriting.runtime.master.recovery import RecoveryManager
 import ciel
+from skywriting.runtime.lighttpd import LighttpdAdapter
 
 def master_main(options):
 
@@ -66,6 +67,7 @@ def master_main(options):
         pass
 
     block_store = BlockStore(ciel.engine, local_hostname, local_port, block_store_dir)
+    block_store.subscribe()
     block_store.build_pin_set()
 
     recovery_manager = RecoveryManager(ciel.engine, job_pool, lazy_task_pool, block_store, deferred_worker)
@@ -86,21 +88,12 @@ def master_main(options):
     app = cherrypy.tree.mount(root, "", cherrypy_conf)
     lighty_conf_template = options.lighty_conf
     if lighty_conf_template is not None:
-        lighty_ancillary_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/ciel-lighttpd-'))
-        lighty_conf = os.path.join(lighty_ancillary_dir, "ciel-lighttpd.conf")
-        socket_path = os.path.join(lighty_ancillary_dir, "ciel-socket")
-        with open(lighty_conf_template, "r") as conf_in:
-            with open(lighty_conf, "w") as conf_out:
-                m4_args = ["m4", "-DCIEL_PORT=%d" % local_port, 
-                           "-DCIEL_LOG=%s" % lighty_ancillary_dir, 
-                           "-DCIEL_STATIC_CONTENT=%s" % static_content_root,
-                           "-DCIEL_SOCKET=%s" % socket_path]
-                subprocess.check_call(m4_args, stdin=conf_in, stdout=conf_out)
-        lighty_proc = subprocess.Popen(["lighttpd", "-D", "-f", lighty_conf])
+        lighty = LighttpdAdapter(ciel.engine, lighty_conf_template, static_content_root, local_port)
+        lighty.subscribe()
         # Zap CherryPy's original flavour server
         cherrypy.server.unsubscribe()
-        server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=socket_path)
-        adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=socket_path)
+        server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=lighty.socket_path)
+        adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=lighty.socket_path)
         # Insert a FastCGI server in its place
         adapter.subscribe()
     

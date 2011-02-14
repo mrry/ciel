@@ -28,6 +28,8 @@ def set_config(filename):
 
 def main(default_role=None):
 
+    print "Ciel started with args", sys.argv
+
     cherrypy.config.update({'server.socket_host': '0.0.0.0'})
     
     if cherrypy.config.get('server.socket_port') is None:
@@ -47,8 +49,16 @@ def main(default_role=None):
     parser.add_option("-x", "--ignore-blocks", action="store_true", dest="ignore_blocks", help="Flag to instruct the workers not to send existing blocks", default=False)
     parser.add_option("-n", "--num-workers", action="store", dest="num_workers", help="Number of worker threads to create (for all-in-one)", type="int", default=1)
     parser.add_option("-L", "--lighttpd-conf", action="store", dest="lighty_conf", help="Lighttpd configuration template to use instead of CherryPy builtin server", default=None)
+    parser.add_option("-D", "--daemonise", action="store_true", dest="daemonise", help="Run as a daemon", default=False)
+    parser.add_option("-o", "--logfile", action="store", dest="logfile", help="If daemonised, log to FILE", default="/dev/null", metavar="FILE")
     (options, args) = parser.parse_args()
-   
+
+    if options.daemonise:
+        if options.logfile is None:
+            cherrypy.config.update({'log.screen': False})
+        daemon = cherrypy.process.plugins.Daemonizer(cherrypy.engine, stdout=options.logfile, stderr=options.logfile)
+        cherrypy.engine.subscribe("start", daemon.start, 0)
+
     if options.role == 'master':
         from skywriting.runtime.master import master_main
         master_main(options)
