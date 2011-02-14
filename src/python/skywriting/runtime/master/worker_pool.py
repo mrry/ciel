@@ -90,20 +90,24 @@ class WorkerPool(plugins.SimplePlugin):
         self.event_condvar = Condition(self._lock)
         self.max_concurrent_waiters = 5
         self.current_waiters = 0
-        self.is_stopping = False
-        
+        self.is_stopping = False        
+
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
         self.bus.subscribe('worker_idle', self.worker_idle)
         self.bus.subscribe('worker_ping', self.worker_ping)
+        self.bus.subscribe('start', self.start, 75)
         self.bus.subscribe('stop', self.server_stopping, 10) 
-        self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
         
     def unsubscribe(self):
         self.bus.unsubscribe('worker_failed', self.worker_failed)
         self.bus.unsubscribe('worker_idle', self.worker_idle)
         self.bus.unsubscribe('worker_ping', self.worker_ping)
+        self.bus.unsubscribe('start', self.start, 75)
         self.bus.unsubscribe('stop', self.server_stopping) 
+
+    def start(self):
+        self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
         
     def allocate_worker_id(self):
         return str(uuid.uuid1())

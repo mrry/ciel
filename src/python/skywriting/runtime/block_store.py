@@ -886,9 +886,7 @@ class BlockStore(plugins.SimplePlugin):
         self.base_dir = base_dir
         self.object_cache = {}
         self.bus = bus
-        self.bus.subscribe("stop", self.stop_thread, 10)
         self.fetch_thread = pycURLThread()
-        self.fetch_thread.start()
         self.dataval_codec = codecs.lookup("string_escape")
     
         self.pin_set = set()
@@ -907,8 +905,15 @@ class BlockStore(plugins.SimplePlugin):
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
-    def stop_thread(self):
+    def start(self):
+        self.fetch_thread.start()
+
+    def stop(self):
         self.fetch_thread.stop()
+
+    def subscribe(self):
+        self.bus.subscribe('start', self.start, 75)
+        self.bus.subscribe('stop', self.stop, 10)
 
     def decode_handle(self, file):
         return file

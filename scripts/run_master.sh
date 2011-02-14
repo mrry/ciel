@@ -12,4 +12,4 @@ if [[ $REL_BLOCK_LOCATION == "" ]]; then
     REL_BLOCK_LOCATION="store/"
 fi
 
-${PYTHON} $BASE/src/python/skywriting/__init__.py --role master --port $MASTER_PORT --staticbase $BASE/src/js/skyweb/ --lighttpd-conf $BASE/src/python/skywriting/runtime/lighttpd.conf -j $BASE/journal/ -b $BASE/$REL_BLOCK_LOCATION
+${PYTHON} $BASE/src/python/skywriting/__init__.py --role master --port $MASTER_PORT --staticbase $BASE/src/js/skyweb/ --lighttpd-conf $BASE/src/python/skywriting/runtime/lighttpd.conf -j $BASE/journal/ -b $BASE/$REL_BLOCK_LOCATION $EXTRA_FLAGS $*

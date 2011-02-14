@@ -33,7 +33,7 @@ import simplejson
 import subprocess
 from threading import Lock, Condition
 from datetime import datetime
-import flup.server.fcgi
+from skywriting.runtime.lighttpd import LighttpdAdapter
 
 class WorkerState:
     pass
@@ -65,6 +65,7 @@ class Worker(plugins.SimplePlugin):
         except:
             pass
         self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
+        self.block_store.subscribe()
         self.block_store.build_pin_set()
         self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
         self.upload_deferred_work.subscribe()
@@ -112,21 +113,13 @@ class Worker(plugins.SimplePlugin):
         app = cherrypy.tree.mount(self.server_root, "", self.cherrypy_conf)
 
         if self.lighty_conf_template is not None:
-            lighty_ancillary_dir = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/ciel-lighttpd-'))
-            lighty_conf = os.path.join(lighty_ancillary_dir, "ciel-lighttpd.conf")
-            socket_path = os.path.join(lighty_ancillary_dir, "ciel-socket")
-            with open(self.lighty_conf_template, "r") as conf_in:
-                with open(lighty_conf, "w") as conf_out:
-                    m4_args = ["m4", "-DCIEL_PORT=%d" % self.port, 
-                               "-DCIEL_LOG=%s" % lighty_ancillary_dir, 
-                               "-DCIEL_STATIC_CONTENT=%s" % self.static_content_root,
-                               "-DCIEL_SOCKET=%s" % socket_path]
-                    subprocess.check_call(m4_args, stdin=conf_in, stdout=conf_out)
-            self.lighty_proc = subprocess.Popen(["lighttpd", "-D", "-f", lighty_conf])
+
+            lighty = LighttpdAdapter(ciel.engine, self.lighty_conf_template, self.static_content_root, self.port)
+            lighty.subscribe()
             # Zap CherryPy's original flavour server
             cherrypy.server.unsubscribe()
-            server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=socket_path)
-            adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=socket_path)
+            server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=lighty.socket_path)
+            adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=lighty.socket_path)
             # Insert a FastCGI server in its place
             adapter.subscribe()
 
