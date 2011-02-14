@@ -33,6 +33,8 @@ for line in sys.stdin.readlines():
             attempt.worker = fields[5][len('TRACKER_NAME="'):-1]
         elif fields[5].startswith('FINISH_TIME='):
             attempt.finish_time = int(fields[5][len('FINISH_TIME="'):-1]) / 1000
+            if fields[4] == 'TASK_STATUS="KILLED"':
+                del map_tasks[attempt_id]
 
     elif fields[0] == 'ReduceAttempt':
         attempt_id = fields[3][len('TASK_ATTEMPT_ID="'):-1]
@@ -49,6 +51,7 @@ for line in sys.stdin.readlines():
         elif fields[7].startswith('FINISH_TIME='):
             attempt.start_time = int(fields[5][len('SHUFFLE_FINISHED="'):-1]) / 1000
             attempt.finish_time = int(fields[7][len('FINISH_TIME="'):-1]) / 1000
+            
 
 print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state worker'
            

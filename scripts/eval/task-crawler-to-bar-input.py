@@ -36,14 +36,16 @@ curr_worker_y = 1
 for worker, bar in worker_bars.items():
     normalised_bar = [(x - min_start, t) for (x, t) in bar]
 
-    ax.broken_barh(normalised_bar, (curr_worker_y, 2), facecolors='blue')
-    curr_worker_y += 3
+    ax.broken_barh(normalised_bar, (curr_worker_y - 0.25, 0.5), facecolors='gray', linewidth=1, edgecolor='white')
+    curr_worker_y += 1
 
 ax.set_xlim(0, max_end - min_start)
 ax.set_xticks([0, max_end - min_start])
-ax.set_ylim(0, len(worker_bars) * 3 + 1)
+ax.set_yticks([1, 5, 10, 15, 20])
+ax.set_ylim(0.5, len(worker_bars) + 0.5)
+ax.set_ylabel('worker index')
 ax.set_xlabel('seconds since start')
-ax.grid(True)
+ax.grid(False)
 
 plt.show()
 
