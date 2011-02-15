@@ -171,7 +171,7 @@ class WorkerPool(plugins.SimplePlugin):
             httplib2.Http().request("http://%s/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
             self.worker_failed(worker)
-
+        
     def notify_task_streams_done(self, worker, task):
         try:
             httplib2.Http().request("http://%s/task/%s/streams_done" % (worker.netloc, task.task_id), "POST", "done")
