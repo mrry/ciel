@@ -46,6 +46,7 @@ apt-get -qq -y install git-core 1>&2 2>/dev/null
 
 # git checkout
 git clone -q http://github.com/$2/skywriting.git $1
+
 cd $1
 ./install-deps-ubuntu.sh
 ./build-all.sh

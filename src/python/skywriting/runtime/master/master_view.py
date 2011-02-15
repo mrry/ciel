@@ -29,23 +29,23 @@ import socket
 
 class MasterRoot:
     
-    def __init__(self, task_pool, worker_pool, block_store, job_pool):
-        self.control = ControlRoot(task_pool, worker_pool, block_store, job_pool)
+    def __init__(self, task_pool, worker_pool, block_store, job_pool, backup_sender, monitor):
+        self.control = ControlRoot(task_pool, worker_pool, block_store, job_pool, backup_sender, monitor)
         self.data = self.control.data
 
 class ControlRoot:
 
-    def __init__(self, task_pool, worker_pool, block_store, job_pool):
-        self.worker = WorkersRoot(worker_pool)
-        self.job = JobRoot(job_pool)
-        self.task = MasterTaskRoot(task_pool)
+    def __init__(self, task_pool, worker_pool, block_store, job_pool, backup_sender, monitor):
+        self.worker = WorkersRoot(worker_pool, backup_sender, monitor)
+        self.job = JobRoot(job_pool, backup_sender, monitor)
+        self.task = MasterTaskRoot(task_pool, backup_sender)
         self.streamtask = MasterStreamTaskRoot(task_pool)
-        self.data = DataRoot(block_store)
+        self.data = DataRoot(block_store, backup_sender, task_pool.lazy_task_pool)
         self.gethostname = HostnameRoot()
-        #self.cluster = ClusterDetailsRoot()
         self.shutdown = ShutdownRoot(worker_pool)
         self.refs = ReferenceInfoRoot(task_pool)
         self.browse = WebBrowserRoot(job_pool, task_pool)
+        self.backup = BackupMasterRoot(backup_sender)
 
     @cherrypy.expose
     def index(self):
@@ -70,15 +70,23 @@ class ShutdownRoot:
 
 class WorkersRoot:
     
-    def __init__(self, worker_pool):
+    def __init__(self, worker_pool, backup_sender, monitor=None):
         self.worker_pool = worker_pool
+        self.backup_sender = backup_sender
+        self.monitor = monitor
     
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
-            worker_descriptor = simplejson.loads(cherrypy.request.body.read())
-            worker_id = self.worker_pool.create_worker(worker_descriptor)
-            return simplejson.dumps(str(worker_id))
+            request_body = cherrypy.request.body.read()
+            worker_descriptor = simplejson.loads(request_body)
+            if self.monitor is not None and not self.monitor.is_primary:
+                self.monitor.add_worker(worker_descriptor['netloc'])
+                self.backup_sender.add_worker(request_body)
+            else:
+                worker_id = self.worker_pool.create_worker(worker_descriptor)
+                self.backup_sender.add_worker(request_body)
+                return simplejson.dumps(str(worker_id))
         elif cherrypy.request.method == 'GET':
             workers = [x.as_descriptor() for x in self.worker_pool.get_all_workers()]
             return simplejson.dumps(workers, indent=4)
@@ -127,22 +135,28 @@ class WorkersRoot:
 
 class JobRoot:
     
-    def __init__(self, job_pool):
+    def __init__(self, job_pool, backup_sender, monitor=None):
         self.job_pool = job_pool
+        self.backup_sender = backup_sender
+        self.monitor = monitor
         
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
             # 1. Read task descriptor from request.
-            task_descriptor = simplejson.loads(cherrypy.request.body.read(), 
+            request_body = cherrypy.request.body.read()
+            task_descriptor = simplejson.loads(request_body, 
                                                object_hook=json_decode_object_hook)
 
             # 2. Add to job pool (synchronously).
             job = self.job_pool.create_job_for_task(task_descriptor)
             
+            # 2bis. Send to backup master.
+            self.backup_sender.add_job(job.id, request_body)
+            
             # 2a. Start job. Possibly do this as deferred work.
             self.job_pool.start_job(job)
-            
+                        
             # 3. Return descriptor for newly-created job.
             return simplejson.dumps(job.as_descriptor())
             
@@ -154,8 +168,33 @@ class JobRoot:
 
     @cherrypy.expose
     def default(self, id, attribute=None):
-        if cherrypy.request.method != 'GET':
-            raise HTTPError(405)
+        if cherrypy.request.method == 'POST':
+            cherrypy.log('Creating job for ID: %s' % id, 'JOB_POOL', logging.INFO)
+            # Need to support this for backup masters, so that the job ID is
+            # consistent.
+            
+            # 1. Read task descriptor from request.
+            request_body = cherrypy.request.body.read()
+            task_descriptor = simplejson.loads(request_body, 
+                                               object_hook=json_decode_object_hook)
+
+            # 2. Add to job pool (synchronously).
+            job = self.job_pool.create_job_for_task(task_descriptor, job_id=id)
+
+            # 2bis. Send to backup master.
+            self.backup_sender.add_job(job.id, request_body)
+            
+            if self.monitor is not None and self.monitor.is_primary:
+                # 2a. Start job. Possibly do this as deferred work.
+                self.job_pool.start_job(job)
+            else:
+                cherrypy.log('Registering job, but not starting it: %s' % job.id, 'JOB_POOL', logging.INFO)
+                self.job_pool.task_pool.add_task(job.root_task, False)
+            
+            # 3. Return descriptor for newly-created job.
+            
+            cherrypy.log('Done handling job POST', 'JOB_POOL', logging.INFO)
+            return simplejson.dumps(job.as_descriptor())            
         
         try:
             job = self.job_pool.get_job_by_id(id)
@@ -208,8 +247,9 @@ class MasterStreamTaskRoot:
 
 class MasterTaskRoot:
     
-    def __init__(self, task_pool):
+    def __init__(self, task_pool, backup_sender):
         self.task_pool = task_pool
+        self.backup_sender = backup_sender
         
     # TODO: decide how to submit tasks to the cluster. Effectively, we want to mirror
     #       the way workers do it. Want to have a one-shot distributed execution on the
@@ -260,15 +300,19 @@ class MasterTaskRoot:
             if action == 'spawn':
                 if cherrypy.request.method == 'POST':
                     parent_task = self.task_pool.get_task_by_id(task_id)
-                    task_descriptors = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                    request_body = cherrypy.request.body.read()
+                    task_descriptors = simplejson.loads(request_body, object_hook=json_decode_object_hook)
                     self.task_pool.spawn_child_tasks(parent_task, task_descriptors)
+                    self.backup_sender.spawn_tasks(task_id, request_body)
                     return
                 else:
                     raise HTTPError(405)
             elif action == 'commit':
                 if cherrypy.request.method == 'POST':
-                    commit_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                    request_body = cherrypy.request.body.read()
+                    commit_payload = simplejson.loads(request_body, object_hook=json_decode_object_hook)
                     self.task_pool.commit_task(task_id, commit_payload)
+                    self.backup_sender.commit_task(task_id, request_body)
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)
@@ -282,9 +326,11 @@ class MasterTaskRoot:
                     raise HTTPError(405)
             elif action == 'publish':
                 if cherrypy.request.method == 'POST':
+                    request_body = cherrypy.request.body.read()
                     task = self.task_pool.get_task_by_id(task_id)
-                    refs = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+                    refs = simplejson.loads(request_body, object_hook=json_decode_object_hook)
                     self.task_pool.publish_refs(task, refs)
+                    self.backup_sender.publish_refs(task_id, refs)
                     ciel.engine.publish('schedule')
             elif action == 'abort':
                 self.task_pool.abort(task_id)
@@ -315,3 +361,15 @@ class ReferenceInfoRoot:
         except KeyError:
             raise HTTPError(404)
 
+class BackupMasterRoot:
+    
+    def __init__(self, backup_sender):
+        self.backup_sender = backup_sender
+        
+    @cherrypy.expose
+    def index(self):
+        if cherrypy.request.method == 'POST':
+            # Register the  a new global ID, and add the POSTed URLs if any.
+            standby_url = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+            self.backup_sender.register_standby_url(standby_url)
+            return 'Registered a hot standby'

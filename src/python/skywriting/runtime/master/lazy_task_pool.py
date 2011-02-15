@@ -84,16 +84,17 @@ class LazyTaskPool(plugins.SimplePlugin):
             return {'ref': ref, 'consumers': list(consumers), 'task': task.as_descriptor()}
         
     def add_task(self, task, is_root_task=False, may_reduce=True):
-        # We don't add tasks multiple times (for example, when replaying a
-        # failed task.
-        if task.task_id in self.tasks:
-            return
-        
+
         if task.task_id not in self.tasks:
             self.tasks[task.task_id] = task
+            should_register = True
+        else:
+            cherrypy.log('Already seen task %s: do not register its outputs' % task.task_id, 'TASKPOOL', logging.INFO)
+            should_register = False
         
         if is_root_task:
             self.job_outputs[task.expected_outputs[0]] = task.job
+            cherrypy.log('Registering job (%s) interest in output (%s)' % (task.job.id, task.expected_outputs[0]), 'TASKPOOL', logging.INFO)
             self.register_job_interest_for_output(task.expected_outputs[0], task.job)
         
         task.job.add_task(task)
@@ -101,10 +102,14 @@ class LazyTaskPool(plugins.SimplePlugin):
         # If any of the task outputs are being waited on, we should reduce this
         # task's graph. 
         with self._lock:
-            should_reduce = self.register_task_outputs(task) and may_reduce
-            if should_reduce:
-                self.do_graph_reduction(root_tasks=[task])
+            if should_register:
+                should_reduce = self.register_task_outputs(task) and may_reduce
+                if should_reduce:
+                    self.do_graph_reduction(root_tasks=[task])
+                elif is_root_task:
+                    self.do_graph_reduction(root_tasks=[task])
             elif is_root_task:
+                ciel.log('Reducing graph from roots.', 'TASKPOOL', logging.INFO)
                 self.do_root_graph_reduction()
             
     def task_completed(self, task, commit_bindings, should_publish=True):
@@ -112,10 +117,10 @@ class LazyTaskPool(plugins.SimplePlugin):
         
         # Need to notify all of the consumers, which may make other tasks
         # runnable.
-        self.publish_refs(commit_bindings, task.job)
-        if should_publish:
+        self.publish_refs(commit_bindings, task.job, task=task)
+        if task.worker is not None and should_publish:
+            self.bus.publish('worker_idle', task.worker)
             worker = task.worker
-            self.bus.publish('worker_idle', worker)
         
     def get_task_queue(self):
         return self.task_queue
@@ -151,6 +156,8 @@ class LazyTaskPool(plugins.SimplePlugin):
             elif reason == 'MISSING_INPUT':
                 # Problem fetching input, so we will have to re-execute it.
                 worker = task.worker
+                for binding in bindings.values():
+                    cherrypy.log('Missing input: %s' % str(binding), 'TASKPOOL', logging.WARNING)
                 self.handle_missing_input(task)
                 
             elif reason == 'RUNTIME_EXCEPTION':
@@ -181,18 +188,18 @@ class LazyTaskPool(plugins.SimplePlugin):
         #      for the failed inputs.
         self.do_graph_reduction(root_tasks=[task])
     
-    def publish_single_ref(self, global_id, ref, job, should_journal=True):
+    def publish_single_ref(self, global_id, ref, job, should_journal=True, task=None):
         with self._lock:
-            self._publish_ref(global_id, ref, job, should_journal)
+            self._publish_ref(global_id, ref, job, should_journal, task)
     
-    def publish_refs(self, refs, job, should_journal=True):
+    def publish_refs(self, refs, job=None, should_journal=True, task=None):
         with self._lock:
             for global_id, ref in refs.items():
-                self._publish_ref(global_id, ref, job, should_journal)
+                self._publish_ref(global_id, ref, job, should_journal, task)
         
-    def _publish_ref(self, global_id, ref, job, should_journal=True):
+    def _publish_ref(self, global_id, ref, job=None, should_journal=True, task=None):
         
-        if should_journal:
+        if should_journal and job is not None:
             job.add_reference(global_id, ref)
         
         # Record the name-to-concrete-reference mapping for this ref's name.
@@ -211,6 +218,9 @@ class LazyTaskPool(plugins.SimplePlugin):
                 return
 
         current_ref = self.ref_for_output[global_id]
+
+        if task is not None:
+            self.task_for_output[global_id] = task
 
         # Notify any consumers that the ref is now available.
         # Contrary to how this was in earlier versions, tasks must unsubscribe themselves.

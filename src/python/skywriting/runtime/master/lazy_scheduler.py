@@ -11,7 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from shared.references import SW2_ConcreteReference
+from shared.references import SW2_ConcreteReference, SW2_SweetheartReference
 from skywriting.runtime.task import TASK_QUEUED, TASK_QUEUED_STREAMING
 import logging
 import ciel
@@ -24,6 +24,9 @@ Created on 15 Apr 2010
 '''
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from Queue import Empty
+
+SWEETHEART_FACTOR = 1000
+EQUALLY_LOCAL_MARGIN = 0.9
 
 class LazyScheduler(AsynchronousExecutePlugin):
     
@@ -72,7 +75,21 @@ class LazyScheduler(AsynchronousExecutePlugin):
     def compute_good_workers_for_task(self, task):
         netlocs = {}
         for input in task.inputs.values():
-            if isinstance(input, SW2_ConcreteReference) and input.size_hint is not None:
+            if isinstance(input, SW2_SweetheartReference) and input.size_hint is not None:
+                try:
+                    current_saving_for_netloc = netlocs[input.sweetheart_netloc]
+                except KeyError:
+                    current_saving_for_netloc = 0
+                netlocs[netloc] = current_saving_for_netloc + SWEETHEART_FACTOR * input.size_hint
+                
+                # Accord the unboosted saving to other locations.
+                for netloc in input.location_hints:
+                    try:
+                        current_saving_for_netloc = netlocs[netloc]
+                    except KeyError:
+                        current_saving_for_netloc = 0
+                    netlocs[netloc] = current_saving_for_netloc + input.size_hint
+            elif isinstance(input, SW2_ConcreteReference) and input.size_hint is not None:
                 for netloc in input.location_hints:
                     try:
                         current_saving_for_netloc = netlocs[netloc]
@@ -84,7 +101,7 @@ class LazyScheduler(AsynchronousExecutePlugin):
         if len(filtered_ranked_netlocs) > 0:
             max_saving = max(filtered_ranked_netlocs)[0]
             for saving, netloc in filtered_ranked_netlocs:
-                if saving > (0.9 * max_saving):
+                if saving > (EQUALLY_LOCAL_MARGIN * max_saving):
                     yield self.worker_pool.get_worker_at_netloc(netloc) 
             
     # Based on TaskPool.add_task_to_queues()
