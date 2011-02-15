@@ -80,12 +80,14 @@ def main():
     (_, content) = http.request(master_data_uri, "POST", pickled_cont)
     cont_id = simplejson.loads(content)
     
+    out_id = 'joboutput:%s' % cont_id
+    
     print id, "SUBMITTED_CONT", now_as_timestamp()
     
     #print continuation_uri
     
     master_netloc = urlparse.urlparse(master_uri).netloc
-    task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])}, 'handler': 'swi'}
+    task_descriptor = {'dependencies': {'_cont' : SW2_ConcreteReference(cont_id, len(pickled_cont), [master_netloc])}, 'handler': 'swi', 'expected_outputs' : [out_id]}
     
     master_task_submit_uri = urlparse.urljoin(master_uri, "/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))

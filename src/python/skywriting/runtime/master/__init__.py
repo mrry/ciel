@@ -33,6 +33,8 @@ import cherrypy
 from skywriting.runtime.master.job_pool import JobPool
 import os
 from skywriting.runtime.master.recovery import RecoveryManager
+from skywriting.runtime.master.hot_standby import BackupSender,\
+    MasterRecoveryMonitor
 
 def master_main(options):
 
@@ -52,6 +54,9 @@ def master_main(options):
     job_pool = JobPool(cherrypy.engine, lazy_task_pool, options.journaldir, global_name_directory)
     job_pool.subscribe()
 
+    backup_sender = BackupSender(cherrypy.engine)
+    backup_sender.subscribe()
+
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
     master_netloc = '%s:%d' % (local_hostname, local_port)
@@ -65,13 +70,19 @@ def master_main(options):
     block_store = BlockStore(cherrypy.engine, local_hostname, local_port, block_store_dir)
     block_store.build_pin_set()
 
+    if options.master is not None:
+        monitor = MasterRecoveryMonitor(cherrypy.engine, 'http://%s/' % master_netloc, options.master, job_pool)
+        monitor.subscribe()
+    else:
+        monitor = None
+
     recovery_manager = RecoveryManager(cherrypy.engine, job_pool, lazy_task_pool, block_store, deferred_worker)
     recovery_manager.subscribe()
 
     scheduler = LazyScheduler(cherrypy.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory, job_pool)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory, job_pool, backup_sender, monitor)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

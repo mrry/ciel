@@ -485,6 +485,7 @@ class SWRuntimeInterpreterTask:
                 if (not isinstance(self.continuation.resolve_tasklocal_reference_with_index(index), SWDataValue)) and \
                    (self.continuation.is_marked_as_dereferenced(index) or self.continuation.is_marked_as_execd(index)):
                     cont_deps[index] = self.continuation.resolve_tasklocal_reference_with_index(index)
+                    cherrypy.log('Continuation will depend on %s' % cont_deps[index], 'SWI', logging.INFO)
             cont_task_id = self.create_spawned_task_name()
             cont_task_descriptor = {'task_id': str(cont_task_id),
                                     'handler': 'swi',

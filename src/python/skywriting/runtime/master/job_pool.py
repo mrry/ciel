@@ -152,6 +152,10 @@ class JobPool(plugins.SimplePlugin):
     def unsubscribe(self):
         self.bus.unsubscribe("stop", self.server_stopping)
         
+    def start_all_jobs(self):
+        for job in self.jobs.values():
+            self.start_job(job)
+        
     def server_stopping(self):
         # When the server is shutting down, we need to notify all threads
         # waiting on job completion.
@@ -178,10 +182,11 @@ class JobPool(plugins.SimplePlugin):
         job.state = JOB_FAILED
         self.jobs[job_id] = job
     
-    def create_job_for_task(self, task_descriptor):
+    def create_job_for_task(self, task_descriptor, job_id=None):
         
-        job_id = self.allocate_job_id()
-        task_id = 'root:%s' % (job_id, ) 
+        if job_id is None:
+            job_id = self.allocate_job_id()
+        task_id = 'root:%s' % (job_id, )
 
         # TODO: Here is where we will set up the job journal, etc.
         job_dir = self.make_job_directory(job_id)
@@ -204,6 +209,8 @@ class JobPool(plugins.SimplePlugin):
         task.job = job
         
         self.add_job(job)
+        
+        cherrypy.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
 
         return job
 
@@ -216,6 +223,7 @@ class JobPool(plugins.SimplePlugin):
             return None
 
     def start_job(self, job):
+        cherrypy.log('Starting job ID: %s' % job.id, 'JOB_POOL', logging.INFO)
         job.start_journalling()
         self.task_pool.add_task(job.root_task, True)
         

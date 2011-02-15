@@ -12,8 +12,10 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.executors import kill_all_running_children
-from skywriting.runtime.references import SW2_FetchReference
+from skywriting.runtime.references import SW2_FetchReference,\
+    SW2_ConcreteReference
 import logging
+import StringIO
 
 '''
 Created on 8 Feb 2010
@@ -134,8 +136,10 @@ class LogRoot:
 
 class DataRoot:
     
-    def __init__(self, block_store):
+    def __init__(self, block_store, backup_sender=None, task_pool=None):
         self.block_store = block_store
+        self.backup_sender = backup_sender
+        self.task_pool = task_pool
         
     @cherrypy.expose
     def default(self, id):
@@ -169,7 +173,14 @@ class DataRoot:
                     raise
                 
         elif cherrypy.request.method == 'POST':
-            url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
+            if self.backup_sender is not None:
+                request_body = cherrypy.request.body.read()
+                url = self.block_store.store_raw_file(StringIO.StringIO(request_body), safe_id)
+                self.backup_sender.add_data(safe_id, request_body)
+            else:
+                url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
+            if self.task_pool is not None:
+                self.task_pool.publish_refs({safe_id : SW2_ConcreteReference(safe_id, None, [self.block_store.netloc])})
             return simplejson.dumps(url)
         else:
             raise cherrypy.HTTPError(405)
@@ -178,7 +189,14 @@ class DataRoot:
     def index(self):
         if cherrypy.request.method == 'POST':
             id = self.block_store.allocate_new_id()
-            self.block_store.store_raw_file(cherrypy.request.body, id)
+            if self.backup_sender is not None:
+                request_body = cherrypy.request.body.read()
+                self.block_store.store_raw_file(StringIO.StringIO(request_body), id)
+                self.backup_sender.add_data(id, request_body)
+            else:
+                self.block_store.store_raw_file(cherrypy.request.body, id)
+            if self.task_pool is not None:
+                self.task_pool.publish_refs({id : SW2_ConcreteReference(id, None, [self.block_store.netloc])})
             return simplejson.dumps(id)
         elif cherrypy.request.method == 'GET':
             return serve_file(self.block_store.generate_block_list_file())
