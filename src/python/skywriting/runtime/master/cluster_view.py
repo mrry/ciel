@@ -135,7 +135,7 @@ class RefBrowserRoot:
         ref_string = '<html><head><title>Task Browser</title></head>'
         ref_string += '<body><table>'
         ref_string += table_row('ID', ref_id)
-        ref_string += table_row('Ref type', type(ref).__name__)
+        ref_string += table_row('Ref type', ref.__class__.__name__)
         if isinstance(ref, SWDataValue):
             ref_string += table_row('Value', repr(ref.value))
         elif hasattr(ref, 'location_hints'):
