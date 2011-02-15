@@ -1,0 +1,10 @@
+#!/bin/bash
+
+PROCS=`pgrep -f ciel-process-aaca0f5eb4d2d98a6ce6dffa99f8254b -d ,`
+
+if [[ $PROCS == "" ]]; then
+    echo "No tagged Ciel processes running"
+    exit 1
+else
+    ps --pid $PROCS --no-headers -o pgrp | xargs pkill -9 -g
+fi
