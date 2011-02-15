@@ -203,7 +203,7 @@ class JobPool(plugins.SimplePlugin):
         
         self.add_job(job)
         
-        cherrypy.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
+        ciel.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
 
         return job
 
@@ -216,7 +216,7 @@ class JobPool(plugins.SimplePlugin):
             return None
 
     def start_job(self, job):
-        cherrypy.log('Starting job ID: %s' % job.id, 'JOB_POOL', logging.INFO)
+        ciel.log('Starting job ID: %s' % job.id, 'JOB_POOL', logging.INFO)
         job.start_journalling()
         self.task_pool.add_task(job.root_task, True)
         
