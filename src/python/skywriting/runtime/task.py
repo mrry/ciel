@@ -97,8 +97,8 @@ class TaskPoolTask(Task):
         self.state = state
         if state in (TASK_COMMITTED, TASK_ASSIGNED):
             evt_time = self.history[-1][0]
-            cherrypy.log('%s %s %s @ %f' % (self.task_id, TASK_STATE_NAMES[self.state], self.worker.id, time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'TASK', logging.INFO)
-        #cherrypy.log('Task %s: --> %s' % (self.task_id, TASK_STATE_NAMES[self.state]), 'TASK', logging.INFO)
+            ciel.log('%s %s %s @ %f' % (self.task_id, TASK_STATE_NAMES[self.state], self.worker.id, time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'TASK', logging.INFO)
+        #ciel.log('Task %s: --> %s' % (self.task_id, TASK_STATE_NAMES[self.state]), 'TASK', logging.INFO)
         
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
