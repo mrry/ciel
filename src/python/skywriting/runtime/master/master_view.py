@@ -107,7 +107,11 @@ class WorkersRoot:
         try:
             worker = self.worker_pool.get_worker_by_id(worker_id)
         except KeyError:
-            raise HTTPError(404)
+            if worker_id == 'reset':
+                self.worker_pool.reset()
+                return
+            else:
+                raise HTTPError(404)
         if cherrypy.request.method == 'POST':
             if action == 'ping':
                 cherrypy.engine.publish('worker_ping', worker)
@@ -378,7 +382,7 @@ class GlobalDataRoot:
     def default(self, id, attribute=None):
         
         real_id = id
-        
+                
         if attribute is None:
             if cherrypy.request.method == 'POST':
                 # Add a new URL for the global ID.

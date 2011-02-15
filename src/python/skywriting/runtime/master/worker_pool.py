@@ -105,6 +105,13 @@ class WorkerPool(plugins.SimplePlugin):
         self.bus.unsubscribe('worker_ping', self.worker_ping)
         self.bus.unsubscribe('stop', self.server_stopping) 
         
+    def reset(self):
+        self.idle_worker_queue = Queue()
+        self.workers = {}
+        self.netlocs = {}
+        self.idle_set = set()
+        self.feature_queues = FeatureQueues()
+        
     def allocate_worker_id(self):
         return str(uuid.uuid1())
         

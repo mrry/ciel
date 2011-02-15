@@ -36,7 +36,7 @@ curr_worker_y = 1
 for worker, bar in worker_bars.items():
     normalised_bar = [(x - min_start, t) for (x, t) in bar]
 
-    ax.broken_barh(normalised_bar, (curr_worker_y - 0.25, 0.5), facecolors='gray', linewidth=1, edgecolor='white')
+    ax.broken_barh(normalised_bar, (curr_worker_y - 0.5, 1.0), facecolors='gray', linewidth=1, edgecolor='white')
     curr_worker_y += 1
 
 ax.set_xlim(0, max_end - min_start)
