@@ -158,6 +158,11 @@ class ProcessRunningExecutor(SWExecutor):
         except KeyError:
             self.stream_output = False
 
+        try:
+            self.eager_fetch = args['eager_fetch']
+        except KeyError:
+            self.eager_fetch = False
+
         self._lock = threading.Lock()
         self.proc = None
         self.transfer_ctx = None
@@ -170,9 +175,13 @@ class ProcessRunningExecutor(SWExecutor):
                 self.transfer_ctx.notify_streams_done()
 
     def _execute(self, block_store, task_id):
-        file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
-        with self._lock:
-            self.transfer_ctx = transfer_ctx
+        if self.eager_fetch:
+            file_inputs = self.get_filenames_eager(block_store, self.input_refs)
+            transfer_ctx = None
+        else:
+            file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
+            with self._lock:
+                self.transfer_ctx = transfer_ctx
         file_outputs = []
         for i in range(len(self.output_refs)):
             with tempfile.NamedTemporaryFile(delete=False) as this_file:
@@ -195,18 +204,29 @@ class ProcessRunningExecutor(SWExecutor):
 
         self.proc = None
 
-        cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
-        transfer_ctx.wait_for_all_transfers()
-        if "trace_io" in self.debug_opts:
+        if transfer_ctx is not None:
+            cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
+            transfer_ctx.wait_for_all_transfers()
+        if "trace_io" in self.debug_opts and transfer_ctx is not None:
             transfer_ctx.log_traces()
 
-        with self._lock:
-            transfer_ctx.cleanup(block_store)
-            self.transfer_ctx = None
+        # If we have fetched any objects to this worker, publish them at the master.
+        newly_local_objects = {}
+        for ref in self.input_refs:
+            if isinstance(ref, SW2_ConcreteReference) and not block_store.netloc in ref.location_hints:
+                newly_local_objects[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [block_store.netloc])
+        if len(newly_local_objects) > 0:
+            self.master_proxy.publish_refs(newly_local_objects)
 
-        failure_bindings = transfer_ctx.get_failed_refs()
-        if failure_bindings is not None:
-            raise MissingInputException(failure_bindings)
+        if transfer_ctx is not None:
+            with self._lock:
+                transfer_ctx.cleanup(block_store)
+                self.transfer_ctx = None
+
+        if transfer_ctx is not None:
+            failure_bindings = transfer_ctx.get_failed_refs()
+            if failure_bindings is not None:
+                raise MissingInputException(failure_bindings)
 
         if rc != 0:
             raise OSError()
