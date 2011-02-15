@@ -94,7 +94,7 @@ done
 # main script
 
 I=0
-cat $SOURCE | while myLine=`line`
+cat $SOURCE | while read myLine
 do
     echo -n "Deploying instance $I: "
     ./sw-deploy-helper.sh $myLine $KEY $SWUSER $SWROOT $GITUSER
