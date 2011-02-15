@@ -51,6 +51,7 @@ def main(default_role=None):
     parser.add_option("-L", "--lighttpd-conf", action="store", dest="lighty_conf", help="Lighttpd configuration template to use instead of CherryPy builtin server", default=None)
     parser.add_option("-D", "--daemonise", action="store_true", dest="daemonise", help="Run as a daemon", default=False)
     parser.add_option("-o", "--logfile", action="store", dest="logfile", help="If daemonised, log to FILE", default="/dev/null", metavar="FILE")
+    parser.add_option("-T", "--process-tag", action="store", dest="tag", help="Ignored, for tagging the process", metavar="STRING")
     (options, args) = parser.parse_args()
 
     if options.daemonise:

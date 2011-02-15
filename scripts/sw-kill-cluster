@@ -80,10 +80,14 @@ I=0
 cat $SOURCE | while myLine=`line`
 do
     echo -n "Killing instance $I: "
+    
+    # To explain that ridiculous command: pgrep for the tag inserted into all Ciel commands' args by run_master/worker. Then use 'ps' to translate that line of PIDs
+    # into line-delimited pgrps. Then use pkill to zap anything sharing a group with any of them with signal 9.
+    # This handles both daemonised and non-daemonised cases, in which the relevant group is and isn't respectively the group of the root Python process.
     if [[ $VERBOSE -eq 1 ]]; then
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "pkill -9 -g `pgrep run_master.sh`; pkill -9 -g `pgrep run_worker.sh`"
+	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "ps --pid `pgrep -f ciel-process-aaca0f5eb4d2d98a6ce6dffa99f8254b -d ,` --no-headers -o pgrp | xargs pkill -9 -g"
     else
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "pkill -9 -g `pgrep run_master.sh`; pkill -9 -g `pgrep run_worker.sh`" 1>&2 2>/dev/null
+	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "ps --pid `pgrep -f ciel-process-aaca0f5eb4d2d98a6ce6dffa99f8254b -d ,` --no-headers -o pgrp | xargs pkill -9 -g" 1>&2 2>/dev/null
     fi
     echo $myLine
     I=`expr $I + 1`
