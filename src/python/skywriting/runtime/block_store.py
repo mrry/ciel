@@ -454,8 +454,9 @@ class StreamTransferGroup(WaitableTransferGroup):
 
     def cleanup(self, block_store):
         for handle in self.handles:
-            handle.save_result(block_store)
+            # Cleanup must happen first, because it typically closes the file that we are storing in the block store.
             handle.cleanup()
+            handle.save_result(block_store)
         
     def get_failed_refs(self):
         failure_bindings = {}
