@@ -145,7 +145,7 @@ done
 # main script
 
 I=0
-cat $SOURCE | while myLine=`line`
+cat $SOURCE | while read myLine
 do
     echo -n "Setting up instance $I "
     if [[ $CORE_PINNING -eq 1 ]]; then 
