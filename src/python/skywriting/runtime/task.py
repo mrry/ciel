@@ -95,6 +95,7 @@ class TaskPoolTask(Task):
             self.job.record_state_change(self.state, state)
         self.record_event(TASK_STATE_NAMES[state])
         self.state = state
+        #cherrypy.log('Task %s: --> %s' % (self.task_id, TASK_STATE_NAMES[self.state]), 'TASK', logging.INFO)
         
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))

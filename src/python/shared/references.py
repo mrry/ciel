@@ -126,6 +126,27 @@ class SW2_ConcreteReference(SWRealReference):
         
     def __repr__(self):
         return 'SW2_ConcreteReference(%s, %s, %s)' % (repr(self.id), repr(self.size_hint), repr(self.location_hints))
+
+class SW2_SweetheartReference(SW2_ConcreteReference):
+
+    def __init__(self, id, sweetheart_netloc, size_hint=None, location_hints=None):
+        SW2_ConcreteReference.__init__(self, id, size_hint, location_hints)
+        self.sweetheart_netloc = sweetheart_netloc
+        
+    def combine_with(self, ref):
+        """Add the location hints from ref to this object."""
+        SW2_ConcreteReference.combine_with(self, ref)
+        if isinstance(ref, SW2_SweetheartReference):
+            self.sweetheart_netloc = ref.sweetheart_netloc
+            
+    #def as_binrepr(self):
+    #    return reftype_to_packed('<3') + id_to_packed(self.id) + size_to_packed(self.size_hint) + netloc_set_to_packed(self.location_hints)
+        
+    def as_tuple(self):
+        return('<3', str(self.id), self.sweetheart_netloc, self.size_hint, list(self.location_hints))
+        
+    def __repr__(self):
+        return 'SW2_SweetheartReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.sweetheart_netloc), repr(self.size_hint), repr(self.location_hints))
         
 class SW2_StreamReference(SWRealReference):
     
@@ -251,6 +272,8 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_FutureReference(reference_tuple[1])
     elif ref_type == 'c2':
         return SW2_ConcreteReference(reference_tuple[1], reference_tuple[2], reference_tuple[3])
+    elif ref_type == '<3':
+        return SW2_SweetheartReference(reference_tuple[1], reference_tuple[2], reference_tuple[3], reference_tuple[4])
     elif ref_type == 's2':
         return SW2_StreamReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 't2':
@@ -266,6 +289,12 @@ def combine_references(original, update):
     if isinstance(original, SWDataValue):
         return original
     if isinstance(update, SWDataValue):
+        return update
+
+    # Sweetheart reference over other non-vals; combine location hints if any available.
+    if (isinstance(update, SW2_SweetheartReference)):
+        if (isinstance(original, SW2_ConcreteReference)):
+            update.location_hints.update(original.location_hints)
         return update
 
     # Concrete reference > streaming reference > future reference.

@@ -17,7 +17,7 @@ import sys
 from Queue import Queue, Empty
 from skywriting.runtime.block_store import json_decode_object_hook
 import simplejson
-from urlparse import urljoin
+from urlparse import urljoin, urlparse, urlunparse
 
 def main():
     
@@ -25,10 +25,28 @@ def main():
     
     h = httplib2.Http()
     
+    # Postel's Law!
+    # We expect the URL of a root task; however, we should liberally accept
+    # URLs starting with '/browse/job/', '/job/' and '/browse/task/'.
+    url_parts = urlparse(root_url)
+
+    if url_parts.path.startswith('/browse/'):
+        root_url = urljoin(root_url, url_parts.path[7:])
+        url_parts = urlparse(root_url)
+
+    if url_parts.path.startswith('/job/'):
+        job_url = root_url
+        _, content = h.request(job_url)
+        job_descriptor = simplejson.loads(content)
+        root_url = urljoin(root_url, '/task/' + job_descriptor['root_task'])
+    elif not url_parts.path.startswith('/task/'):
+        print >>sys.stderr, "Error: must specify task or job URL."
+        sys.exit(-1)
+
     q = Queue()
     q.put(root_url)
     
-    print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state'
+    print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state worker'
     
     while True:
         try:
@@ -41,6 +59,11 @@ def main():
 
         task_id = descriptor["task_id"]
         parent = descriptor["parent"]
+
+        try:
+            worker = descriptor["worker_id"] 
+        except KeyError:
+            worker = None
 
         created_at = None
         assigned_at = None
@@ -66,7 +89,7 @@ def main():
 
         final_state = descriptor["state"]
 
-        print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state
+        print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state, worker
 
         for child in descriptor["children"]:
             q.put(urljoin(url, child))

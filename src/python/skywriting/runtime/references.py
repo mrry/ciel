@@ -21,3 +21,4 @@ class SWReferenceJSONEncoder(simplejson.JSONEncoder):
             return {'__ref__': obj.as_tuple()}
         else:
             return simplejson.JSONEncoder.default(self, obj)
+

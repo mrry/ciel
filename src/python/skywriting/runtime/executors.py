@@ -16,7 +16,7 @@ from __future__ import with_statement
 
 from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference, SWErrorReference
+    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
@@ -730,6 +730,19 @@ class ProcessRunningExecutor(SimpleExecutor):
     def __init__(self, block_store):
         SimpleExecutor.__init__(self, block_store)
 
+        try:
+            self.eager_fetch = args['eager_fetch']
+        except KeyError:
+            self.eager_fetch = False
+
+        try:
+            self.make_sweetheart = args['make_sweetheart']
+            if not isinstance(self.make_sweetheart, list):
+                self.make_sweetheart = [self.make_sweetheart]
+        except KeyError:
+            self.make_sweetheart = []
+
+
         self._lock = threading.Lock()
         self.proc = None
         self.transfer_ctx = None
@@ -751,7 +764,12 @@ class ProcessRunningExecutor(SimpleExecutor):
         except KeyError:
             self.stream_output = False
 
-        file_inputs, transfer_ctx = self.get_filenames(self.input_refs)
+        if self.eager_fetch:
+            file_inputs = self.get_filenames_eager(self.input_refs)
+            _, transfer_ctx = self.get_filenames([])
+        else:
+            file_inputs, transfer_ctx = self.get_filenames(self.input_refs)
+
         with self._lock:
             self.transfer_ctx = transfer_ctx
         file_outputs = []
@@ -780,7 +798,17 @@ class ProcessRunningExecutor(SimpleExecutor):
         transfer_ctx.wait_for_all_transfers()
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
-            
+
+        # If we have fetched any objects to this worker, publish them at the master.
+        extra_publishes = {}
+        for ref in self.input_refs:
+            if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
+                extra_publishes[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [self.block_store.netloc])
+        for sweetheart in self.make_sweetheart:
+            extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
+        if len(extra_publishes) > 0:
+            self.master_proxy.publish_refs(task_id, extra_publishes)
+
         with self._lock:
             transfer_ctx.cleanup(self.block_store)
             self.transfer_ctx = None
