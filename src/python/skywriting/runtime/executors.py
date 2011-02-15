@@ -223,7 +223,7 @@ class ProcessRunningExecutor(SWExecutor):
             if isinstance(ref, SW2_ConcreteReference) and not block_store.netloc in ref.location_hints:
                 extra_publishes[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [block_store.netloc])
         for sweetheart in self.make_sweetheart:
-            extra_publishes[sweetheart.id] = SW2_SweetheartReference(ref.id, ref.size_hint, block_store.netloc, [block_store.netloc])
+            extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, block_store.netloc, [block_store.netloc])
         if len(extra_publishes) > 0:
             self.master_proxy.publish_refs(task_id, extra_publishes)
 
