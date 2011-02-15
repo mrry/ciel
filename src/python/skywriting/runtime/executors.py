@@ -801,7 +801,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         # We must do this before publishing, so that whole files are in the block store.
         with self._lock:
-            transfer_ctx.cleanup(block_store)
+            transfer_ctx.cleanup(self.block_store)
             self.transfer_ctx = None
 
         # If we have fetched any objects to this worker, publish them at the master.
@@ -813,10 +813,6 @@ class ProcessRunningExecutor(SimpleExecutor):
             extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
         if len(extra_publishes) > 0:
             self.master_proxy.publish_refs(task_id, extra_publishes)
-
-        with self._lock:
-            transfer_ctx.cleanup(self.block_store)
-            self.transfer_ctx = None
 
         failure_bindings = transfer_ctx.get_failed_refs()
         if failure_bindings is not None:
