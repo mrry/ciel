@@ -16,7 +16,7 @@ from __future__ import with_statement
 from subprocess import PIPE
 from skywriting.runtime.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference
+    SWDataValue, SW2_StreamReference, SW2_SweetheartReference
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     ReferenceUnavailableException, BlameUserException, MissingInputException,\
     RuntimeSkywritingError
@@ -163,6 +163,14 @@ class ProcessRunningExecutor(SWExecutor):
         except KeyError:
             self.eager_fetch = False
 
+        try:
+            self.make_sweetheart = args['make_sweetheart']
+            if not isinstance(self.make_sweetheart, list):
+                self.make_sweetheart = [self.make_sweetheart]
+        except KeyError:
+            self.make_sweetheart = []
+
+
         self._lock = threading.Lock()
         self.proc = None
         self.transfer_ctx = None
@@ -177,11 +185,11 @@ class ProcessRunningExecutor(SWExecutor):
     def _execute(self, block_store, task_id):
         if self.eager_fetch:
             file_inputs = self.get_filenames_eager(block_store, self.input_refs)
-            transfer_ctx = None
+            _, transfer_ctx = self.get_filenames(block_store, [])
         else:
             file_inputs, transfer_ctx = self.get_filenames(block_store, self.input_refs)
-            with self._lock:
-                self.transfer_ctx = transfer_ctx
+        with self._lock:
+            self.transfer_ctx = transfer_ctx
         file_outputs = []
         for i in range(len(self.output_refs)):
             with tempfile.NamedTemporaryFile(delete=False) as this_file:
@@ -204,29 +212,28 @@ class ProcessRunningExecutor(SWExecutor):
 
         self.proc = None
 
-        if transfer_ctx is not None:
-            cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
-            transfer_ctx.wait_for_all_transfers()
-        if "trace_io" in self.debug_opts and transfer_ctx is not None:
+        cherrypy.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
+        transfer_ctx.wait_for_all_transfers()
+        if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
 
         # If we have fetched any objects to this worker, publish them at the master.
-        newly_local_objects = {}
+        extra_publishes = {}
         for ref in self.input_refs:
             if isinstance(ref, SW2_ConcreteReference) and not block_store.netloc in ref.location_hints:
-                newly_local_objects[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [block_store.netloc])
-        if len(newly_local_objects) > 0:
-            self.master_proxy.publish_refs(newly_local_objects)
+                extra_publishes[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [block_store.netloc])
+        for sweetheart in self.make_sweetheart:
+            extra_publishes[sweetheart.id] = SW2_SweetheartReference(ref.id, ref.size_hint, block_store.netloc, [block_store.netloc])
+        if len(extra_publishes) > 0:
+            self.master_proxy.publish_refs(task_id, extra_publishes)
 
-        if transfer_ctx is not None:
-            with self._lock:
-                transfer_ctx.cleanup(block_store)
-                self.transfer_ctx = None
+        with self._lock:
+            transfer_ctx.cleanup(block_store)
+            self.transfer_ctx = None
 
-        if transfer_ctx is not None:
-            failure_bindings = transfer_ctx.get_failed_refs()
-            if failure_bindings is not None:
-                raise MissingInputException(failure_bindings)
+        failure_bindings = transfer_ctx.get_failed_refs()
+        if failure_bindings is not None:
+            raise MissingInputException(failure_bindings)
 
         if rc != 0:
             raise OSError()
