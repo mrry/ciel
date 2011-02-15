@@ -7,6 +7,7 @@ import datetime
 from shared.references import SW2_FutureReference, SW2_StreamReference
 import time
 import ciel
+import logging
 
 TASK_CREATED = -1
 TASK_BLOCKING = 0
