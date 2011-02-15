@@ -73,6 +73,18 @@ ax.set_xticks([0, math.ceil(max_end - min_start)])
 
 plt.show()
 
+print 'Total duration', max_end - min_start
+
+x_old = 0.0
+y_old = 0.0
+total = 0.0
+for (x, y) in zip(xseries, yseries):
+    total = total + (x - x_old) * y_old
+    x_old = x
+    y_old = y
+
+print 'Total utilisation', total / 20.0
+print 'Utilisation%', (total / 20.0) / (max_end - min_start)
 
 #print worker_bars
 #print min_start, max_end
