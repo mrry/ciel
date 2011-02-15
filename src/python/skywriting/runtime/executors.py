@@ -799,6 +799,11 @@ class ProcessRunningExecutor(SimpleExecutor):
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
 
+        # We must do this before publishing, so that whole files are in the block store.
+        with self._lock:
+            transfer_ctx.cleanup(block_store)
+            self.transfer_ctx = None
+
         # If we have fetched any objects to this worker, publish them at the master.
         extra_publishes = {}
         for ref in self.input_refs:

@@ -109,6 +109,13 @@ class WorkerPool(plugins.SimplePlugin):
     def start(self):
         self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
         
+    def reset(self):
+        self.idle_worker_queue = Queue()
+        self.workers = {}
+        self.netlocs = {}
+        self.idle_set = set()
+        self.feature_queues = FeatureQueues()
+        
     def allocate_worker_id(self):
         return str(uuid.uuid1())
         
@@ -168,7 +175,7 @@ class WorkerPool(plugins.SimplePlugin):
             httplib2.Http().request("http://%s/control/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
             self.worker_failed(worker)
-
+        
     def notify_task_streams_done(self, worker, task):
         try:
             httplib2.Http().request("http://%s/control/task/%s/streams_done" % (worker.netloc, task.task_id), "POST", "done")
