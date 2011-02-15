@@ -61,6 +61,7 @@ apt-get -qq -y install $JDK 1>&2 2>/dev/null
 git clone -q http://github.com/$2/skywriting.git $1
 mkdir -p $1/logs
 mkdir -p $1/journal
-mkdir -p $1/store
-#mkdir -p /mnt/store
-#ln -s /mnt/store /opt/skywriting/store
+rm -rf $1/store
+#mkdir -p $1/store
+mkdir -p /mnt/store
+ln -s /mnt/store /opt/skywriting/store

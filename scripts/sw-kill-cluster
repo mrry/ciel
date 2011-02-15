@@ -81,9 +81,9 @@ cat $SOURCE | while myLine=`line`
 do
     echo -n "Killing instance $I: "
     if [[ $VERBOSE -eq 1 ]]; then
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "pkill -9 sw-master ; pkill -9 sw-worker"
+	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "pkill -9 -f sw-master ; pkill -9 -f sw-worker"
     else
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "pkill -9 sw-master ; pkill -9 sw-worker" 1>&2 2>/dev/null
+	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine "pkill -9 -f sw-master ; pkill -9 -f sw-worker" 1>&2 2>/dev/null
     fi
     echo $myLine
     I=`expr $I + 1`
