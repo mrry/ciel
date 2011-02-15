@@ -2,9 +2,9 @@ include "grab";
 include "mapreduce";
 //include "java";
 
-function java(class_name, input_refs, argv, jar_refs, num_outputs) {
+function java(class_name, input_refs, argv, jar_refs, num_outputs, sweetheart) {
    f = env["FOO"];
-        return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f}, num_outputs);
+        return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "foo" : f, "eager_fetch" : true, "make_sweetheart" : sweetheart}, num_outputs);
 }  
 
 jar_lib = [grab("http://www.cl.cam.ac.uk/~dgm36/skyhout.jar"),
@@ -25,7 +25,8 @@ function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reduc
 		            [input_chunk, old_clusters],
 		            [],
 		            jar_lib,
-		            num_reducers);
+		            num_reducers,
+			    input_chunk);
 	};
 	
 	kmeans_reduce = function(reduce_input) {
@@ -33,7 +34,8 @@ function kmeans_iteration(data_chunks, old_clusters, convergenceDelta, num_reduc
 		            reduce_input + [old_clusters],
 		            [convergenceDelta],
 		            jar_lib,
-		            2);
+		            2,
+			    jar_lib);
 		return {"cluster" : result[0], "converged" : *(result[1])}; 
 	};
 	
@@ -61,7 +63,7 @@ i = 0;
 
 old_clusters = input_clusters;
 converged = false;
-while ((i < 10) && !converged) {
+while ((i < 5) && !converged) {
 	result = kmeans_iteration(input_vectors, old_clusters, convergence_delta, r);
 	converged = result["converged"];
 	old_clusters = result["clusters"];
