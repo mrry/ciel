@@ -23,6 +23,12 @@ then
 else
     echo "lighttpd: found"
 fi
+if ! type -P m4 > /dev/null
+then
+    echo "m4: not found. -l option won't work; CherryPy will be used as a data server"
+else
+    echo "m4: found"
+fi
 if ! type -P ant > /dev/null
 then
     echo "ant: not found. Won't be able to build Java bindings"
