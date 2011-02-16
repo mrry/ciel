@@ -1,0 +1,64 @@
+package ciel;
+
+message NetworkLocation {
+  required string hostname = 1;
+  required int32 port = 2;
+}
+
+message Reference {
+  
+  enum ReferenceType {
+    CONCRETE = 0;
+    FUTURE = 1;
+    STREAM = 2;
+    TOMBSTONE = 3;
+    FETCH = 4;
+    VALUE = 5;
+    SWEETHEART = 6;
+    ERROR = 7;
+    FRIVOLOUS = 8;
+  }
+
+  required ReferenceType type = 1;
+  required string id = 2;
+
+  repeated NetworkLocation location_hints = 3;
+
+  optional string url = 4;
+
+  optional string value = 5; 
+
+  optional NetworkLocation sweetheart = 6;
+
+  optional string reason = 7;
+  optional string details = 8;
+
+}
+
+message Task {
+
+  required string id = 1;
+
+  enum ExecutorType {
+    swi = 0;
+    skypy = 1;
+    init = 2;
+    java2 = 3;
+    java = 4;
+    stdinout = 5;
+    environ = 6;
+    dotnet = 7;
+    cso = 8;
+    sync = 9;
+    grab = 10;
+  }
+
+  required ExecutorType executor = 2;
+
+  required Reference task_private = 3;
+
+  repeated Reference dependencies = 4;
+
+  repeated string expected_outputs = 5;
+
+}

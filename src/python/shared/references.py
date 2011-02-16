@@ -11,39 +11,27 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-import struct
-
-# Binary representation helper functions.
-REF_TYPE_STRUCT = struct.Struct("2s")
-INT_STRUCT = struct.Struct("!I")
-PORT_STRUCT = struct.Struct("!H")
-SIZE_STRUCT = struct.Struct("!Q")
-def reftype_to_packed(reftype):
-    return REF_TYPE_STRUCT.pack(reftype)
-def string_to_packed(_str):
-    return INT_STRUCT.pack(len(_str)) + _str
-def id_to_packed(id):
-    return string_to_packed(id)
-def netloc_to_packed(netloc):
-    colon_index = netloc.index(':')
-    hostname = netloc[:colon_index]
-    port = int(netloc[colon_index + 1:])
-    return INT_STRUCT.pack(len(hostname)) + PORT_STRUCT.pack(port)
-def netloc_set_to_packed(netlocs):
-    return INT_STRUCT.pack(len(netlocs)) + "".join([netloc_to_packed(x) for x in netlocs])
-def size_to_packed(size):
-    return SIZE_STRUCT.pack(size)
 
 class SWRealReference:
     
     def as_tuple(self):
         pass
-    
-    def as_binrepr(self):
-        pass
 
+    def as_protobuf(self):
+        pass
+    
     def is_consumable(self):
         return True
+
+def netloc_to_protobuf(netloc):
+    hostname, port = netloc.split(':')
+    loc = NetworkLocation()
+    loc.hostname = hostname
+    loc.port = int(port)
+    return loc
+
+def protobuf_to_netloc(netloc):
+    return '%s:%d' % (netloc.hostname, netloc.port)
 
 class SWErrorReference(SWRealReference):
     
@@ -52,8 +40,13 @@ class SWErrorReference(SWRealReference):
         self.reason = reason
         self.details = details
 
-    def as_binrepr(self):
-        return reftype_to_packed('xx') + id_to_packed(self.id) + string_to_packed(self.reason) + string_to_packed(self.details)
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.ERROR
+        ref.id = self.id
+        ref.reason = self.reason
+        ref.details = self.details
+        return ref
 
     def as_tuple(self):
         return ('err', self.id, self.reason, self.details)
@@ -74,8 +67,11 @@ class SW2_FutureReference(SWRealReference):
     def as_future(self):
         return self
     
-    def as_binrepr(self):
-        return reftype_to_packed('f2') + id_to_packed(self.id)
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.FUTURE
+        ref.id = self.id
+        return ref
     
     def as_tuple(self):
         return ('f2', str(self.id))
@@ -115,8 +111,13 @@ class SW2_ConcreteReference(SWRealReference):
     def as_future(self):
         return SW2_FutureReference(self.id)
         
-    def as_binrepr(self):
-        return reftype_to_packed('c2') + id_to_packed(self.id) + size_to_packed(self.size_hint) + netloc_set_to_packed(self.location_hints)
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.CONCRETE
+        ref.size_hint = self.size_hint
+        for netloc in self.location_hints:
+            ref.location_hints.add(netloc_to_protobuf(netloc))
+        return ref
         
     def as_tuple(self):
         return('c2', str(self.id), self.size_hint, list(self.location_hints))
@@ -139,8 +140,11 @@ class SW2_SweetheartReference(SW2_ConcreteReference):
         if isinstance(ref, SW2_SweetheartReference):
             self.sweetheart_netloc = ref.sweetheart_netloc
             
-    #def as_binrepr(self):
-    #    return reftype_to_packed('<3') + id_to_packed(self.id) + size_to_packed(self.size_hint) + netloc_set_to_packed(self.location_hints)
+    def as_protobuf(self):
+        ref = SW2_ConcreteReference.as_protobuf(self)
+        ref.type = Reference.SWEETHEART
+        ref.sweetheart = netloc_to_protobuf(self.sweetheart_netloc)
+        return ref
         
     def as_tuple(self):
         return('<3', str(self.id), self.sweetheart_netloc, self.size_hint, list(self.location_hints))
@@ -174,8 +178,13 @@ class SW2_StreamReference(SWRealReference):
     def as_future(self):
         return SW2_FutureReference(self.id)
         
-    def as_binrepr(self):
-        return reftype_to_packed('s2') + id_to_packed(self.id) + netloc_set_to_packed(self.location_hints)
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.STREAM
+        ref.id = self.id
+        for netloc in self.location_hints:
+            ref.location_hints.add(netloc_to_protobuf(netloc))
+        return ref
         
     def as_tuple(self):
         return('s2', str(self.id), list(self.location_hints))
@@ -201,8 +210,13 @@ class SW2_TombstoneReference(SWRealReference):
     def add_netloc(self, netloc):
         self.netlocs.add(netloc)
         
-    def as_binrepr(self):
-        return reftype_to_packed('t2') + id_to_packed(self.id) + netloc_set_to_packed(self.netlocs)
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.TOMBSTONE
+        ref.id = self.id
+        for netloc in self.location_hints:
+            ref.location_hints.add(netloc_to_protobuf(netloc))
+        return ref
         
     def as_tuple(self):
         return ('t2', str(self.id), list(self.netlocs))
@@ -223,8 +237,12 @@ class SW2_FetchReference(SWRealReference):
     def is_consumable(self):
         return False
     
-    def as_binrepr(self):
-        return reftype_to_packed('fx') + id_to_packed(self.id) + string_to_packed(self.url)
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.FETCH
+        ref.id = self.id
+        ref.url = self.url
+        return ref
     
     def as_tuple(self):
         return ('fetch2', str(self.id), str(self.url))
@@ -248,9 +266,13 @@ class SWDataValue(SWRealReference):
     def as_tuple(self):
         return ('val', self.id, self.value)
     
-    def as_binrepr(self):
-        return reftype_to_packed('dv') + id_to_packed(self.id) + string_to_packed(self.value)
-
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.VALUE
+        ref.id = self.id
+        ref.value = self.value
+        return ref
+    
     def __str__(self):
         string_repr = ""
         if len(self.value) < 20:
@@ -282,6 +304,32 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_FetchReference(reference_tuple[1], reference_tuple[2])
     else:
         raise KeyError(ref_type)
+
+try:
+    from shared.generated.ciel.protoc_pb2 import Reference, NetworkLocation
+
+    def build_reference_from_protobuf(ref):
+        if ref.type == Reference.VALUE:
+            return SWDataValue(ref.id, ref.value)
+        elif ref.type == Reference.ERROR:
+            return SWErrorReference(ref.id, ref.reason, ref.details)
+        elif ref.type == Reference.FUTURE:
+            return SW2_FutureReference(ref.id)
+        elif ref.type == Reference.CONCRETE:
+            return SW2_ConcreteReference(ref.id, ref.size_hint, map(protobuf_to_netloc, ref.location_hints))
+        elif ref.type == Reference.SWEETHEART:
+            return SW2_SweetheartReference(ref.id, ref.sweetheart, ref.size_hint, map(protobuf_to_netloc, ref.location_hints))
+        elif ref.type == Reference.STREAM:
+            return SW2_StreamReference(ref.id, map(protobuf_to_netloc, ref.location_hints))
+        elif ref.type == Reference.TOMBSTONE:
+            return SW2_TombstoneReference(ref.id, map(protobuf_to_netloc, ref.location_hints))
+        elif ref.type == Reference.FETCH:
+            return SW2_FetchReference(ref.id, ref.url)
+        else:
+            raise KeyError(ref.type)
+except ImportError:
+    import sys
+    print >>sys.stderr, 'Could not import protobufs.'
     
 def combine_references(original, update):
 
