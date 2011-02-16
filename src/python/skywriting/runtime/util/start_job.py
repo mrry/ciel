@@ -41,8 +41,7 @@ def ref_of_string(val, master_uri):
     master_data_uri = urlparse.urljoin(master_uri, "control/data/")
     master_netloc = urlparse.urlparse(master_uri).netloc
     (_, content) = http.request(master_data_uri, "POST", val)
-    print content
-    return simplejson.loads(content)
+    return simplejson.loads(content, object_hook=json_decode_object_hook)
     
 def ref_of_object(val, package_path, master_uri):
     if "filename" not in val:
