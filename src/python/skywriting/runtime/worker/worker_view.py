@@ -196,11 +196,11 @@ class DataRoot:
             id = self.block_store.allocate_new_id()
             if self.backup_sender is not None:
                 request_body = cherrypy.request.body.read()
-                self.block_store.store_raw_file(StringIO.StringIO(request_body), id)
+                _, file_length = self.block_store.store_raw_file(StringIO.StringIO(request_body), id)
                 self.backup_sender.add_data(id, request_body)
             else:
-                self.block_store.store_raw_file(cherrypy.request.body, id)
-            new_ref = SW2_ConcreteReference(id, cherrypy.request.body.length, [self.block_store.netloc])
+                _, file_length = self.block_store.store_raw_file(cherrypy.request.body, id)
+            new_ref = SW2_ConcreteReference(id, file_length, [self.block_store.netloc])
             if self.task_pool is not None:
                 self.task_pool.publish_refs({id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
