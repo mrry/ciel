@@ -55,7 +55,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_set = new_task_set
         new_task_set.run()
         report_data = [(tr.task_descriptor["task_id"], tr.spawned_tasks, tr.published_refs) for tr in new_task_set.task_records]
-        print report_data
         self.master_proxy.report_tasks(report_data)
         with self._lock:
             self.current_task_set = None
