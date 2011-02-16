@@ -1,4 +1,4 @@
-# Copyright (c) 2010 Derek Murray <derek.murray@cl.cam.ac.uk>
+# Copyright (c) 2011 Derek Murray <derek.murray@cl.cam.ac.uk>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -16,12 +16,6 @@ import httplib2
 import logging
 import cherrypy
 import simplejson
-
-'''
-Created on 4 Feb 2010
-
-@author: dgm36
-'''
 
 from cherrypy.process import plugins
 from Queue import Queue, Empty
