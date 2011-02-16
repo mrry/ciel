@@ -1,3 +1,17 @@
+# Copyright (c) 2011 Chris Smowton <Chris.Smowton@cl.cam.ac.uk>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 from skywriting.runtime.task_graph import DynamicTaskGraph, TaskGraphUpdate
 from skywriting.runtime.task import build_taskpool_task_from_descriptor
 
@@ -40,8 +54,15 @@ class LocalTaskGraph(DynamicTaskGraph):
     def task_runnable(self, task):
         td = task.as_descriptor()
         if self.execution_features.can_run(td["handler"]):
-            if td["task_id"] == self.root_task_id or ("hint" in td["task_private"] and td["task_private"]["hint"] == "small_task"):
+            if td["task_id"] == self.root_task_id:
                 self.runnable_small_tasks.append(td)
+            else:
+                try:
+                    is_small_task = td["worker_private"]["hint"] == "small_task"
+                    if is_small_task:
+                        self.runnable_small_tasks.append(td)
+                except KeyError:
+                    pass
 
     def get_runnable_task(self):
         return self.runnable_small_tasks.pop()
