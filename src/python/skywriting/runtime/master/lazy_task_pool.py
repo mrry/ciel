@@ -120,7 +120,6 @@ class LazyTaskPool(plugins.SimplePlugin):
         self.publish_refs(commit_bindings, task.job, task=task)
         if task.worker is not None and should_publish:
             self.bus.publish('worker_idle', task.worker)
-            worker = task.worker
         
     def get_task_queue(self):
         return self.task_queue
