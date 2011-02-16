@@ -730,19 +730,6 @@ class ProcessRunningExecutor(SimpleExecutor):
     def __init__(self, block_store):
         SimpleExecutor.__init__(self, block_store)
 
-        try:
-            self.eager_fetch = args['eager_fetch']
-        except KeyError:
-            self.eager_fetch = False
-
-        try:
-            self.make_sweetheart = args['make_sweetheart']
-            if not isinstance(self.make_sweetheart, list):
-                self.make_sweetheart = [self.make_sweetheart]
-        except KeyError:
-            self.make_sweetheart = []
-
-
         self._lock = threading.Lock()
         self.proc = None
         self.transfer_ctx = None
@@ -763,6 +750,17 @@ class ProcessRunningExecutor(SimpleExecutor):
             self.stream_output = self.args['stream_output']
         except KeyError:
             self.stream_output = False
+        try:
+            self.eager_fetch = self.args['eager_fetch']
+        except KeyError:
+            self.eager_fetch = False
+
+        try:
+            self.make_sweetheart = self.args['make_sweetheart']
+            if not isinstance(self.make_sweetheart, list):
+                self.make_sweetheart = [self.make_sweetheart]
+        except KeyError:
+            self.make_sweetheart = []
 
         if self.eager_fetch:
             file_inputs = self.get_filenames_eager(self.input_refs)
@@ -799,6 +797,11 @@ class ProcessRunningExecutor(SimpleExecutor):
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
 
+        # We must do this before publishing, so that whole files are in the block store.
+        with self._lock:
+            transfer_ctx.cleanup(self.block_store)
+            self.transfer_ctx = None
+
         # If we have fetched any objects to this worker, publish them at the master.
         extra_publishes = {}
         for ref in self.input_refs:
@@ -808,10 +811,6 @@ class ProcessRunningExecutor(SimpleExecutor):
             extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
         if len(extra_publishes) > 0:
             self.master_proxy.publish_refs(task_id, extra_publishes)
-
-        with self._lock:
-            transfer_ctx.cleanup(self.block_store)
-            self.transfer_ctx = None
 
         failure_bindings = transfer_ctx.get_failed_refs()
         if failure_bindings is not None:

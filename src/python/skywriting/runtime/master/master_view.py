@@ -121,7 +121,11 @@ class WorkersRoot:
         try:
             worker = self.worker_pool.get_worker_by_id(worker_id)
         except KeyError:
-            raise HTTPError(404)
+            if worker_id == 'reset':
+                self.worker_pool.reset()
+                return
+            else:
+                raise HTTPError(404)
         if cherrypy.request.method == 'POST':
             if action == 'ping':
                 ciel.engine.publish('worker_ping', worker)

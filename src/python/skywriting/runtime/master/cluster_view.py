@@ -25,16 +25,16 @@ def span_row(heading):
     return '<tr><td colspan="2" bgcolor="#cccccc" align="center">%s</td></tr>' % heading
         
 def job_link(job):
-    return '<a href="/browse/job/%s">%s</a>' % (job.id, job.id)
+    return '<a href="/control/browse/job/%s">%s</a>' % (job.id, job.id)
 
 def ref_link(ref):
-    return '<a href="/browse/ref/%s">%s</a>' % (ref.id, ref.id)
+    return '<a href="/control/browse/ref/%s">%s</a>' % (ref.id, ref.id)
 
 def ref_id_link(ref_id):
-    return '<a href="/browse/ref/%s">%s</a>' % (ref_id, ref_id)
+    return '<a href="/control/browse/ref/%s">%s</a>' % (ref_id, ref_id)
 
 def task_link(task):
-    return '<a href="/browse/task/%s">%s</a>' % (task.task_id, task.task_id)
+    return '<a href="/control/browse/task/%s">%s</a>' % (task.task_id, task.task_id)
 
 def swbs_link(netloc, ref_id):
     return '<a href="http://%s/data/%s">Link</a>' % (netloc, ref_id)

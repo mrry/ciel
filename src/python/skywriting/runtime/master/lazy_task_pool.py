@@ -89,12 +89,12 @@ class LazyTaskPool(plugins.SimplePlugin):
             self.tasks[task.task_id] = task
             should_register = True
         else:
-            cherrypy.log('Already seen task %s: do not register its outputs' % task.task_id, 'TASKPOOL', logging.INFO)
+            ciel.log('Already seen task %s: do not register its outputs' % task.task_id, 'TASKPOOL', logging.INFO)
             should_register = False
         
         if is_root_task:
             self.job_outputs[task.expected_outputs[0]] = task.job
-            cherrypy.log('Registering job (%s) interest in output (%s)' % (task.job.id, task.expected_outputs[0]), 'TASKPOOL', logging.INFO)
+            ciel.log('Registering job (%s) interest in output (%s)' % (task.job.id, task.expected_outputs[0]), 'TASKPOOL', logging.INFO)
             self.register_job_interest_for_output(task.expected_outputs[0], task.job)
         
         task.job.add_task(task)
@@ -120,7 +120,6 @@ class LazyTaskPool(plugins.SimplePlugin):
         self.publish_refs(commit_bindings, task.job, task=task)
         if task.worker is not None and should_publish:
             self.bus.publish('worker_idle', task.worker)
-            worker = task.worker
         
     def get_task_queue(self):
         return self.task_queue
@@ -157,7 +156,7 @@ class LazyTaskPool(plugins.SimplePlugin):
                 # Problem fetching input, so we will have to re-execute it.
                 worker = task.worker
                 for binding in bindings.values():
-                    cherrypy.log('Missing input: %s' % str(binding), 'TASKPOOL', logging.WARNING)
+                    ciel.log('Missing input: %s' % str(binding), 'TASKPOOL', logging.WARNING)
                 self.handle_missing_input(task)
                 
             elif reason == 'RUNTIME_EXCEPTION':

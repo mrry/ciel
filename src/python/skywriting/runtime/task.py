@@ -6,6 +6,8 @@ Created on 17 Aug 2010
 import datetime
 from shared.references import SW2_FutureReference, SW2_StreamReference
 import time
+import ciel
+import logging
 
 TASK_CREATED = -1
 TASK_BLOCKING = 0
@@ -95,7 +97,14 @@ class TaskPoolTask(Task):
             self.job.record_state_change(self.state, state)
         self.record_event(TASK_STATE_NAMES[state])
         self.state = state
-        #cherrypy.log('Task %s: --> %s' % (self.task_id, TASK_STATE_NAMES[self.state]), 'TASK', logging.INFO)
+        if state in (TASK_COMMITTED, TASK_ASSIGNED):
+            evt_time = self.history[-1][0]
+            if self.worker is not None:
+                worker_str = self.worker.id
+            else:
+                worker_str = "<no worker>"
+            ciel.log('%s %s %s @ %f' % (self.task_id, TASK_STATE_NAMES[self.state], worker_str, time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'TASK', logging.INFO)
+        #ciel.log('Task %s: --> %s' % (self.task_id, TASK_STATE_NAMES[self.state]), 'TASK', logging.INFO)
         
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
