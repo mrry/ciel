@@ -6,6 +6,6 @@ if [[ $PROCS == "" ]]; then
     echo "No tagged Ciel processes running"
     exit 1
 else
-    PGRPS=`ps --pid $PROCS --no-headers -o pgrp | awk --assign ORS=, "/\w+/"`
+    PGRPS=`ps --pid $PROCS --no-headers -o pgrp | awk --assign ORS=, "/\w+/ {gsub(/[[:space:]]*/,\"\",\\$0); print \\$0}"`
     pkill -9 -g $PGRPS
 fi
