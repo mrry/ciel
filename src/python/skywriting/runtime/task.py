@@ -5,9 +5,11 @@ Created on 17 Aug 2010
 '''
 import datetime
 from shared.references import SW2_FutureReference, SW2_StreamReference
+
 import time
 import ciel
 import logging
+import shared
 
 TASK_CREATED = -1
 TASK_BLOCKING = 0
@@ -37,9 +39,9 @@ TASK_STATE_NAMES = {}
 for (name, number) in TASK_STATES.items():
     TASK_STATE_NAMES[number] = name
 
-class Task:
-
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED):
+class TaskPoolTask:
+    
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, job=None):
         self.task_id = task_id
         
         # Task creation graph.
@@ -65,15 +67,6 @@ class Task:
         self.task_private = task_private
         
         self.replay_uuids = replay_uuids
-
-    def __repr__(self):
-        return 'Task(%s)' % self.task_id
-
-class TaskPoolTask(Task):
-    
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, job=None):
-        Task.__init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
-
         self.unfinished_input_streams = set()
 
         self._blocking_dict = {}
@@ -240,6 +233,80 @@ class TaskPoolTask(Task):
         
         return descriptor        
 
+    def as_protobuf_for_execution(self):
+        '''
+        This version treats self.inputs as the official set of (concrete)
+        dependencies.
+        '''
+        pass
+
+
+    try:    
+        
+        from shared.generated.ciel.protoc_pb2 import Task
+            
+        def as_protobuf_for_spawning(self):
+            '''
+            This version treats self.dependencies as the official set of (perhaps)
+            future dependencies.
+            '''
+            task = Task()
+            task.id = self.task_id
+            task.executor = Task.DESCRIPTOR.enum_types_by_name['ExecutorType'].values_by_name[self.handler]
+
+            task.task_private = self.task_private.as_protobuf()
+            
+            for dep in self.inputs.values():
+                task.dependencies.add(dep.as_protobuf())
+
+            for expected_output in self.expected_outputs:
+                task.expected_outputs.add(expected_output)
+
+            return task
+
+    except ImportError:
+        pass
+        
+try:
+    from shared.generated.ciel.protoc_pb2 import Task
+    from shared.references import build_reference_from_protobuf
+    
+    def build_taskpool_task_from_protobuf(buf_task, task_pool, parent_task=None):
+        
+        task_id = buf_task.id
+        
+        # Ignored fields.
+        inputs = {}
+        save_continuation = False
+        continues_task = None
+        replay_uuids = None
+        select_group = None
+        select_result = None
+        
+        state = TASK_CREATED
+        
+        # XXX: This is how we get the name of an enum value as a Python string. Yuck.
+        handler = Task.DESCRIPTOR.enum_types_by_name['ExecutorType'].values_by_number[buf_task.executor]
+        
+        task_private = build_reference_from_protobuf(buf_task.task_private)
+        
+        dependencies = {}
+        for buf_ref in buf_task.dependencies:
+            dependencies[buf_ref.id] = build_reference_from_protobuf(buf_ref)
+            
+        expected_outputs = []
+        for expected_output in buf_ref.expected_outputs:
+            expected_outputs.append(expected_output)
+            
+        return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
+
+    def build_protobuf_task_from_worker_task_descriptor(task_descriptor):
+        return build_taskpool_task_from_descriptor(task_descriptor["task_id"], task_descriptor, None, None).as_protobuf_for_spawning()
+        
+                        
+except ImportError:
+    pass
+
 
 def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, parent_task=None):
 
@@ -280,155 +347,6 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, par
     
     return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
 
-#
-#class Task:
-#    
-#    def __init__(self, task_id, task_descriptor, global_name_directory, task_pool, parent_task_id=None):
-#        self.task_id = task_id
-#        self.handler = task_descriptor['handler']
-#        self.inputs = {}
-#        self.current_attempt = 0
-#        self.worker_id = None
-#        self.event_index = 0
-#        self.task_pool = task_pool
-#        
-#        self.history = []
-#       
-#        self.parent = parent_task_id
-#        self.children = []
-#        
-#        self.dependencies = task_descriptor['inputs']
-#        
-#        self.inputs = {}
-#                
-#        self.expected_outputs = task_descriptor['expected_outputs']
-#    
-#        try:
-#            self.save_continuation = task_descriptor['save_continuation']
-#        except KeyError:
-#            self.save_continuation = False
-#
-#        try:
-#            self.continues_task = uuid.UUID(hex=task_descriptor['continues_task'])
-#        except KeyError:
-#            self.continues_task = None
-#
-#        self.replay_uuids = None
-#        self.saved_continuation_uri = None
-#    
-#        self.state = TASK_RUNNABLE    
-#    
-#        self.check_dependencies(global_name_directory)
-#            
-#        # select()-handling code.
-#        try:
-#            self.select_group = task_descriptor['select_group']
-#        except:
-#            pass
-#            
-#            self.selecting_dict = {}
-#            self.select_result = []
-#            
-#            for i, ref in enumerate(self.select_group):
-#                if isinstance(ref, SW2_FutureReference):
-#                    global_id = ref.id
-#                    refs = global_name_directory.get_refs_for_id(global_id)
-#                    if len(refs) > 0:
-#                        self.select_result.append(i)
-#                    else:
-#                        self.selecting_dict[global_id] = i
-#                else:
-#                    self.select_result.append(i)
-#
-#            if len(self.select_group) > 0 and len(self.select_result) == 0:
-#                self.state = TASK_SELECTING
-#            
-#        except KeyError:
-#            self.select_group = None
-#        
-#        self.record_event("CREATED")
-#
-#    # Warning: called under worker_pool._lock
-#    def set_assigned_to_worker(self, worker_id):
-#        self.worker_id = worker_id
-#        self.state = TASK_ASSIGNED
-#        self.record_event("ASSIGNED")
-#        self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
-#        
-#    def __repr__(self):
-#        return 'Task(%d)' % self.task_id
-#       
-#    def record_event(self, description):
-#        self.history.append((datetime.datetime.now(), description))
-#        
-#    def check_dependencies(self, global_name_directory):
-#        self.blocking_dict = {}
-#        for local_id, input in self.dependencies.items():
-#            if isinstance(input, SW2_FutureReference):
-#                global_id = input.id
-#                refs = global_name_directory.get_refs_for_id(global_id)
-#                if len(refs) > 0:
-#                    self.inputs[local_id] = refs[0]
-#                else:
-#                    try:
-#                        self.blocking_dict[global_id].add(local_id)
-#                    except KeyError:
-#                        self.blocking_dict[global_id] = set([local_id])
-#            else:
-#                self.inputs[local_id] = input
-#
-#        if len(self.blocking_dict) > 0:
-#            self.state = TASK_BLOCKING
-#        
-#    def is_blocked(self):
-#        return self.state in (TASK_BLOCKING, TASK_SELECTING)
-#            
-#    def blocked_on(self):
-#        if self.state == TASK_SELECTING:
-#            return self.selecting_dict.keys()
-#        elif self.state == TASK_BLOCKING:
-#            return self.blocking_dict.keys()
-#        else:
-#            return []
-#    
-#    def unblock_on(self, global_id, refs):
-#        if self.state in (TASK_RUNNABLE, TASK_SELECTING):
-#            i = self.selecting_dict.pop(global_id)
-#            self.select_result.append(i)
-#            self.state = TASK_RUNNABLE
-#            self.record_event("RUNNABLE")
-#        elif self.state in (TASK_BLOCKING,):
-#            local_ids = self.blocking_dict.pop(global_id)
-#            for local_id in local_ids:
-#                self.inputs[local_id] = refs[0]
-#            if len(self.blocking_dict) == 0:
-#                self.state = TASK_RUNNABLE
-#                self.record_event("RUNNABLE")
-#        
-#    def as_descriptor(self, long=False):        
-#        descriptor = {'task_id': str(self.task_id),
-#                      'dependencies': self.dependencies,
-#                      'handler': self.handler,
-#                      'expected_outputs': map(str, self.expected_outputs),
-#                      'inputs': self.inputs,
-#                      'event_index': self.event_index}
-#        
-#        if long:
-#            descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
-#            descriptor['worker_id'] = self.worker_id
-#            descriptor['saved_continuation_uri'] = self.saved_continuation_uri
-#            descriptor['state'] = TASK_STATE_NAMES[self.state]
-#            descriptor['parent'] = str(self.parent)
-#            descriptor['children'] = map(str, self.children)
-#                    
-#        if hasattr(self, 'select_result'):
-#            descriptor['select_result'] = self.select_result
-#        
-#        if self.save_continuation:
-#            descriptor['save_continuation'] = True
-#        if self.continues_task:
-#            descriptor['continues_task'] = str(self.continues_task)
-#        if self.replay_uuids is not None:
-#            descriptor['replay_uuids'] = map(str, self.replay_uuids)
-#        
-#        return descriptor        
+
+
+    
