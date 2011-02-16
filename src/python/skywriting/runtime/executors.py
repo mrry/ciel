@@ -233,12 +233,20 @@ class FileOrString:
     def toobj(self):
         return self.tostr()
 
-class SkyPyExecutor:
+class BaseExecutor:
+    
+    def __init__(self, block_store):
+        self.block_store = block_store
+    
+    def run(self, task_descriptor, task_record):
+        self._run(task_descriptor, task_record)
+
+class SkyPyExecutor(BaseExecutor):
 
     handler_name = "skypy"
     
     def __init__(self, block_store):
-        self.block_store = block_store
+        BaseExecutor.__init__(self, block_store)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
 
     def cleanup(self):
@@ -274,7 +282,7 @@ class SkyPyExecutor:
         else:
             return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
         
-    def run(self, task_descriptor, task_record):
+    def _run(self, task_descriptor, task_record):
 
         self.task_descriptor = task_descriptor
         self.task_record = task_record
@@ -430,12 +438,12 @@ class SafeLambdaFunction(LambdaFunction):
         safe_args = self.interpreter.do_eager_thunks(args_list)
         return LambdaFunction.call(self, safe_args, stack, stack_base, context)
 
-class SkywritingExecutor:
+class SkywritingExecutor(BaseExecutor):
 
     handler_name = "swi"
 
     def __init__(self, block_store):
-        self.block_store = block_store
+        BaseExecutor.__init__(self, block_store)
         self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
 
     def cleanup(self):
@@ -481,7 +489,7 @@ class SkywritingExecutor:
     def can_run():
         return True
 
-    def run(self, task_descriptor, task_record):
+    def _run(self, task_descriptor, task_record):
 
         sw_private = task_descriptor["task_private"]
         self.task_id = task_descriptor["task_id"]
@@ -612,10 +620,10 @@ class SkywritingExecutor:
             raise BlameUserException('The included script did not parse successfully')
         return script
 
-class SimpleExecutor:
+class SimpleExecutor(BaseExecutor):
 
     def __init__(self, block_store):
-        self.block_store = block_store
+        BaseExecutor.__init__(self, block_store)
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs):
@@ -678,7 +686,7 @@ class SimpleExecutor:
     def can_run():
         return True
 
-    def run(self, task_descriptor, task_record):
+    def _run(self, task_descriptor, task_record):
         self.task_record = task_record
         self.task_id = task_descriptor["task_id"]
         self.output_ids = task_descriptor["expected_outputs"]
