@@ -1,5 +1,8 @@
 package ciel;
 
+option java_package = "com.asgow.ciel.protocol";
+option java_outer_classname = "CielProtos";
+
 message NetworkLocation {
   required string hostname = 1;
   required int32 port = 2;
@@ -57,6 +60,10 @@ message Task {
 
   required Reference task_private = 3;
 
+  // This MUST contain the consolidated inputs and dependencies of a task, i.e.
+  // if this is a task to be run, all dependencies MUST be consumable; else if
+  // this is a task to be scheduled, all dependencies (including pre-known
+  // inputs (if we even do that)) should be in dependencies.
   repeated Reference dependencies = 4;
 
   repeated string expected_outputs = 5;

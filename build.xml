@@ -44,6 +44,10 @@
 	  <pathelement location="ext/mahout-0.3/lib/uncommons-maths-1.2.jar"/>
 	</path>
 
+	<path id="bindingclasspath">
+	  <pathelement location="/usr/share/java/protobuf.jar"/>
+	</path>
+
 	<macrodef name="compileExampleJar">
 	  <attribute name="example"/>
 	  <sequential>
@@ -54,7 +58,8 @@
 
 	<target name="compile-bindings">
 		<mkdir dir="${dir.build}/bindings"/>
-		<javac srcdir="src/java" destdir="${dir.build}/bindings"/>
+		<javac srcdir="src/java"
+		destdir="${dir.build}/bindings" classpathref="bindingclasspath"/>
 	</target>
 
 	<target name="build-bindings" depends="compile-bindings">
@@ -62,6 +67,7 @@
 		<sequential>
 			<jar destfile="${dir.dist}/skywriting.jar">
 			    <fileset dir="${dir.build}/bindings" includes="uk/co/mrry/mercator/task/**"/>
+			    <fileset dir="${dir.build}/bindings" includes="com/asgow/ciel/**"/>
 			</jar>
 		</sequential>
 	</target>

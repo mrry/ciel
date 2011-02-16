@@ -59,3 +59,15 @@ then
 else
     echo "pypy: found"
 fi
+if ! type -P protoc > /dev/null
+then
+    echo "protoc: not found. Won't be able to build protobuf bindings"
+else
+    echo "protoc: found"
+fi
+if ! test -e /usr/share/java/protobuf.jar
+then
+    echo "/usr/share/java/protobuf.jar: not found. Won't be able to use java protobuf bindings. Try installing libprotobuf-java."
+else
+    echo "/usr/share/java/protobuf.jar: found"
+fi

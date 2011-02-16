@@ -17,5 +17,6 @@
 	<classpathentry kind="lib" path="/local/scratch/dgm36/hadoop-0.21.0/hadoop-common-0.21.0.jar"/>
 	<classpathentry kind="lib" path="/local/scratch/dgm36/hadoop-0.21.0/hadoop-mapred-0.21.0.jar"/>
 	<classpathentry kind="lib" path="/local/scratch/dgm36/mahout-0.3/lib/commons-cli-1.2.jar"/>
+	<classpathentry kind="lib" path="/usr/share/java/protobuf.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
