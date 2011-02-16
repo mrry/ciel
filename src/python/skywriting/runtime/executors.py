@@ -1233,7 +1233,7 @@ class SyncExecutor(SimpleExecutor):
     def check_args_valid(cls, args, n_outputs):
         SimpleExecutor.check_args_valid(args, n_outputs)
         if "inputs" not in args or n_outputs != 1:
-            raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
+            raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(args))            
 
     def _execute(self):
         reflist = [self.task_record.retrieve_ref(x) for x in self.args["inputs"]]
