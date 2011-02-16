@@ -200,9 +200,10 @@ class DataRoot:
                 self.backup_sender.add_data(id, request_body)
             else:
                 self.block_store.store_raw_file(cherrypy.request.body, id)
+            new_ref = SW2_ConcreteReference(id, None, [self.block_store.netloc])
             if self.task_pool is not None:
-                self.task_pool.publish_refs({id : SW2_ConcreteReference(id, None, [self.block_store.netloc])})
-            return simplejson.dumps(id)
+                self.task_pool.publish_refs({id : new_ref})
+            return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
         elif cherrypy.request.method == 'GET':
             return serve_file(self.block_store.generate_block_list_file())
         else:
