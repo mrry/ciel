@@ -706,7 +706,7 @@ class BlockStore(plugins.SimplePlugin):
         else:
             if os.path.exists(self.streaming_filename(ref.id)):
                 raise Exception("Local stream-joining support not implemented yet")
-            ret = FileRetrInProgress(ref, self.filename(ref.id), self.get_fetch_urls_for_ref(ref), self.fetch_thread, 
+            ret = BlockStore.FileRetrInProgress(ref, self.filename(ref.id), self.get_fetch_urls_for_ref(ref), self.fetch_thread, 
                                      result_callback, reset_callback, progress_callback)
             ret.start()
             return ret
@@ -771,9 +771,9 @@ class BlockStore(plugins.SimplePlugin):
     def retrieve_string_for_ref_async(self, ref):
         str = try_retrieve_string_for_ref_without_transfer(ref)
         if str is not None:
-            return DummyStringRetr(str)
+            return BlockStore.DummyStringRetr(str)
         else:
-            ret = StringRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.fetch_thread)
+            ret = BlockStore.StringRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.fetch_thread)
             return ret
 
     def retrieve_string_for_ref(self, ref):
@@ -822,9 +822,9 @@ class BlockStore(plugins.SimplePlugin):
     def retrieve_object_for_ref_async(self, ref, decoder):
         obj = self.try_retrieve_object_for_ref_without_transfer(ref, decoder)
         if obj is not None:
-            return DummyObjRetr(obj)
+            return BlockStore.DummyObjRetr(obj)
         else:
-            ret = ObjRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.decoders[decoder], self.fetch_thread)
+            ret = BlockStore.ObjRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.decoders[decoder], self.fetch_thread)
             ret.start()
 
     def retrieve_object_for_ref(self, ref, decoder):

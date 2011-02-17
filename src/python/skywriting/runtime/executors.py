@@ -16,7 +16,7 @@ from __future__ import with_statement
 
 from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference
+    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
@@ -837,16 +837,16 @@ class ProcessRunningExecutor(SimpleExecutor):
                 stream_refs[self.output_ids[i]] = stream_ref
             self.task_record.prepublish_refs(stream_refs)
 
-        self.proc = self.start_process(file_inputs, file_outputs, transfer_ctx)
+        self.proc = self.start_process(file_inputs, file_outputs)
         add_running_child(self.proc)
 
-        rc = self.await_process(file_inputs, file_outputs, transfer_ctx)
+        rc = self.await_process(file_inputs, file_outputs)
         remove_running_child(self.proc)
 
         self.proc = None
 
-        if "trace_io" in self.debug_opts:
-            transfer_ctx.log_traces()
+#        if "trace_io" in self.debug_opts:
+#            transfer_ctx.log_traces()
 
         if push_threads is not None:
             for thread in push_threads:
@@ -865,7 +865,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         if push_threads is not None:
             failed_threads = filter(lambda t: not t.success, push_threads)
-            failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_thread])
+            failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
             if len(failure_bindings) > 0:
                 raise MissingInputException(failure_bindings)
 
@@ -904,12 +904,11 @@ class ProcessRunningExecutor(SimpleExecutor):
             watch = self.file_watcher_thread.add_watch(otherend_netloc, output_id)
             self.output_subscriptions.add(watch)
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
         
-    def await_process(self, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files):
         rc = self.proc.wait()
-        transfer_ctx.consumers_detached()
         return rc
 
     def _cleanup_task(self):
@@ -936,7 +935,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
         ciel.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
@@ -945,7 +944,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
             # This hopefully avoids the race condition in subprocess.Popen()
             return subprocess.Popen(map(str, command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
 
-    def await_process(self, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files):
 
         class list_with:
             def __init__(self, l):
@@ -958,7 +957,6 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
                 return False
 
         with list_with([open(filename, 'r') for filename in input_files]) as fileobjs:
-            transfer_ctx.consumers_attached()
             for fileobj in fileobjs:
                 try:
                     shutil.copyfileobj(fileobj, self.proc.stdin)
@@ -971,7 +969,6 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
 
         self.proc.stdin.close()
         rc = self.proc.wait()
-        transfer_ctx.consumers_detached()
         return rc
         
 class EnvironmentExecutor(ProcessRunningExecutor):
@@ -988,7 +985,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
         ciel.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
@@ -1013,8 +1010,6 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         _ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
 
-        transfer_ctx.consumers_attached()
-        
         return proc
 
 class FilenamesOnStdinExecutor(ProcessRunningExecutor):
@@ -1053,7 +1048,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             pass
         return l
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
 
         try:
             self.argv = self.args['argv']
@@ -1083,8 +1078,6 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
 
         _ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
-
-        transfer_ctx.consumers_attached()
 
         return proc
 
@@ -1123,14 +1116,13 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                 print e
                 break
 
-    def await_process(self, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files):
         self.change_state("Running")
         if "trace_io" in self.debug_opts:
             ciel.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.INFO)
             self.gather_io_trace()
         rc = self.proc.wait()
         self.change_state("Done")
-        transfer_ctx.consumers_detached()
         ciel.log.error("Process terminated. Stats:", "EXEC", logging.INFO)
         for key, value in self.state_times.items():
             ciel.log.error("Time in state %s: %s seconds" % (key, value), "EXEC", logging.INFO)
