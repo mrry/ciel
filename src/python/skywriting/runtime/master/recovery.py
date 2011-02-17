@@ -152,7 +152,7 @@ class RecoveryManager(plugins.SimplePlugin):
         references found there.
         '''
         
-        block_file = urllib2.urlopen('http://%s/data/' % worker.netloc)
+        block_file = urllib2.urlopen('http://%s/control/data/' % worker.netloc)
 
         while True:
             record = block_file.read(BLOCK_LIST_RECORD_STRUCT.size)

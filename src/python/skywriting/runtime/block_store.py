@@ -907,7 +907,7 @@ class BlockStore(plugins.SimplePlugin):
     def block_list_generator(self):
         ciel.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
         for block_name in os.listdir(self.base_dir):
-            if not block_name.startswith('.') and not os.path.exists(".%s" % block_name):
+            if not block_name.startswith('.'):
                 block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
                 yield block_name, block_size
     
