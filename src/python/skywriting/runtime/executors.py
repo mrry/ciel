@@ -868,7 +868,7 @@ class ProcessRunningExecutor(SimpleExecutor):
         for sweetheart in self.make_sweetheart:
             extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
         if len(extra_publishes) > 0:
-            self.master_proxy.publish_refs(task_id, extra_publishes)
+            self.task_record.prepublish_refs(extra_publishes)
 
         if push_threads is not None:
             failed_threads = filter(lambda t: not t.success, push_threads)
