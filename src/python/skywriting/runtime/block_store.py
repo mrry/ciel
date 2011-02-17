@@ -324,18 +324,6 @@ class pycURLThread:
             for ctx in self.contexts:
                 ctx.select_callback(active_read, active_write, active_exn)
 
-# Callbacks for "contexts," things which add event sources for which I need a better name.
-class pycURLContextCallbacks:
-
-    def get_select_fds(self):
-        return [], [], []
-
-    def get_timeout(self):
-        return None
-
-    def select_callback(self, rd, wr, exn):
-        pass
-
 class SimpleFileTransferContext:
 
     def __init__(self, url, multi, result_callback, progress_callback, filename):
@@ -672,15 +660,15 @@ class BlockStore(plugins.SimplePlugin):
             self.filename = block_store.streaming_filename(ref.id)
             self.is_streaming = True
             self.commit_filename = block_store.filename(ref.id)
-            if isinstance(ref, SW2_ConcreteReference):
-                self.ctx = create_file_transfer_context(urls, multi, self.filename, self.result, reset_callback, progress_callback)
-            elif isinstance(ref, SW2_StreamReference):
-                self.ctx = StreamTransferContext(ref.location_hints[0], ref.id, self.filename, 
-                                                 self.fetch_thread, block_store, result_callback, progress_callback)
             self.ref = ref
             self.result_callback = result_callback
             self.block_store = block_store
             self.completion_event = threading.Event()
+            if isinstance(ref, SW2_ConcreteReference):
+                self.ctx = create_file_transfer_context(urls, multi, self.filename, self.result, reset_callback, progress_callback)
+            elif isinstance(ref, SW2_StreamReference):
+                self.ctx = StreamTransferContext(ref.location_hints[0], ref.id, self.filename, 
+                                                 self.fetch_thread, block_store, self.result, progress_callback)
 
         def start(self):
             self.ctx.start()
@@ -688,6 +676,8 @@ class BlockStore(plugins.SimplePlugin):
         def result(self, success):
             if not success:
                 self.filename = None
+            else:
+                self.commit()
             self.completion_event.set()
             if self.result_callback is not None:
                 self.result_callback(success)
