@@ -713,7 +713,7 @@ class BlockStore(plugins.SimplePlugin):
 
     def retrieve_filenames_for_refs(self, refs):
         
-        transfer_ctxs = [retrieve_filename_for_ref_async(ref) for ref in refs]
+        transfer_ctxs = [self.retrieve_filename_for_ref_async(ref) for ref in refs]
         self.await_async_transfers(transfer_ctxs)
         failed_transfers = filter(lambda x: x.filename is None, transfer_ctxs)
         if len(failed_transfers) > 0:
