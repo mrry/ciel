@@ -43,6 +43,7 @@ class ControlRoot:
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
+        self.streamstat = StreamStatRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
         self.kill = KillRoot()
         self.log = LogRoot(worker)
@@ -53,6 +54,23 @@ class ControlRoot:
     @cherrypy.expose
     def index(self):
         return simplejson.dumps(self.worker.id)
+
+class StreamStatRoot:
+
+    def __init__(self, block_store):
+        self.block_store = block_store
+
+    def default(self, id, op):
+        if cherrypy.request.method == "POST":
+            payload = simplejson.reads(cherrypy.request.body.read())
+            if op == "subscribe":
+                self.block_store.subscribe_to_stream(payload["netloc"], id)
+            elif op == "advert":
+                self.block_store.receive_stream_advertisment(id, payload["bytes"], payload["done"])
+            else:
+                raise cherrypy.HTTPError(404)
+        else:
+            raise cherrypy.HTTPError(405)
 
 class KillRoot:
     

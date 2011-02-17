@@ -397,9 +397,6 @@ class RetryTransferContext:
                 self.reset_callback()
                 self.start_next_attempt()
 
-    def reset(self):
-        pass
-
 class StreamTransferContext:
 
     def __init__(self, worker_netloc, refid, filename, multi, block_store, result_callback, progress_callback):
@@ -430,7 +427,8 @@ class StreamTransferContext:
         self.start_next_fetch()
         self.multi.do_from_curl_thread(lambda: self.add_stream())
         # TODO: Improve on this blocking RPC by using cURL for this sort of thing
-        _, content = httplib2.Http().request("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), "POST")
+        post_data = simplejson.dumps({"netloc": self.worker_netloc})
+        httplib2.Http().request("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), "POST", post_data)
 
     def progress(self, bytes_downloaded):
         for callback in self.progress_callbacks:
