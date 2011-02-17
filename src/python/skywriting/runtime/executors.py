@@ -37,6 +37,7 @@ from subprocess import PIPE
 from datetime import datetime
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
+from skywriting.runtime.file_watcher import get_watcher_thread
 
 import ciel
 
@@ -288,7 +289,7 @@ class SkyPyExecutor:
             coroutine_ref = self.task_record.retrieve_ref(skypy_private["coro_ref"])
             rq_list.append(coroutine_ref)
 
-        filenames = self.block_store.retrieve_filenames_for_refs_eager(rq_list)
+        filenames = self.block_store.retrieve_filenames_for_refs(rq_list)
 
         py_source_filename = filenames[0]
         if "coro_ref" in skypy_private:
@@ -388,7 +389,7 @@ class SkyPyExecutor:
         if isinstance(real_ref, SWDataValue):
             return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
         else:
-            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            filenames = self.block_store.retrieve_filenames_for_refs([real_ref])
             return {"success": True, "filename": filenames[0]}
 
     def deref_json(self, ref):
@@ -462,7 +463,7 @@ class SkywritingExecutor:
 
     def start_sw_script(self, swref, args, env):
 
-        sw_file = self.block_store.retrieve_filenames_for_refs_eager([swref])[0]
+        sw_file = self.block_store.retrieve_filename_for_ref(swref)
         parser = SWScriptParser()
         with open(sw_file, "r") as sw_fp:
             script = parser.parse(sw_fp.read())
@@ -663,17 +664,6 @@ class SimpleExecutor:
                 if not isinstance(ref, SWRealReference):
                     raise BlameUserException("Simple executors need args['inputs'] to be a list of references. %s is not a reference." % ref)
 
-    def get_filenames(self, refs):
-        # Refs should already have been tested.
-        return self.block_store.retrieve_filenames_for_refs(refs, "trace_io" in self.debug_opts)
-
-    def get_filenames_eager(self, refs):
-        return self.block_store.retrieve_filenames_for_refs_eager(refs)
-
-    def get_filename(self, ref):
-        files, ctx = self.get_filenames([ref])
-        return (files[0], ctx)
-
     @staticmethod
     def can_run():
         return True
@@ -714,16 +704,85 @@ class SimpleExecutor:
     def cleanup(self):
         pass
     
-    def notify_streams_done(self):
-        # Out-of-thread call
-        # Overridden for process-running executors
-        pass
-        
     def abort(self):
         self._abort()
         
     def _abort(self):
         pass
+
+class AsyncPushThread:
+
+    def __init__(self, block_store, ref, fifos_dir):
+        self.block_store = block_store
+        self.ref = ref
+        self.success = None
+        self.lock = threading.Lock()
+        self.fetch_done = False
+        self.stream_done = False
+        self.bytes_copied = 0
+        self.bytes_available = 0
+        self.next_threshold = 0
+        self.condvar = threading.Condition(self.lock)
+        self.file_fetch = block_store.retrieve_filename_for_ref_async(ref, 
+                                                                      result_callback=self.result, 
+                                                                      reset_callback=self.reset, 
+                                                                      progress_callback=self.progress)
+        if self.file_fetch.is_streaming:
+            self.filename = os.path.join(fifos_dir, "fifo-%s" % ref.id)
+            os.mkfifo(self.output_filename)
+            self.thread = threading.Thread(target=self.copy_loop)
+        else:
+            self.filename = self.file_fetch.filename
+            self.stream_done = True
+
+    def copy_loop(self):
+
+        # Do this here to avoid blocking in constructor
+        with open(self.file_fetch.filename, "r") as input_fp:
+            with open(self.filename, "w") as output_fp:
+                while True:
+                    while True:
+                        buf = self.input_fp.read(4096)
+                        self.output_fp.write(buf)
+                        self.bytes_copied += len(buf)
+                        with self.lock:
+                            if self.bytes_copied == self.bytes_available and self.fetch_done:
+                                self.stream_done = True
+                                self.condvar.notify_all()
+                                return
+                        if len(buf) < 4096:
+                            # EOF, for now.
+                            break
+                    with self.lock:
+                        self.next_threshold = self.bytes_copied + 67108864
+                        while self.bytes_available < self.next_threshold and not self.fetch_done:
+                            self.condvar.wait()
+
+    def result(self, success):
+        if not success:
+            ciel.log("Asynchronous fetch of ref %s failed" % self.ref, "EXEC", logging.WARNING)
+        else:
+            ciel.log("Asynchronous fetch of ref %s completed" % self.ref, "EXEC", logging.INFO)
+
+        with self.lock:
+            self.success = success
+            self.fetch_done = True
+            self.condvar.notify_all()
+
+    def progress(self, bytes_downloaded):
+        with self.lock:
+            self.bytes_available = bytes_downloaded
+            if self.bytes_available >= self.next_threshold:
+                self.condvar.notify_all()
+
+    def reset(self):
+        ciel.log("Reset of streamed fetch for %s!" % self.ref, "EXEC", logging.WARNING)
+        self.result(False)
+
+    def wait(self):
+        with self.lock:
+            while not self.stream_done:
+                self.condvar.wait()
 
 class ProcessRunningExecutor(SimpleExecutor):
 
@@ -732,14 +791,9 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         self._lock = threading.Lock()
         self.proc = None
-        self.transfer_ctx = None
-
-    def notify_streams_done(self):
-        # Out-of-thread call. Indicates our streaming inputs, if any, have all finished.
-        # We should retry stream-fetches right away.
-        with self._lock:
-            if self.transfer_ctx is not None:
-                self.transfer_ctx.notify_streams_done()
+        self.outputs_in_progress = False
+        self.output_subscriptions = []
+        self.file_watcher_thread = get_watcher_thread()
 
     def _execute(self):
         try:
@@ -763,22 +817,21 @@ class ProcessRunningExecutor(SimpleExecutor):
             self.make_sweetheart = []
 
         if self.eager_fetch:
-            file_inputs = self.get_filenames_eager(self.input_refs)
-            _, transfer_ctx = self.get_filenames([])
+            push_threads = None
+            file_inputs = self.block_store.retrieve_filenames_for_refs(self.input_refs)
         else:
-            file_inputs, transfer_ctx = self.get_filenames(self.input_refs)
+            fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
+            push_threads = [AsyncPushThread(self.block_store, ref, fifos_dir) for ref in self.input_refs]
+            file_inputs = [push_thread.filename for push_thread in push_threads]
 
         with self._lock:
-            self.transfer_ctx = transfer_ctx
-        file_outputs = []
-        for i in range(len(self.output_ids)):
-            with tempfile.NamedTemporaryFile(delete=False) as this_file:
-                file_outputs.append(this_file.name)
+            file_outputs = [self.block_store.make_stream_sink(self, id) for id in self.output_ids]
+            self.outputs_in_progress = True
         
         if self.stream_output:
+           
             stream_refs = {}
             for i, filename in enumerate(file_outputs):
-                self.block_store.prepublish_file(filename, self.output_ids[i])
                 stream_ref = SW2_StreamReference(self.output_ids[i])
                 stream_ref.add_location_hint(self.block_store.netloc)
                 stream_refs[self.output_ids[i]] = stream_ref
@@ -792,15 +845,13 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         self.proc = None
 
-        ciel.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
-        transfer_ctx.wait_for_all_transfers()
         if "trace_io" in self.debug_opts:
             transfer_ctx.log_traces()
 
-        # We must do this before publishing, so that whole files are in the block store.
-        with self._lock:
-            transfer_ctx.cleanup(self.block_store)
-            self.transfer_ctx = None
+        if push_threads is not None:
+            for thread in push_threads:
+                thread.wait()
+            shutil.rmtree(fifos_dir)
 
         # If we have fetched any objects to this worker, publish them at the master.
         extra_publishes = {}
@@ -812,13 +863,25 @@ class ProcessRunningExecutor(SimpleExecutor):
         if len(extra_publishes) > 0:
             self.master_proxy.publish_refs(task_id, extra_publishes)
 
-        failure_bindings = transfer_ctx.get_failed_refs()
-        if failure_bindings is not None:
-            raise MissingInputException(failure_bindings)
+        if push_threads is not None:
+            failed_threads = filter(lambda t: not t.success, push_threads)
+            failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_thread])
+            if len(failure_bindings) > 0:
+                raise MissingInputException(failure_bindings)
 
         if rc != 0:
             raise OSError()
+
         ciel.engine.publish("worker_event", "Executor: Storing outputs")
+
+        with self._lock:
+            for id in self.output_ids:
+                self.block_store.commit_stream(id)
+            for watch in self.output_subscriptions:
+                watch.file_done()
+            self.output_subscriptions = []
+            self.outputs_in_progress = False
+
         for i, filename in enumerate(file_outputs):
 
             file_size = os.path.getsize(filename)
@@ -829,16 +892,17 @@ class ProcessRunningExecutor(SimpleExecutor):
                     encoder = codecs.lookup("string_escape")
                     real_ref = SWDataValue(self.output_ids[i], (encoder.encode(f.read()))[0])
             else:
-                if self.stream_output:
-                    self.block_store.commit_file(filename, self.output_ids[i], can_move=True)
-                else:
-                    self.block_store.store_file(filename, self.output_ids[i], can_move=True)
                 real_ref = SW2_ConcreteReference(self.output_ids[i], file_size)
                 real_ref.add_location_hint(self.block_store.netloc)
 
             self.output_refs[i] = real_ref
             
         ciel.engine.publish("worker_event", "Executor: Done")
+
+    def subscribe_output(self, otherend_netloc, output_id):
+        with self._lock:
+            watch = self.file_watcher_thread.add_watch(otherend_netloc, output_id)
+            self.output_subscriptions.add(watch)
 
     def start_process(self, input_files, output_files, transfer_ctx):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
@@ -1106,7 +1170,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         ciel.engine.publish("worker_event", "Java: fetching JAR")
 
-        self.jar_filenames = self.get_filenames_eager(self.jar_refs)
+        self.jar_filenames = self.block_store.retrieve_filenames_for_refs(self.jar_refs)
 
     def get_process_args(self):
         cp = os.getenv('CLASSPATH')
@@ -1146,7 +1210,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
-        self.dll_filenames = self.get_filenames_eager(self.dll_refs)
+        self.dll_filenames = self.block_store.retrieve_filenames_for_refs(self.dll_refs)
 
     def get_process_args(self):
 
@@ -1183,7 +1247,7 @@ class CExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         ciel.engine.publish("worker_event", "C-exec: fetching SOs")
-        self.so_filenames = self.get_filenames_eager(self.so_refs)
+        self.so_filenames = self.retrieve_filenames_for_refs(self.so_refs)
 
     def get_process_args(self):
 

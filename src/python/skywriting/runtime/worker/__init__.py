@@ -20,6 +20,7 @@ from skywriting.runtime.block_store import BlockStore
 from skywriting.runtime.worker.worker_view import WorkerRoot
 from skywriting.runtime.executors import ExecutionFeatures
 from skywriting.runtime.worker.pinger import Pinger
+from skywriting.runtime.file_watcher import create_watcher_thread
 from cherrypy.process import plugins
 import logging
 import tempfile
@@ -67,6 +68,7 @@ class Worker(plugins.SimplePlugin):
         self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.subscribe()
         self.block_store.build_pin_set()
+        create_watcher_thread(bus, self.block_store)
         self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
         self.upload_deferred_work.subscribe()
         self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)

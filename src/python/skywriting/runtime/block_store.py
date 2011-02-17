@@ -17,6 +17,7 @@ from skywriting.runtime.exceptions import \
     MissingInputException, RuntimeSkywritingError
 import random
 import urllib2
+import httplib2
 import shutil
 import pickle
 import os
@@ -406,7 +407,6 @@ class StreamTransferContext:
         self.worker_netloc = worker_netloc
         self.refid = refid
         self.filename = filename
-        open("." + filename, "w").close()
         self.fp = open(filename, "w")
         self.multi = multi
         self.result_callbacks = set([result_callback])
@@ -488,7 +488,8 @@ class BlockStore(plugins.SimplePlugin):
         # Maintains a set of block IDs that are currently being written.
         # (i.e. They are in the pre-publish/streamable state, and have not been
         #       committed to the block store.)
-        self.streaming_id_set = set()
+        # They map to the executor which is producing them.
+        self.streaming_producers = dict()
 
         # The other side of the coin: things we're streaming *in*
         self.incoming_streams = dict()
@@ -529,13 +530,6 @@ class BlockStore(plugins.SimplePlugin):
     
     def allocate_new_id(self):
         return str(uuid.uuid1())
-    
-    def maybe_streaming_filename(self, id):
-        with self._lock:
-            if id in self.streaming_id_set:
-                return True, self.streaming_filename(id)
-            else:
-                return False, self.filename(id)
     
     def pin_filename(self, id): 
         return os.path.join(self.base_dir, PIN_PREFIX + id)
@@ -585,53 +579,43 @@ class BlockStore(plugins.SimplePlugin):
                 self.cache_object(object, encoder, id)
         return ret
 
-    def make_stream_sink(self, id):
+    def make_stream_sink(self, id, executor):
         '''
-        Called when an executor wants its output to be streamable.
-        This method only prepares the block store, and
+        Creates a file-in-progress in the block store directory.
         '''
+        ciel.log.error('Prepublishing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         with self._lock:
-            self.streaming_id_set.add(id)
-            filename = self.streaming_filename(id)
-            open(filename, 'wb').close()
-            return filename
+            self.streaming_producers[id] = executor
+            dot_filename = self.streaming_filename(id)
+            open(dot_filename, 'wb').close()
+            return dot_filename
 
-    def prepublish_file(self, filename, id):
-        '''
-        Called when an executor wants its output to be streamable.
-        This method only prepares the block store, and
-        '''
-        ciel.log.error('Prepublishing file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
+    def commit_stream(self, id):
+        ciel.log.error('Committing streamed file for output %s' % id, 'BLOCKSTORE', logging.INFO)
+        os.link(self.streaming_filename(id), self.filename(id))
         with self._lock:
-            self.streaming_id_set.add(id)
-            os.symlink(filename, self.streaming_filename(id))
-                   
-    def commit_file(self, filename, id, can_move=False):
-        ciel.log.error('Committing streamed file %s for output %s' % (filename, id), 'BLOCKSTORE', logging.INFO)
-        if can_move:
-            # Moving the file under the lock should be cheap.
-            # N.B. We need to protect all operations because the streaming
-            #      filename will be unlinked.
-            with self._lock:
-                url, file_size = self.store_file(filename, id, True)
-                self.streaming_id_set.remove(id)
-                os.unlink(self.streaming_filename(id))
-                os.symlink(self.filename(id), self.streaming_filename(id))
-        else:
-            # A copy will be necessary, so do this outside the lock.
-            url, file_size = self.store_file(filename, id, False)
-            with self._lock:
-                self.streaming_id_set.remove(id)
-                os.unlink(self.streaming_filename(id))
-                os.symlink(self.filename(id), self.streaming_filename(id))
-            
-        return url, file_size
+            del self.streaming_producers[id]
 
     def rollback_file(self, id):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
         with self._lock:
-            self.streaming_id_set.remove(id)
+            del self.streaming_producers[id]
             os.unlink(self.streaming_filename(id))
+
+    def subscribe_to_stream(self, otherend_netloc, id):
+        send_result = False
+        with self._lock:
+            try:
+                self.streaming_producers[id].subscribe_output(otherend_netloc, id)
+            except:
+                send_result = True
+        if send_result:
+            try:
+                st = os.stat(self.filename(id))
+                post = simplejson.dumps({"bytes": st.st_size, "done": True})
+            except:
+                post = simplejson.dumps({"state": "absent"})
+            httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (otherend_netloc, self.refid), "POST", post)
 
     def encode_datavalue(self, str):
         return (self.dataval_codec.encode(str))[0]
@@ -646,14 +630,14 @@ class BlockStore(plugins.SimplePlugin):
     def remove_incoming_stream(self, id):
         del self.incoming_streams[id]
 
-    def _stream_advertisment(self, id, bytes, done):
+    def _receive_stream_advertisment(self, id, bytes, done):
         try:
             self.incoming_streams[id].advertisment(bytes, done)
         except KeyError:
             pass
 
-    def stream_advertisment(self, id, bytes, done):
-        self.fetch_thread.do_from_curl_thread(lambda: self._stream_advertisment(id, bytes, done))
+    def receive_stream_advertisment(self, id, bytes, done):
+        self.fetch_thread.do_from_curl_thread(lambda: self._receive_stream_advertisment(id, bytes, done))
         
     def try_retrieve_filename_for_ref_without_transfer(self, ref):
         assert isinstance(ref, SWRealReference)
@@ -676,20 +660,25 @@ class BlockStore(plugins.SimplePlugin):
 
         def __init__(self, filename):
             self.filename = filename
+            self.is_streaming = False
             self.completed_event = None
+
+        def commit(self):
+            pass
 
     class FileRetrInProgress:
         
         def __init__(self, block_store, ref, multi, result_callback=None, reset_callback=None, progress_callback=None):
             
             urls = block_store.get_fetch_urls_for_ref(ref)
-            filename = block_store.filename(ref.id)
+            self.filename = block_store.streaming_filename(ref.id)
+            self.is_streaming = True
+            self.commit_filename = block_store.filename(ref.id)
             if isinstance(ref, SW2_ConcreteReference):
-                self.ctx = create_file_transfer_context(urls, multi, filename, self.result, reset_callback, progress_callback)
+                self.ctx = create_file_transfer_context(urls, multi, self.filename, self.result, reset_callback, progress_callback)
             elif isinstance(ref, SW2_StreamReference):
-                self.ctx = StreamTransferContext(ref.location_hints[0], ref.id, self.filename(ref.id), 
+                self.ctx = StreamTransferContext(ref.location_hints[0], ref.id, self.filename, 
                                                  self.fetch_thread, block_store, result_callback, progress_callback)
-            self.filename = filename
             self.ref = ref
             self.result_callback = result_callback
             self.block_store = block_store
@@ -705,12 +694,20 @@ class BlockStore(plugins.SimplePlugin):
             if self.result_callback is not None:
                 self.result_callback(success)
 
+        def commit(self):
+            if self.filename is not None:
+                os.rename(self.filename, self.commit_filename)
+
     def retrieve_filename_for_ref_async(self, ref, result_callback=None, reset_callback=None, progress_callback=None):
 
         filename = self.try_retrieve_filename_for_ref_without_transfer(ref)
         if filename is not None:
+            if result_callback is not None:
+                result_callback(True)
             return DummyFileRetr(filename)
         else:
+            if os.path.exists(self.streaming_filename(ref.id)):
+                raise Exception("Local stream-joining support not implemented yet")
             ret = FileRetrInProgress(ref, self.filename(ref.id), self.get_fetch_urls_for_ref(ref), self.fetch_thread, 
                                      result_callback, reset_callback, progress_callback)
             ret.start()
@@ -844,8 +841,10 @@ class BlockStore(plugins.SimplePlugin):
 
     def get_fetch_urls_for_ref(self, ref):
 
-        if isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
+        if isinstance(ref, SW2_ConcreteReference):
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+        elif isinstance(ref, SW2_StreamReference):
+            return ["http://%s/data/.%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SW2_FetchReference):
             return [ref.url]
                 
