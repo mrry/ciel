@@ -702,7 +702,7 @@ class BlockStore(plugins.SimplePlugin):
         if filename is not None:
             if result_callback is not None:
                 result_callback(True)
-            return DummyFileRetr(filename)
+            return BlockStore.DummyFileRetr(filename)
         else:
             if os.path.exists(self.streaming_filename(ref.id)):
                 raise Exception("Local stream-joining support not implemented yet")
@@ -722,7 +722,7 @@ class BlockStore(plugins.SimplePlugin):
 
     def retrieve_filename_for_ref(self, ref):
 
-        return self.retrieve_filenames_for_refs([ref])
+        return self.retrieve_filenames_for_refs([ref])[0]
 
     def try_retrieve_string_for_ref_without_transfer(self, ref):
         assert isinstance(ref, SWRealReference)
