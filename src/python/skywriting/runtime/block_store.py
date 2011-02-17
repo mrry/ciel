@@ -512,6 +512,8 @@ class BlockStore(plugins.SimplePlugin):
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
+        self.clean_partial_files()
+
     def start(self):
         self.fetch_thread.start()
 
@@ -934,7 +936,18 @@ class BlockStore(plugins.SimplePlugin):
                 if parsed_url.netloc == self.netloc:
                     return url
             return random.choice(urls)
-        
+
+    def clean_partial_files(self):
+        ciel.log("Cleaning up partial files", "BLOCKSTORE", logging.INFO)
+        try:
+            for block_name in os.listdir(self.base_dir):
+                if block_name.startswith('.'):
+                    if not os.path.exists(os.path.join(self.base_dir, block_name[1:])):
+                        ciel.log("Deleting %s" % block_name, "BLOCKSTORE", logging.WARNING)
+                        os.remove(os.path.join(self.base_dir, block_name))
+        except OSError as e:
+            ciel.log("Couldn't clean partials: %s" % e, "BLOCKSTORE", logging.WARNING)
+
     def block_list_generator(self):
         ciel.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
         for block_name in os.listdir(self.base_dir):
