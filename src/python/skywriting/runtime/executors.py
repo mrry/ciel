@@ -729,11 +729,10 @@ class AsyncPushThread:
                                                                       progress_callback=self.progress)
         if self.file_fetch.is_streaming:
             self.filename = os.path.join(fifos_dir, "fifo-%s" % ref.id)
-            os.mkfifo(self.output_filename)
+            os.mkfifo(self.filename)
             self.thread = threading.Thread(target=self.copy_loop)
         else:
             self.filename = self.file_fetch.filename
-            self.stream_done = True
 
     def copy_loop(self):
         

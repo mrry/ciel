@@ -240,7 +240,7 @@ class pycURLThread:
 
     def do_from_curl_thread_sync(self, callback):
         e = threading.Event()
-        ret = ReturnBucket()
+        ret = pycURLThread.ReturnBucket()
         self.event_queue.post_event(lambda: call_and_signal(callback, e, ret))
         e.wait()
         return ret.ret
@@ -328,13 +328,20 @@ class SimpleFileTransferContext:
 
     def __init__(self, url, multi, result_callback, progress_callback, filename):
         self.fp = open(filename, "w")
+        self.filename = filename
+        self.url = url
         self.result_callback = result_callback
-        self.curl_fetch = pycURLFetchContext(fp, url, multi, self.result, progress_callback)
+        self.curl_fetch = pycURLFetchContext(self.fp, url, multi, self.result, progress_callback)
 
     def start(self):
+        ciel.log("Start simple fetch %s -> %s" % (self.url, self.filename), "CURL_FETCH", logging.INFO)
         self.curl_fetch.start()
 
     def result(self, success):
+        if not success:
+            ciel.log("Simple fetch %s -> %s failed" % (self.url, self.filename), "CURL_FETCH", logging.INFO)
+        else:
+            ciel.log("Simple fetch %s -> %s succeeded" % (self.url, self.filename), "CURL_FETCH", logging.INFO)
         self.fp.close()
         self.result_callback(success)
 
@@ -344,10 +351,19 @@ def create_file_transfer_context(urls, multi, filename, result_callback, reset_c
 class BufferTransferContext:
 
     def __init__(self, url, multi, result_callback, progress_callback, buf):
-        self.curl_fetch = pycURLFetchContext(self.buf, url, multi, result_callback, progress_callback)
+        self.curl_fetch = pycURLFetchContext(self.buf, url, multi, self.result, progress_callback)
+        self.url = url
+        self.result_callback = result_callback
 
     def start(self):
+        ciel.log("Start simple fetch %s -> buffer" % self.url, "CURL_FETCH", logging.INFO)
         self.curl_fetch.start()
+
+    def result(self, success):
+        if not success:
+            ciel.log("Simple fetch %s -> buffer failed" % self.url, "CURL_FETCH", logging.INFO)
+        else:
+            ciel.log("Simple fetch %s -> buffer succeeded" % self.url, "CURL_FETCH", logging.INFO)            
 
 def create_buffer_transfer_context(urls, multi, buf, result_callback, reset_callback):
     return RetryTransferContext(urls, multi, BufferTransferContext, {"buf": buf}, result_callback, reset_callback)
@@ -356,7 +372,6 @@ class RetryTransferContext:
 
     def __init__(self, urls, multi, transfer_class, transfer_args, result_callback, reset_callback=None, progress_callback=None):
         self.urls = urls
-        self.filename = filename
         self.multi = multi
         self.failures = 0
         self.result_callback = result_callback
@@ -366,7 +381,9 @@ class RetryTransferContext:
         self.transfer_args = transfer_args
 
     def start_next_attempt(self):
-        self.current_attempt = self.transfer_class(self.urls[failures], multi, self.result, self.progress_callback, **self.transfer_args)
+        ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
+        self.current_attempt = self.transfer_class(self.urls[self.failures], self.multi, 
+                                                   self.result, self.progress_callback, **self.transfer_args)
         self.current_attempt.start()
 
     def start(self):
@@ -381,7 +398,7 @@ class RetryTransferContext:
                 ciel.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
                 self.result_callback(False)
             else:
-                ciel.log.error("Fetch %s to %s failed; trying next URL" % self.urls[self.failures], self.filename)
+                ciel.log.error("Fetch %s failed; trying next URL" % self.urls[self.failures])
                 self.reset_callback()
                 self.start_next_attempt()
 
@@ -404,19 +421,20 @@ class StreamTransferContext:
         self.block_store = block_store
 
     def start_next_fetch(self):
+        ciel.log("Stream-fetch %s: start fetch" % self.refid, "CURL_FETCH", logging.INFO)
         self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.multi, self.result, self.progress, self.previous_fetches_bytes_downloaded)
         self.current_data_fetch.start()
 
-    def add_stream(self):
-        self.block_store.add_incoming_stream(self.refid, self)
-
     def start(self):
         
+        ciel.log("Starting stream-fetch for %s" % self.refid, "CURL_FETCH", logging.INFO)
         self.start_next_fetch()
-        self.multi.do_from_curl_thread(lambda: self.add_stream())
+        ciel.log("Stream-fetch %s: accepting advertisments" % self.refid, "CURL_FETCH", logging.INFO)
+        self.block_store.add_incoming_stream(self.refid, self)
         # TODO: Improve on this blocking RPC by using cURL for this sort of thing
         post_data = simplejson.dumps({"netloc": self.worker_netloc})
         httplib2.Http().request("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), "POST", post_data)
+        ciel.log("Stream-fetch %s: subscribed to advertisments from %s" % (self.refid, self.worker_netloc), "CURL_FETCH", logging.INFO)
 
     def progress(self, bytes_downloaded):
         for callback in self.progress_callbacks:
@@ -426,18 +444,23 @@ class StreamTransferContext:
         if remote_done or self.latest_advertisment - self.previous_fetches_bytes_downloaded > 67108864:
             self.start_next_fetch()
         else:
+            ciel.log("Stream-fetch %s: paused (remote has %d, I have %d)" % 
+                     (self.refid, self.latest_advertisment, self.previous_fetches_bytes_downloaded), 
+                     "CURL_FETCH", logging.INFO)
             self.current_data_fetch = None
 
     def result(self, success):
         # Current transfer finished. 
         if not success:
+            ciel.log("Stream-fetch %s: transfer failed" % self.refid)
             self.complete(False)
         else:
             this_fetch_bytes = self.current_data_fetch.curl_ctx.getinfo(SIZE_DOWNLOAD)
+            ciel.log("Stream-fetch %s: transfer succeeded (got %d bytes)" % (self.refid, this_fetch_bytes),
+                     "CURL_FETCH", logging.INFO)
             self.previous_fetches_bytes_downloaded += this_fetch_bytes
             if self.remote_done and self.latest_advertisment == self.previous_fetches_bytes_downloaded:
-                # Complete!
-                os.remove("." + self.filename)
+                ciel.log("Stream-fetch %s: complete" % self.refid, "CURL_FETCH", logging.INFO)
                 self.complete(True)
             else:
                 self.consider_next_fetch()
@@ -447,9 +470,11 @@ class StreamTransferContext:
         self.local_done = True
         self.block_store.remove_incoming_stream(self.refid)
         for callback in self.result_callbacks:
-            self.result_callback(success)
+            callback(success)
 
     def advertisment(self, current_bytes_available, file_done):
+        ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (current_bytes_available, file_done),
+                 "CURL_FETCH", logging.INFO)
         self.latest_advertisment = current_bytes_available
         self.remote_done = file_done
         if self.current_data_fetch is None:
@@ -609,12 +634,15 @@ class BlockStore(plugins.SimplePlugin):
     def decode_datavalue(self, ref):
         return (self.dataval_codec.decode(ref.value))[0]
 
-    # Following three methods: called from cURL thread
+    # Called from main thread
     def add_incoming_stream(self, id, transfer_ctx):
-        self.incoming_streams[id] = transfer_ctx
+        with self._lock:
+            self.incoming_streams[id] = transfer_ctx
 
+    # Following two methods: called from cURL thread
     def remove_incoming_stream(self, id):
-        del self.incoming_streams[id]
+        with self._lock:
+            del self.incoming_streams[id]
 
     def _receive_stream_advertisment(self, id, bytes, done):
         try:
@@ -663,12 +691,15 @@ class BlockStore(plugins.SimplePlugin):
             self.ref = ref
             self.result_callback = result_callback
             self.block_store = block_store
-            self.completion_event = threading.Event()
+            self.completed_event = threading.Event()
             if isinstance(ref, SW2_ConcreteReference):
-                self.ctx = create_file_transfer_context(urls, multi, self.filename, self.result, reset_callback, progress_callback)
+                ciel.log("Fetch %s: using simple transfer" % ref, "BLOCKSTORE", logging.INFO)
+                self.ctx = create_file_transfer_context(urls, multi, self.filename, self.result, 
+                                                        reset_callback, progress_callback)
             elif isinstance(ref, SW2_StreamReference):
-                self.ctx = StreamTransferContext(ref.location_hints[0], ref.id, self.filename, 
-                                                 self.fetch_thread, block_store, self.result, progress_callback)
+                ciel.log("Fetch %s: using stream transfer" % ref, "BLOCKSTORE", logging.INFO)
+                self.ctx = StreamTransferContext(list(ref.location_hints)[0], ref.id, self.filename, 
+                                                 multi, block_store, self.result, progress_callback)
 
         def start(self):
             self.ctx.start()
@@ -678,7 +709,7 @@ class BlockStore(plugins.SimplePlugin):
                 self.filename = None
             else:
                 self.commit()
-            self.completion_event.set()
+            self.completed_event.set()
             if self.result_callback is not None:
                 self.result_callback(success)
 
@@ -690,14 +721,19 @@ class BlockStore(plugins.SimplePlugin):
 
         filename = self.try_retrieve_filename_for_ref_without_transfer(ref)
         if filename is not None:
+            ciel.log("Fetch %s: resolved without transfer" % ref, "BLOCKSTORE", logging.INFO)
             if result_callback is not None:
                 result_callback(True)
             return BlockStore.DummyFileRetr(filename)
         else:
             if os.path.exists(self.streaming_filename(ref.id)):
                 raise Exception("Local stream-joining support not implemented yet")
-            ret = BlockStore.FileRetrInProgress(ref, self.filename(ref.id), self.get_fetch_urls_for_ref(ref), self.fetch_thread, 
-                                     result_callback, reset_callback, progress_callback)
+            ret = BlockStore.FileRetrInProgress(self,
+                                                ref, 
+                                                self.fetch_thread, 
+                                                result_callback, 
+                                                reset_callback, 
+                                                progress_callback)
             ret.start()
             return ret
 
@@ -707,7 +743,8 @@ class BlockStore(plugins.SimplePlugin):
         self.await_async_transfers(transfer_ctxs)
         failed_transfers = filter(lambda x: x.filename is None, transfer_ctxs)
         if len(failed_transfers) > 0:
-            raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints))]))
+            raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) 
+                                              for ctx in failed_transfers]))
         return [ctx.filename for ctx in transfer_ctxs]
 
     def retrieve_filename_for_ref(self, ref):
@@ -761,8 +798,10 @@ class BlockStore(plugins.SimplePlugin):
     def retrieve_string_for_ref_async(self, ref):
         str = try_retrieve_string_for_ref_without_transfer(ref)
         if str is not None:
+            ciel.log("Fetch-as-string %s: resolved without transfer" % ref, "BLOCKSTORE", logging.INFO)
             return BlockStore.DummyStringRetr(str)
         else:
+            ciel.log("Fetch-as-string %s: using simple transfer" % ref, "BLOCKSTORE", logging.INFO)
             ret = BlockStore.StringRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.fetch_thread)
             return ret
 
@@ -799,7 +838,7 @@ class BlockStore(plugins.SimplePlugin):
     class ObjRetrInProgress:
         
         def __init__(self, ref, urls, decoder, multi):
-            self.string_transfer = StringTransferInProgress(ref, urls, multi)
+            self.string_transfer = BlockStore.StringRetrInProgress(ref, urls, multi)
             self.completed_event = self.string_transfer.completed_event
             self.decoder = decoder
 
@@ -812,8 +851,10 @@ class BlockStore(plugins.SimplePlugin):
     def retrieve_object_for_ref_async(self, ref, decoder):
         obj = self.try_retrieve_object_for_ref_without_transfer(ref, decoder)
         if obj is not None:
+            ciel.log("Fetch-as-object %s: resolved without transfer" % ref, "BLOCKSTORE", logging.INFO)
             return BlockStore.DummyObjRetr(obj)
         else:
+            ciel.log("Fetch-as-object %s: using simple transfer" % ref, "BLOCKSTORE", logging.INFO)
             ret = BlockStore.ObjRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.decoders[decoder], self.fetch_thread)
             ret.start()
 
