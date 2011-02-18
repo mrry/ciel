@@ -62,7 +62,8 @@ class ExecutionFeatures:
 
         self.executors = dict([(x.handler_name, x) for x in [SkywritingExecutor, SkyPyExecutor, SWStdinoutExecutor, 
                                                            EnvironmentExecutor, JavaExecutor, DotNetExecutor, 
-                                                           CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor]])
+                                                           CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
+                                                           Java2Executor]])
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
 
     def all_features(self):
@@ -429,6 +430,55 @@ class SkyPyExecutor(BaseExecutor):
     def deref_json(self, ref):
         real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
+
+class Java2Executor(BaseExecutor):
+    
+    handler_name = "java2"
+    
+    def __init__(self, block_store):
+        BaseExecutor.__init__(self, block_store)
+
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
+        # More good stuff goes here.
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+
+    @staticmethod
+    def can_run():
+        cp = os.getenv("CLASSPATH")
+        if cp is None:
+            ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
+            return False
+        else:
+            return test_program(["java", "-cp", cp, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
+
+    def _run(self, task_private, task_descriptor, task_record):
+        pass
+
+
+    # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
+    def spawn_func(self, **otherargs):
+
+        new_task_descriptor = {"handler": "skypy"}
+        coro_data = FileOrString(otherargs, self.block_store)
+        self.task_record.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
+        return SW2_FutureReference(new_task_descriptor["expected_outputs"][0])
+        
+    def deref_func(self, ref):
+        ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
+        real_ref = self.task_record.retrieve_ref(ref)
+        if isinstance(real_ref, SWDataValue):
+            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
+        else:
+            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            return {"success": True, "filename": filenames[0]}
+
+    def deref_json(self, ref):
+        real_ref = self.task_record.retrieve_ref(ref)
+        return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
+
+
+
 
 # Imports for Skywriting
 
