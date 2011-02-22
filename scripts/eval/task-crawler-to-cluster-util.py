@@ -16,9 +16,13 @@ events = []
 for line in sys.stdin.readlines():
     fields = line.split()
     
-    start = float(fields[4])
-    end = float(fields[5])
-    worker = fields[11]
+    try:
+        start = float(fields[4])
+        end = float(fields[5])
+        worker = fields[11]
+    except:
+        continue
+
 
     events.append((start, 1, worker))
     events.append((end, -1, worker))

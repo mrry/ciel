@@ -75,9 +75,12 @@ with open(sys.argv[2]) as second:
     for line in second.readlines():
         fields = line.split()
         
-        start = float(fields[4])
-        end = float(fields[5])
-        worker = fields[11]
+        try:
+            start = float(fields[4])
+            end = float(fields[5])
+            worker = fields[11]
+        except:
+            continue
 
         events.append((start, 1, worker))
         events.append((end, -1, worker))
@@ -103,6 +106,7 @@ with open(sys.argv[2]) as second:
         xseries2.append(t - min_start)
         yseries2.append(len(active_workers))
 
+
     duration2 = max_end - min_start
 
 #fig = plt.figure()
@@ -115,25 +119,38 @@ plt.xlim(0, math.ceil(max(duration1, duration2)))
 plt.ylim(0, 21)
 #ax.tick_params(top='off', right='off')
 plt.xticks([])
+plt.xticks([math.ceil(duration1)], [str(int(math.ceil(x))) for x in [math.ceil(duration1)]] )
 plt.yticks([0, 20], ['0', '20'])
 #ax.spines['top'].set_color('none')
 #ax.spines['right'].set_color('none')
+ax.axvline(0,color='black')
+ax.axhline(0, color='black')
 
-plt.ylabel(r'\textsc{Ciel}')
+plt.ylabel(r'No failure')
 
 ax = plt.subplot(212, frame_on=False)
 plt.plot(xseries2, yseries2, 'r-')
 plt.xlim(0, math.ceil(max(duration1, duration2)))
 plt.ylim(0, 21)
 #ax.tick_params(top='off', right='off')
-plt.xticks([0, math.ceil(duration1), math.ceil(duration2)])
+plt.xticks([0, math.ceil(duration2)], [str(int(math.ceil(x))) for x in [0, math.ceil(duration2)]] )
 plt.yticks([0, 20], ['0', '20'])
+ax.axvline(0, color='black')
+ax.axhline(0, color='black')
 #ax.spines['top'].set_color('none')
 #ax.spines['right'].set_color('none')
 
-plt.ylabel('Hadoop')
+
+FAIL_START=147.339999914
+FAIL_END=158.470000029
+
+ax.annotate(r'Downtime', xy=(FAIL_START + (FAIL_END-FAIL_START)/2.0, 0), xytext=(FAIL_START-100,-6.5), arrowprops={'arrowstyle':"->"})
+
+plt.ylabel('Master failure')
 plt.xlabel('Time [sec]')
-plt.xticks((0, math.ceil(min(duration1, duration2)), math.ceil(max(duration1, duration2))), ('0', str(int(math.ceil(min(duration1, duration2)))), str(int(math.ceil(max(duration1, duration2))))))
+
+ax.axvline(FAIL_START, 0, 0.5, color='black')
+ax.axvline(FAIL_END, 0, 0.5, color='black')
 
 
 plt.savefig('bsp-fault-tolerance.pdf', format='pdf')
