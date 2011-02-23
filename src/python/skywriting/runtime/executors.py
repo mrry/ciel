@@ -729,34 +729,39 @@ class AsyncPushThread:
                                                                       progress_callback=self.progress)
         if self.file_fetch.is_streaming:
             self.filename = os.path.join(fifos_dir, "fifo-%s" % ref.id)
-            os.mkfifo(self.output_filename)
+            os.mkfifo(self.filename)
             self.thread = threading.Thread(target=self.copy_loop)
         else:
             self.filename = self.file_fetch.filename
-            self.stream_done = True
 
     def copy_loop(self):
-
-        # Do this here to avoid blocking in constructor
-        with open(self.file_fetch.filename, "r") as input_fp:
-            with open(self.filename, "w") as output_fp:
-                while True:
+        
+        try:
+            # Do this here to avoid blocking in constructor
+            with open(self.file_fetch.filename, "r") as input_fp:
+                with open(self.filename, "w") as output_fp:
                     while True:
-                        buf = self.input_fp.read(4096)
-                        self.output_fp.write(buf)
-                        self.bytes_copied += len(buf)
+                        while True:
+                            buf = self.input_fp.read(4096)
+                            self.output_fp.write(buf)
+                            self.bytes_copied += len(buf)
+                            with self.lock:
+                                if self.bytes_copied == self.bytes_available and self.fetch_done:
+                                    self.stream_done = True
+                                    self.condvar.notify_all()
+                                    return
+                            if len(buf) < 4096:
+                                # EOF, for now.
+                                break
                         with self.lock:
-                            if self.bytes_copied == self.bytes_available and self.fetch_done:
-                                self.stream_done = True
-                                self.condvar.notify_all()
-                                return
-                        if len(buf) < 4096:
-                            # EOF, for now.
-                            break
-                    with self.lock:
-                        self.next_threshold = self.bytes_copied + 67108864
-                        while self.bytes_available < self.next_threshold and not self.fetch_done:
-                            self.condvar.wait()
+                            self.next_threshold = self.bytes_copied + 67108864
+                            while self.bytes_available < self.next_threshold and not self.fetch_done:
+                                self.condvar.wait()
+        except Exception as e:
+            ciel.log("Push thread for %s died with exception %s" % (self.file_fetch.filename, e), "EXEC", logging.WARNING)
+            with self.lock:
+                self.stream_done = True
+                self.condvar.notify_all()
 
     def result(self, success):
         if not success:
@@ -825,7 +830,7 @@ class ProcessRunningExecutor(SimpleExecutor):
             file_inputs = [push_thread.filename for push_thread in push_threads]
 
         with self._lock:
-            file_outputs = [self.block_store.make_stream_sink(self, id) for id in self.output_ids]
+            file_outputs = [self.block_store.make_stream_sink(id, self) for id in self.output_ids]
             self.outputs_in_progress = True
         
         if self.stream_output:
@@ -848,6 +853,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 #        if "trace_io" in self.debug_opts:
 #            transfer_ctx.log_traces()
 
+        # Wait for the threads pushing input to the client to finish. Could cancel or detach here instead.
         if push_threads is not None:
             for thread in push_threads:
                 thread.wait()
@@ -861,7 +867,7 @@ class ProcessRunningExecutor(SimpleExecutor):
         for sweetheart in self.make_sweetheart:
             extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
         if len(extra_publishes) > 0:
-            self.master_proxy.publish_refs(task_id, extra_publishes)
+            self.task_record.prepublish_refs(extra_publishes)
 
         if push_threads is not None:
             failed_threads = filter(lambda t: not t.success, push_threads)
@@ -901,8 +907,11 @@ class ProcessRunningExecutor(SimpleExecutor):
 
     def subscribe_output(self, otherend_netloc, output_id):
         with self._lock:
-            watch = self.file_watcher_thread.add_watch(otherend_netloc, output_id)
-            self.output_subscriptions.add(watch)
+            if self.outputs_in_progress:
+                watch = self.file_watcher_thread.add_watch(otherend_netloc, output_id)
+                self.output_subscriptions.add(watch)
+            else:
+                raise Exception("Executor has finished (or not yet begun, in which case how did you find this StreamRef, eh?)")
 
     def start_process(self, input_files, output_files):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")

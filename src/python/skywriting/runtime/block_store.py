@@ -324,10 +324,7 @@ class pycURLThread:
             for ctx in self.contexts:
                 ctx.select_callback(active_read, active_write, active_exn)
 
-class FileTransferContext:
-
-    def __init__(self, urls, save_filename, multi, callbacks):
-        
+    def __init__(self, urls, multi, save_filename, callbacks):
         self.urls = urls
         self.multi = multi
         self.save_filename = save_filename
@@ -336,6 +333,7 @@ class FileTransferContext:
 
     def start_next_attempt(self):
         self.fp = open(self.save_filename, "w")
+        ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
         self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.multi, self.result, self.callbacks.progress_callback)
         self.curl_fetch.start()
 
@@ -378,16 +376,20 @@ class StreamTransferContext:
             progress = self.progress
         else:
             progress = None
+        ciel.log("Stream-fetch %s: start fetch" % self.refid, "CURL_FETCH", logging.INFO)
         self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.multi, self.result, progress, self.previous_fetches_bytes_downloaded)
         self.current_data_fetch.start()
 
     def start(self):
         
+        ciel.log("Starting stream-fetch for %s" % self.refid, "CURL_FETCH", logging.INFO)
         self.start_next_fetch()
+        ciel.log("Stream-fetch %s: accepting advertisments" % self.refid, "CURL_FETCH", logging.INFO)
         self.block_store.add_incoming_stream(self.refid, self)
         # TODO: Improve on this blocking RPC by using cURL for this sort of thing
         post_data = simplejson.dumps({"netloc": self.block_store.netloc})
         httplib2.Http().request("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), "POST", post_data)
+        ciel.log("Stream-fetch %s: subscribed to advertisments from %s" % (self.refid, self.worker_netloc), "CURL_FETCH", logging.INFO)
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -396,17 +398,23 @@ class StreamTransferContext:
         if remote_done or self.latest_advertisment - self.previous_fetches_bytes_downloaded > 67108864:
             self.start_next_fetch()
         else:
+            ciel.log("Stream-fetch %s: paused (remote has %d, I have %d)" % 
+                     (self.refid, self.latest_advertisment, self.previous_fetches_bytes_downloaded), 
+                     "CURL_FETCH", logging.INFO)
             self.current_data_fetch = None
 
     def result(self, success):
         # Current transfer finished. 
         if not success:
+            ciel.log("Stream-fetch %s: transfer failed" % self.refid)
             self.complete(False)
         else:
             this_fetch_bytes = self.current_data_fetch.curl_ctx.getinfo(SIZE_DOWNLOAD)
+            ciel.log("Stream-fetch %s: transfer succeeded (got %d bytes)" % (self.refid, this_fetch_bytes),
+                     "CURL_FETCH", logging.INFO)
             self.previous_fetches_bytes_downloaded += this_fetch_bytes
             if self.remote_done and self.latest_advertisment == self.previous_fetches_bytes_downloaded:
-                # Complete!
+                ciel.log("Stream-fetch %s: complete" % self.refid, "CURL_FETCH", logging.INFO)
                 self.complete(True)
             else:
                 self.consider_next_fetch()
@@ -417,6 +425,8 @@ class StreamTransferContext:
         self.callbacks.result(success)
 
     def advertisment(self, current_bytes_available, file_done):
+        ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (current_bytes_available, file_done),
+                 "CURL_FETCH", logging.INFO)
         self.latest_advertisment = current_bytes_available
         self.remote_done = file_done
         if self.current_data_fetch is None:
@@ -456,6 +466,8 @@ class BlockStore(plugins.SimplePlugin):
             
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
+
+        self.clean_partial_files()
 
     def start(self):
         self.fetch_thread.start()
@@ -580,12 +592,15 @@ class BlockStore(plugins.SimplePlugin):
     def decode_datavalue(self, ref):
         return (self.dataval_codec.decode(ref.value))[0]
 
-    # Following three methods: called from cURL thread
+    # Called from main thread
     def add_incoming_stream(self, id, transfer_ctx):
-        self.incoming_streams[id] = transfer_ctx
+        with self._lock:
+            self.incoming_streams[id] = transfer_ctx
 
+    # Following two methods: called from cURL thread
     def remove_incoming_stream(self, id):
-        del self.incoming_streams[id]
+        with self._lock:
+            del self.incoming_streams[id]
 
     def _receive_stream_advertisment(self, id, bytes, done):
         try:
@@ -621,7 +636,6 @@ class BlockStore(plugins.SimplePlugin):
             self.reset_listeners = set()
             self.last_progress = 0
             self.ref = ref
-            self.block_store = block_store
 
         def progress(self, bytes):
             for callback in self.progress_listeners:
@@ -859,7 +873,18 @@ class BlockStore(plugins.SimplePlugin):
                 if parsed_url.netloc == self.netloc:
                     return url
             return random.choice(urls)
-        
+
+    def clean_partial_files(self):
+        ciel.log("Cleaning up partial files", "BLOCKSTORE", logging.INFO)
+        try:
+            for block_name in os.listdir(self.base_dir):
+                if block_name.startswith('.'):
+                    if not os.path.exists(os.path.join(self.base_dir, block_name[1:])):
+                        ciel.log("Deleting %s" % block_name, "BLOCKSTORE", logging.WARNING)
+                        os.remove(os.path.join(self.base_dir, block_name))
+        except OSError as e:
+            ciel.log("Couldn't clean partials: %s" % e, "BLOCKSTORE", logging.WARNING)
+
     def block_list_generator(self):
         ciel.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
         for block_name in os.listdir(self.base_dir):
