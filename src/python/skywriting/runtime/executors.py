@@ -217,11 +217,9 @@ class FileOrString:
 
     def toref(self, refid):
         if self.str is not None:
-            ref = SWDataValue(refid, self.block_store.encode_datavalue(self.str))
+            ref = self.block_store.ref_from_string(self.str, refid)
         else:
-            _, size = self.block_store.store_file(self.filename, refid, can_move=True)
-            ref = SW2_ConcreteReference(refid, size)
-            ref.add_location_hint(self.block_store.netloc)
+            ref = self.block_store.ref_from_external_file(self.filename, refid)
         return ref
 
     def tostr(self):
@@ -542,10 +540,11 @@ class SkywritingExecutor:
                                            "task_private": { "hint": "small_task" }},
                                           cont=self.continuation)
 
-        if "save_continuation" in task_descriptor and task_descriptor["save_continuation"]:
-            self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
-                                                                  'pickle', 
-                                                                  "%s:saved_cont" % task_descriptor["task_id"])
+# TODO: Fix this?
+#        if "save_continuation" in task_descriptor and task_descriptor["save_continuation"]:
+#            self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
+#                                                                  'pickle', 
+#                                                                  "%s:saved_cont" % task_descriptor["task_id"])
             
     def spawn_func(self, spawn_expr, args):
 
@@ -861,17 +860,16 @@ class ProcessRunningExecutor(SimpleExecutor):
                 ciel.log("Using filename %s for ref %s" % (filename, ref), "EXEC", logging.INFO)
 
         with self._lock:
-            file_outputs = [self.block_store.make_stream_sink(id, self) for id in self.output_ids]
+            out_file_contexts = [self.block_store.make_local_output(id, self) for id in self.output_ids]
             self.outputs_in_progress = True
+
+        file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
         
         if self.stream_output:
            
-            stream_refs = {}
-            for i, filename in enumerate(file_outputs):
-                stream_ref = SW2_StreamReference(self.output_ids[i])
-                stream_ref.add_location_hint(self.block_store.netloc)
-                stream_refs[self.output_ids[i]] = stream_ref
-            self.task_record.prepublish_refs(stream_refs)
+            stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
+            to_publish = dict([(ref.id, ref) for ref in stream_refs])
+            self.task_record.prepublish_refs(to_publish)
 
         self.proc = self.start_process(file_inputs, file_outputs)
         add_running_child(self.proc)
@@ -891,6 +889,7 @@ class ProcessRunningExecutor(SimpleExecutor):
             shutil.rmtree(fifos_dir)
 
         # If we have fetched any objects to this worker, publish them at the master.
+        # TODO: Do this cleanly by using context objects returned by the BlockStore.
         extra_publishes = {}
         for ref in self.input_refs:
             if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
@@ -907,33 +906,22 @@ class ProcessRunningExecutor(SimpleExecutor):
                 raise MissingInputException(failure_bindings)
 
         if rc != 0:
+            for output in file_outputs:
+                output.rollback()
             raise OSError()
 
         ciel.engine.publish("worker_event", "Executor: Storing outputs")
 
+        for i, output in enumerate(file_outputs):
+            output.close()
+            self.output_refs[i] = output.get_completed_ref()
+
         with self._lock:
-            for id in self.output_ids:
-                self.block_store.commit_stream(id)
             for watch in self.output_subscriptions:
                 watch.file_done()
             self.output_subscriptions = []
             self.outputs_in_progress = False
 
-        for i, filename in enumerate(file_outputs):
-
-            file_size = os.path.getsize(filename)
-            if file_size < 1024 and not self.stream_output:
-                with open(filename, "r") as f:
-                    # DataValues must be ASCII so the JSON encoder won't explode.
-                    # Decoding gets done in the block store's retrieve routines.
-                    encoder = codecs.lookup("string_escape")
-                    real_ref = SWDataValue(self.output_ids[i], (encoder.encode(f.read()))[0])
-            else:
-                real_ref = SW2_ConcreteReference(self.output_ids[i], file_size)
-                real_ref.add_location_hint(self.block_store.netloc)
-
-            self.output_refs[i] = real_ref
-            
         ciel.engine.publish("worker_event", "Executor: Done")
 
     def subscribe_output(self, otherend_netloc, output_id):

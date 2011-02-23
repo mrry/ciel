@@ -120,7 +120,7 @@ class pycURLFetchContext(pycURLContext):
 
     def __init__(self, dest_fp, src_url, multi, result_callback, progress_callback=None, start_byte=None):
 
-        pycURLContext.__init__(self, src_url, multi, reset_callback)
+        pycURLContext.__init__(self, src_url, multi, result_callback)
 
         self.description = src_url
         self.progress_callback = None
@@ -134,7 +134,7 @@ class pycURLFetchContext(pycURLContext):
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-" % start_byte])
 
     def success(self):
-        self.progress_callback(self.curl_ctx.getinfo(SIZE_DOWNLOAD))
+        self.progress_callback(self.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD))
         pycURLContext.success(self)
 
     def progress(self, toDownload, downloaded, toUpload, uploaded):
@@ -302,9 +302,9 @@ class pycURLThread:
             exn_fds.extend(ev_exfds)
             active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds)
 
-class FileTransferContext
+class FileTransferContext:
 
-    def __init__(self, urls, multi, save_filename, callbacks):
+    def __init__(self, urls, save_filename, multi, callbacks):
         self.urls = urls
         self.multi = multi
         self.save_filename = save_filename
@@ -314,7 +314,7 @@ class FileTransferContext
     def start_next_attempt(self):
         self.fp = open(self.save_filename, "w")
         ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
-        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.multi, self.result, self.callbacks.progress_callback)
+        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.multi, self.result, self.callbacks.progress)
         self.curl_fetch.start()
 
     def start(self):
@@ -482,67 +482,86 @@ class BlockStore(plugins.SimplePlugin):
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
         
-    def store_raw_file(self, incoming_fobj, id):
-        with open(self.filename(id), "wb") as data_file:
-            shutil.copyfileobj(incoming_fobj, data_file)
-            file_size = data_file.tell()
-        return 'swbs://%s/%s' % (self.netloc, str(id)), file_size            
-    
-    def cache_object(self, object, encoder, id):
-        self.object_cache[(id, encoder)] = object        
+    class FileOutputContext:
 
-    def store_object(self, object, encoder, id):
-        """Stores the given object as a block, and returns a swbs URL to it."""
-        #self.cache_object(object, encoder, id)
-        with open(self.filename(id), "wb") as object_file:
-            self.encoders[encoder](object, object_file)
-            file_size = object_file.tell()
-        return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
-    
-    def store_file(self, filename, id, can_move=False):
-        """Stores the file with the given local filename as a block, and returns a swbs URL to it."""
-        if can_move:
-            shutil.move(filename, self.filename(id))
-        else:
-            shutil.copyfile(filename, self.filename(id))
-        file_size = os.path.getsize(self.filename(id))
-        return 'swbs://%s/%s' % (self.netloc, str(id)), file_size
+        def __init__(self, refid, block_store):
+            self.refid = refid
+            self.block_store = block_store
+            self.closed = False
 
-    def ref_from_object(self, object, encoder, id, threshold_bytes=1024):
-        """Encodes an object, returning either a DataValue or ConcreteReference as appropriate"""
-        with MaybeFile(threshold_bytes=threshold_bytes, filename=self.filename(id)) as maybe_file:
-            self.encoders[encoder](object, maybe_file)
-            if maybe_file.real_fp is not None:
-                # Policy: don't cache the decoded form if the encoded form is big enough to deserve a concrete ref.
-                file_size = maybe_file.real_fp.tell()
-                ret = SW2_ConcreteReference(id, size_hint=file_size, location_hints=[self.netloc])
+        def get_filename(self):
+            return self.block_store.streaming_filename(self.refid)
+
+        def get_stream_ref(self):
+            return SW2_StreamReference(refid, [self.block_store.netloc])
+
+        def rollback(self):
+            self.block_store.rollback_file(self.refid)
+
+        def close(self):
+            self.closed = True
+            self.block_store.commit_stream(self.refid)
+
+        def get_completed_ref(self):
+            if not self.closed:
+                raise Exception("FileOutputContext for ref %s must be closed before it is realised as a concrete reference" % self.refid)
+            completed_file = self.block_store.filename(self.refid)
+            file_size = os.stat(completed_file).st_size
+            if file_size < 1024:
+                with open(completed_file, "r") as fp:
+                    return SWDataValue(self.refid, self.block_store.encode_datavalue(fp.read()))
             else:
-                ret = SWDataValue(id, self.encode_datavalue(maybe_file.fake_fp.getvalue()))
-                self.cache_object(object, encoder, id)
-        return ret
+                return SW2_ConcreteReference(self.refid, size_hin=file_size, location_hints=[self.block_store.netloc])
 
-    def make_stream_sink(self, id, executor):
+    def make_local_output(self, id, executor=None):
         '''
         Creates a file-in-progress in the block store directory.
         '''
-        ciel.log.error('Prepublishing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         with self._lock:
             self.streaming_producers[id] = executor
             dot_filename = self.streaming_filename(id)
             open(dot_filename, 'wb').close()
-            return dot_filename
+        return BlockStore.FileOutputContext(id, self)
 
     def commit_stream(self, id):
         ciel.log.error('Committing streamed file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         os.link(self.streaming_filename(id), self.filename(id))
         with self._lock:
             del self.streaming_producers[id]
+            self.local_blocks.add(self.refid)
 
     def rollback_file(self, id):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
         with self._lock:
             del self.streaming_producers[id]
             os.unlink(self.streaming_filename(id))
+
+    def ref_from_string(self, string, id):
+        output_ctx = self.make_local_output(id)
+        with open(output_ctx.get_filename(), "w") as fp:
+            fp.write(string)
+        output_ctx.close()
+        return output_ctx.get_completed_ref()
+
+    def cache_object(self, object, encoder, id):
+        self.object_cache[(id, encoder)] = object        
+
+    def ref_from_object(self, object, encoder, id):
+        """Encodes an object, returning either a DataValue or ConcreteReference as appropriate"""
+        self.cache_object(object, encoder, id)
+        with StringIO() as buffer:
+            self.encoders[encoder](object, buffer)
+            return self.ref_from_string(buffer.getvalue(), id)
+
+    # Why not just rename to self.filename(id) and skip this nonsense? Because os.rename() can be non-atomic.
+    # When it renames between filesystems it does a full copy; therefore I copy/rename to a colocated dot-file,
+    # then complete the job by linking the proper name in output_ctx.close().
+    def ref_from_external_file(self, filename, id):
+        output_ctx = self.make_local_output(id)
+        os.rename(filename, output_ctx.get_filename())
+        output_ctx.close()
+        return output_ctx.get_completed_ref()
 
     # Remote is subscribing to updates from one of our streaming producers
     def subscribe_to_stream(self, otherend_netloc, id):
@@ -609,6 +628,7 @@ class BlockStore(plugins.SimplePlugin):
             self.reset_listeners = set()
             self.last_progress = 0
             self.ref = ref
+            self.block_store = block_store
 
         def progress(self, bytes):
             for callback in self.progress_listeners:
@@ -624,7 +644,7 @@ class BlockStore(plugins.SimplePlugin):
             for callback in self.reset_listeners:
                 callback()
 
-        def add_listener(result_cb, reset_cb, progress_cb):
+        def add_listener(self, result_cb, reset_cb, progress_cb):
             self.result_listeners.add(result_cb)
             self.reset_listeners.add(reset_cb)
             if progress_cb is not None:
@@ -635,7 +655,7 @@ class BlockStore(plugins.SimplePlugin):
     # After this method completes, the ref's streaming_filename must exist.
     def _start_fetch_ref(self, ref):
             
-        new_listener = FetchListener(ref, self)
+        new_listener = BlockStore.FetchListener(ref, self)
         self.incoming_fetches[ref.id] = new_listener
         urls = self.get_fetch_urls_for_ref(ref)
         save_filename = self.streaming_filename(ref.id)
@@ -657,7 +677,7 @@ class BlockStore(plugins.SimplePlugin):
     # Called from cURL thread
     def _fetch_ref_async(self, ref, fetch_context, result_callback, reset_callback, progress_callback):
         
-        if self.is_ref_local(ref)
+        if self.is_ref_local(ref):
             ciel.log("Ref %s became local during thread-switch; returning immediately" % ref, "BLOCKSTORE", logging.INFO)
             fetch_context.fetch_completed()
             result_callback(True)
@@ -707,10 +727,10 @@ class BlockStore(plugins.SimplePlugin):
         if self.is_ref_local(ref):
             ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
             result_callback(True)
-            return BlockStore.CompletedFetch(self.filename(ref))
+            return BlockStore.CompletedFetch(self.filename(ref.id))
         else:
             ciel.log("Asynchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
-            new_ctx = BlockStore.FetchInProgress(ref, result_callback, reset_callback, progress_callback)
+            new_ctx = BlockStore.FetchInProgress(self.filename(ref.id), self.streaming_filename(ref.id))
             self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_ctx, result_callback, reset_callback, progress_callback))
             return new_ctx
 
@@ -734,9 +754,9 @@ class BlockStore(plugins.SimplePlugin):
         
         ctxs = []
         for ref in refs:
-            sync_transfer = SynchronousTransfer(ref)
+            sync_transfer = BlockStore.SynchronousTransfer(ref)
             ciel.log("Synchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
-            transfer_ctx = fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset)
+            transfer_ctx = self.fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset)
             ctxs.append(sync_transfer)
             
         for ctx in ctxs:
@@ -746,7 +766,7 @@ class BlockStore(plugins.SimplePlugin):
         failed_transfers = filter(lambda x: not x.success, ctxs)
         if len(failed_transfers) > 0:
             raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
-        return [self.filename(ref) for ref in refs]
+        return [self.filename(ref.id) for ref in refs]
 
     def retrieve_filename_for_ref(self, ref):
 
@@ -757,7 +777,7 @@ class BlockStore(plugins.SimplePlugin):
         strs = []
         files = self.retrieve_filenames_for_refs(refs)
         for fname in files:
-            with open(fname, "w") as fp:
+            with open(fname, "r") as fp:
                 strs.append(fp.read())
         return strs
 
@@ -780,15 +800,15 @@ class BlockStore(plugins.SimplePlugin):
             
         for (ref, decoder) in ref_and_decoders:
             if ref.id not in solutions:
-                decoded = self.decoders[decoder](StringIO(str))
+                decoded = self.decoders[decoder](StringIO(str_of_ref[ref.id]))
                 self.object_cache[(ref.id, decoder)] = decoded
                 solutions[ref.id] = decoded
             
-        return [solution[ref.id] for (ref, decoder) in ref_and_decoders]
+        return [solutions[ref.id] for (ref, decoder) in ref_and_decoders]
 
     def retrieve_object_for_ref(self, ref, decoder):
         
-        return self.retrieve_objects_for_refs((ref, decoder))[0]
+        return self.retrieve_objects_for_refs([(ref, decoder)])[0]
 
     def get_fetch_urls_for_ref(self, ref):
 
