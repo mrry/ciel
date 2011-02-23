@@ -723,22 +723,39 @@ class AsyncPushThread:
         self.bytes_available = 0
         self.next_threshold = 0
         self.condvar = threading.Condition(self.lock)
-        self.file_fetch = block_store.retrieve_filename_for_ref_async(ref, 
-                                                                      result_callback=self.result, 
-                                                                      reset_callback=self.reset, 
-                                                                      progress_callback=self.progress)
-        if self.file_fetch.is_streaming:
-            self.filename = os.path.join(fifos_dir, "fifo-%s" % ref.id)
-            os.mkfifo(self.filename)
+        self.thread = None
+        self.filename = None
+        self.file_fetch = block_store.fetch_ref_async(ref, 
+                                                      result_callback=self.result, 
+                                                      reset_callback=self.reset, 
+                                                      progress_callback=self.progress)
+        if not self.fetch_done:
+            ciel.log("Fetch for %s completed immediately" % ref, "EXEC", logging.INFO)
             self.thread = threading.Thread(target=self.copy_loop)
+            self.thread.start()
         else:
-            self.filename = self.file_fetch.filename
+            ciel.log("Fetch for %s did not complete immediately; creating push thread" % ref, "EXEC", logging.INFO)
+            with self.lock:
+                self.filename = self.file_fetch.get_filename()
+                self.condvar.notify_all()
 
     def copy_loop(self):
         
         try:
             # Do this here to avoid blocking in constructor
-            with open(self.file_fetch.filename, "r") as input_fp:
+            read_filename = self.file_fetch.get_filename()
+            with self.lock:
+                if self.fetch_done:
+                    self.filename = os.path.join(fifos_dir, "fifo-%s" % ref.id)
+                    ciel.log("Fetch for %s not yet complete; pushing through FIFO %s" % (self.ref, self.filename), "EXEC", logging.INFO)   
+                    os.mkfifo(self.filename)
+                else:
+                    ciel.log("Fetch for %s completed during get_filename; reading directly" % self.ref, "EXEC", logging.INFO)
+                    self.filename = read_filename
+                self.condvar.notify_all()
+                if self.fetch_done:
+                    return
+            with open(read_filename, "r") as input_fp:
                 with open(self.filename, "w") as output_fp:
                     while True:
                         while True:
@@ -758,16 +775,22 @@ class AsyncPushThread:
                             while self.bytes_available < self.next_threshold and not self.fetch_done:
                                 self.condvar.wait()
         except Exception as e:
-            ciel.log("Push thread for %s died with exception %s" % (self.file_fetch.filename, e), "EXEC", logging.WARNING)
+            ciel.log("Push thread for %s died with exception %s" % (read_filename, e), "EXEC", logging.WARNING)
             with self.lock:
                 self.stream_done = True
                 self.condvar.notify_all()
 
     def result(self, success):
-        if not success:
-            ciel.log("Asynchronous fetch of ref %s failed" % self.ref, "EXEC", logging.WARNING)
+        if success:
+            completed = "failed!"
         else:
-            ciel.log("Asynchronous fetch of ref %s completed" % self.ref, "EXEC", logging.INFO)
+            completed = "completed"
+        if self.thread is None:
+            completed = "completed without transfer"
+            prefix = "Fetch"
+        else:
+            prefix = "Asynchronous fetch"
+            ciel.log("%s of ref %s %s" % (prefix, self.ref, completed), "EXEC", logging.INFO)
 
         with self.lock:
             self.success = success
@@ -783,6 +806,12 @@ class AsyncPushThread:
     def reset(self):
         ciel.log("Reset of streamed fetch for %s!" % self.ref, "EXEC", logging.WARNING)
         self.result(False)
+
+    def get_filename(self):
+        with self.lock:
+            while self.filename is None:
+                self.condvar.wait()
+        return self.filename
 
     def wait(self):
         with self.lock:
@@ -827,7 +856,9 @@ class ProcessRunningExecutor(SimpleExecutor):
         else:
             fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
             push_threads = [AsyncPushThread(self.block_store, ref, fifos_dir) for ref in self.input_refs]
-            file_inputs = [push_thread.filename for push_thread in push_threads]
+            file_inputs = [push_thread.get_filename() for push_thread in push_threads]
+            for (ref, filename) in zip(self.input_refs, file_inputs):
+                ciel.log("Using filename %s for ref %s" % (filename, ref), "EXEC", logging.INFO)
 
         with self._lock:
             file_outputs = [self.block_store.make_stream_sink(id, self) for id in self.output_ids]

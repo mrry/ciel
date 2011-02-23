@@ -658,13 +658,17 @@ class BlockStore(plugins.SimplePlugin):
     def _fetch_ref_async(self, ref, fetch_context, result_callback, reset_callback, progress_callback):
         
         if self.is_ref_local(ref)
+            ciel.log("Ref %s became local during thread-switch; returning immediately" % ref, "BLOCKSTORE", logging.INFO)
             fetch_context.fetch_completed()
             result_callback(True)
         else:
             # No locking from now on, as the following structures are only touched by the cURL thread.
             if ref.id not in self.incoming_fetches:
+                ciel.log("Asynchronous fetch ref %s: starting" % ref, "BLOCKSTORE", logging.INFO)
                 self._start_fetch_ref(ref)
                 fetch_context.fetch_in_progress()
+            else:
+                ciel.log("Asynchronous fetch ref %s: fetch already in progress, subscribing" % ref, "BLOCKSTORE", logging.INFO)
             self.incoming_fetches[ref.id].add_listener(result_callback, reset_callback, progress_callback)
 
     class CompletedFetch:
@@ -692,16 +696,20 @@ class BlockStore(plugins.SimplePlugin):
             self.ready_event.set()
 
         def get_filename(self):
+            ciel.log("Waiting for asynchronous fetch start", "BLOCKSTORE", logging.INFO)
             self.ready_event.wait()
+            ciel.log("Fetch started, using file %s" % self.ret_filename, "BLOCKSTORE", logging.INFO)
             return self.ret_filename
 
     # Called from arbitrary thread
     def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None):
 
         if self.is_ref_local(ref):
+            ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
             result_callback(True)
             return BlockStore.CompletedFetch(self.filename(ref))
         else:
+            ciel.log("Asynchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
             new_ctx = BlockStore.FetchInProgress(ref, result_callback, reset_callback, progress_callback)
             self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_ctx, result_callback, reset_callback, progress_callback))
             return new_ctx
@@ -727,10 +735,12 @@ class BlockStore(plugins.SimplePlugin):
         ctxs = []
         for ref in refs:
             sync_transfer = SynchronousTransfer(ref)
+            ciel.log("Synchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
             transfer_ctx = fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset)
             ctxs.append(sync_transfer)
             
         for ctx in ctxs:
+            ciel.log("Waiting for fetch %s" % ref, "BLOCKSTORE", logging.INFO)
             ctx.wait()
             
         failed_transfers = filter(lambda x: not x.success, ctxs)
