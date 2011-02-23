@@ -192,7 +192,6 @@ class pycURLThread:
         self.curl_ctx = pycurl.CurlMulti()
         self.curl_ctx.setopt(pycurl.M_PIPELINING, 1)
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
-        self.contexts = []
         self.active_fetches = []
         self.event_queue = SelectableEventQueue()
         self.dying = False
@@ -201,31 +200,10 @@ class pycURLThread:
         self.thread = threading.Thread(target=self.pycurl_main_loop)
         self.thread.start()
 
-    def _add_fetch(self, new_context):
+    # Called from cURL thread
+    def add_fetch(self, new_context):
         self.active_fetches.append(new_context)
         self.curl_ctx.add_handle(new_context.curl_ctx)
-
-    def add_fetch(self, ctx):
-        callback_obj = lambda: self._add_fetch(ctx)
-        self.event_queue.post_event(callback_obj)
-
-    def _add_context(self, ctx):
-        ciel.log.error("Event source registered", "CURL_FETCH", logging.INFO)
-        self.contexts.append(ctx)
-
-    def add_context(self, ctx):
-        self.event_queue.post_event(lambda: self._add_context(ctx))
-
-    def _remove_context(self, ctx, e):
-        ciel.log.error("Event source unregistered", "CURL_FETCH", logging.INFO)
-        self.contexts.remove(ctx)
-        e.set()
-
-    # Synchronous so that when this call returns the caller definitely will not get any more callbacks
-    def remove_context(self, ctx):
-        e = threading.Event()
-        self.event_queue.post_event(lambda: self._remove_context(ctx, e))
-        e.wait()
 
     def do_from_curl_thread(self, callback):
         self.event_queue.post_event(callback)
@@ -300,29 +278,7 @@ class pycURLThread:
             read_fds.extend(ev_rfds)
             write_fds.extend(ev_wfds)
             exn_fds.extend(ev_exfds)
-            # Reason #3: one of our contexts has an interesting FD
-            for ctx in self.contexts:
-                ctx_read, ctx_write, ctx_exn = ctx.get_select_fds()
-                read_fds.extend(ctx_read)
-                write_fds.extend(ctx_write)
-                exn_fds.extend(ctx_exn)
-            # Reason #4: one of our contexts wants a callback after a timeout
-            select_timeout = None
-            def td_secs(td):
-                return (float(td.microseconds) / 10**6) + float(td.seconds)
-            for ctx in self.contexts:
-                ctx_timeout = ctx.get_timeout()
-                if ctx_timeout is not None:
-                    time_now = datetime.now()
-                    if ctx_timeout < time_now:
-                        select_timeout = 0
-                    else:
-                        time_to_wait = td_secs(ctx_timeout - datetime.now())
-                        if select_timeout is None or time_to_wait < select_timeout:
-                            select_timeout = time_to_wait
-            active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds, select_timeout)
-            for ctx in self.contexts:
-                ctx.select_callback(active_read, active_write, active_exn)
+            active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds)
 
     def __init__(self, urls, multi, save_filename, callbacks):
         self.urls = urls
@@ -467,7 +423,7 @@ class BlockStore(plugins.SimplePlugin):
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
-        self.clean_partial_files()
+        self.find_local_blocks()
 
     def start(self):
         self.fetch_thread.start()
@@ -592,16 +548,15 @@ class BlockStore(plugins.SimplePlugin):
     def decode_datavalue(self, ref):
         return (self.dataval_codec.decode(ref.value))[0]
 
-    # Called from main thread
+    # Called from cURL thread
     def add_incoming_stream(self, id, transfer_ctx):
-        with self._lock:
-            self.incoming_streams[id] = transfer_ctx
+        self.incoming_streams[id] = transfer_ctx
 
-    # Following two methods: called from cURL thread
+    # Called from cURL thread
     def remove_incoming_stream(self, id):
-        with self._lock:
-            del self.incoming_streams[id]
+        del self.incoming_streams[id]
 
+    # Called from cURL thread
     def _receive_stream_advertisment(self, id, bytes, done):
         try:
             self.incoming_streams[id].advertisment(bytes, done)
@@ -677,9 +632,9 @@ class BlockStore(plugins.SimplePlugin):
         if success:
             with self._lock:
                 # local_blocks can be accessed from any thread.
-                os.link(self.block_store.filename(self.ref.id), self.block_store.save_filename, self.commit_filename)
-                self.block_store.local_blocks.add(self.refid)
-        del self.block_store.incoming_fetches[self.refid]
+                os.link(self.streaming_filename(ref.id), self.filename(ref.id))
+                self.local_blocks.add(ref.id)
+        del self.incoming_fetches[ref.id]
 
     # Called from cURL thread
     def _fetch_ref_async(self, ref, fetch_context, result_callback, reset_callback, progress_callback):
@@ -874,16 +829,19 @@ class BlockStore(plugins.SimplePlugin):
                     return url
             return random.choice(urls)
 
-    def clean_partial_files(self):
-        ciel.log("Cleaning up partial files", "BLOCKSTORE", logging.INFO)
+    def find_local_blocks(self):
+        ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
         try:
             for block_name in os.listdir(self.base_dir):
                 if block_name.startswith('.'):
                     if not os.path.exists(os.path.join(self.base_dir, block_name[1:])):
-                        ciel.log("Deleting %s" % block_name, "BLOCKSTORE", logging.WARNING)
+                        ciel.log("Deleting incomplete block %s" % block_name, "BLOCKSTORE", logging.WARNING)
                         os.remove(os.path.join(self.base_dir, block_name))
+                else:
+                    self.local_blocks.add(block_name)
+                    ciel.log("Found block %s" % block_name, "BLOCKSTORE", logging.INFO)
         except OSError as e:
-            ciel.log("Couldn't clean partials: %s" % e, "BLOCKSTORE", logging.WARNING)
+            ciel.log("Couldn't enumerate existing blocks: %s" % e, "BLOCKSTORE", logging.WARNING)
 
     def block_list_generator(self):
         ciel.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
