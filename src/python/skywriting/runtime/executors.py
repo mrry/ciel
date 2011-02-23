@@ -714,6 +714,7 @@ class AsyncPushThread:
     def __init__(self, block_store, ref, fifos_dir):
         self.block_store = block_store
         self.ref = ref
+        self.fifos_dir = fifos_dir
         self.success = None
         self.lock = threading.Lock()
         self.fetch_done = False
@@ -746,7 +747,7 @@ class AsyncPushThread:
             read_filename = self.file_fetch.get_filename()
             with self.lock:
                 if self.fetch_done:
-                    self.filename = os.path.join(fifos_dir, "fifo-%s" % ref.id)
+                    self.filename = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
                     ciel.log("Fetch for %s not yet complete; pushing through FIFO %s" % (self.ref, self.filename), "EXEC", logging.INFO)   
                     os.mkfifo(self.filename)
                 else:
@@ -760,8 +761,8 @@ class AsyncPushThread:
                 with open(self.filename, "w") as output_fp:
                     while True:
                         while True:
-                            buf = self.input_fp.read(4096)
-                            self.output_fp.write(buf)
+                            buf = input_fp.read(4096)
+                            output_fp.write(buf)
                             self.bytes_copied += len(buf)
                             with self.lock:
                                 if self.bytes_copied == self.bytes_available and self.fetch_done:

@@ -561,7 +561,7 @@ class BlockStore(plugins.SimplePlugin):
     # then complete the job by linking the proper name in output_ctx.close().
     def ref_from_external_file(self, filename, id):
         output_ctx = self.make_local_output(id)
-        os.rename(filename, output_ctx.get_filename())
+        shutil.move(filename, output_ctx.get_filename())
         output_ctx.close()
         return output_ctx.get_completed_ref()
 
@@ -856,11 +856,8 @@ class BlockStore(plugins.SimplePlugin):
             # 3. Store the fetched file in the block store, named by the
             #    content hash.
             id = 'urlfetch:%s' % hash.hexdigest()
-            _, size = self.store_file(fetch_filename, id, True)
-            
-            ref = SW2_ConcreteReference(id, size)
-            ref.add_location_hint(self.netloc)
-        
+            ref = self.ref_from_external_file(fetch_filename, id)
+
         return ref
         
     def choose_best_netloc(self, netlocs):
