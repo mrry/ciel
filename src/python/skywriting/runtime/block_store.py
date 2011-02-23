@@ -84,15 +84,12 @@ def sw_to_external_url(url):
     else:
         return url
 
-class pycURLFetchContext:
+class pycURLContext:
 
-    def __init__(self, dest_fp, src_url, multi, result_callback, progress_callback=None, start_byte=None):
+    def __init__(self, url, multi, result_callback):
 
-        self.description = src_url
         self.multi = multi
-
         self.result_callback = result_callback
-        self.progress_callback = None
 
         self.curl_ctx = pycurl.Curl()
         self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
@@ -100,25 +97,14 @@ class pycURLFetchContext:
         self.curl_ctx.setopt(pycurl.CONNECTTIMEOUT, 30)
         self.curl_ctx.setopt(pycurl.TIMEOUT, 300)
         self.curl_ctx.setopt(pycurl.NOSIGNAL, 1)
-        self.curl_ctx.setopt(pycurl.WRITEDATA, dest_fp)
-        self.curl_ctx.setopt(pycurl.URL, str(src_url))
-        if progress_callback is not None:
-            self.curl_ctx.setopt(pycurl.NOPROGRESS, False)
-            self.curl_ctx.setopt(pycurl.PROGRESSFUNCTION, self.progress)
-            self.progress_callback = progress_callback
-        if start_byte is not None:
-            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-" % start_byte])
+        self.curl_ctx.setopt(pycurl.URL, str(url))
 
         self.curl_ctx.ctx = self
 
     def start(self):
         self.multi.add_fetch(self)
 
-    def progress(self, toDownload, downloaded, toUpload, uploaded):
-        self.progress_callback(downloaded)
-
     def success(self):
-        self.progress_callback(self.curl_ctx.getinfo(SIZE_DOWNLOAD))
         self.result_callback(True)
         self.cleanup()
 
@@ -128,6 +114,42 @@ class pycURLFetchContext:
 
     def cleanup(self):
         self.curl_ctx.close()
+
+
+class pycURLFetchContext(pycURLContext):
+
+    def __init__(self, dest_fp, src_url, multi, result_callback, progress_callback=None, start_byte=None):
+
+        pycURLContext.__init__(self, src_url, multi, reset_callback)
+
+        self.description = src_url
+        self.progress_callback = None
+
+        self.curl_ctx.setopt(pycurl.WRITEDATA, dest_fp)
+        if progress_callback is not None:
+            self.curl_ctx.setopt(pycurl.NOPROGRESS, False)
+            self.curl_ctx.setopt(pycurl.PROGRESSFUNCTION, self.progress)
+            self.progress_callback = progress_callback
+        if start_byte is not None:
+            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-" % start_byte])
+
+    def success(self):
+        self.progress_callback(self.curl_ctx.getinfo(SIZE_DOWNLOAD))
+        pycURLContext.success(self)
+
+    def progress(self, toDownload, downloaded, toUpload, uploaded):
+        self.progress_callback(downloaded)
+
+class pycURLPostContext(pycURLContext):
+
+    def __init__(self, in_fp, in_length, out_fp, url, multi, result_callback):
+        
+        pycURLContext.__init__(self, url, multi, result_callback)
+
+        self.curl_ctx.setopt(pycurl.WRITEDATA, out_fp)
+        self.curl_ctx.setopt(pycurl.READDATA, in_fp)
+        self.curl_ctx.setopt(pycurl.POST, True)
+        self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
 
 class SelectableEventQueue:
 
@@ -280,6 +302,8 @@ class pycURLThread:
             exn_fds.extend(ev_exfds)
             active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds)
 
+class FileTransferContext
+
     def __init__(self, urls, multi, save_filename, callbacks):
         self.urls = urls
         self.multi = multi
@@ -306,19 +330,18 @@ class pycURLThread:
                 ciel.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
                 self.callbacks.result(False)
             else:
-                ciel.log.error("Fetch %s to %s failed; trying next URL" % self.urls[self.failures - 1], self.save_filename)
+                ciel.log.error("Fetch %s to %s failed; trying next URL" % (self.urls[self.failures - 1], self.save_filename))
                 self.callbacks.reset()
                 self.start_next_attempt()
 
 class StreamTransferContext:
 
-    def __init__(self, worker_netloc, refid, save_filename, commit_filename, multi, block_store, callbacks):
+    def __init__(self, worker_netloc, refid, save_filename, multi, block_store, callbacks):
         self.url = "http://%s/data/%s" % (worker_netloc, refid)
         self.worker_netloc = worker_netloc
         self.refid = refid
         self.save_filename = save_filename
         self.fp = open(save_filename, "w")
-        self.commit_filename = commit_filename
         self.multi = multi
         self.callbacks = callbacks
         self.current_data_fetch = None
@@ -328,12 +351,8 @@ class StreamTransferContext:
         self.block_store = block_store
 
     def start_next_fetch(self):
-        if self.progress_callback is not None:
-            progress = self.progress
-        else:
-            progress = None
         ciel.log("Stream-fetch %s: start fetch" % self.refid, "CURL_FETCH", logging.INFO)
-        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.multi, self.result, progress, self.previous_fetches_bytes_downloaded)
+        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.multi, self.result, self.progress, self.previous_fetches_bytes_downloaded)
         self.current_data_fetch.start()
 
     def start(self):
@@ -342,9 +361,8 @@ class StreamTransferContext:
         self.start_next_fetch()
         ciel.log("Stream-fetch %s: accepting advertisments" % self.refid, "CURL_FETCH", logging.INFO)
         self.block_store.add_incoming_stream(self.refid, self)
-        # TODO: Improve on this blocking RPC by using cURL for this sort of thing
         post_data = simplejson.dumps({"netloc": self.block_store.netloc})
-        httplib2.Http().request("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), "POST", post_data)
+        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), post_data)
         ciel.log("Stream-fetch %s: subscribed to advertisments from %s" % (self.refid, self.worker_netloc), "CURL_FETCH", logging.INFO)
 
     def progress(self, bytes_downloaded):
@@ -828,6 +846,56 @@ class BlockStore(plugins.SimplePlugin):
                 if parsed_url.netloc == self.netloc:
                     return url
             return random.choice(urls)
+
+    class PostContext:
+        
+        def __init__(self, url, postdata):
+
+            self.post_buffer = StringIO(postdata)
+            self.response_buffer = StringIO()
+            self.completed_event = threading.Event()
+            self.curl_ctx = pycURLPostContext(post_buffer, len(postdata), response_buffer, url, self.fetch_thread, self.result)
+
+        def start(self):
+
+            self.curl_ctx.start()
+
+        def get_result(self):
+
+            self.completed_event.wait()
+            if self.response_string is not None:
+                return self.response_string
+            else:
+                raise Exception("Curl-post failed")
+
+        def result(self, success):
+            
+            if success:
+                self.response_string = self.response_buffer.getvalue()
+            else:
+                self.response_string = None
+            self.post_buffer.close()
+            self.response_buffer.close()
+            self.completed_event.set()
+
+    # This is only a BlockStore method because it uses the fetch_thread.
+    # Called from cURL thread
+    def _post_string_noreturn(self, url, postdata):
+        ctx = BlockStore.PostContext(url, postdata)
+        ctx.start()
+        return
+
+    def post_string_noreturn(self, url, postdata):
+        self.fetch_thread.do_from_curl_thread(lambda: self._post_string_noreturn(url, postdata))
+
+    # Called from cURL thread
+    def _post_string(self, url, postdata):
+        ctx = BlockStore.PostContext(url, postdata)
+        ctx.start()
+        return ctx.get_result()
+
+    def post_string_noreturn(self, url, postdata):
+        self.fetch_thread.do_from_curl_thread(lambda: self._post_string(url, postdata))
 
     def find_local_blocks(self):
         ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
