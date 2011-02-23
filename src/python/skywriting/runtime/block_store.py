@@ -240,7 +240,7 @@ class pycURLThread:
 
     def do_from_curl_thread_sync(self, callback):
         e = threading.Event()
-        ret = ReturnBucket()
+        ret = pycURLThread.ReturnBucket()
         self.event_queue.post_event(lambda: call_and_signal(callback, e, ret))
         e.wait()
         return ret.ret
@@ -324,115 +324,73 @@ class pycURLThread:
             for ctx in self.contexts:
                 ctx.select_callback(active_read, active_write, active_exn)
 
-# Callbacks for "contexts," things which add event sources for which I need a better name.
-class pycURLContextCallbacks:
+class FileTransferContext:
 
-    def get_select_fds(self):
-        return [], [], []
-
-    def get_timeout(self):
-        return None
-
-    def select_callback(self, rd, wr, exn):
-        pass
-
-class SimpleFileTransferContext:
-
-    def __init__(self, url, multi, result_callback, progress_callback, filename):
-        self.fp = open(filename, "w")
-        self.result_callback = result_callback
-        self.curl_fetch = pycURLFetchContext(fp, url, multi, self.result, progress_callback)
-
-    def start(self):
-        self.curl_fetch.start()
-
-    def result(self, success):
-        self.fp.close()
-        self.result_callback(success)
-
-def create_file_transfer_context(urls, multi, filename, result_callback, reset_callback, progress_callback=None):
-    return RetryTransferContext(urls, multi, SimpleFileTransferContext, {"filename": filename}, result_callback, reset_callback, progress_callback)
-
-class BufferTransferContext:
-
-    def __init__(self, url, multi, result_callback, progress_callback, buf):
-        self.curl_fetch = pycURLFetchContext(self.buf, url, multi, result_callback, progress_callback)
-
-    def start(self):
-        self.curl_fetch.start()
-
-def create_buffer_transfer_context(urls, multi, buf, result_callback, reset_callback):
-    return RetryTransferContext(urls, multi, BufferTransferContext, {"buf": buf}, result_callback, reset_callback)
-
-class RetryTransferContext:
-
-    def __init__(self, urls, multi, transfer_class, transfer_args, result_callback, reset_callback=None, progress_callback=None):
+    def __init__(self, urls, save_filename, multi, callbacks):
+        
         self.urls = urls
-        self.filename = filename
         self.multi = multi
+        self.save_filename = save_filename
+        self.callbacks = callbacks
         self.failures = 0
-        self.result_callback = result_callback
-        self.reset_callback = reset_callback
-        self.progress_callback = progress_callback
-        self.transfer_class = transfer_class
-        self.transfer_args = transfer_args
 
     def start_next_attempt(self):
-        self.current_attempt = self.transfer_class(self.urls[failures], multi, self.result, self.progress_callback, **self.transfer_args)
-        self.current_attempt.start()
+        self.fp = open(self.save_filename, "w")
+        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.multi, self.result, self.callbacks.progress_callback)
+        self.curl_fetch.start()
 
     def start(self):
         self.start_next_attempt()
 
     def result(self, success):
+        self.fp.close()
         if success:
-            self.result_callback(True)
+            self.callbacks.result(True)
         else:
             self.failures += 1
             if self.failures == len(self.urls):
                 ciel.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
-                self.result_callback(False)
+                self.callbacks.result(False)
             else:
-                ciel.log.error("Fetch %s to %s failed; trying next URL" % self.urls[self.failures], self.filename)
-                self.reset_callback()
+                ciel.log.error("Fetch %s to %s failed; trying next URL" % self.urls[self.failures - 1], self.save_filename)
+                self.callbacks.reset()
                 self.start_next_attempt()
 
 class StreamTransferContext:
 
-    def __init__(self, worker_netloc, refid, filename, multi, block_store, result_callback, progress_callback):
+    def __init__(self, worker_netloc, refid, save_filename, commit_filename, multi, block_store, callbacks):
         self.url = "http://%s/data/%s" % (worker_netloc, refid)
         self.worker_netloc = worker_netloc
         self.refid = refid
-        self.filename = filename
-        self.fp = open(filename, "w")
+        self.save_filename = save_filename
+        self.fp = open(save_filename, "w")
+        self.commit_filename = commit_filename
         self.multi = multi
-        self.result_callbacks = set([result_callback])
-        self.progress_callbacks = set([progress_callback])
+        self.callbacks = callbacks
         self.current_data_fetch = None
         self.previous_fetches_bytes_downloaded = 0
         self.remote_done = False
-        self.local_done = False
         self.latest_advertisment = 0
         self.block_store = block_store
 
     def start_next_fetch(self):
-        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.multi, self.result, self.progress, self.previous_fetches_bytes_downloaded)
+        if self.progress_callback is not None:
+            progress = self.progress
+        else:
+            progress = None
+        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.multi, self.result, progress, self.previous_fetches_bytes_downloaded)
         self.current_data_fetch.start()
-
-    def add_stream(self):
-        self.block_store.add_incoming_stream(self.refid, self)
 
     def start(self):
         
         self.start_next_fetch()
-        self.multi.do_from_curl_thread(lambda: self.add_stream())
+        self.block_store.add_incoming_stream(self.refid, self)
         # TODO: Improve on this blocking RPC by using cURL for this sort of thing
-        post_data = simplejson.dumps({"netloc": self.worker_netloc})
+        post_data = simplejson.dumps({"netloc": self.block_store.netloc})
         httplib2.Http().request("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), "POST", post_data)
 
     def progress(self, bytes_downloaded):
-        for callback in self.progress_callbacks:
-            callback(self.previous_fetches_bytes_downloaded + bytes_downloaded)
+        self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
 
     def consider_next_fetch(self):
         if remote_done or self.latest_advertisment - self.previous_fetches_bytes_downloaded > 67108864:
@@ -449,17 +407,14 @@ class StreamTransferContext:
             self.previous_fetches_bytes_downloaded += this_fetch_bytes
             if self.remote_done and self.latest_advertisment == self.previous_fetches_bytes_downloaded:
                 # Complete!
-                os.remove("." + self.filename)
                 self.complete(True)
             else:
                 self.consider_next_fetch()
 
     def complete(self, success):
         self.fp.close()
-        self.local_done = True
         self.block_store.remove_incoming_stream(self.refid)
-        for callback in self.result_callbacks:
-            self.result_callback(success)
+        self.callbacks.result(success)
 
     def advertisment(self, current_bytes_available, file_done):
         self.latest_advertisment = current_bytes_available
@@ -491,11 +446,14 @@ class BlockStore(plugins.SimplePlugin):
 
         # The other side of the coin: things we're streaming *in*
         self.incoming_streams = dict()
-    
-        self.current_cache_access_id = 0
-        self.url_cache_filenames = {}
-        self.url_cache_access_times = {}
-        
+
+        # Things we're fetching. The streams dictionary above maps to StreamTransferContexts for advertisment delivery;
+        # this maps to FetchListeners for clients to attach and get progress notifications.
+        self.incoming_fetches = dict()
+
+        # Block IDs that are held locally and are complete
+        self.local_blocks = set()
+            
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
@@ -600,6 +558,7 @@ class BlockStore(plugins.SimplePlugin):
             del self.streaming_producers[id]
             os.unlink(self.streaming_filename(id))
 
+    # Remote is subscribing to updates from one of our streaming producers
     def subscribe_to_stream(self, otherend_netloc, id):
         send_result = False
         with self._lock:
@@ -637,205 +596,202 @@ class BlockStore(plugins.SimplePlugin):
     def receive_stream_advertisment(self, id, bytes, done):
         self.fetch_thread.do_from_curl_thread(lambda: self._receive_stream_advertisment(id, bytes, done))
         
-    def try_retrieve_filename_for_ref_without_transfer(self, ref):
+    def is_ref_local(self, ref):
         assert isinstance(ref, SWRealReference)
 
         if isinstance(ref, SWErrorReference):
             raise RuntimeSkywritingError()
 
-        filename = self.filename(ref.id)
-        if os.path.exists(filename):
-            return filename
+        with self._lock:
+            if ref.id in self.local_blocks:
+                return True
+            if isinstance(ref, SWDataValue):
+                with open(self.filename(ref.id), 'w') as obj_file:
+                    obj_file.write(self.decode_datavalue(ref))
+                self.local_blocks.add(ref.id)
+                return True
 
-        if isinstance(ref, SWDataValue):
-            with open(filename, 'w') as obj_file:
-                obj_file.write(self.decode_datavalue(ref))
-            return filename
+        return False
 
-        return None
+    class FetchListener:
+        
+        def __init__(self, ref, block_store):
+            self.progress_listeners = set()
+            self.result_listeners = set()
+            self.reset_listeners = set()
+            self.last_progress = 0
+            self.ref = ref
+            self.block_store = block_store
 
-    class DummyFileRetr:
+        def progress(self, bytes):
+            for callback in self.progress_listeners:
+                callback(bytes)
+            self.last_progress = bytes
+
+        def result(self, success):
+            self.block_store.fetch_completed(self.ref, success)
+            for callback in self.result_listeners:
+                callback(success)
+
+        def reset(self):
+            for callback in self.reset_listeners:
+                callback()
+
+        def add_listener(result_cb, reset_cb, progress_cb):
+            self.result_listeners.add(result_cb)
+            self.reset_listeners.add(reset_cb)
+            if progress_cb is not None:
+                self.progress_listeners.add(progress_cb)
+                progress_cb(self.last_progress)
+
+    # Called from cURL thread
+    # After this method completes, the ref's streaming_filename must exist.
+    def _start_fetch_ref(self, ref):
+            
+        new_listener = FetchListener(ref, self)
+        self.incoming_fetches[ref.id] = new_listener
+        urls = self.get_fetch_urls_for_ref(ref)
+        save_filename = self.streaming_filename(ref.id)
+        if isinstance(ref, SW2_ConcreteReference):
+            ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
+        elif isinstance(ref, SW2_StreamReference):
+            ctx = StreamTransferContext(ref.location_hints[0], ref.id, save_filename, self.fetch_thread, self, new_listener)
+        ctx.start()
+
+    # Called from cURL thread
+    def fetch_completed(self, ref, success):
+        if success:
+            with self._lock:
+                # local_blocks can be accessed from any thread.
+                os.link(self.block_store.filename(self.ref.id), self.block_store.save_filename, self.commit_filename)
+                self.block_store.local_blocks.add(self.refid)
+        del self.block_store.incoming_fetches[self.refid]
+
+    # Called from cURL thread
+    def _fetch_ref_async(self, ref, fetch_context, result_callback, reset_callback, progress_callback):
+        
+        if self.is_ref_local(ref)
+            fetch_context.fetch_completed()
+            result_callback(True)
+        else:
+            # No locking from now on, as the following structures are only touched by the cURL thread.
+            if ref.id not in self.incoming_fetches:
+                self._start_fetch_ref(ref)
+                fetch_context.fetch_in_progress()
+            self.incoming_fetches[ref.id].add_listener(result_callback, reset_callback, progress_callback)
+
+    class CompletedFetch:
 
         def __init__(self, filename):
             self.filename = filename
-            self.is_streaming = False
-            self.completed_event = None
 
-        def commit(self):
+        def get_filename(self):
+            return self.filename
+
+    class FetchInProgress:
+        
+        def __init__(self, completed_filename, in_progress_filename):
+            self.ready_event = threading.Event()
+            self.completed_filename = completed_filename
+            self.in_progress_filename = in_progress_filename
+            self.ret_filename = None
+            
+        def fetch_completed(self):
+            self.ret_filename = self.completed_filename
+            self.ready_event.set()
+
+        def fetch_in_progress(self):
+            self.ret_filename = self.in_progress_filename
+            self.ready_event.set()
+
+        def get_filename(self):
+            self.ready_event.wait()
+            return self.ret_filename
+
+    # Called from arbitrary thread
+    def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None):
+
+        if self.is_ref_local(ref):
+            result_callback(True)
+            return BlockStore.CompletedFetch(self.filename(ref))
+        else:
+            new_ctx = BlockStore.FetchInProgress(ref, result_callback, reset_callback, progress_callback)
+            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_ctx, result_callback, reset_callback, progress_callback))
+            return new_ctx
+
+    class SynchronousTransfer:
+        
+        def __init__(self, ref):
+            self.ref = ref
+            self.finished_event = threading.Event()
+
+        def result(self, success):
+            self.success = success
+            self.finished_event.set()
+
+        def reset(self):
             pass
 
-    class FileRetrInProgress:
-        
-        def __init__(self, block_store, ref, multi, result_callback=None, reset_callback=None, progress_callback=None):
-            
-            urls = block_store.get_fetch_urls_for_ref(ref)
-            self.filename = block_store.streaming_filename(ref.id)
-            self.is_streaming = True
-            self.commit_filename = block_store.filename(ref.id)
-            if isinstance(ref, SW2_ConcreteReference):
-                self.ctx = create_file_transfer_context(urls, multi, self.filename, self.result, reset_callback, progress_callback)
-            elif isinstance(ref, SW2_StreamReference):
-                self.ctx = StreamTransferContext(ref.location_hints[0], ref.id, self.filename, 
-                                                 self.fetch_thread, block_store, result_callback, progress_callback)
-            self.ref = ref
-            self.result_callback = result_callback
-            self.block_store = block_store
-            self.completion_event = threading.Event()
-
-        def start(self):
-            self.ctx.start()
-            
-        def result(self, success):
-            if not success:
-                self.filename = None
-            self.completion_event.set()
-            if self.result_callback is not None:
-                self.result_callback(success)
-
-        def commit(self):
-            if self.filename is not None:
-                os.rename(self.filename, self.commit_filename)
-
-    def retrieve_filename_for_ref_async(self, ref, result_callback=None, reset_callback=None, progress_callback=None):
-
-        filename = self.try_retrieve_filename_for_ref_without_transfer(ref)
-        if filename is not None:
-            if result_callback is not None:
-                result_callback(True)
-            return BlockStore.DummyFileRetr(filename)
-        else:
-            if os.path.exists(self.streaming_filename(ref.id)):
-                raise Exception("Local stream-joining support not implemented yet")
-            ret = BlockStore.FileRetrInProgress(ref, self.filename(ref.id), self.get_fetch_urls_for_ref(ref), self.fetch_thread, 
-                                     result_callback, reset_callback, progress_callback)
-            ret.start()
-            return ret
+        def wait(self):
+            self.finished_event.wait()
 
     def retrieve_filenames_for_refs(self, refs):
         
-        transfer_ctxs = [self.retrieve_filename_for_ref_async(ref) for ref in refs]
-        self.await_async_transfers(transfer_ctxs)
-        failed_transfers = filter(lambda x: x.filename is None, transfer_ctxs)
+        ctxs = []
+        for ref in refs:
+            sync_transfer = SynchronousTransfer(ref)
+            transfer_ctx = fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset)
+            ctxs.append(sync_transfer)
+            
+        for ctx in ctxs:
+            ctx.wait()
+            
+        failed_transfers = filter(lambda x: not x.success, ctxs)
         if len(failed_transfers) > 0:
-            raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints))]))
-        return [ctx.filename for ctx in transfer_ctxs]
+            raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
+        return [self.filename(ref) for ref in refs]
 
     def retrieve_filename_for_ref(self, ref):
 
         return self.retrieve_filenames_for_refs([ref])[0]
 
-    def try_retrieve_string_for_ref_without_transfer(self, ref):
-        assert isinstance(ref, SWRealReference)
+    def retrieve_strings_for_refs(self, refs):
 
-        if isinstance(ref, SWErrorReference):
-            raise RuntimeSkywritingError()
-        elif isinstance(ref, SWDataValue):
-            return self.decode_datavalue(ref)
-        elif isinstance(ref, SW2_ConcreteReference) or isinstance(ref, SW2_StreamReference):
-            to_read = self.filename(ref.id)
-            if os.path.exists(to_read):
-                with open(to_read, "r") as f:
-                    return f.read()
-            else:
-                return None
-
-    class DummyStringRetr:
-
-        def __init__(self, str):
-            self.str = str
-            self.completed_event = None
-
-    class StringRetrInProgress:
-
-        def __init__(self, ref, urls, multi):
-            self.buf = StringIO()
-            self.ref = ref
-            self.urls = urls
-            self.transfer = create_buffer_transfer_context(urls, multi, self.buf, self.result, self.reset)
-            self.completed_event = threading.Event()
-            self.str = None
-
-        def start(self):
-            self.transfer.start()
-
-        def result(self, success):
-            self.success = success
-            if success:
-                self.str = self.buf.getvalue()
-            self.buf.close()
-            self.completed_event.set()
-
-        def reset(self):
-            self.buf.truncate(0)
-
-    def retrieve_string_for_ref_async(self, ref):
-        str = try_retrieve_string_for_ref_without_transfer(ref)
-        if str is not None:
-            return BlockStore.DummyStringRetr(str)
-        else:
-            ret = BlockStore.StringRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.fetch_thread)
-            return ret
+        strs = []
+        files = self.retrieve_filenames_for_refs(refs)
+        for fname in files:
+            with open(fname, "w") as fp:
+                strs.append(fp.read())
+        return strs
 
     def retrieve_string_for_ref(self, ref):
-        ctx = retrieve_string_for_ref_async(ref)
-        self.await_async_transfers([ctx])
-        if ctx.str is None:
-            raise MissingInputException({ref.id: SW2_TombstoneReference(ref.id, ref.location_hints)})
-        return ctx.str
-
-    def try_retrieve_object_for_ref_without_transfer(self, ref, decoder):
-
-        # Basically like the same task for files, but with the possibility of cached decoded forms
-        try:
-            return self.object_cache[(ref.id, decoder)]
-        except:
-            pass
-        str = self.try_retrieve_string_for_ref_without_transfer(ref)
-        if str is not None:
-            decoded = self.decoders[decoder](StringIO(str))
-            self.object_cache[(ref.id, decoder)] = decoded
-            return decoded
-        return None
-
-    class DummyObjRetr:
-
-        def __init__(self, obj):
-            self.obj = obj
-            self.completed_event = None
-
-        def get_obj(self):
-            return self.obj
-
-    class ObjRetrInProgress:
         
-        def __init__(self, ref, urls, decoder, multi):
-            self.string_transfer = StringTransferInProgress(ref, urls, multi)
-            self.completed_event = self.string_transfer.completed_event
-            self.decoder = decoder
+        return self.retrieve_strings_for_refs([ref])[0]
 
-        def start(self):
-            self.string_transfer.start()
+    def retrieve_objects_for_refs(self, ref_and_decoders):
 
-        def get_obj(self):
-            return self.decoder(StringIO(self.string_transfer.str))
+        solutions = dict()
+        unsolved_refs = []
+        for (ref, decoder) in ref_and_decoders:
+            try:
+                solutions[ref.id] = self.object_cache[(ref.id, decoder)]
+            except:
+                unsolved_refs.append(ref)
 
-    def retrieve_object_for_ref_async(self, ref, decoder):
-        obj = self.try_retrieve_object_for_ref_without_transfer(ref, decoder)
-        if obj is not None:
-            return BlockStore.DummyObjRetr(obj)
-        else:
-            ret = BlockStore.ObjRetrInProgress(ref, self.get_fetch_urls_for_ref(ref), self.decoders[decoder], self.fetch_thread)
-            ret.start()
+        strings = self.retrieve_strings_for_refs(unsolved_refs)
+        str_of_ref = dict([(ref.id, string) for (string, ref) in zip(strings, unsolved_refs)])
+            
+        for (ref, decoder) in ref_and_decoders:
+            if ref.id not in solutions:
+                decoded = self.decoders[decoder](StringIO(str))
+                self.object_cache[(ref.id, decoder)] = decoded
+                solutions[ref.id] = decoded
+            
+        return [solution[ref.id] for (ref, decoder) in ref_and_decoders]
 
     def retrieve_object_for_ref(self, ref, decoder):
-        ctx = self.retrieve_object_for_ref_async(ref, decoder)
-        self.await_async_transfers([ctx])
-        return ctx.get_obj()
-
-    def await_async_transfers(self, transfers):
-        for transfer in transfers:
-            if transfer.completed_event is not None:
-                transfer.completed_event.wait()
+        
+        return self.retrieve_objects_for_refs((ref, decoder))[0]
 
     def get_fetch_urls_for_ref(self, ref):
 
