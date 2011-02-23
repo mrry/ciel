@@ -196,15 +196,13 @@ class DataRoot:
                     raise
                 
         elif cherrypy.request.method == 'POST':
+            request_body = cherrypy.request.body.read()
+            new_ref = self.block_store.ref_from_string(request_body, safe_id)
             if self.backup_sender is not None:
-                request_body = cherrypy.request.body.read()
-                url = self.block_store.store_raw_file(StringIO.StringIO(request_body), safe_id)
                 self.backup_sender.add_data(safe_id, request_body)
-            else:
-                url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
             if self.task_pool is not None:
-                self.task_pool.publish_refs({safe_id : SW2_ConcreteReference(safe_id, None, [self.block_store.netloc])})
-            return simplejson.dumps(url)
+                self.task_pool.publish_refs({safe_id : new_ref})
+            return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
         else:
             raise cherrypy.HTTPError(405)
 
@@ -212,13 +210,10 @@ class DataRoot:
     def index(self):
         if cherrypy.request.method == 'POST':
             id = self.block_store.allocate_new_id()
+            request_body = cherrypy.request.body.read()
+            new_ref = self.block_store.ref_from_string(request_body, id)
             if self.backup_sender is not None:
-                request_body = cherrypy.request.body.read()
-                _, file_length = self.block_store.store_raw_file(StringIO.StringIO(request_body), id)
                 self.backup_sender.add_data(id, request_body)
-            else:
-                _, file_length = self.block_store.store_raw_file(cherrypy.request.body, id)
-            new_ref = SW2_ConcreteReference(id, file_length, [self.block_store.netloc])
             if self.task_pool is not None:
                 self.task_pool.publish_refs({id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)

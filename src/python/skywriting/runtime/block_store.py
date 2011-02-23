@@ -511,7 +511,7 @@ class BlockStore(plugins.SimplePlugin):
                 with open(completed_file, "r") as fp:
                     return SWDataValue(self.refid, self.block_store.encode_datavalue(fp.read()))
             else:
-                return SW2_ConcreteReference(self.refid, size_hin=file_size, location_hints=[self.block_store.netloc])
+                return SW2_ConcreteReference(self.refid, size_hint=file_size, location_hints=[self.block_store.netloc])
 
     def make_local_output(self, id, executor=None):
         '''
@@ -529,7 +529,7 @@ class BlockStore(plugins.SimplePlugin):
         os.link(self.streaming_filename(id), self.filename(id))
         with self._lock:
             del self.streaming_producers[id]
-            self.local_blocks.add(self.refid)
+            self.local_blocks.add(id)
 
     def rollback_file(self, id):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
@@ -550,9 +550,11 @@ class BlockStore(plugins.SimplePlugin):
     def ref_from_object(self, object, encoder, id):
         """Encodes an object, returning either a DataValue or ConcreteReference as appropriate"""
         self.cache_object(object, encoder, id)
-        with StringIO() as buffer:
-            self.encoders[encoder](object, buffer)
-            return self.ref_from_string(buffer.getvalue(), id)
+        buffer = StringIO()
+        self.encoders[encoder](object, buffer)
+        ret = self.ref_from_string(buffer.getvalue(), id)
+        buffer.close()
+        return ret
 
     # Why not just rename to self.filename(id) and skip this nonsense? Because os.rename() can be non-atomic.
     # When it renames between filesystems it does a full copy; therefore I copy/rename to a colocated dot-file,
@@ -577,7 +579,7 @@ class BlockStore(plugins.SimplePlugin):
                 post = simplejson.dumps({"bytes": st.st_size, "done": True})
             except:
                 post = simplejson.dumps({"state": "absent"})
-            httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (otherend_netloc, self.refid), "POST", post)
+            self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, self.refid), post)
 
     def encode_datavalue(self, str):
         return (self.dataval_codec.encode(str))[0]

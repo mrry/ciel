@@ -729,13 +729,14 @@ class AsyncPushThread:
                                                       reset_callback=self.reset, 
                                                       progress_callback=self.progress)
         if not self.fetch_done:
-            ciel.log("Fetch for %s completed immediately" % ref, "EXEC", logging.INFO)
+            ciel.log("Fetch for %s did not complete immediately; creating push thread" % ref, "EXEC", logging.INFO)
             self.thread = threading.Thread(target=self.copy_loop)
             self.thread.start()
         else:
-            ciel.log("Fetch for %s did not complete immediately; creating push thread" % ref, "EXEC", logging.INFO)
+            ciel.log("Fetch for %s completed immediately" % ref, "EXEC", logging.INFO)
             with self.lock:
                 self.filename = self.file_fetch.get_filename()
+                self.stream_done = True
                 self.condvar.notify_all()
 
     def copy_loop(self):
@@ -750,6 +751,7 @@ class AsyncPushThread:
                     os.mkfifo(self.filename)
                 else:
                     ciel.log("Fetch for %s completed during get_filename; reading directly" % self.ref, "EXEC", logging.INFO)
+                    self.stream_done = True
                     self.filename = read_filename
                 self.condvar.notify_all()
                 if self.fetch_done:
@@ -856,8 +858,6 @@ class ProcessRunningExecutor(SimpleExecutor):
             fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
             push_threads = [AsyncPushThread(self.block_store, ref, fifos_dir) for ref in self.input_refs]
             file_inputs = [push_thread.get_filename() for push_thread in push_threads]
-            for (ref, filename) in zip(self.input_refs, file_inputs):
-                ciel.log("Using filename %s for ref %s" % (filename, ref), "EXEC", logging.INFO)
 
         with self._lock:
             out_file_contexts = [self.block_store.make_local_output(id, self) for id in self.output_ids]
@@ -884,12 +884,14 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         # Wait for the threads pushing input to the client to finish. Could cancel or detach here instead.
         if push_threads is not None:
+            ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
             for thread in push_threads:
                 thread.wait()
             shutil.rmtree(fifos_dir)
 
         # If we have fetched any objects to this worker, publish them at the master.
-        # TODO: Do this cleanly by using context objects returned by the BlockStore.
+        # TODO: Do this cleanly by using context objects returned by the BlockStor
+        ciel.log("Publishing fetched references", "EXEC", logging.INFO)
         extra_publishes = {}
         for ref in self.input_refs:
             if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
@@ -906,13 +908,14 @@ class ProcessRunningExecutor(SimpleExecutor):
                 raise MissingInputException(failure_bindings)
 
         if rc != 0:
-            for output in file_outputs:
+            for output in out_file_contexts:
                 output.rollback()
             raise OSError()
 
         ciel.engine.publish("worker_event", "Executor: Storing outputs")
+        ciel.log("Publishing created references", "EXEC", logging.INFO)
 
-        for i, output in enumerate(file_outputs):
+        for i, output in enumerate(out_file_contexts):
             output.close()
             self.output_refs[i] = output.get_completed_ref()
 
