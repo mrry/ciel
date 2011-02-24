@@ -146,10 +146,20 @@ class pycURLPostContext(pycURLContext):
         
         pycURLContext.__init__(self, url, multi, result_callback)
 
-        self.curl_ctx.setopt(pycurl.WRITEDATA, out_fp)
-        self.curl_ctx.setopt(pycurl.READDATA, in_fp)
+        self.read_fp = in_fp
+        self.write_fp = out_fp
+
+        self.curl_ctx.setopt(pycurl.WRITEFUNCTION, self.write)
+        self.curl_ctx.setopt(pycurl.READFUNCTION, self.read)
         self.curl_ctx.setopt(pycurl.POST, True)
         self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
+
+    def write(self, data):
+        self.write_fp.write(data)
+        return len(data)
+
+    def read(self, chars):
+        return self.read_fp.read(chars)
 
 class SelectableEventQueue:
 
@@ -369,7 +379,7 @@ class StreamTransferContext:
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
 
     def consider_next_fetch(self):
-        if remote_done or self.latest_advertisment - self.previous_fetches_bytes_downloaded > 67108864:
+        if self.remote_done or self.latest_advertisment - self.previous_fetches_bytes_downloaded > 67108864:
             self.start_next_fetch()
         else:
             ciel.log("Stream-fetch %s: paused (remote has %d, I have %d)" % 
@@ -383,7 +393,7 @@ class StreamTransferContext:
             ciel.log("Stream-fetch %s: transfer failed" % self.refid)
             self.complete(False)
         else:
-            this_fetch_bytes = self.current_data_fetch.curl_ctx.getinfo(SIZE_DOWNLOAD)
+            this_fetch_bytes = self.current_data_fetch.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD)
             ciel.log("Stream-fetch %s: transfer succeeded (got %d bytes)" % (self.refid, this_fetch_bytes),
                      "CURL_FETCH", logging.INFO)
             self.previous_fetches_bytes_downloaded += this_fetch_bytes
@@ -491,7 +501,7 @@ class BlockStore(plugins.SimplePlugin):
             return self.block_store.streaming_filename(self.refid)
 
         def get_stream_ref(self):
-            return SW2_StreamReference(refid, [self.block_store.netloc])
+            return SW2_StreamReference(self.refid, [self.block_store.netloc])
 
         def rollback(self):
             self.block_store.rollback_file(self.refid)
@@ -666,7 +676,7 @@ class BlockStore(plugins.SimplePlugin):
         if isinstance(ref, SW2_ConcreteReference):
             ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
         elif isinstance(ref, SW2_StreamReference):
-            ctx = StreamTransferContext(ref.location_hints[0], ref.id, save_filename, self.fetch_thread, self, new_listener)
+            ctx = StreamTransferContext(list(ref.location_hints)[0], ref.id, save_filename, self.fetch_thread, self, new_listener)
         ctx.start()
 
     # Called from cURL thread
@@ -876,12 +886,12 @@ class BlockStore(plugins.SimplePlugin):
 
     class PostContext:
         
-        def __init__(self, url, postdata):
+        def __init__(self, url, postdata, fetch_thread):
 
             self.post_buffer = StringIO(postdata)
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
-            self.curl_ctx = pycURLPostContext(post_buffer, len(postdata), response_buffer, url, self.fetch_thread, self.result)
+            self.curl_ctx = pycURLPostContext(self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
 
         def start(self):
 
@@ -908,7 +918,7 @@ class BlockStore(plugins.SimplePlugin):
     # This is only a BlockStore method because it uses the fetch_thread.
     # Called from cURL thread
     def _post_string_noreturn(self, url, postdata):
-        ctx = BlockStore.PostContext(url, postdata)
+        ctx = BlockStore.PostContext(url, postdata, self.fetch_thread)
         ctx.start()
         return
 

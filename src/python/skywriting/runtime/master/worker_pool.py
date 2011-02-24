@@ -176,12 +176,6 @@ class WorkerPool(plugins.SimplePlugin):
         except:
             self.worker_failed(worker)
         
-    def notify_task_streams_done(self, worker, task):
-        try:
-            httplib2.Http().request("http://%s/control/task/%s/streams_done" % (worker.netloc, task.task_id), "POST", "done")
-        except:
-            pass
-
     def abort_task_on_worker(self, task):
         worker = task.worker
     

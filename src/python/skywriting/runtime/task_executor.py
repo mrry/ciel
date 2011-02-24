@@ -40,11 +40,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             if self.current_task_set is not None:
                 self.current_task_set.abort_task(task_id)
 
-    def notify_streams_done(self, task_id):
-        with self._lock:
-            if self.current_task_set is not None:
-                self.current_task_set.notify_streams_done(task_id)
-    
     # Main entry point
 
     def handle_input(self, input):
@@ -136,11 +131,6 @@ class TaskSetExecutionRecord:
         with self._lock:
             if self.current_td["task_id"] == task_id:
                 self.current_task.executor.abort()
-
-    def notify_streams_done(self, task_id):
-        with self._lock:
-            if self.current_td["task_id"] == task_id:
-                self.current_task.executor.notify_streams_done()
 
 class TaskExecutionRecord:
 

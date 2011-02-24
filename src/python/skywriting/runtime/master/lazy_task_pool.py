@@ -245,11 +245,6 @@ class LazyTaskPool(plugins.SimplePlugin):
             task.notify_reference_changed(id, ref, self)
             if was_blocked and not task.is_blocked():
                 self.add_runnable_task(task)
-            elif was_assigned_streaming and not task.is_assigned_streaming():
-                # All input streams have finished; poke the task for prompt finish
-                ciel.log.error("Assigned task %s all streams done, notifying" % task.task_id, 
-                                   "TASKPOOL", logging.INFO)
-                self.worker_pool.notify_task_streams_done(task.worker, task)
             elif was_queued_streaming and not task.is_queued_streaming():
                 # Submit this to the scheduler again
                 self.add_runnable_task(task)

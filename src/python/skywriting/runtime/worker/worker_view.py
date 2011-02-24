@@ -119,11 +119,6 @@ class TaskRoot:
                 self.worker.abort_task(real_id)
             else:
                 raise cherrypy.HTTPError(405)
-        elif action == "streams_done":
-            if cherrypy.request.method == "POST":
-                self.worker.notify_task_streams_done(real_id)
-            else:
-                raise cherrypy.HTTPError(405)
         else:
             raise cherrypy.HTTPError(404)
     

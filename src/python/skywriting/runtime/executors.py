@@ -767,7 +767,7 @@ class AsyncPushThread:
                                 if self.bytes_copied == self.bytes_available and self.fetch_done:
                                     self.stream_done = True
                                     self.condvar.notify_all()
-                                    ciel.log("FIFO-push for %s complete (success: %b)" % (self.ref, self.success), "EXEC", logging.INFO)
+                                    ciel.log("FIFO-push for %s complete (success: %s)" % (self.ref, self.success), "EXEC", logging.INFO)
                                     return
                             if len(buf) < 4096:
                                 # EOF, for now.
