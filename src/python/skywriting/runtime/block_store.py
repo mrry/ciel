@@ -441,8 +441,6 @@ class BlockStore(plugins.SimplePlugin):
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
-        self.find_local_blocks()
-
     def start(self):
         self.fetch_thread.start()
 
@@ -519,13 +517,17 @@ class BlockStore(plugins.SimplePlugin):
         '''
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         with self._lock:
+            if id in self.local_blocks:
+                ciel.log("Block %s already existed! Overwriting..." % id, "BLOCKSTORE", logging.WARNING)
+                self.local_blocks.discard(id)
+                os.remove(self.filename(id))
             self.streaming_producers[id] = executor
             dot_filename = self.streaming_filename(id)
             open(dot_filename, 'wb').close()
         return BlockStore.FileOutputContext(id, self)
 
     def commit_stream(self, id):
-        ciel.log.error('Committing streamed file for output %s' % id, 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         os.link(self.streaming_filename(id), self.filename(id))
         with self._lock:
             del self.streaming_producers[id]
@@ -680,17 +682,17 @@ class BlockStore(plugins.SimplePlugin):
     def _fetch_ref_async(self, ref, fetch_context, result_callback, reset_callback, progress_callback):
         
         if self.is_ref_local(ref):
-            ciel.log("Ref %s became local during thread-switch; returning immediately" % ref, "BLOCKSTORE", logging.INFO)
+            ciel.log("Ref %s became local during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
             fetch_context.fetch_completed()
             result_callback(True)
         else:
             # No locking from now on, as the following structures are only touched by the cURL thread.
             if ref.id not in self.incoming_fetches:
-                ciel.log("Asynchronous fetch ref %s: starting" % ref, "BLOCKSTORE", logging.INFO)
+                ciel.log("Starting new fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
                 self._start_fetch_ref(ref)
                 fetch_context.fetch_in_progress()
             else:
-                ciel.log("Asynchronous fetch ref %s: fetch already in progress, subscribing" % ref, "BLOCKSTORE", logging.INFO)
+                ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
             self.incoming_fetches[ref.id].add_listener(result_callback, reset_callback, progress_callback)
 
     class CompletedFetch:
@@ -718,9 +720,7 @@ class BlockStore(plugins.SimplePlugin):
             self.ready_event.set()
 
         def get_filename(self):
-            ciel.log("Waiting for asynchronous fetch start", "BLOCKSTORE", logging.INFO)
             self.ready_event.wait()
-            ciel.log("Fetch started, using file %s" % self.ret_filename, "BLOCKSTORE", logging.INFO)
             return self.ret_filename
 
     # Called from arbitrary thread
@@ -731,7 +731,6 @@ class BlockStore(plugins.SimplePlugin):
             result_callback(True)
             return BlockStore.CompletedFetch(self.filename(ref.id))
         else:
-            ciel.log("Asynchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
             new_ctx = BlockStore.FetchInProgress(self.filename(ref.id), self.streaming_filename(ref.id))
             self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_ctx, result_callback, reset_callback, progress_callback))
             return new_ctx
@@ -762,7 +761,6 @@ class BlockStore(plugins.SimplePlugin):
             ctxs.append(sync_transfer)
             
         for ctx in ctxs:
-            ciel.log("Waiting for fetch %s" % ref, "BLOCKSTORE", logging.INFO)
             ctx.wait()
             
         failed_transfers = filter(lambda x: not x.success, ctxs)

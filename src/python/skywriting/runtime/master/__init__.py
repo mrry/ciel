@@ -74,6 +74,7 @@ def master_main(options):
     block_store = BlockStore(ciel.engine, local_hostname, local_port, block_store_dir)
     block_store.subscribe()
     block_store.build_pin_set()
+    block_store.find_local_blocks()
 
     if options.master is not None:
         monitor = MasterRecoveryMonitor(cherrypy.engine, 'http://%s/' % master_netloc, options.master, job_pool)

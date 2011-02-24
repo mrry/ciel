@@ -730,11 +730,10 @@ class AsyncPushThread:
                                                       reset_callback=self.reset, 
                                                       progress_callback=self.progress)
         if not self.fetch_done:
-            ciel.log("Fetch for %s did not complete immediately; creating push thread" % ref, "EXEC", logging.INFO)
             self.thread = threading.Thread(target=self.copy_loop)
             self.thread.start()
         else:
-            ciel.log("Fetch for %s completed immediately" % ref, "EXEC", logging.INFO)
+            ciel.log("Fetch for %s completed before first read; using file directly" % self.ref, "EXEC", logging.INFO)
             with self.lock:
                 self.filename = self.file_fetch.get_filename()
                 self.stream_done = True
@@ -746,12 +745,12 @@ class AsyncPushThread:
             # Do this here to avoid blocking in constructor
             read_filename = self.file_fetch.get_filename()
             with self.lock:
-                if self.fetch_done:
+                if not self.fetch_done:
                     self.filename = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
                     ciel.log("Fetch for %s not yet complete; pushing through FIFO %s" % (self.ref, self.filename), "EXEC", logging.INFO)   
                     os.mkfifo(self.filename)
                 else:
-                    ciel.log("Fetch for %s completed during get_filename; reading directly" % self.ref, "EXEC", logging.INFO)
+                    ciel.log("Fetch for %s completed before first read; using file directly" % self.ref, "EXEC", logging.INFO)
                     self.stream_done = True
                     self.filename = read_filename
                 self.condvar.notify_all()
@@ -768,6 +767,7 @@ class AsyncPushThread:
                                 if self.bytes_copied == self.bytes_available and self.fetch_done:
                                     self.stream_done = True
                                     self.condvar.notify_all()
+                                    ciel.log("FIFO-push for %s complete (success: %b)" % (self.ref, self.success), "EXEC", logging.INFO)
                                     return
                             if len(buf) < 4096:
                                 # EOF, for now.
@@ -783,17 +783,6 @@ class AsyncPushThread:
                 self.condvar.notify_all()
 
     def result(self, success):
-        if success:
-            completed = "failed!"
-        else:
-            completed = "completed"
-        if self.thread is None:
-            completed = "completed without transfer"
-            prefix = "Fetch"
-        else:
-            prefix = "Asynchronous fetch"
-            ciel.log("%s of ref %s %s" % (prefix, self.ref, completed), "EXEC", logging.INFO)
-
         with self.lock:
             self.success = success
             self.fetch_done = True
@@ -892,7 +881,6 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         # If we have fetched any objects to this worker, publish them at the master.
         # TODO: Do this cleanly by using context objects returned by the BlockStor
-        ciel.log("Publishing fetched references", "EXEC", logging.INFO)
         extra_publishes = {}
         for ref in self.input_refs:
             if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
@@ -914,7 +902,6 @@ class ProcessRunningExecutor(SimpleExecutor):
             raise OSError()
 
         ciel.engine.publish("worker_event", "Executor: Storing outputs")
-        ciel.log("Publishing created references", "EXEC", logging.INFO)
 
         for i, output in enumerate(out_file_contexts):
             output.close()
