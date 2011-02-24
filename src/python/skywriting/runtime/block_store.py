@@ -130,7 +130,7 @@ class pycURLFetchContext(pycURLContext):
             self.curl_ctx.setopt(pycurl.NOPROGRESS, False)
             self.curl_ctx.setopt(pycurl.PROGRESSFUNCTION, self.progress)
             self.progress_callback = progress_callback
-        if start_byte is not None:
+        if start_byte is not None and start_byte != 0:
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-" % start_byte])
 
     def success(self):
@@ -153,6 +153,7 @@ class pycURLPostContext(pycURLContext):
         self.curl_ctx.setopt(pycurl.READFUNCTION, self.read)
         self.curl_ctx.setopt(pycurl.POST, True)
         self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
+        self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream"])
 
     def write(self, data):
         self.write_fp.write(data)
@@ -283,6 +284,7 @@ class pycURLThread:
                         if str(response_code).startswith("2"):
                             c.ctx.success()
                         else:
+                            ciel.log.error("Curl failure: HTTP %s" % str(response_code), "CURL_FETCH", logging.WARNING)
                             c.ctx.failure(response_code, "")
                         self.active_fetches.remove(c.ctx)
                     for c, errno, errmsg in err_list:
@@ -346,34 +348,35 @@ class FileTransferContext:
 
 class StreamTransferContext:
 
-    def __init__(self, worker_netloc, refid, save_filename, multi, block_store, callbacks):
-        self.url = "http://%s/data/%s" % (worker_netloc, refid)
-        self.worker_netloc = worker_netloc
-        self.refid = refid
-        self.save_filename = save_filename
-        self.fp = open(save_filename, "w")
-        self.multi = multi
+    def __init__(self, ref, block_store, callbacks):
+        self.url = block_store.get_fetch_urls_for_ref(ref)[0]
+        parsed_url = urlparse.urlparse(self.url)
+        self.worker_netloc = parsed_url.netloc
+        self.ref = ref
+        self.save_filename = block_store.streaming_filename(ref.id)
+        self.fp = open(self.save_filename, "w")
         self.callbacks = callbacks
         self.current_data_fetch = None
         self.previous_fetches_bytes_downloaded = 0
         self.remote_done = False
+        self.remote_failed = False
         self.latest_advertisment = 0
         self.block_store = block_store
 
     def start_next_fetch(self):
-        ciel.log("Stream-fetch %s: start fetch" % self.refid, "CURL_FETCH", logging.INFO)
-        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.multi, self.result, self.progress, self.previous_fetches_bytes_downloaded)
+        ciel.log("Stream-fetch %s: start fetch" % self.ref.id, "CURL_FETCH", logging.INFO)
+        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.block_store.fetch_thread, self.result, self.progress, self.previous_fetches_bytes_downloaded)
         self.current_data_fetch.start()
 
     def start(self):
         
-        ciel.log("Starting stream-fetch for %s" % self.refid, "CURL_FETCH", logging.INFO)
+        ciel.log("Starting stream-fetch for %s" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.start_next_fetch()
-        ciel.log("Stream-fetch %s: accepting advertisments" % self.refid, "CURL_FETCH", logging.INFO)
-        self.block_store.add_incoming_stream(self.refid, self)
+        ciel.log("Stream-fetch %s: accepting advertisments" % self.ref.id, "CURL_FETCH", logging.INFO)
+        self.block_store.add_incoming_stream(self.ref.id, self)
         post_data = simplejson.dumps({"netloc": self.block_store.netloc})
-        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.refid), post_data)
-        ciel.log("Stream-fetch %s: subscribed to advertisments from %s" % (self.refid, self.worker_netloc), "CURL_FETCH", logging.INFO)
+        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data)
+        ciel.log("Stream-fetch %s: subscribed to advertisments from %s" % (self.ref.id, self.worker_netloc), "CURL_FETCH", logging.INFO)
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -383,38 +386,51 @@ class StreamTransferContext:
             self.start_next_fetch()
         else:
             ciel.log("Stream-fetch %s: paused (remote has %d, I have %d)" % 
-                     (self.refid, self.latest_advertisment, self.previous_fetches_bytes_downloaded), 
+                     (self.ref.id, self.latest_advertisment, self.previous_fetches_bytes_downloaded), 
                      "CURL_FETCH", logging.INFO)
             self.current_data_fetch = None
 
+    def check_complete(self):
+        if self.remote_done and self.latest_advertisment == self.previous_fetches_bytes_downloaded:
+            ciel.log("Stream-fetch %s: complete" % self.ref.id, "CURL_FETCH", logging.INFO)
+            self.complete(True)
+        else:
+            self.consider_next_fetch()
+
     def result(self, success):
-        # Current transfer finished. 
+        # Current transfer finished.
+        if self.remote_failed:
+            # advertisment subscription failed
+            ciel.log("Stream-fetch %s: advertisment subscription failed. Failing transfer." % self.ref.id, "CURL_FETCH", logging.WARNING)
+            self.complete(False)
+            return
         if not success:
-            ciel.log("Stream-fetch %s: transfer failed" % self.refid)
+            ciel.log("Stream-fetch %s: transfer failed" % self.ref.id)
             self.complete(False)
         else:
             this_fetch_bytes = self.current_data_fetch.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD)
-            ciel.log("Stream-fetch %s: transfer succeeded (got %d bytes)" % (self.refid, this_fetch_bytes),
+            ciel.log("Stream-fetch %s: transfer succeeded (got %d bytes)" % (self.ref.id, this_fetch_bytes),
                      "CURL_FETCH", logging.INFO)
             self.previous_fetches_bytes_downloaded += this_fetch_bytes
-            if self.remote_done and self.latest_advertisment == self.previous_fetches_bytes_downloaded:
-                ciel.log("Stream-fetch %s: complete" % self.refid, "CURL_FETCH", logging.INFO)
-                self.complete(True)
-            else:
-                self.consider_next_fetch()
+            self.check_complete()
 
     def complete(self, success):
         self.fp.close()
-        self.block_store.remove_incoming_stream(self.refid)
+        self.block_store.remove_incoming_stream(self.ref.id)
         self.callbacks.result(success)
 
-    def advertisment(self, current_bytes_available, file_done):
-        ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (current_bytes_available, file_done),
-                 "CURL_FETCH", logging.INFO)
-        self.latest_advertisment = current_bytes_available
-        self.remote_done = file_done
-        if self.current_data_fetch is None:
-            self.consider_next_fetch()
+    def advertisment(self, bytes=None, done=None, absent=None):
+        if absent is True:
+            ciel.log("Stream-fetch %s: advertisment subscription reported file absent" % self.ref.id, "CURL_FETCH", logging.WARNING)
+            self.remote_failed = True
+            if self.current_data_fetch is None:
+                self.complete(False)
+        else:
+            ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (self.ref.id, bytes, done), "CURL_FETCH", logging.INFO)
+            self.latest_advertisment = bytes
+            self.remote_done = done
+            if self.current_data_fetch is None:
+                self.check_complete()
 
 class BlockStore(plugins.SimplePlugin):
 
@@ -579,19 +595,16 @@ class BlockStore(plugins.SimplePlugin):
 
     # Remote is subscribing to updates from one of our streaming producers
     def subscribe_to_stream(self, otherend_netloc, id):
-        send_result = False
         with self._lock:
             try:
                 self.streaming_producers[id].subscribe_output(otherend_netloc, id)
-            except:
-                send_result = True
-        if send_result:
-            try:
-                st = os.stat(self.filename(id))
-                post = simplejson.dumps({"bytes": st.st_size, "done": True})
-            except:
-                post = simplejson.dumps({"state": "absent"})
-            self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, self.refid), post)
+            except KeyError:
+                if id in self.local_blocks:
+                    st = os.stat(self.filename(id))
+                    post = simplejson.dumps({"bytes": st.st_size, "done": True})
+                else:
+                    post = simplejson.dumps({"absent": True})
+                self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
 
     def encode_datavalue(self, str):
         return (self.dataval_codec.encode(str))[0]
@@ -608,14 +621,15 @@ class BlockStore(plugins.SimplePlugin):
         del self.incoming_streams[id]
 
     # Called from cURL thread
-    def _receive_stream_advertisment(self, id, bytes, done):
+    def _receive_stream_advertisment(self, id, **args):
         try:
-            self.incoming_streams[id].advertisment(bytes, done)
+            self.incoming_streams[id].advertisment(**args)
         except KeyError:
+            ciel.log("Got advertisment for %s which is not an ongoing stream" % id, "BLOCKSTORE", logging.WARNING)
             pass
 
-    def receive_stream_advertisment(self, id, bytes, done):
-        self.fetch_thread.do_from_curl_thread(lambda: self._receive_stream_advertisment(id, bytes, done))
+    def receive_stream_advertisment(self, id, **args):
+        self.fetch_thread.do_from_curl_thread(lambda: self._receive_stream_advertisment(id, **args))
         
     def is_ref_local(self, ref):
         assert isinstance(ref, SWRealReference)
@@ -676,7 +690,7 @@ class BlockStore(plugins.SimplePlugin):
         if isinstance(ref, SW2_ConcreteReference):
             ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
         elif isinstance(ref, SW2_StreamReference):
-            ctx = StreamTransferContext(list(ref.location_hints)[0], ref.id, save_filename, self.fetch_thread, self, new_listener)
+            ctx = StreamTransferContext(ref, self, new_listener)
         ctx.start()
 
     # Called from cURL thread
@@ -927,11 +941,11 @@ class BlockStore(plugins.SimplePlugin):
 
     # Called from cURL thread
     def _post_string(self, url, postdata):
-        ctx = BlockStore.PostContext(url, postdata)
+        ctx = BlockStore.PostContext(url, postdata, self.fetch_thread)
         ctx.start()
         return ctx.get_result()
 
-    def post_string_noreturn(self, url, postdata):
+    def post_string(self, url, postdata):
         self.fetch_thread.do_from_curl_thread(lambda: self._post_string(url, postdata))
 
     def find_local_blocks(self):

@@ -29,6 +29,8 @@ import simplejson
 import cherrypy
 import os
 import time
+import ciel
+import logging
 
 class WorkerRoot:
     
@@ -60,13 +62,15 @@ class StreamStatRoot:
     def __init__(self, block_store):
         self.block_store = block_store
 
+    @cherrypy.expose
     def default(self, id, op):
         if cherrypy.request.method == "POST":
-            payload = simplejson.reads(cherrypy.request.body.read())
+            payload = simplejson.loads(cherrypy.request.body.read())
+            ciel.log("StreamStat: %s %s %s" % (id, op, payload), "WVIEW", logging.DEBUG)
             if op == "subscribe":
                 self.block_store.subscribe_to_stream(payload["netloc"], id)
             elif op == "advert":
-                self.block_store.receive_stream_advertisment(id, payload["bytes"], payload["done"])
+                self.block_store.receive_stream_advertisment(id, **payload)
             else:
                 raise cherrypy.HTTPError(404)
         else:

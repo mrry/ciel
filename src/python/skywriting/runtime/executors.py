@@ -764,7 +764,7 @@ class AsyncPushThread:
                             output_fp.write(buf)
                             self.bytes_copied += len(buf)
                             with self.lock:
-                                if self.bytes_copied == self.bytes_available and self.fetch_done:
+                                if self.success is False or (self.bytes_copied == self.bytes_available and self.fetch_done):
                                     self.stream_done = True
                                     self.condvar.notify_all()
                                     ciel.log("FIFO-push for %s complete (success: %s)" % (self.ref, self.success), "EXEC", logging.INFO)
@@ -919,7 +919,7 @@ class ProcessRunningExecutor(SimpleExecutor):
         with self._lock:
             if self.outputs_in_progress:
                 watch = self.file_watcher_thread.add_watch(otherend_netloc, output_id)
-                self.output_subscriptions.add(watch)
+                self.output_subscriptions.append(watch)
             else:
                 raise Exception("Executor has finished (or not yet begun, in which case how did you find this StreamRef, eh?)")
 

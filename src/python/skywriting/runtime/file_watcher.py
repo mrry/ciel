@@ -87,6 +87,7 @@ class FileWatch:
             self.thread.condvar.notify_all()
         
 def create_watcher_thread(bus, block_store):
+    global singleton_watcher
     singleton_watcher = FileWatcherThread(bus, block_store)
     singleton_watcher.subscribe()
 
