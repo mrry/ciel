@@ -721,9 +721,10 @@ class SimpleExecutor:
 
 class AsyncPushThread:
 
-    def __init__(self, block_store, ref):
+    def __init__(self, block_store, ref, start_threshold=67108864):
         self.block_store = block_store
         self.ref = ref
+        self.start_threshold = start_threshold
         self.success = None
         self.lock = threading.Lock()
         self.fetch_done = False
@@ -742,7 +743,7 @@ class AsyncPushThread:
                                                            reset_callback=self.reset, 
                                                            progress_callback=self.progress)
         if not self.fetch_done:
-            self.thread = threading.Thread(target=self.copy_loop)
+            self.thread = threading.Thread(target=self.thread_main)
             self.thread.start()
         else:
             ciel.log("Fetch for %s completed before first read; using file directly" % self.ref, "EXEC", logging.INFO)
@@ -751,25 +752,32 @@ class AsyncPushThread:
                 self.stream_done = True
                 self.condvar.notify_all()
 
+    def thread_main(self):
+
+        with self.lock:
+            self.next_threshold = self.start_threshold
+            while self.bytes_available < self.start_threshold and not self.fetch_done:
+                self.condvar.wait()
+            if self.fetch_done:
+                ciel.log("Fetch for %s completed before we got %d bytes: using file directly" % (self.ref, self.start_threshold), "EXEC", logging.INFO)
+                self.stream_done = True
+                self.filename = self.file_fetch.get_filename()
+                self.condvar.notify_all()
+                return
+        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.start_threshold), "EXEC", logging.INFO)
+        self.copy_loop()
+
     def copy_loop(self):
         
         try:
-            # Do this here to avoid blocking in constructor
             read_filename = self.file_fetch.get_filename()
+            fifo_name = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
+            os.mkfifo(fifo_name)
             with self.lock:
-                if not self.fetch_done:
-                    self.filename = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
-                    ciel.log("Fetch for %s not yet complete; pushing through FIFO %s" % (self.ref, self.filename), "EXEC", logging.INFO)   
-                    os.mkfifo(self.filename)
-                else:
-                    ciel.log("Fetch for %s completed before first read; using file directly" % self.ref, "EXEC", logging.INFO)
-                    self.stream_done = True
-                    self.filename = read_filename
+                self.filename = fifo_name
                 self.condvar.notify_all()
-                if self.fetch_done:
-                    return
             with open(read_filename, "r") as input_fp:
-                with open(self.filename, "w") as output_fp:
+                with open(fifo_name, "w") as output_fp:
                     while True:
                         while True:
                             buf = input_fp.read(4096)
@@ -812,9 +820,12 @@ class AsyncPushThread:
 
     def get_filename(self):
         with self.lock:
-            while self.filename is None:
+            while self.filename is None and self.success is None:
                 self.condvar.wait()
-        return self.filename
+        if not self.success:
+            raise Exception("Transfer for fetch thread %s failed" % self.ref, "EXEC", logging.WARNING)
+        else:
+            return self.filename
 
     def cancel(self):
         ciel.log("AsyncPushThread: cancel not implemented", "EXEC", logging.WARNING)
@@ -836,9 +847,10 @@ class AsyncPushGroup:
         return self
 
     def __exit__(self, exnt, exnv, exnbt):
-        ciel.log("AsyncPushGroup exiting with exception %s: cancelling...", "EXEC", logging.WARNING)
-        for thread in self.threads:
-            thread.cancel()
+        if exnt is not None:
+            ciel.log("AsyncPushGroup exiting with exception %s: cancelling...", "EXEC", logging.WARNING)
+            for thread in self.threads:
+                thread.cancel()
         ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
         for thread in self.threads:
             thread.wait()
@@ -959,7 +971,6 @@ class ProcessRunningExecutor(SimpleExecutor):
             for watch in self.output_subscriptions:
                 watch.file_done()
             self.output_subscriptions = []
-            self.outputs_in_progress = False
 
         ciel.engine.publish("worker_event", "Executor: Done")
 

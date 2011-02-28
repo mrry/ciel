@@ -66,7 +66,6 @@ class StreamStatRoot:
     def default(self, id, op):
         if cherrypy.request.method == "POST":
             payload = simplejson.loads(cherrypy.request.body.read())
-            ciel.log("StreamStat: %s %s %s" % (id, op, payload), "WVIEW", logging.DEBUG)
             if op == "subscribe":
                 self.block_store.subscribe_to_stream(payload["netloc"], id)
             elif op == "advert":

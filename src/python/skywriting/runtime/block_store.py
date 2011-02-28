@@ -339,10 +339,10 @@ class FileTransferContext:
         else:
             self.failures += 1
             if self.failures == len(self.urls):
-                ciel.log.error('No more URLs to try.', 'BLOCKSTORE', logging.ERROR)
+                ciel.log.error('Fetch %s: no more URLs to try.' % self.save_filename, 'BLOCKSTORE', logging.ERROR)
                 self.callbacks.result(False)
             else:
-                ciel.log.error("Fetch %s to %s failed; trying next URL" % (self.urls[self.failures - 1], self.save_filename))
+                ciel.log.error("Fetch %s failed; trying next URL" % (self.urls[self.failures - 1], self.save_filename))
                 self.callbacks.reset()
                 self.start_next_attempt()
 
@@ -364,19 +364,16 @@ class StreamTransferContext:
         self.block_store = block_store
 
     def start_next_fetch(self):
-        ciel.log("Stream-fetch %s: start fetch" % self.ref.id, "CURL_FETCH", logging.INFO)
+        ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
         self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.block_store.fetch_thread, self.result, self.progress, self.previous_fetches_bytes_downloaded)
         self.current_data_fetch.start()
 
     def start(self):
         
-        ciel.log("Starting stream-fetch for %s" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.start_next_fetch()
-        ciel.log("Stream-fetch %s: accepting advertisments" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.block_store.add_incoming_stream(self.ref.id, self)
         post_data = simplejson.dumps({"netloc": self.block_store.netloc})
         self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data)
-        ciel.log("Stream-fetch %s: subscribed to advertisments from %s" % (self.ref.id, self.worker_netloc), "CURL_FETCH", logging.INFO)
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -401,7 +398,7 @@ class StreamTransferContext:
         # Current transfer finished.
         if self.remote_failed:
             # advertisment subscription failed
-            ciel.log("Stream-fetch %s: advertisment subscription failed. Failing transfer." % self.ref.id, "CURL_FETCH", logging.WARNING)
+            ciel.log("Stream-fetch %s: advertisment reported file absent. Failing transfer." % self.ref.id, "CURL_FETCH", logging.WARNING)
             self.complete(False)
             return
         if not success:
