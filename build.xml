@@ -25,6 +25,7 @@
 	<path id="examplesourcepath">
 	  <pathelement location="src/java"/>
 	  <pathelement location="examples/Grep/src"/>
+	  <pathelement location="examples/Mandelbrot/src"/>
 	  <pathelement location="examples/Pi/src"/>
 	  <pathelement location="examples/skydoop/src"/>
 	  <pathelement location="examples/skyhout/src"/>
@@ -83,6 +84,7 @@
 	<target name="compile-examples">
 	  <mkdir dir="${dir.build}/examples"/>
 	  <compileExampleJar example="SmithWaterman"/>
+	  <compileExampleJar example="Mandelbrot"/>
 	  <compileExampleJar example="Pi"/>
 	  <compileExampleJar example="WordCount"/>
 	  <compileExampleJar example="Grep"/>
@@ -93,6 +95,7 @@
 	<target name="build-examples" depends="build-bindings, compile-examples">
 		<mkdir dir="${dir.dist}"/>
 		<exampleJar exampledir="SmithWaterman" examplepackage="smithwaterman"/>
+		<exampleJar exampledir="Mandelbrot" examplepackage="mandelbrot"/>
 		<exampleJar exampledir="Pi" examplepackage="pi"/>
 		<exampleJar exampledir="WordCount" examplepackage="wordcount"/>
 		<exampleJar exampledir="Grep" examplepackage="grep"/>
