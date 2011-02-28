@@ -57,6 +57,16 @@ def kill_all_running_children():
         except:
             pass
 
+class list_with:
+    def __init__(self, l):
+        self.wrapped_list = l
+    def __enter__(self):
+        return [x.__enter__() for x in self.wrapped_list]
+    def __exit__(self, exnt, exnv, exntb):
+        for x in self.wrapped_list:
+            x.__exit__(exnt, exnv, exntb)
+        return False
+
 class ExecutionFeatures:
     
     def __init__(self):
@@ -711,10 +721,9 @@ class SimpleExecutor:
 
 class AsyncPushThread:
 
-    def __init__(self, block_store, ref, fifos_dir):
+    def __init__(self, block_store, ref):
         self.block_store = block_store
         self.ref = ref
-        self.fifos_dir = fifos_dir
         self.success = None
         self.lock = threading.Lock()
         self.fetch_done = False
@@ -725,10 +734,13 @@ class AsyncPushThread:
         self.condvar = threading.Condition(self.lock)
         self.thread = None
         self.filename = None
-        self.file_fetch = block_store.fetch_ref_async(ref, 
-                                                      result_callback=self.result, 
-                                                      reset_callback=self.reset, 
-                                                      progress_callback=self.progress)
+
+    def start(self, fifos_dir):
+        self.fifos_dir = fifos_dir
+        self.file_fetch = self.block_store.fetch_ref_async(self.ref, 
+                                                           result_callback=self.result, 
+                                                           reset_callback=self.reset, 
+                                                           progress_callback=self.progress)
         if not self.fetch_done:
             self.thread = threading.Thread(target=self.copy_loop)
             self.thread.start()
@@ -804,10 +816,57 @@ class AsyncPushThread:
                 self.condvar.wait()
         return self.filename
 
+    def cancel(self):
+        ciel.log("AsyncPushThread: cancel not implemented", "EXEC", logging.WARNING)
+
     def wait(self):
         with self.lock:
             while not self.stream_done:
                 self.condvar.wait()
+
+class AsyncPushGroup:
+
+    def __init__(self, threads):
+        self.threads = threads
+
+    def __enter__(self):
+        self.fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
+        for thread in self.threads:
+            thread.start(self.fifos_dir)
+        return self
+
+    def __exit__(self, exnt, exnv, exnbt):
+        ciel.log("AsyncPushGroup exiting with exception %s: cancelling...", "EXEC", logging.WARNING)
+        for thread in self.threads:
+            thread.cancel()
+        ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
+        for thread in self.threads:
+            thread.wait()
+        shutil.rmtree(self.fifos_dir)
+        return False
+
+class DummyPushThread:
+
+    def __init__(self, filename):
+        self.filename = filename
+        self.success = True
+        
+    def get_filename(self):
+        return self.filename
+
+    def wait(self):
+        pass
+
+class DummyPushGroup:
+
+    def __init__(self, dummys):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exnt, exnv, exnbt):
+        return False
 
 class ProcessRunningExecutor(SimpleExecutor):
 
@@ -842,69 +901,58 @@ class ProcessRunningExecutor(SimpleExecutor):
             self.make_sweetheart = []
 
         if self.eager_fetch:
-            push_threads = None
-            file_inputs = self.block_store.retrieve_filenames_for_refs(self.input_refs)
+            push_threads = [DummyPushThread(x) for x in self.block_store.retrieve_filenames_for_refs(self.input_refs)]
+            push_ctx = DummyPushGroup(push_threads)
         else:
-            fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
-            push_threads = [AsyncPushThread(self.block_store, ref, fifos_dir) for ref in self.input_refs]
+            push_threads = [AsyncPushThread(self.block_store, ref) for ref in self.input_refs]
+            push_ctx = AsyncPushGroup(push_threads)
+
+        with push_ctx:
             file_inputs = [push_thread.get_filename() for push_thread in push_threads]
-
-        with self._lock:
-            out_file_contexts = [self.block_store.make_local_output(id, self) for id in self.output_ids]
-            self.outputs_in_progress = True
-
-        file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
         
-        if self.stream_output:
+            with list_with([self.block_store.make_local_output(id, self) for id in self.output_ids]) as out_file_contexts:
+                with self._lock:
+                    self.outputs_in_progress = True
+
+                file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
+        
+                if self.stream_output:
            
-            stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
-            to_publish = dict([(ref.id, ref) for ref in stream_refs])
-            self.task_record.prepublish_refs(to_publish)
+                    stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
+                    to_publish = dict([(ref.id, ref) for ref in stream_refs])
+                    self.task_record.prepublish_refs(to_publish)
 
-        self.proc = self.start_process(file_inputs, file_outputs)
-        add_running_child(self.proc)
+                self.proc = self.start_process(file_inputs, file_outputs)
+                add_running_child(self.proc)
 
-        rc = self.await_process(file_inputs, file_outputs)
-        remove_running_child(self.proc)
+                rc = self.await_process(file_inputs, file_outputs)
+                remove_running_child(self.proc)
 
-        self.proc = None
+                self.proc = None
 
-#        if "trace_io" in self.debug_opts:
-#            transfer_ctx.log_traces()
+                #        if "trace_io" in self.debug_opts:
+                #            transfer_ctx.log_traces()
 
-        # Wait for the threads pushing input to the client to finish. Could cancel or detach here instead.
-        if push_threads is not None:
-            ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
-            for thread in push_threads:
-                thread.wait()
-            shutil.rmtree(fifos_dir)
+                # If we have fetched any objects to this worker, publish them at the master.
+                # TODO: Do this cleanly by using context objects returned by the BlockStor
+                extra_publishes = {}
+                for ref in self.input_refs:
+                    if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
+                        extra_publishes[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [self.block_store.netloc])
+                for sweetheart in self.make_sweetheart:
+                    extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
+                if len(extra_publishes) > 0:
+                    self.task_record.prepublish_refs(extra_publishes)
 
-        # If we have fetched any objects to this worker, publish them at the master.
-        # TODO: Do this cleanly by using context objects returned by the BlockStor
-        extra_publishes = {}
-        for ref in self.input_refs:
-            if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
-                extra_publishes[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [self.block_store.netloc])
-        for sweetheart in self.make_sweetheart:
-            extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
-        if len(extra_publishes) > 0:
-            self.task_record.prepublish_refs(extra_publishes)
+                failed_threads = filter(lambda t: not t.success, push_threads)
+                failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
+                if len(failure_bindings) > 0:
+                    raise MissingInputException(failure_bindings)
 
-        if push_threads is not None:
-            failed_threads = filter(lambda t: not t.success, push_threads)
-            failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
-            if len(failure_bindings) > 0:
-                raise MissingInputException(failure_bindings)
-
-        if rc != 0:
-            for output in out_file_contexts:
-                output.rollback()
-            raise OSError()
-
-        ciel.engine.publish("worker_event", "Executor: Storing outputs")
+                if rc != 0:
+                    raise OSError()
 
         for i, output in enumerate(out_file_contexts):
-            output.close()
             self.output_refs[i] = output.get_completed_ref()
 
         with self._lock:
@@ -918,6 +966,7 @@ class ProcessRunningExecutor(SimpleExecutor):
     def subscribe_output(self, otherend_netloc, output_id):
         with self._lock:
             if self.outputs_in_progress:
+                ciel.log("Subscribe file-watcher: %s" % output_id, "EXEC", logging.INFO)
                 watch = self.file_watcher_thread.add_watch(otherend_netloc, output_id)
                 self.output_subscriptions.append(watch)
             else:
@@ -931,8 +980,7 @@ class ProcessRunningExecutor(SimpleExecutor):
         return rc
 
     def _cleanup_task(self):
-        if self.stream_output and not self.succeeded:
-            self.block_store.rollback_file(self.output_ids[0])
+        pass
         
     def _abort(self):
         if self.proc is not None:
@@ -964,16 +1012,6 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
             return subprocess.Popen(map(str, command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
 
     def await_process(self, input_files, output_files):
-
-        class list_with:
-            def __init__(self, l):
-                self.wrapped_list = l
-            def __enter__(self):
-                return [x.__enter__() for x in self.wrapped_list]
-            def __exit__(self, exnt, exnv, exntb):
-                for x in self.wrapped_list:
-                    x.__exit__(exnt, exnv, exntb)
-                return False
 
         with list_with([open(filename, 'r') for filename in input_files]) as fileobjs:
             for fileobj in fileobjs:

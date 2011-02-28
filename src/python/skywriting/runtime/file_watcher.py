@@ -36,6 +36,7 @@ class FileWatcherThread:
             self.active_watches.add(new_watch)
             self.event_flag = True
             self.condvar.notify_all()
+        return new_watch
 
     def main_loop(self):
         while True:

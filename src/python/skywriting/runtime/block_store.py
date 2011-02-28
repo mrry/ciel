@@ -537,6 +537,17 @@ class BlockStore(plugins.SimplePlugin):
             else:
                 return SW2_ConcreteReference(self.refid, size_hint=file_size, location_hints=[self.block_store.netloc])
 
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exnt, exnv, exntb):
+            if exnt is None:
+                self.close()
+            else:
+                ciel.log("FileOutputContext %s destroyed due to exception %s: rolling back" % (self.refid, exnv), "BLOCKSTORE", logging.WARNING)
+                self.rollback()
+            return False
+
     def make_local_output(self, id, executor=None):
         '''
         Creates a file-in-progress in the block store directory.
@@ -595,6 +606,7 @@ class BlockStore(plugins.SimplePlugin):
 
     # Remote is subscribing to updates from one of our streaming producers
     def subscribe_to_stream(self, otherend_netloc, id):
+        post = None
         with self._lock:
             try:
                 self.streaming_producers[id].subscribe_output(otherend_netloc, id)
@@ -604,7 +616,8 @@ class BlockStore(plugins.SimplePlugin):
                     post = simplejson.dumps({"bytes": st.st_size, "done": True})
                 else:
                     post = simplejson.dumps({"absent": True})
-                self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
+        if post is not None:
+            self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
 
     def encode_datavalue(self, str):
         return (self.dataval_codec.encode(str))[0]
