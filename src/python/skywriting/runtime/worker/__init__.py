@@ -76,7 +76,7 @@ class Worker(plugins.SimplePlugin):
 
         self.cherrypy_conf = {}
 
-        cherrypy.config.update({"server.thread_pool" : 50})
+        cherrypy.config.update({"server.thread_pool" : 20})
 
 
         
