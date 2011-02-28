@@ -47,13 +47,17 @@ class TaskFailureInvestigator:
         # First, go through the bindings to determine which references are really missing.
         for id, tombstone in bindings.items():
             if isinstance(tombstone, SW2_TombstoneReference):
+                cherrypy.log.error('Investigating reference: %s' % str(tombstone), 'TASKFAIL', logging.WARN)
                 failed_netlocs_for_ref = set()
                 for netloc in tombstone.netlocs:
                     h = httplib2.Http()
                     try:
                         response, _ = h.request('http://%s/data/%s' % (netloc, id), 'HEAD')
-                        if response['status'] != 200:
+                        if response['status'] != '200':
+                            cherrypy.log.error('Could not obtain object from %s: status %s' % (netloc, response['status']), 'TASKFAIL', logging.WARN)
                             failed_netlocs_for_ref.add(netloc)
+                        else:
+                            cherrypy.log.error('Object')
                     except:
                         cherrypy.log.error('Could not contact store at %s' % netloc, 'TASKFAIL', logging.WARN)
                         failed_netlocs.add(netloc)
