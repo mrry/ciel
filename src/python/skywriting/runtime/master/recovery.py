@@ -37,7 +37,7 @@ class TaskFailureInvestigator:
         self.deferred_worker.do_deferred(lambda: self._investigate_task_failure(task_id, failure_payload))
         
     def _investigate_task_failure(self, task, failure_payload):
-        (reason, _, bindings) = failure_payload
+        (reason, detail, bindings) = failure_payload
         cherrypy.log.error('Investigating failure of task %s' % task.task_id, 'TASKFAIL', logging.WARN)
         cherrypy.log.error('Task failed because %s' % reason, 'TASKPOOL', logging.WARN)
 
@@ -57,7 +57,7 @@ class TaskFailureInvestigator:
                             cherrypy.log.error('Could not obtain object from %s: status %s' % (netloc, response['status']), 'TASKFAIL', logging.WARN)
                             failed_netlocs_for_ref.add(netloc)
                         else:
-                            cherrypy.log.error('Object')
+                            cherrypy.log.error('Object still available from %s' % netloc, 'TASKFAIL', logging.INFO)
                     except:
                         cherrypy.log.error('Could not contact store at %s' % netloc, 'TASKFAIL', logging.WARN)
                         failed_netlocs.add(netloc)
@@ -75,7 +75,7 @@ class TaskFailureInvestigator:
                 self.worker_pool.worker_failed(worker)
                 
         # Finally, propagate the failure to the task pool, so that we can re-run the failed task.
-        self.task_pool.task_failed(task, failure_payload)
+        self.task_pool.task_failed(task, (reason, detail, revised_bindings))
 
 class RecoveryManager(plugins.SimplePlugin):
     
