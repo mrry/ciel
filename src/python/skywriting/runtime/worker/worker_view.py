@@ -182,6 +182,13 @@ class DataRoot:
             if self.task_pool is not None:
                 self.task_pool.publish_refs({safe_id : SW2_ConcreteReference(safe_id, None, [self.block_store.netloc])})
             return simplejson.dumps(url)
+        
+        elif cherrypy.request.method == 'HEAD':
+            if os.path.exists(self.block_store.filename(id)):
+                return
+            else:
+                raise cherrypy.HTTPError(404)
+        
         else:
             raise cherrypy.HTTPError(405)
 
