@@ -105,7 +105,7 @@ done
 # ---------------------------------------------
 # main script
 
-if [[ $TARGET == "" || $PULLFILE == "" ]]; then
+if [[ $TARGET == "" || $PUSHFILE == "" ]]; then
    echo "source (-p) and target (-t) must be specified!"
    exit 2
 fi
