@@ -321,6 +321,10 @@ class EnvironmentExecutor(ProcessRunningExecutor):
     def __init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit=None):
         ProcessRunningExecutor.__init__(self, args, continuation, expected_output_ids, master_proxy, fetch_limit)
         try:
+            self.env = args['env']
+        except KeyError:
+            self.env = {}
+        try:
             self.command_line = args['command_line']
         except KeyError:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
@@ -342,10 +346,12 @@ class EnvironmentExecutor(ProcessRunningExecutor):
             
         environment = {'INPUT_FILES'  : input_filenames_name,
                        'OUTPUT_FILES' : output_filenames_name}
+        
+        environment.update(self.env)
             
         proc = subprocess.Popen(map(str, self.command_line), env=environment, close_fds=True)
 
-        _ = proc.stdout.read(1)
+        #_ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
 
         transfer_ctx.consumers_attached()
