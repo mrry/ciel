@@ -118,6 +118,7 @@ class MasterRecoveryMonitor(plugins.SimplePlugin):
         with self._lock:
             for netloc in self.workers:
                 h = httplib2.Http()
+                cherrypy.log('Notifying worker: %s' % netloc, 'MONITOR', logging.INFO)
                 try:
                     response, _ = h.request('http://%s/master/' % netloc, 'POST', master_details)
                     if response['status'] != '200':
