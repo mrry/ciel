@@ -11,7 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.references import SW2_ConcreteReference
+from skywriting.runtime.references import SW2_ConcreteReference,\
+    SW2_TombstoneReference
 from cherrypy.process import plugins
 import urllib2
 from skywriting.runtime.block_store import BLOCK_LIST_RECORD_STRUCT,\
@@ -23,6 +24,54 @@ import simplejson
 from skywriting.runtime.master.job_pool import RECORD_HEADER_STRUCT,\
     Job, JOB_ACTIVE
 from skywriting.runtime.task import build_taskpool_task_from_descriptor
+import httplib2
+
+class TaskFailureInvestigator:
+    
+    def __init__(self, task_pool, worker_pool, deferred_worker):
+        self.task_pool = task_pool
+        self.worker_pool = worker_pool
+        self.deferred_worker = deferred_worker
+        
+    def investigate_task_failure(self, task_id, failure_payload):
+        self.deferred_worker.do_deferred(lambda: self._investigate_task_failure(task_id, failure_payload))
+        
+    def _investigate_task_failure(self, task, failure_payload):
+        (reason, _, bindings) = failure_payload
+        cherrypy.log.error('Investigating failure of task %s' % task.task_id, 'TASKFAIL', logging.WARN)
+        cherrypy.log.error('Task failed because %s' % reason, 'TASKPOOL', logging.WARN)
+
+        revised_bindings = {}
+        failed_netlocs = set()
+
+        # First, go through the bindings to determine which references are really missing.
+        for id, tombstone in bindings.items():
+            if isinstance(tombstone, SW2_TombstoneReference):
+                failed_netlocs_for_ref = set()
+                for netloc in tombstone.netlocs:
+                    h = httplib2.Http()
+                    try:
+                        response, _ = h.request('http://%s/data/%s' % (netloc, id), 'HEAD')
+                        if response['status'] != 200:
+                            failed_netlocs_for_ref.add(netloc)
+                    except:
+                        cherrypy.log.error('Could not contact store at %s' % netloc, 'TASKFAIL', logging.WARN)
+                        failed_netlocs.add(netloc)
+                        failed_netlocs_for_ref.add(netloc)
+                if len(failed_netlocs_for_ref) > 0:
+                    revised_bindings[id] = SW2_TombstoneReference(id, failed_netlocs_for_ref)
+            else:
+                # Could potentially mention a ConcreteReference or something similar in the failure bindings.
+                revised_bindings[id] = tombstone
+                
+        # Now, having collected a set of actual failures, deem those workers to have failed.
+        for netloc in failed_netlocs:
+            worker = self.worker_pool.get_worker_at_netloc(netloc)
+            if worker is not None:
+                self.worker_pool.worker_failed(worker)
+                
+        # Finally, propagate the failure to the task pool, so that we can re-run the failed task.
+        self.task_pool.task_failed(task, failure_payload)
 
 class RecoveryManager(plugins.SimplePlugin):
     

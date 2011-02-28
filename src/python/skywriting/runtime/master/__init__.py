@@ -32,7 +32,8 @@ import socket
 import cherrypy
 from skywriting.runtime.master.job_pool import JobPool
 import os
-from skywriting.runtime.master.recovery import RecoveryManager
+from skywriting.runtime.master.recovery import RecoveryManager,\
+    TaskFailureInvestigator
 from skywriting.runtime.master.hot_standby import BackupSender,\
     MasterRecoveryMonitor
 
@@ -50,6 +51,8 @@ def master_main(options):
     lazy_task_pool = LazyTaskPool(cherrypy.engine, worker_pool)
     task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
     lazy_task_pool.subscribe()
+    
+    task_failure_investigator = TaskFailureInvestigator(lazy_task_pool, worker_pool, deferred_worker)
     
     job_pool = JobPool(cherrypy.engine, lazy_task_pool, options.journaldir, global_name_directory)
     job_pool.subscribe()
@@ -82,7 +85,7 @@ def master_main(options):
     scheduler = LazyScheduler(cherrypy.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory, job_pool, backup_sender, monitor)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, global_name_directory, job_pool, backup_sender, monitor, task_failure_investigator)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

@@ -27,10 +27,10 @@ import logging
 
 class MasterRoot:
     
-    def __init__(self, task_pool, worker_pool, block_store, global_name_directory, job_pool, backup_sender, monitor):
+    def __init__(self, task_pool, worker_pool, block_store, global_name_directory, job_pool, backup_sender, monitor, task_failure_investigator):
         self.worker = WorkersRoot(worker_pool, backup_sender, monitor)
         self.job = JobRoot(job_pool, backup_sender, monitor)
-        self.task = MasterTaskRoot(global_name_directory, task_pool, backup_sender)
+        self.task = MasterTaskRoot(global_name_directory, task_pool, backup_sender, task_failure_investigator)
         self.streamtask = MasterStreamTaskRoot(global_name_directory, task_pool)
         self.data = DataRoot(block_store, backup_sender, task_pool.lazy_task_pool)
         self.global_data = GlobalDataRoot(global_name_directory, task_pool, worker_pool)
@@ -238,10 +238,11 @@ class MasterStreamTaskRoot:
 
 class MasterTaskRoot:
     
-    def __init__(self, global_name_directory, task_pool, backup_sender):
+    def __init__(self, global_name_directory, task_pool, backup_sender, task_failure_investigator):
         self.global_name_directory = global_name_directory
         self.task_pool = task_pool
         self.backup_sender = backup_sender
+        self.task_failure_investigator = task_failure_investigator
         
     # TODO: decide how to submit tasks to the cluster. Effectively, we want to mirror
     #       the way workers do it. Want to have a one-shot distributed execution on the
@@ -307,7 +308,8 @@ class MasterTaskRoot:
                 if cherrypy.request.method == 'POST':
                     task = self.task_pool.get_task_by_id(task_id)
                     failure_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    cherrypy.engine.publish('task_failed', task, failure_payload)
+                    #cherrypy.engine.publish('task_failed', task, failure_payload)
+                    self.task_failure_investigator.investigate_task_failure(task, failure_payload)
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)
