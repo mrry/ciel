@@ -56,7 +56,8 @@ class FileWatcherThread:
                     ciel.log("Watch died with exception %s: cancelled" % e, "FILE_WATCHER", logging.ERROR)
                     self.dead_watches.append(watch)
             with self.lock:
-                self.condvar.wait(1)
+                if len(self.new_watches) == 0 and len(self.dead_watches) == 0:
+                    self.condvar.wait(1)
                 for watch in self.new_watches:
                     self.active_watches.add(watch)
                 self.new_watches = []
