@@ -37,6 +37,7 @@ from cStringIO import StringIO
 from errno import EAGAIN, EPIPE
 from cherrypy.process import plugins
 from shared.io_helpers import MaybeFile
+from skywriting.runtime.file_watcher import get_watcher_thread
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -342,7 +343,7 @@ class FileTransferContext:
                 ciel.log.error('Fetch %s: no more URLs to try.' % self.save_filename, 'BLOCKSTORE', logging.ERROR)
                 self.callbacks.result(False)
             else:
-                ciel.log.error("Fetch %s failed; trying next URL" % (self.urls[self.failures - 1], self.save_filename))
+                ciel.log.error("Fetch %s failed; trying next URL" % (self.urls[self.failures - 1]))
                 self.callbacks.reset()
                 self.start_next_attempt()
 
@@ -397,8 +398,7 @@ class StreamTransferContext:
     def result(self, success):
         # Current transfer finished.
         if self.remote_failed:
-            # advertisment subscription failed
-            ciel.log("Stream-fetch %s: advertisment reported file absent. Failing transfer." % self.ref.id, "CURL_FETCH", logging.WARNING)
+            ciel.log("Stream-fetch %s: transfer completed, but failure advertised in the meantime" % self.ref.id, "CURL_FETCH", logging.WARNING)
             self.complete(False)
             return
         if not success:
@@ -416,9 +416,12 @@ class StreamTransferContext:
         self.block_store.remove_incoming_stream(self.ref.id)
         self.callbacks.result(success)
 
-    def advertisment(self, bytes=None, done=None, absent=None):
-        if absent is True:
-            ciel.log("Stream-fetch %s: advertisment subscription reported file absent" % self.ref.id, "CURL_FETCH", logging.WARNING)
+    def advertisment(self, bytes=None, done=None, absent=None, failed=None):
+        if absent is True or failed is True:
+            if absent is True:
+                ciel.log("Stream-fetch %s: advertisment subscription reported file absent" % self.ref.id, "CURL_FETCH", logging.WARNING)
+            else:
+                ciel.log("Stream-fetch %s: advertisment reported remote production failure" % self.ref.id, "CURL_FETCH", logging.WARNING)
             self.remote_failed = True
             if self.current_data_fetch is None:
                 self.complete(False)
@@ -466,6 +469,7 @@ class BlockStore(plugins.SimplePlugin):
 
     def start(self):
         self.fetch_thread.start()
+        self.file_watcher_thread = get_watcher_thread()
 
     def stop(self):
         self.fetch_thread.stop()
@@ -505,9 +509,14 @@ class BlockStore(plugins.SimplePlugin):
         
     class FileOutputContext:
 
-        def __init__(self, refid, block_store):
+        def __init__(self, refid, block_store, subscribe_callback):
             self.refid = refid
             self.block_store = block_store
+            self.subscribe_callback = subscribe_callback
+            self.file_watch = None
+            self.subscriptions = []
+            self.current_size = None
+            self.last_notify = None
             self.closed = False
 
         def get_filename(self):
@@ -516,23 +525,48 @@ class BlockStore(plugins.SimplePlugin):
         def get_stream_ref(self):
             return SW2_StreamReference(self.refid, [self.block_store.netloc])
 
+        def post_all_netlocs(self, message):
+            for sub in subscriptions:
+                httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (sub, self.refid), "POST", data)
+
         def rollback(self):
+            if self.file_watch is not None:
+                self.file_watch.cancel()
             self.block_store.rollback_file(self.refid)
+            data = simplejson.dumps({"failed": True})
+            self.post_all_netlocs(data)
 
         def close(self):
             self.closed = True
+            if self.file_watch is not None:
+                self.file_watch.cancel()
             self.block_store.commit_stream(self.refid)
+            self.current_size = os.stat(self.block_store.filename(self.refid)).st_size
+            data = simplejson.dumps({"bytes": self.current_size, "done": True})
+            self.post_all_netlocs(data)
 
         def get_completed_ref(self):
             if not self.closed:
                 raise Exception("FileOutputContext for ref %s must be closed before it is realised as a concrete reference" % self.refid)
             completed_file = self.block_store.filename(self.refid)
-            file_size = os.stat(completed_file).st_size
-            if file_size < 1024:
+            if self.current_size < 1024:
                 with open(completed_file, "r") as fp:
                     return SWDataValue(self.refid, self.block_store.encode_datavalue(fp.read()))
             else:
-                return SW2_ConcreteReference(self.refid, size_hint=file_size, location_hints=[self.block_store.netloc])
+                return SW2_ConcreteReference(self.refid, size_hint=self.current_size, location_hints=[self.block_store.netloc])
+
+        def subscribe(self, otherend_netloc):
+            ciel.log("Remote %s subscribed to output %s" % (otherend_netloc, self.refid), "EXEC", logging.INFO)
+            self.subscriptions.append(otherend_netloc)
+            if self.file_watch is None:
+                self.file_watch = self.subscribe_callback(self)
+
+        def size_update(self, new_size):
+            self.current_size = new_size
+            if self.last_notify is None or self.current_size - self.last_notify > 67108864:
+                data = simplejson.dumps({"bytes": new_size, "done": False})
+                self.post_all_netlocs(data)
+            self.last_notify = self.current_size
 
         def __enter__(self):
             return self
@@ -545,20 +579,24 @@ class BlockStore(plugins.SimplePlugin):
                 self.rollback()
             return False
 
-    def make_local_output(self, id, executor=None):
+    def make_local_output(self, id, subscribe_callback=self.add_file_watch):
         '''
         Creates a file-in-progress in the block store directory.
         '''
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
+        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback)
         with self._lock:
             if id in self.local_blocks:
                 ciel.log("Block %s already existed! Overwriting..." % id, "BLOCKSTORE", logging.WARNING)
                 self.local_blocks.discard(id)
                 os.remove(self.filename(id))
-            self.streaming_producers[id] = executor
+            self.streaming_producers[id] = new_ctx
             dot_filename = self.streaming_filename(id)
             open(dot_filename, 'wb').close()
-        return BlockStore.FileOutputContext(id, self)
+        return new_ctx
+
+    def add_file_watch(self, otherend_netloc, output_ctx):
+        self.file_watcher_thread.add_watch(otherend_netloc, output_ctx.refid)
 
     def commit_stream(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
@@ -597,8 +635,8 @@ class BlockStore(plugins.SimplePlugin):
     # then complete the job by linking the proper name in output_ctx.close().
     def ref_from_external_file(self, filename, id):
         output_ctx = self.make_local_output(id)
-        shutil.move(filename, output_ctx.get_filename())
-        output_ctx.close()
+        with output_ctx:
+            shutil.move(filename, output_ctx.get_filename())
         return output_ctx.get_completed_ref()
 
     # Remote is subscribing to updates from one of our streaming producers
@@ -658,6 +696,17 @@ class BlockStore(plugins.SimplePlugin):
 
         return False
 
+    class DummyFetchListener:
+
+        def __init__(self, filename):
+            self.filename = filename
+
+        def get_filename(self):
+            return self.filename
+
+        def get_completed_ref(self):
+            return None
+
     class FetchListener:
         
         def __init__(self, ref, block_store):
@@ -688,6 +737,18 @@ class BlockStore(plugins.SimplePlugin):
             if progress_cb is not None:
                 self.progress_listeners.add(progress_cb)
                 progress_cb(self.last_progress)
+
+        def get_filename(self):
+            return self.block_store.streaming_filename(self.ref.id)
+
+        def get_completed_ref(self, is_sweetheart):
+            if is_sweetheart:
+                return SW2_SweetheartReference(self.ref.id, self.last_progress, self.block_store.netloc, [self.block_store.netloc])
+            else:
+                return SW2_ConcreteReference(self.ref.id, self.last_progress, [self.block_store.netloc])
+
+        def get_stream_ref(self):
+            return SW2_StreamReference(self.ref.id, [self.block_store.netloc])
 
     # Called from cURL thread
     # After this method completes, the ref's streaming_filename must exist.
@@ -729,45 +790,36 @@ class BlockStore(plugins.SimplePlugin):
                 ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
             self.incoming_fetches[ref.id].add_listener(result_callback, reset_callback, progress_callback)
 
-    class CompletedFetch:
+    class FetchProxy:
 
-        def __init__(self, filename):
-            self.filename = filename
-
-        def get_filename(self):
-            return self.filename
-
-    class FetchInProgress:
-        
-        def __init__(self, completed_filename, in_progress_filename):
+        def __init__(self):
             self.ready_event = threading.Event()
-            self.completed_filename = completed_filename
-            self.in_progress_filename = in_progress_filename
-            self.ret_filename = None
+            self.fetch_listener = None
+
+        def set_fetch_listener(self, listener):
+            self.fetch_listener = listener
+            self.ready_event.set()
             
-        def fetch_completed(self):
-            self.ret_filename = self.completed_filename
-            self.ready_event.set()
-
-        def fetch_in_progress(self):
-            self.ret_filename = self.in_progress_filename
-            self.ready_event.set()
-
         def get_filename(self):
             self.ready_event.wait()
-            return self.ret_filename
+            return self.fetch_listener.get_filename()
+
+        def get_completed_ref(self):
+            self.ready_event.wait()
+            return self.fetch_listener.get_filename()
 
     # Called from arbitrary thread
     def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None):
 
+        new_proxy = FetchProxy()
         if self.is_ref_local(ref):
             ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
+            dummy_listener = DummyFetchListener(self.filename(ref.id))
+            new_proxy.set_fetch_listener(dummy_listener)
             result_callback(True)
-            return BlockStore.CompletedFetch(self.filename(ref.id))
         else:
-            new_ctx = BlockStore.FetchInProgress(self.filename(ref.id), self.streaming_filename(ref.id))
-            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_ctx, result_callback, reset_callback, progress_callback))
-            return new_ctx
+            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_proxy, result_callback, reset_callback, progress_callback))
+        return new_proxy
 
     class SynchronousTransfer:
         

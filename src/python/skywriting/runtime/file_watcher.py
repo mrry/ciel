@@ -15,7 +15,8 @@ class FileWatcherThread:
         self.lock = threading.Lock()
         self.condvar = threading.Condition(self.lock)
         self.active_watches = set()
-        self.event_flag = False
+        self.new_watches = []
+        self.dead_watches = []
         self.should_stop = False
 
     def subscribe(self):
@@ -30,62 +31,55 @@ class FileWatcherThread:
             self.should_stop = True
             self.condvar.notify_all()
 
-    def add_watch(self, otherend_netloc, output_id):
-        new_watch = FileWatch(otherend_netloc, output_id, self)
+    def add_watch(self, output_ctx):
+        new_watch = FileWatch(output_ctx, self)
         with self.lock:
-            self.active_watches.add(new_watch)
-            self.event_flag = True
+            self.new_watches.append(new_watch)
             self.condvar.notify_all()
         return new_watch
 
+    def remove_watch(self, watch):
+        with self.lock:
+            self.dead_watches.append(self)
+            self.condvar.notify_all()
+            while watch in self.dead_watches:
+                self.condvar.wait()
+
     def main_loop(self):
         while True:
+            if self.should_stop:
+                return
+            for watch in self.active_watches:
+                try:
+                    watch.poll():
+                except Exception as e:
+                    ciel.log("Watch died with exception %s: cancelled" % e, "FILE_WATCHER", logging.ERROR)
+                    self.dead_watches.append(watch)
             with self.lock:
-                if self.should_stop:
-                    return
-                if not self.event_flag:
-                    self.condvar.wait(1)
-                self.event_flag = False
-                if self.should_stop:
-                    return
-                notifies = []
-                for watch in self.active_watches:
-                    if watch.should_notify():
-                        notifies.append((watch, watch.netloc, watch.id, watch.size, watch.done))
-                for (watch, _, _, _, done) in notifies:
-                    if done:
-                        self.active_watches.remove(watch)
-            for (_, loc, id, size, done) in notifies:
-                data = simplejson.dumps({"bytes": size, "done": done})
-                httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (loc, id), "POST", data)
+                self.condvar.wait(1)
+                for watch in self.new_watches:
+                    self.active_watches.add(watch)
+                self.new_watches = []
+                for watch in self.dead_watches:
+                    self.active_watches.remove(watch)
+                self.dead_watches = []
 
 class FileWatch:
 
-    def __init__(self, netloc, id, thread):
-        self.netloc = netloc
+    def __init__(self, output_ctx, thread):
         self.id = id
         self.filename = thread.block_store.streaming_filename(id)
         self.thread = thread
-        self.last_notify = None
-        self.size = None
         self.done = False
+        self.output_ctx = output_ctx
 
-    def should_notify(self):
-
+    def poll(self):
         st = os.stat(self.filename)
-        self.size = st.st_size
-        # POLICY: Notify every 64MB
-        should_notify = self.done or self.last_notify is None or self.size - self.last_notify > 67108864
-        if should_notify:
-            self.last_notify = self.size
-        return should_notify
+        self.output_ctx.size_update(st.st_size)
 
     # Out-of-thread call
-    def file_done(self):
-        with self.thread.lock:
-            self.done = True
-            self.thread.event_flag = True
-            self.thread.condvar.notify_all()
+    def cancel(self):
+        self.thread.remove_watch(self)
         
 def create_watcher_thread(bus, block_store):
     global singleton_watcher

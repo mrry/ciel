@@ -37,7 +37,6 @@ from subprocess import PIPE
 from datetime import datetime
 from skywriting.runtime.block_store import STREAM_RETRY
 from errno import EPIPE
-from skywriting.runtime.file_watcher import get_watcher_thread
 
 import ciel
 
@@ -801,6 +800,9 @@ class AsyncPushThread:
             with self.lock:
                 self.stream_done = True
                 self.condvar.notify_all()
+                
+    def get_completed_ref(self, is_sweetheart):
+        return self.file_fetch.get_completed_ref(is_sweetheart)
 
     def result(self, success):
         with self.lock:
@@ -822,10 +824,10 @@ class AsyncPushThread:
         with self.lock:
             while self.filename is None and self.success is None:
                 self.condvar.wait()
-        if not self.success:
-            raise Exception("Transfer for fetch thread %s failed" % self.ref, "EXEC", logging.WARNING)
-        else:
-            return self.filename
+            if self.filename is not None:
+                return self.filename
+            else:
+                raise Exception("Transfer for fetch thread %s failed" % self.ref, "EXEC", logging.WARNING)
 
     def cancel(self):
         ciel.log("AsyncPushThread: cancel not implemented", "EXEC", logging.WARNING)
@@ -837,8 +839,10 @@ class AsyncPushThread:
 
 class AsyncPushGroup:
 
-    def __init__(self, threads):
+    def __init__(self, threads, sweethearts, task_record):
         self.threads = threads
+        self.sweethearts = sweethearts
+        self.task_record = task_record
 
     def __enter__(self):
         self.fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
@@ -848,20 +852,32 @@ class AsyncPushGroup:
 
     def __exit__(self, exnt, exnv, exnbt):
         if exnt is not None:
-            ciel.log("AsyncPushGroup exiting with exception %s: cancelling...", "EXEC", logging.WARNING)
+            ciel.log("AsyncPushGroup exiting with exception %s" % exnv, "EXEC", logging.WARNING)
             for thread in self.threads:
                 thread.cancel()
         ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
         for thread in self.threads:
             thread.wait()
         shutil.rmtree(self.fifos_dir)
+        failed_threads = filter(lambda t: not t.success, self.threads)
+        failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
+        if len(failure_bindings) > 0:
+            raise MissingInputException(failure_bindings)
+        else:
+            extra_publishes = {}
+            for t in self.threads:
+                new_ref = t.get_completed_ref(t.ref.id in self.sweethearts)
+                if new_ref is not None:
+                    extra_publishes[new_ref.id] = new_ref
+            if len(extra_publishes) > 0:
+                self.task_record.prepublish_refs(extra_publishes)
+
         return False
 
 class DummyPushThread:
 
     def __init__(self, filename):
         self.filename = filename
-        self.success = True
         
     def get_filename(self):
         return self.filename
@@ -887,9 +903,6 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         self._lock = threading.Lock()
         self.proc = None
-        self.outputs_in_progress = False
-        self.output_subscriptions = []
-        self.file_watcher_thread = get_watcher_thread()
 
     def _execute(self):
         try:
@@ -917,14 +930,13 @@ class ProcessRunningExecutor(SimpleExecutor):
             push_ctx = DummyPushGroup(push_threads)
         else:
             push_threads = [AsyncPushThread(self.block_store, ref) for ref in self.input_refs]
-            push_ctx = AsyncPushGroup(push_threads)
+            push_ctx = AsyncPushGroup(push_threads, self.make_sweetheart, self.task_record)
 
         with push_ctx:
+
             file_inputs = [push_thread.get_filename() for push_thread in push_threads]
         
             with list_with([self.block_store.make_local_output(id, self) for id in self.output_ids]) as out_file_contexts:
-                with self._lock:
-                    self.outputs_in_progress = True
 
                 file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
         
@@ -945,43 +957,13 @@ class ProcessRunningExecutor(SimpleExecutor):
                 #        if "trace_io" in self.debug_opts:
                 #            transfer_ctx.log_traces()
 
-                # If we have fetched any objects to this worker, publish them at the master.
-                # TODO: Do this cleanly by using context objects returned by the BlockStor
-                extra_publishes = {}
-                for ref in self.input_refs:
-                    if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
-                        extra_publishes[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [self.block_store.netloc])
-                for sweetheart in self.make_sweetheart:
-                    extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
-                if len(extra_publishes) > 0:
-                    self.task_record.prepublish_refs(extra_publishes)
-
-                failed_threads = filter(lambda t: not t.success, push_threads)
-                failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
-                if len(failure_bindings) > 0:
-                    raise MissingInputException(failure_bindings)
-
                 if rc != 0:
                     raise OSError()
 
         for i, output in enumerate(out_file_contexts):
             self.output_refs[i] = output.get_completed_ref()
 
-        with self._lock:
-            for watch in self.output_subscriptions:
-                watch.file_done()
-            self.output_subscriptions = []
-
         ciel.engine.publish("worker_event", "Executor: Done")
-
-    def subscribe_output(self, otherend_netloc, output_id):
-        with self._lock:
-            if self.outputs_in_progress:
-                ciel.log("Subscribe file-watcher: %s" % output_id, "EXEC", logging.INFO)
-                watch = self.file_watcher_thread.add_watch(otherend_netloc, output_id)
-                self.output_subscriptions.append(watch)
-            else:
-                raise Exception("Executor has finished (or not yet begun, in which case how did you find this StreamRef, eh?)")
 
     def start_process(self, input_files, output_files):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
