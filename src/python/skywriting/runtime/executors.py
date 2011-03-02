@@ -728,6 +728,7 @@ class AsyncPushThread:
         self.lock = threading.Lock()
         self.fetch_done = False
         self.stream_done = False
+        self.stream_started = False
         self.bytes_copied = 0
         self.bytes_available = 0
         self.next_threshold = 0
@@ -763,6 +764,8 @@ class AsyncPushThread:
                 self.filename = self.file_fetch.get_filename()
                 self.condvar.notify_all()
                 return
+            else:
+                self.stream_started = True
         ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.start_threshold), "EXEC", logging.INFO)
         self.copy_loop()
 
@@ -806,9 +809,11 @@ class AsyncPushThread:
 
     def result(self, success):
         with self.lock:
-            self.success = success
-            self.fetch_done = True
-            self.condvar.notify_all()
+            if self.success is None:
+                self.success = success
+                self.fetch_done = True
+                self.condvar.notify_all()
+            # Else we've already failed due to a reset.
 
     def progress(self, bytes_downloaded):
         with self.lock:
@@ -818,19 +823,25 @@ class AsyncPushThread:
 
     def reset(self):
         ciel.log("Reset of streamed fetch for %s!" % self.ref, "EXEC", logging.WARNING)
-        self.result(False)
+        should_cancel = False
+        with self.lock:
+            if self.stream_started:
+                should_cancel = True
+        if should_cancel:
+            ciel.log("FIFO-stream had begun: failing transfer", "EXEC", logging.ERROR)
+            self.file_fetch.cancel()
 
     def get_filename(self):
         with self.lock:
-            while self.filename is None and self.success is None:
+            while self.filename is None and self.success is not False:
                 self.condvar.wait()
             if self.filename is not None:
                 return self.filename
             else:
-                raise Exception("Transfer for fetch thread %s failed" % self.ref, "EXEC", logging.WARNING)
+                raise Exception("Transfer for fetch thread %s failed" % self.ref)
 
     def cancel(self):
-        ciel.log("AsyncPushThread: cancel not implemented", "EXEC", logging.WARNING)
+        self.file_fetch.cancel()
 
     def wait(self):
         with self.lock:
@@ -936,7 +947,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
             file_inputs = [push_thread.get_filename() for push_thread in push_threads]
         
-            with list_with([self.block_store.make_local_output(id, self) for id in self.output_ids]) as out_file_contexts:
+            with list_with([self.block_store.make_local_output(id) for id in self.output_ids]) as out_file_contexts:
 
                 file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
         

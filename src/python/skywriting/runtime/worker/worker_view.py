@@ -68,6 +68,8 @@ class StreamStatRoot:
             payload = simplejson.loads(cherrypy.request.body.read())
             if op == "subscribe":
                 self.block_store.subscribe_to_stream(payload["netloc"], id)
+            elif op == "unsubscribe":
+                self.block_store.unsubscribe_from_stream(payload["netloc"], id)
             elif op == "advert":
                 self.block_store.receive_stream_advertisment(id, **payload)
             else:

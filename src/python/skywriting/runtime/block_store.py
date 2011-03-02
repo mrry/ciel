@@ -113,6 +113,9 @@ class pycURLContext:
         self.result_callback(False)
         self.cleanup()
 
+    def cancel(self):
+        self.multi.remove_fetch(self)
+
     def cleanup(self):
         self.curl_ctx.close()
 
@@ -263,6 +266,10 @@ class pycURLThread:
     def stop(self):
         self.event_queue.post_event(self._stop_thread)
 
+    def remove_fetch(self, ctx):
+        self.curl_ctx.remove_handle(ctx.curl_ctx)
+        self.active_fetches.remove(ctx)
+
     def pycurl_main_loop(self):
         while True:
             # Curl-perform and process events until there's nothing left to do
@@ -323,6 +330,8 @@ class FileTransferContext:
         self.save_filename = save_filename
         self.callbacks = callbacks
         self.failures = 0
+        self.cancelled = False
+        self.curl_fetch = None
 
     def start_next_attempt(self):
         self.fp = open(self.save_filename, "w")
@@ -340,12 +349,22 @@ class FileTransferContext:
         else:
             self.failures += 1
             if self.failures == len(self.urls):
-                ciel.log.error('Fetch %s: no more URLs to try.' % self.save_filename, 'BLOCKSTORE', logging.ERROR)
+                ciel.log.error('Fetch %s: no more URLs to try.' % self.save_filename, 'BLOCKSTORE', logging.INFO)
                 self.callbacks.result(False)
             else:
                 ciel.log.error("Fetch %s failed; trying next URL" % (self.urls[self.failures - 1]))
+                self.curl_fetch = None
                 self.callbacks.reset()
-                self.start_next_attempt()
+                if not self.cancelled:
+                    self.start_next_attempt()
+
+    def cancel(self):
+        ciel.log("Fetch %s: cancelling" % self.save_filename, "CURL_FETCH", logging.INFO)
+        self.cancelled = True
+        if self.curl_fetch is not None:
+            self.curl_fetch.cancel()
+        self.fp.close()
+        self.callbacks.result(False)
 
 class StreamTransferContext:
 
@@ -363,6 +382,7 @@ class StreamTransferContext:
         self.remote_failed = False
         self.latest_advertisment = 0
         self.block_store = block_store
+        self.cancelled = False
 
     def start_next_fetch(self):
         ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
@@ -416,7 +436,18 @@ class StreamTransferContext:
         self.block_store.remove_incoming_stream(self.ref.id)
         self.callbacks.result(success)
 
+    def cancel(self):
+        ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
+        self.cancelled = True
+        post_data = simplejson.dumps({"netloc": self.block_store.netloc})
+        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
+        if self.current_data_fetch is not None:
+            self.current_data_fetch.cancel()
+        self.callbacks.result(False)
+
     def advertisment(self, bytes=None, done=None, absent=None, failed=None):
+        if self.cancelled:
+            return
         if absent is True or failed is True:
             if absent is True:
                 ciel.log("Stream-fetch %s: advertisment subscription reported file absent" % self.ref.id, "CURL_FETCH", logging.WARNING)
@@ -526,8 +557,8 @@ class BlockStore(plugins.SimplePlugin):
             return SW2_StreamReference(self.refid, [self.block_store.netloc])
 
         def post_all_netlocs(self, message):
-            for sub in subscriptions:
-                httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (sub, self.refid), "POST", data)
+            for sub in self.subscriptions:
+                httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (sub, self.refid), "POST", message)
 
         def rollback(self):
             self.block_store.rollback_file(self.refid)
@@ -563,6 +594,13 @@ class BlockStore(plugins.SimplePlugin):
                 ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.INFO)
                 self.file_watch = self.subscribe_callback(self)
 
+        def unsubscribe(self, otherend_netloc):
+            self.subscriptions.remove(otherend_netloc)
+            if len(self.subscriptions) == 0 and self.file_watch is not None:
+                ciel.log("Last remote watcher unsubscribed from %s; cancelling watch" % self.refid, "BLOCKSTORE", logging.INFO)
+                self.file_watch.cancel()
+                self.file_watch = None
+
         def size_update(self, new_size):
             self.current_size = new_size
             if self.last_notify is None or self.current_size - self.last_notify > 67108864:
@@ -581,10 +619,12 @@ class BlockStore(plugins.SimplePlugin):
                 self.rollback()
             return False
 
-    def make_local_output(self, id, subscribe_callback=self.add_file_watch):
+    def make_local_output(self, id, subscribe_callback=None):
         '''
         Creates a file-in-progress in the block store directory.
         '''
+        if subscribe_callback is None:
+            subscribe_callback = self.add_file_watch
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback)
         with self._lock:
@@ -597,8 +637,8 @@ class BlockStore(plugins.SimplePlugin):
             open(dot_filename, 'wb').close()
         return new_ctx
 
-    def add_file_watch(self, otherend_netloc, output_ctx):
-        self.file_watcher_thread.add_watch(otherend_netloc, output_ctx.refid)
+    def add_file_watch(self, output_ctx):
+        self.file_watcher_thread.add_watch(output_ctx)
 
     def commit_stream(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
@@ -655,6 +695,17 @@ class BlockStore(plugins.SimplePlugin):
         if post is not None:
             self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
 
+    def unsubscribe_from_stream(self, otherend_netloc, id):
+        with self._lock:
+            try:
+                self.streaming_producers[id].unsubscribe(otherend_netloc)
+                ciel.log("%s unsubscribed from %s" % (otherend_netloc, id), "BLOCKSTORE", logging.INFO)
+            except KeyError:
+                if id in self.local_blocks:
+                    ciel.log("Ignored unsubscribe request for completed block %s" % id, "BLOCKSTORE", logging.INFO)
+                else:
+                    ciel.log("Ignored unsubscribe request for unknown block %s" % id, "BLOCKSTORE", logging.WARNING)
+
     def encode_datavalue(self, str):
         return (self.dataval_codec.encode(str))[0]
 
@@ -705,39 +756,56 @@ class BlockStore(plugins.SimplePlugin):
         def get_filename(self):
             return self.filename
 
-        def get_completed_ref(self):
+        def get_completed_ref(self, is_sweetheart):
             return None
+
+        def remove_listener(self, l):
+            pass
 
     class FetchListener:
         
         def __init__(self, ref, block_store):
-            self.progress_listeners = set()
-            self.result_listeners = set()
-            self.reset_listeners = set()
+            self.listeners = set()
             self.last_progress = 0
             self.ref = ref
             self.block_store = block_store
+            self.completed = False
+
+        def set_fetch_context(self, fetch_context):
+            self.fetch_context = fetch_context
 
         def progress(self, bytes):
-            for callback in self.progress_listeners:
-                callback(bytes)
+            for l in self.listeners:
+                l.progress(bytes)
             self.last_progress = bytes
 
         def result(self, success):
+            self.completed = True
             self.block_store.fetch_completed(self.ref, success)
-            for callback in self.result_listeners:
-                callback(success)
+            for l in self.listeners:
+                l.result(success)
 
         def reset(self):
-            for callback in self.reset_listeners:
-                callback()
+            for l in self.listeners:
+                l.reset()
 
-        def add_listener(self, result_cb, reset_cb, progress_cb):
-            self.result_listeners.add(result_cb)
-            self.reset_listeners.add(reset_cb)
-            if progress_cb is not None:
-                self.progress_listeners.add(progress_cb)
-                progress_cb(self.last_progress)
+        def _remove_listener(self, fetch_client):
+            if self.completed:
+                ciel.log("Removing fetch client %s: transfer had already completed" % fetch_client, "CURL_FETCH", logging.WARNING)
+                return
+            self.listeners.discard(fetch_client)
+            fetch_client.result(False)
+            if len(self.listeners) == 0:
+                ciel.log("Removing fetch client %s: no clients remain, cancelling transfer" % fetch_client, "CURL_FETCH", logging.INFO)
+                self.fetch_context.cancel()
+
+        def remove_listener(self, fetch_client):
+            # Asynchronous out-of-thread callback: might come from the cURL thread or any other.
+            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._remove_listener(fetch_client))
+
+        def add_listener(self, fetch_client):
+            self.listeners.add(fetch_client)
+            fetch_client.progress(self.last_progress)
 
         def get_filename(self):
             return self.block_store.streaming_filename(self.ref.id)
@@ -755,14 +823,15 @@ class BlockStore(plugins.SimplePlugin):
     # After this method completes, the ref's streaming_filename must exist.
     def _start_fetch_ref(self, ref):
             
-        new_listener = BlockStore.FetchListener(ref, self)
-        self.incoming_fetches[ref.id] = new_listener
         urls = self.get_fetch_urls_for_ref(ref)
         save_filename = self.streaming_filename(ref.id)
+        new_listener = BlockStore.FetchListener(ref, self)
         if isinstance(ref, SW2_ConcreteReference):
             ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
         elif isinstance(ref, SW2_StreamReference):
             ctx = StreamTransferContext(ref, self, new_listener)
+        new_listener.set_fetch_context(ctx)
+        self.incoming_fetches[ref.id] = new_listener
         ctx.start()
 
     # Called from cURL thread
@@ -775,7 +844,7 @@ class BlockStore(plugins.SimplePlugin):
         del self.incoming_fetches[ref.id]
 
     # Called from cURL thread
-    def _fetch_ref_async(self, ref, fetch_context, result_callback, reset_callback, progress_callback):
+    def _fetch_ref_async(self, ref, fetch_context):
         
         if self.is_ref_local(ref):
             ciel.log("Ref %s became local during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
@@ -786,16 +855,29 @@ class BlockStore(plugins.SimplePlugin):
             if ref.id not in self.incoming_fetches:
                 ciel.log("Starting new fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
                 self._start_fetch_ref(ref)
-                fetch_context.fetch_in_progress()
             else:
                 ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
-            self.incoming_fetches[ref.id].add_listener(result_callback, reset_callback, progress_callback)
+            fetch_context.set_fetch_listener(self.incoming_fetches[ref.id])
+            self.incoming_fetches[ref.id].add_listener(fetch_context)
 
     class FetchProxy:
 
-        def __init__(self):
+        def __init__(self, result_callback, reset_callback, progress_callback):
             self.ready_event = threading.Event()
+            self.result_callback = result_callback
+            self.reset_callback = reset_callback
+            self.progress_callback = progress_callback
             self.fetch_listener = None
+
+        def result(self, success):
+            self.result_callback(success)
+
+        def reset(self):
+            self.reset_callback()
+
+        def progress(self, bytes):
+            if self.progress_callback is not None:
+                self.progress_callback(bytes)
 
         def set_fetch_listener(self, listener):
             self.fetch_listener = listener
@@ -805,21 +887,25 @@ class BlockStore(plugins.SimplePlugin):
             self.ready_event.wait()
             return self.fetch_listener.get_filename()
 
-        def get_completed_ref(self):
+        def get_completed_ref(self, is_sweetheart):
             self.ready_event.wait()
-            return self.fetch_listener.get_filename()
+            return self.fetch_listener.get_completed_ref(is_sweetheart)
+
+        def cancel(self):
+            self.ready_event.wait()
+            self.fetch_listener.remove_listener(self)
 
     # Called from arbitrary thread
     def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None):
 
-        new_proxy = FetchProxy()
+        new_proxy = BlockStore.FetchProxy(result_callback, reset_callback, progress_callback)
         if self.is_ref_local(ref):
             ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
-            dummy_listener = DummyFetchListener(self.filename(ref.id))
+            dummy_listener = BlockStore.DummyFetchListener(self.filename(ref.id))
             new_proxy.set_fetch_listener(dummy_listener)
             result_callback(True)
         else:
-            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_proxy, result_callback, reset_callback, progress_callback))
+            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_proxy))
         return new_proxy
 
     class SynchronousTransfer:
