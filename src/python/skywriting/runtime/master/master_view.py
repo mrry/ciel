@@ -327,7 +327,8 @@ class MasterTaskRoot:
                 if cherrypy.request.method == 'POST':
                     task = self.task_pool.get_task_by_id(task_id)
                     failure_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    ciel.engine.publish('task_failed', task, failure_payload)
+                    #cherrypy.engine.publish('task_failed', task, failure_payload)
+                    self.task_pool.investigate_task_failure(task, failure_payload)
                     return simplejson.dumps(True)
                 else:
                     raise HTTPError(405)

@@ -14,7 +14,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
-from skywriting.runtime.exceptions import ReferenceUnavailableException
+from skywriting.runtime.exceptions import ReferenceUnavailableException, MissingInputException
 from skywriting.runtime.worker.local_task_graph import LocalTaskGraph, LocalJobOutput
 from threading import Lock
 import logging
@@ -41,11 +41,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             if self.current_task_set is not None:
                 self.current_task_set.abort_task(task_id)
 
-    def notify_streams_done(self, task_id):
-        with self._lock:
-            if self.current_task_set is not None:
-                self.current_task_set.notify_streams_done(task_id)
-    
     # Main entry point
 
     def handle_input(self, input):
@@ -54,7 +49,12 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         with self._lock:
             self.current_task_set = new_task_set
         new_task_set.run()
-        report_data = [(tr.task_descriptor["task_id"], tr.spawned_tasks, tr.published_refs) for tr in new_task_set.task_records]
+        report_data = []
+        for tr in new_task_set.task_records:
+            if tr.success:
+                report_data.append((tr.task_descriptor["task_id"], tr.success, (tr.spawned_tasks, tr.published_refs)))
+            else:
+                report_data.append((tr.task_descriptor["task_id"], tr.success, (tr.failure_reason, tr.failure_details, tr.failure_bindings)))
         self.master_proxy.report_tasks(report_data)
         with self._lock:
             self.current_task_set = None
@@ -112,13 +112,19 @@ class TaskSetExecutionRecord:
             with self._lock:
                 self.current_task = task_record
                 self.current_td = next_td
-            task_record.run()
+            try:
+                task_record.run()
+            except:
+                ciel.log.error('Error during executor task execution', 'TASKEXEC', logging.ERROR, True)
             with self._lock:
                 self.current_task.cleanup()
                 self.current_task = None
                 self.current_td = None
-            self.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
             self.task_records.append(task_record)
+            if task_record.success:
+                self.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
+            else:
+                break
         ciel.log.error("Taskset complete", "TASKEXEC", logging.INFO)
 
     def retrieve_ref(self, ref):
@@ -138,11 +144,6 @@ class TaskSetExecutionRecord:
             if self.current_td["task_id"] == task_id:
                 self.current_task.executor.abort()
 
-    def notify_streams_done(self, task_id):
-        with self._lock:
-            if self.current_td["task_id"] == task_id:
-                self.current_task.executor.notify_streams_done()
-
 class TaskExecutionRecord:
 
     def __init__(self, task_descriptor, task_set, executor_cache, block_store, master_proxy):
@@ -154,28 +155,41 @@ class TaskExecutionRecord:
         self.executor_cache = executor_cache
         self.block_store = block_store
         self.master_proxy = master_proxy
+        self.executor = None
+        self.success = False
         
-        # Need to do this to bring task_private into the execution context.
-        BaseExecutor.prepare_task_descriptor_for_execute(task_descriptor, block_store)
-        
-        if "package_ref" in task_descriptor["task_private"]:
-            self.package_ref = task_descriptor["task_private"]["package_ref"]
-        else:
-            self.package_ref = None
-        self.executor = self.executor_cache.get_executor(task_descriptor["handler"])
-
     def run(self):
         ciel.engine.publish("worker_event", "Start execution " + repr(self.task_descriptor['task_id']) + " with handler " + self.task_descriptor['handler'])
         ciel.log.error("Starting task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.INFO, False)
         try:
+            # Need to do this to bring task_private into the execution context.
+            BaseExecutor.prepare_task_descriptor_for_execute(self.task_descriptor, self.block_store)
+        
+            if "package_ref" in self.task_descriptor["task_private"]:
+                self.package_ref = self.task_descriptor["task_private"]["package_ref"]
+            else:
+                self.package_ref = None
+            self.executor = self.executor_cache.get_executor(self.task_descriptor["handler"])
             self.executor.run(self.task_descriptor, self)
+            self.success = True
             ciel.engine.publish("worker_event", "Completed execution " + repr(self.task_descriptor['task_id']))
             ciel.log.error("Completed task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.INFO, False)
+        except MissingInputException as mie:
+            ciel.log.error('Missing input in task %s with handler %s' % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASKEXEC', logging.ERROR, True)
+            self.failure_bindings = mie.bindings
+            self.failure_details = ""
+            self.failure_reason = "MISSING_INPUT"
+            raise
         except:
             ciel.log.error("Error in task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.ERROR, True)
+            self.failure_bindings = dict()
+            self.failure_details = ""
+            self.failure_reason = "RUNTIME_EXCEPTION"
+            raise
 
     def cleanup(self):
-        self.executor_cache.put_executor(self.task_descriptor["handler"], self.executor)
+        if self.executor is not None:
+            self.executor_cache.put_executor(self.task_descriptor["handler"], self.executor)
 
     def publish_ref(self, ref):
         self.published_refs.append(ref)

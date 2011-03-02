@@ -23,6 +23,9 @@ class SWRealReference:
     def is_consumable(self):
         return True
 
+    def as_future(self):
+        pass
+
 def netloc_to_protobuf(netloc):
     hostname, port = netloc.split(':')
     loc = NetworkLocation()

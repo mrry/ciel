@@ -16,7 +16,7 @@ from __future__ import with_statement
 
 from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference
+    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
@@ -61,6 +61,16 @@ def kill_all_running_children():
             child.wait()
         except:
             pass
+
+class list_with:
+    def __init__(self, l):
+        self.wrapped_list = l
+    def __enter__(self):
+        return [x.__enter__() for x in self.wrapped_list]
+    def __exit__(self, exnt, exnv, exntb):
+        for x in self.wrapped_list:
+            x.__exit__(exnt, exnv, exntb)
+        return False
 
 class ExecutionFeatures:
     
@@ -226,11 +236,9 @@ class FileOrString:
 
     def toref(self, refid):
         if self.str is not None:
-            ref = SWDataValue(refid, self.block_store.encode_datavalue(self.str))
+            ref = self.block_store.ref_from_string(self.str, refid)
         else:
-            _, size = self.block_store.store_file(self.filename, refid, can_move=True)
-            ref = SW2_ConcreteReference(refid, size)
-            ref.add_location_hint(self.block_store.netloc)
+            ref = self.block_store.ref_from_external_file(self.filename, refid)
         return ref
 
     def tostr(self):
@@ -330,7 +338,7 @@ class SkyPyExecutor(BaseExecutor):
             coroutine_ref = self.task_record.retrieve_ref(skypy_private["coro_ref"])
             rq_list.append(coroutine_ref)
 
-        filenames = self.block_store.retrieve_filenames_for_refs_eager(rq_list)
+        filenames = self.block_store.retrieve_filenames_for_refs(rq_list)
 
         py_source_filename = filenames[0]
         if "coro_ref" in skypy_private:
@@ -430,7 +438,7 @@ class SkyPyExecutor(BaseExecutor):
         if isinstance(real_ref, SWDataValue):
             return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
         else:
-            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            filenames = self.block_store.retrieve_filenames_for_refs([real_ref])
             return {"success": True, "filename": filenames[0]}
 
     def deref_json(self, ref):
@@ -571,7 +579,7 @@ class SkywritingExecutor(BaseExecutor):
 
     def start_sw_script(self, swref, args, env):
 
-        sw_file = self.block_store.retrieve_filenames_for_refs_eager([swref])[0]
+        sw_file = self.block_store.retrieve_filename_for_ref(swref)
         parser = SWScriptParser()
         with open(sw_file, "r") as sw_fp:
             script = parser.parse(sw_fp.read())
@@ -650,10 +658,11 @@ class SkywritingExecutor(BaseExecutor):
                                            "task_private": { "hint": "small_task" }},
                                           cont=self.continuation)
 
-        if "save_continuation" in task_descriptor and task_descriptor["save_continuation"]:
-            self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
-                                                                  'pickle', 
-                                                                  "%s:saved_cont" % task_descriptor["task_id"])
+# TODO: Fix this?
+#        if "save_continuation" in task_descriptor and task_descriptor["save_continuation"]:
+#            self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
+#                                                                  'pickle', 
+#                                                                  "%s:saved_cont" % task_descriptor["task_id"])
             
     def spawn_func(self, spawn_expr, args):
 
@@ -774,17 +783,6 @@ class SimpleExecutor(BaseExecutor):
                 if not isinstance(ref, SWRealReference):
                     raise BlameUserException("Simple executors need args['inputs'] to be a list of references. %s is not a reference." % ref)
 
-    def get_filenames(self, refs):
-        # Refs should already have been tested.
-        return self.block_store.retrieve_filenames_for_refs(refs, "trace_io" in self.debug_opts)
-
-    def get_filenames_eager(self, refs):
-        return self.block_store.retrieve_filenames_for_refs_eager(refs)
-
-    def get_filename(self, ref):
-        files, ctx = self.get_filenames([ref])
-        return (files[0], ctx)
-
     @staticmethod
     def can_run():
         return True
@@ -825,16 +823,204 @@ class SimpleExecutor(BaseExecutor):
     def cleanup(self):
         pass
     
-    def notify_streams_done(self):
-        # Out-of-thread call
-        # Overridden for process-running executors
-        pass
-        
     def abort(self):
         self._abort()
         
     def _abort(self):
         pass
+
+class AsyncPushThread:
+
+    def __init__(self, block_store, ref, chunk_size=67108864):
+        self.block_store = block_store
+        self.ref = ref
+        self.chunk_size = chunk_size
+        self.next_threshold = self.chunk_size
+        self.success = None
+        self.lock = threading.Lock()
+        self.fetch_done = False
+        self.stream_done = False
+        self.stream_started = False
+        self.bytes_copied = 0
+        self.bytes_available = 0
+        self.condvar = threading.Condition(self.lock)
+        self.thread = None
+        self.filename = None
+
+    def start(self, fifos_dir):
+        self.fifos_dir = fifos_dir
+        self.file_fetch = self.block_store.fetch_ref_async(self.ref,
+                                                           chunk_size=self.chunk_size,
+                                                           result_callback=self.result, 
+                                                           reset_callback=self.reset, 
+                                                           progress_callback=self.progress)
+        if not self.fetch_done:
+            self.thread = threading.Thread(target=self.thread_main)
+            self.thread.start()
+        else:
+            ciel.log("Fetch for %s completed before first read; using file directly" % self.ref, "EXEC", logging.INFO)
+            with self.lock:
+                self.filename = self.file_fetch.get_filename()
+                self.stream_done = True
+                self.condvar.notify_all()
+
+    def thread_main(self):
+
+        with self.lock:
+            while self.bytes_available < self.next_threshold and not self.fetch_done:
+                self.condvar.wait()
+            if self.fetch_done:
+                ciel.log("Fetch for %s completed before we got %d bytes: using file directly" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
+                self.stream_done = True
+                self.filename = self.file_fetch.get_filename()
+                self.condvar.notify_all()
+                return
+            else:
+                self.stream_started = True
+        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
+        self.copy_loop()
+
+    def copy_loop(self):
+        
+        try:
+            read_filename = self.file_fetch.get_filename()
+            fifo_name = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
+            os.mkfifo(fifo_name)
+            with self.lock:
+                self.filename = fifo_name
+                self.condvar.notify_all()
+            with open(read_filename, "r") as input_fp:
+                with open(fifo_name, "w") as output_fp:
+                    while True:
+                        while True:
+                            buf = input_fp.read(4096)
+                            output_fp.write(buf)
+                            self.bytes_copied += len(buf)
+                            with self.lock:
+                                if self.success is False or (self.bytes_copied == self.bytes_available and self.fetch_done):
+                                    self.stream_done = True
+                                    self.condvar.notify_all()
+                                    ciel.log("FIFO-push for %s complete (success: %s)" % (self.ref, self.success), "EXEC", logging.INFO)
+                                    return
+                            if len(buf) < 4096:
+                                # EOF, for now.
+                                break
+                        with self.lock:
+                            self.next_threshold = self.bytes_copied + self.chunk_size
+                            while self.bytes_available < self.next_threshold and not self.fetch_done:
+                                self.condvar.wait()
+        except Exception as e:
+            ciel.log("Push thread for %s died with exception %s" % (read_filename, e), "EXEC", logging.WARNING)
+            with self.lock:
+                self.stream_done = True
+                self.condvar.notify_all()
+                
+    def get_completed_ref(self, is_sweetheart):
+        return self.file_fetch.get_completed_ref(is_sweetheart)
+
+    def result(self, success):
+        with self.lock:
+            if self.success is None:
+                self.success = success
+                self.fetch_done = True
+                self.condvar.notify_all()
+            # Else we've already failed due to a reset.
+
+    def progress(self, bytes_downloaded):
+        with self.lock:
+            self.bytes_available = bytes_downloaded
+            if self.bytes_available >= self.next_threshold:
+                self.condvar.notify_all()
+
+    def reset(self):
+        ciel.log("Reset of streamed fetch for %s!" % self.ref, "EXEC", logging.WARNING)
+        should_cancel = False
+        with self.lock:
+            if self.stream_started:
+                should_cancel = True
+        if should_cancel:
+            ciel.log("FIFO-stream had begun: failing transfer", "EXEC", logging.ERROR)
+            self.file_fetch.cancel()
+
+    def get_filename(self):
+        with self.lock:
+            while self.filename is None and self.success is not False:
+                self.condvar.wait()
+            if self.filename is not None:
+                return self.filename
+            else:
+                raise Exception("Transfer for fetch thread %s failed" % self.ref)
+
+    def cancel(self):
+        self.file_fetch.cancel()
+
+    def wait(self):
+        with self.lock:
+            while not self.stream_done:
+                self.condvar.wait()
+
+class AsyncPushGroup:
+
+    def __init__(self, threads, sweethearts, task_record):
+        self.threads = threads
+        self.sweethearts = sweethearts
+        self.task_record = task_record
+
+    def __enter__(self):
+        self.fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
+        for thread in self.threads:
+            thread.start(self.fifos_dir)
+        return self
+
+    def __exit__(self, exnt, exnv, exnbt):
+        if exnt is not None:
+            ciel.log("AsyncPushGroup exiting with exception %s: cancelling threads..." % repr(exnv), "EXEC", logging.WARNING)
+            for thread in self.threads:
+                thread.cancel()
+        ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
+        for thread in self.threads:
+            thread.wait()
+        shutil.rmtree(self.fifos_dir)
+        failed_threads = filter(lambda t: not t.success, self.threads)
+        failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
+        if len(failure_bindings) > 0:
+            for fail in failure_bindings:
+                ciel.log("Failed fetch: %s" % fail, "EXEC", logging.WARNING)
+            if exnt is not None:
+                ciel.log("Transfers have failed: replacing old exception with MissingInputException", "EXEC", logging.WARNING)
+            raise MissingInputException(failure_bindings)
+        else:
+            extra_publishes = {}
+            for t in self.threads:
+                new_ref = t.get_completed_ref(t.ref.id in self.sweethearts)
+                if new_ref is not None:
+                    extra_publishes[new_ref.id] = new_ref
+            if len(extra_publishes) > 0:
+                self.task_record.prepublish_refs(extra_publishes)
+
+        return False
+
+class DummyPushThread:
+
+    def __init__(self, filename):
+        self.filename = filename
+        
+    def get_filename(self):
+        return self.filename
+
+    def wait(self):
+        pass
+
+class DummyPushGroup:
+
+    def __init__(self, dummys):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exnt, exnv, exnbt):
+        return False
 
 class ProcessRunningExecutor(SimpleExecutor):
 
@@ -843,14 +1029,6 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         self._lock = threading.Lock()
         self.proc = None
-        self.transfer_ctx = None
-
-    def notify_streams_done(self):
-        # Out-of-thread call. Indicates our streaming inputs, if any, have all finished.
-        # We should retry stream-fetches right away.
-        with self._lock:
-            if self.transfer_ctx is not None:
-                self.transfer_ctx.notify_streams_done()
 
     def _execute(self):
         try:
@@ -874,94 +1052,54 @@ class ProcessRunningExecutor(SimpleExecutor):
             self.make_sweetheart = []
 
         if self.eager_fetch:
-            file_inputs = self.get_filenames_eager(self.input_refs)
-            _, transfer_ctx = self.get_filenames([])
+            push_threads = [DummyPushThread(x) for x in self.block_store.retrieve_filenames_for_refs(self.input_refs)]
+            push_ctx = DummyPushGroup(push_threads)
         else:
-            file_inputs, transfer_ctx = self.get_filenames(self.input_refs)
+            push_threads = [AsyncPushThread(self.block_store, ref) for ref in self.input_refs]
+            push_ctx = AsyncPushGroup(push_threads, self.make_sweetheart, self.task_record)
 
-        with self._lock:
-            self.transfer_ctx = transfer_ctx
-        file_outputs = []
-        for i in range(len(self.output_ids)):
-            with tempfile.NamedTemporaryFile(delete=False) as this_file:
-                file_outputs.append(this_file.name)
+        with push_ctx:
+
+            file_inputs = [push_thread.get_filename() for push_thread in push_threads]
         
-        if self.stream_output:
-            stream_refs = {}
-            for i, filename in enumerate(file_outputs):
-                self.block_store.prepublish_file(filename, self.output_ids[i])
-                stream_ref = SW2_StreamReference(self.output_ids[i])
-                stream_ref.add_location_hint(self.block_store.netloc)
-                stream_refs[self.output_ids[i]] = stream_ref
-            self.task_record.prepublish_refs(stream_refs)
+            with list_with([self.block_store.make_local_output(id) for id in self.output_ids]) as out_file_contexts:
 
-        self.proc = self.start_process(file_inputs, file_outputs, transfer_ctx)
-        add_running_child(self.proc)
-
-        rc = self.await_process(file_inputs, file_outputs, transfer_ctx)
-        remove_running_child(self.proc)
-
-        self.proc = None
-
-        ciel.engine.publish("worker_event", "Executor: Waiting for transfers (for cache)")
-        transfer_ctx.wait_for_all_transfers()
-        if "trace_io" in self.debug_opts:
-            transfer_ctx.log_traces()
-
-        # We must do this before publishing, so that whole files are in the block store.
-        with self._lock:
-            transfer_ctx.cleanup(self.block_store)
-            self.transfer_ctx = None
-
-        # If we have fetched any objects to this worker, publish them at the master.
-        extra_publishes = {}
-        for ref in self.input_refs:
-            if isinstance(ref, SW2_ConcreteReference) and not self.block_store.netloc in ref.location_hints:
-                extra_publishes[ref.id] = SW2_ConcreteReference(ref.id, ref.size_hint, [self.block_store.netloc])
-        for sweetheart in self.make_sweetheart:
-            extra_publishes[sweetheart.id] = SW2_SweetheartReference(sweetheart.id, sweetheart.size_hint, self.block_store.netloc, [self.block_store.netloc])
-        if len(extra_publishes) > 0:
-            self.master_proxy.publish_refs(task_id, extra_publishes)
-
-        failure_bindings = transfer_ctx.get_failed_refs()
-        if failure_bindings is not None:
-            raise MissingInputException(failure_bindings)
-
-        if rc != 0:
-            raise OSError()
-        ciel.engine.publish("worker_event", "Executor: Storing outputs")
-        for i, filename in enumerate(file_outputs):
-
-            file_size = os.path.getsize(filename)
-            if file_size < 1024 and not self.stream_output:
-                with open(filename, "r") as f:
-                    # DataValues must be ASCII so the JSON encoder won't explode.
-                    # Decoding gets done in the block store's retrieve routines.
-                    encoder = codecs.lookup("string_escape")
-                    real_ref = SWDataValue(self.output_ids[i], (encoder.encode(f.read()))[0])
-            else:
+                file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
+        
                 if self.stream_output:
-                    self.block_store.commit_file(filename, self.output_ids[i], can_move=True)
-                else:
-                    self.block_store.store_file(filename, self.output_ids[i], can_move=True)
-                real_ref = SW2_ConcreteReference(self.output_ids[i], file_size)
-                real_ref.add_location_hint(self.block_store.netloc)
+           
+                    stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
+                    to_publish = dict([(ref.id, ref) for ref in stream_refs])
+                    self.task_record.prepublish_refs(to_publish)
 
-            self.output_refs[i] = real_ref
-            
+                self.proc = self.start_process(file_inputs, file_outputs)
+                add_running_child(self.proc)
+
+                rc = self.await_process(file_inputs, file_outputs)
+                remove_running_child(self.proc)
+
+                self.proc = None
+
+                #        if "trace_io" in self.debug_opts:
+                #            transfer_ctx.log_traces()
+
+                if rc != 0:
+                    raise OSError()
+
+        for i, output in enumerate(out_file_contexts):
+            self.output_refs[i] = output.get_completed_ref()
+
         ciel.engine.publish("worker_event", "Executor: Done")
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
         raise Exception("Must override start_process when subclassing ProcessRunningExecutor")
         
-    def await_process(self, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files):
         rc = self.proc.wait()
-        transfer_ctx.consumers_detached()
         return rc
 
     def _cleanup_task(self):
-        if self.stream_output and not self.succeeded:
-            self.block_store.rollback_file(self.output_ids[0])
+        pass
         
     def _abort(self):
         if self.proc is not None:
@@ -983,7 +1121,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the stdinout executor: %s' % repr(args))
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
         ciel.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
@@ -992,20 +1130,9 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
             # This hopefully avoids the race condition in subprocess.Popen()
             return subprocess.Popen(map(str, command_line), stdin=PIPE, stdout=temp_output_fp, close_fds=True)
 
-    def await_process(self, input_files, output_files, transfer_ctx):
-
-        class list_with:
-            def __init__(self, l):
-                self.wrapped_list = l
-            def __enter__(self):
-                return [x.__enter__() for x in self.wrapped_list]
-            def __exit__(self, exnt, exnv, exntb):
-                for x in self.wrapped_list:
-                    x.__exit__(exnt, exnv, exntb)
-                return False
+    def await_process(self, input_files, output_files):
 
         with list_with([open(filename, 'r') for filename in input_files]) as fileobjs:
-            transfer_ctx.consumers_attached()
             for fileobj in fileobjs:
                 try:
                     shutil.copyfileobj(fileobj, self.proc.stdin)
@@ -1018,7 +1145,6 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
 
         self.proc.stdin.close()
         rc = self.proc.wait()
-        transfer_ctx.consumers_detached()
         return rc
         
 class EnvironmentExecutor(ProcessRunningExecutor):
@@ -1030,14 +1156,19 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
     @classmethod
     def check_args_valid(cls, args, n_outputs):
-
         ProcessRunningExecutor.check_args_valid(args, n_outputs)
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
+
+        try:
+            env = args['env']
+        except KeyError:
+            env = {}
+
         ciel.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
 
         with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
@@ -1054,14 +1185,14 @@ class EnvironmentExecutor(ProcessRunningExecutor):
             
         environment = {'INPUT_FILES'  : input_filenames_name,
                        'OUTPUT_FILES' : output_filenames_name}
+        
+        environment.update(env)
             
         proc = subprocess.Popen(map(str, command_line), env=environment, close_fds=True)
 
-        _ = proc.stdout.read(1)
+        #_ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
 
-        transfer_ctx.consumers_attached()
-        
         return proc
 
 class FilenamesOnStdinExecutor(ProcessRunningExecutor):
@@ -1100,7 +1231,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
             pass
         return l
 
-    def start_process(self, input_files, output_files, transfer_ctx):
+    def start_process(self, input_files, output_files):
 
         try:
             self.argv = self.args['argv']
@@ -1130,8 +1261,6 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
 
         _ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
-
-        transfer_ctx.consumers_attached()
 
         return proc
 
@@ -1170,14 +1299,13 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                 print e
                 break
 
-    def await_process(self, input_files, output_files, transfer_ctx):
+    def await_process(self, input_files, output_files):
         self.change_state("Running")
         if "trace_io" in self.debug_opts:
             ciel.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.INFO)
             self.gather_io_trace()
         rc = self.proc.wait()
         self.change_state("Done")
-        transfer_ctx.consumers_detached()
         ciel.log.error("Process terminated. Stats:", "EXEC", logging.INFO)
         for key, value in self.state_times.items():
             ciel.log.error("Time in state %s: %s seconds" % (key, value), "EXEC", logging.INFO)
@@ -1217,7 +1345,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         ciel.engine.publish("worker_event", "Java: fetching JAR")
 
-        self.jar_filenames = self.get_filenames_eager(self.jar_refs)
+        self.jar_filenames = self.block_store.retrieve_filenames_for_refs(self.jar_refs)
 
     def get_process_args(self):
         cp = os.getenv('CLASSPATH')
@@ -1257,7 +1385,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
-        self.dll_filenames = self.get_filenames_eager(self.dll_refs)
+        self.dll_filenames = self.block_store.retrieve_filenames_for_refs(self.dll_refs)
 
     def get_process_args(self):
 
@@ -1294,7 +1422,7 @@ class CExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         ciel.engine.publish("worker_event", "C-exec: fetching SOs")
-        self.so_filenames = self.get_filenames_eager(self.so_refs)
+        self.so_filenames = self.retrieve_filenames_for_refs(self.so_refs)
 
     def get_process_args(self):
 

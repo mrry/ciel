@@ -32,9 +32,10 @@ import cherrypy
 import subprocess
 from skywriting.runtime.master.job_pool import JobPool
 import os
-from skywriting.runtime.master.recovery import RecoveryManager
 import ciel
 from skywriting.runtime.lighttpd import LighttpdAdapter
+from skywriting.runtime.master.recovery import RecoveryManager,\
+    TaskFailureInvestigator
 from skywriting.runtime.master.hot_standby import BackupSender,\
     MasterRecoveryMonitor
 
@@ -47,12 +48,15 @@ def master_main(options):
     worker_pool.subscribe()
 
     lazy_task_pool = LazyTaskPool(ciel.engine, worker_pool)
-    task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
     lazy_task_pool.subscribe()
     
     job_pool = JobPool(ciel.engine, lazy_task_pool, options.journaldir)
     job_pool.subscribe()
 
+    task_failure_investigator = TaskFailureInvestigator(lazy_task_pool, worker_pool, deferred_worker)
+
+    task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool, task_failure_investigator)
+    
     backup_sender = BackupSender(cherrypy.engine)
     backup_sender.subscribe()
 
@@ -74,6 +78,7 @@ def master_main(options):
     block_store = BlockStore(ciel.engine, local_hostname, local_port, block_store_dir)
     block_store.subscribe()
     block_store.build_pin_set()
+    block_store.check_local_blocks()
 
     if options.master is not None:
         monitor = MasterRecoveryMonitor(cherrypy.engine, 'http://%s/' % master_netloc, options.master, job_pool)

@@ -29,6 +29,8 @@ import simplejson
 import cherrypy
 import os
 import time
+import ciel
+import logging
 
 class WorkerRoot:
     
@@ -43,6 +45,7 @@ class ControlRoot:
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
+        self.streamstat = StreamStatRoot(worker.block_store)
         self.features = FeaturesRoot(worker.execution_features)
         self.kill = KillRoot()
         self.log = LogRoot(worker)
@@ -53,6 +56,26 @@ class ControlRoot:
     @cherrypy.expose
     def index(self):
         return simplejson.dumps(self.worker.id)
+
+class StreamStatRoot:
+
+    def __init__(self, block_store):
+        self.block_store = block_store
+
+    @cherrypy.expose
+    def default(self, id, op):
+        if cherrypy.request.method == "POST":
+            payload = simplejson.loads(cherrypy.request.body.read())
+            if op == "subscribe":
+                self.block_store.subscribe_to_stream(payload["netloc"], payload["chunk_size"], id)
+            elif op == "unsubscribe":
+                self.block_store.unsubscribe_from_stream(payload["netloc"], id)
+            elif op == "advert":
+                self.block_store.receive_stream_advertisment(id, **payload)
+            else:
+                raise cherrypy.HTTPError(404)
+        else:
+            raise cherrypy.HTTPError(405)
 
 class KillRoot:
     
@@ -99,11 +122,6 @@ class TaskRoot:
         if action == 'abort':
             if cherrypy.request.method == 'POST':
                 self.worker.abort_task(real_id)
-            else:
-                raise cherrypy.HTTPError(405)
-        elif action == "streams_done":
-            if cherrypy.request.method == "POST":
-                self.worker.notify_task_streams_done(real_id)
             else:
                 raise cherrypy.HTTPError(405)
         else:
@@ -178,15 +196,20 @@ class DataRoot:
                     raise
                 
         elif cherrypy.request.method == 'POST':
+            request_body = cherrypy.request.body.read()
+            new_ref = self.block_store.ref_from_string(request_body, safe_id)
             if self.backup_sender is not None:
-                request_body = cherrypy.request.body.read()
-                url = self.block_store.store_raw_file(StringIO.StringIO(request_body), safe_id)
                 self.backup_sender.add_data(safe_id, request_body)
-            else:
-                url = self.block_store.store_raw_file(cherrypy.request.body, safe_id)
             if self.task_pool is not None:
-                self.task_pool.publish_refs({safe_id : SW2_ConcreteReference(safe_id, None, [self.block_store.netloc])})
-            return simplejson.dumps(url)
+                self.task_pool.publish_refs({safe_id : new_ref})
+            return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
+        
+        elif cherrypy.request.method == 'HEAD':
+            if os.path.exists(self.block_store.filename(id)):
+                return
+            else:
+                raise cherrypy.HTTPError(404)
+
         else:
             raise cherrypy.HTTPError(405)
 
@@ -194,13 +217,10 @@ class DataRoot:
     def index(self):
         if cherrypy.request.method == 'POST':
             id = self.block_store.allocate_new_id()
+            request_body = cherrypy.request.body.read()
+            new_ref = self.block_store.ref_from_string(request_body, id)
             if self.backup_sender is not None:
-                request_body = cherrypy.request.body.read()
-                _, file_length = self.block_store.store_raw_file(StringIO.StringIO(request_body), id)
                 self.backup_sender.add_data(id, request_body)
-            else:
-                _, file_length = self.block_store.store_raw_file(cherrypy.request.body, id)
-            new_ref = SW2_ConcreteReference(id, file_length, [self.block_store.netloc])
             if self.task_pool is not None:
                 self.task_pool.publish_refs({id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)

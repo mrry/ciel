@@ -20,6 +20,7 @@ from skywriting.runtime.block_store import BlockStore
 from skywriting.runtime.worker.worker_view import WorkerRoot
 from skywriting.runtime.executors import ExecutionFeatures
 from skywriting.runtime.worker.pinger import Pinger
+from skywriting.runtime.file_watcher import create_watcher_thread
 from cherrypy.process import plugins
 import logging
 import tempfile
@@ -67,6 +68,8 @@ class Worker(plugins.SimplePlugin):
         self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.subscribe()
         self.block_store.build_pin_set()
+        self.block_store.check_local_blocks()
+        create_watcher_thread(bus, self.block_store)
         self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
         self.upload_deferred_work.subscribe()
         self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)
@@ -83,7 +86,11 @@ class Worker(plugins.SimplePlugin):
         self.log_condition = Condition(self.log_lock)
 
         self.cherrypy_conf = {}
-    
+
+        cherrypy.config.update({"server.thread_pool" : 20})
+
+
+        
         if options.staticbase is not None:
             self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
 
@@ -142,9 +149,6 @@ class Worker(plugins.SimplePlugin):
     def abort_task(self, task_id):
         ciel.engine.publish("worker_event", "Abort task " + repr(task_id))
         self.task_executor.abort_task(task_id)
-
-    def notify_task_streams_done(self, task_id):
-        self.task_executor.notify_streams_done(task_id)
 
     def add_log_entry(self, log_string):
         with self.log_lock:
