@@ -48,13 +48,14 @@ def master_main(options):
     worker_pool.subscribe()
 
     lazy_task_pool = LazyTaskPool(ciel.engine, worker_pool)
-    task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool)
     lazy_task_pool.subscribe()
     
     job_pool = JobPool(ciel.engine, lazy_task_pool, options.journaldir)
     job_pool.subscribe()
 
     task_failure_investigator = TaskFailureInvestigator(lazy_task_pool, worker_pool, deferred_worker)
+
+    task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool, task_failure_investigator)
     
     backup_sender = BackupSender(cherrypy.engine)
     backup_sender.subscribe()
@@ -91,7 +92,7 @@ def master_main(options):
     scheduler = LazyScheduler(ciel.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, job_pool, backup_sender, monitor, task_failure_investigator)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, job_pool, backup_sender, monitor)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

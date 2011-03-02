@@ -45,6 +45,9 @@ class SWRealReference:
     def is_consumable(self):
         return True
 
+    def as_future(self):
+        return SW2_FutureReference(self.id)
+
 class SWErrorReference(SWRealReference):
     
     def __init__(self, id, reason, details):
@@ -112,9 +115,6 @@ class SW2_ConcreteReference(SWRealReference):
             # We calculate the union of the two sets of location hints.
             self.location_hints.update(ref.location_hints)
             
-    def as_future(self):
-        return SW2_FutureReference(self.id)
-        
     def as_binrepr(self):
         return reftype_to_packed('c2') + id_to_packed(self.id) + size_to_packed(self.size_hint) + netloc_set_to_packed(self.location_hints)
         
@@ -171,9 +171,6 @@ class SW2_StreamReference(SWRealReference):
             # We calculate the union of the two sets of location hints.
             self.location_hints.update(ref.location_hints)
             
-    def as_future(self):
-        return SW2_FutureReference(self.id)
-        
     def as_binrepr(self):
         return reftype_to_packed('s2') + id_to_packed(self.id) + netloc_set_to_packed(self.location_hints)
         

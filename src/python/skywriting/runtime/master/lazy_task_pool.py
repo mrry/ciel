@@ -403,8 +403,9 @@ class LazyTaskPoolAdapter:
     the new LazyTaskPool.
     """
     
-    def __init__(self, lazy_task_pool):
+    def __init__(self, lazy_task_pool, task_failure_investigator):
         self.lazy_task_pool = lazy_task_pool
+        self.task_failure_investigator = task_failure_investigator
         
         # XXX: This exposes the task pool to the view.
         self.tasks = lazy_task_pool.tasks
@@ -465,13 +466,24 @@ class LazyTaskPoolAdapter:
 
     def report_tasks(self, report):
         
-        for (parent_id, spawned, published) in report:
+        for (parent_id, success, payload) in report:
             parent_task = self.get_task_by_id(parent_id)
-            self.spawn_child_tasks(parent_task, spawned, may_reduce=False)
-            self.commit_task(parent_id, {"bindings": dict([(ref.id, ref) for ref in published])}, should_publish=False)
+            if success:
+                (spawned, published) = payload
+                self.spawn_child_tasks(parent_task, spawned, may_reduce=False)
+                self.commit_task(parent_id, {"bindings": dict([(ref.id, ref) for ref in published])}, should_publish=False)
+            else:
+                # Only one failed task per-report, at the moment.
+                self.investigate_task_failure(parent_task, payload)
+                # I hope this frees up workers and so forth?
+                return
+                
         toplevel_task = self.get_task_by_id(report[0][0])
         self.lazy_task_pool.do_graph_reduction(toplevel_task.expected_outputs)
         self.lazy_task_pool.worker_pool.worker_idle(toplevel_task.worker)
+
+    def investigate_task_failure(self, task, payload):
+        self.task_failure_investigator.investigate_task_failure(task, payload)
 
     def commit_task(self, task_id, commit_payload, should_publish=True):
         
