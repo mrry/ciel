@@ -7,3 +7,7 @@ parsetab.py
 *~
 *.jar
 *.class
+/store
+/journal
+/src/python/shared/generated/
+/src/java/com/asgow/ciel/protocol/

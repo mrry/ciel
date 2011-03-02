@@ -1,4 +1,4 @@
-package ciel;
+package shared.generated.ciel;
 
 option java_package = "com.asgow.ciel.protocol";
 option java_outer_classname = "CielProtos";
@@ -35,6 +35,8 @@ message Reference {
 
   optional string reason = 7;
   optional string details = 8;
+  
+  optional int64 size_hint = 9;
 
 }
 
