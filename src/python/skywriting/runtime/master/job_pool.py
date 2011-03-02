@@ -11,26 +11,37 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.task import TASK_STATES,\
+from cherrypy.process import plugins
+from skywriting.runtime.block_store import SWReferenceJSONEncoder
+from skywriting.runtime.task import TASK_STATES, \
     build_taskpool_task_from_descriptor
 from threading import Lock, Condition
-import uuid
-from cherrypy.process import plugins
+import Queue
+import ciel
+import datetime
+import logging
 import os
 import simplejson
-from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import skywriting.runtime.executors
 import struct
-import logging
-import ciel
+import time
+import uuid
 
+JOB_CREATED = -1
 JOB_ACTIVE = 0
 JOB_COMPLETED = 1
 JOB_FAILED = 2
+JOB_QUEUED = 3
+JOB_RECOVERED = 4
+JOB_CANCELLED = 5
 
-JOB_STATES = {'ACTIVE': JOB_ACTIVE,
+JOB_STATES = {'CREATED': JOB_CREATED,
+              'ACTIVE': JOB_ACTIVE,
               'COMPLETED': JOB_COMPLETED,
-              'FAILED': JOB_FAILED}
+              'FAILED': JOB_FAILED,
+              'QUEUED': JOB_QUEUED,
+              'RECOVERED': JOB_RECOVERED,
+              'CANCELLED' : JOB_CANCELLED}
 
 JOB_STATE_NAMES = {}
 for (name, number) in JOB_STATES.items():
@@ -40,12 +51,16 @@ RECORD_HEADER_STRUCT = struct.Struct('!cI')
 
 class Job:
     
-    def __init__(self, id, root_task, job_dir=None):
+    def __init__(self, id, root_task, job_dir=None, state=JOB_CREATED, job_pool=None):
         self.id = id
         self.root_task = root_task
         self.job_dir = job_dir
         
-        self.state = JOB_ACTIVE
+        self.job_pool = job_pool
+        
+        self.history = []
+        
+        self.state = state
         
         self.result_ref = None
 
@@ -58,22 +73,40 @@ class Job:
         self._lock = Lock()
         self._condition = Condition(self._lock)
 
-    def completed(self, result_ref):
-        ciel.log.error('Job %s completed' % self.id, 'JOB', logging.INFO)
-        self.state = JOB_COMPLETED
-        self.result_ref = result_ref
-        with self._lock:
-            self._condition.notify_all()
-        self.stop_journalling()
-            
+        
+    def record_event(self, description):
+        self.history.append((datetime.datetime.now(), description))
+                    
+    def set_state(self, state):
+        self.record_event(JOB_STATE_NAMES[state])
+        self.state = state
+        evt_time = self.history[-1][0]
+        ciel.log('%s %s @ %f' % (self.id, JOB_STATE_NAMES[self.state], time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'JOB', logging.INFO)
+         
     def failed(self):
-        self.state = JOB_FAILED
+        self.set_state(JOB_FAILED)
+        self.stop_journalling()
         with self._lock:
             self._condition.notify_all()
 
-    def start_journalling(self):
+    def enqueued(self):
+        self.set_state(JOB_QUEUED)
+
+    def completed(self, result_ref):
+        self.set_state(JOB_COMPLETED)
+        self.result_ref = result_ref
+        with self._lock:
+            self._condition.notify_all()
+        self.stop_journalling()        
+
+    def activated(self):
+        self.set_state(JOB_ACTIVE)
         if self.task_journal_fp is None and self.job_dir is not None:
             self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
+
+    def cancelled(self):
+        self.set_state(JOB_CANCELLED)
+        self.stop_journalling()
 
     def stop_journalling(self):
         with self._lock:
@@ -140,10 +173,15 @@ class JobPool(plugins.SimplePlugin):
         # Mapping from job ID to job object.
         self.jobs = {}
         
+        self.current_running_job = None
+        self.run_queue = Queue.Queue()
+        
         # Synchronisation code for stopping/waiters.
         self.is_stopping = False
         self.current_waiters = 0
         self.max_concurrent_waiters = 10
+        
+        self._lock = Lock()
     
     def subscribe(self):
         # Higher priority than the HTTP server
@@ -154,7 +192,7 @@ class JobPool(plugins.SimplePlugin):
         
     def start_all_jobs(self):
         for job in self.jobs.values():
-            self.start_job(job)
+            self.queue_job(job)
         
     def server_stopping(self):
         # When the server is shutting down, we need to notify all threads
@@ -174,12 +212,15 @@ class JobPool(plugins.SimplePlugin):
         return str(uuid.uuid1())
     
     def add_job(self, job, sync_journal=False):
+        with self._lock:
+            self.jobs[job.id] = job
+        
         # We will use this both for new jobs and on recovery.
-        self.jobs[job.id] = job
+        if job.root_task is not None:
+            self.task_pool.add_task(job.root_task, False)
     
     def add_failed_job(self, job_id):
-        job = Job(job_id, None, None)
-        job.state = JOB_FAILED
+        job = Job(job_id, None, None, JOB_FAILED, self)
         self.jobs[job_id] = job
     
     def create_job_for_task(self, task_descriptor, job_id=None):
@@ -198,7 +239,7 @@ class JobPool(plugins.SimplePlugin):
             task_descriptor['expected_outputs'] = expected_outputs
             
         task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, None)
-        job = Job(job_id, task, job_dir)
+        job = Job(job_id, task, job_dir, JOB_CREATED, self)
         task.job = job
         
         self.add_job(job)
@@ -215,19 +256,43 @@ class JobPool(plugins.SimplePlugin):
         else:
             return None
 
-    def start_job(self, job):
-        ciel.log('Starting job ID: %s' % job.id, 'JOB_POOL', logging.INFO)
-        job.start_journalling()
-        self.task_pool.add_task(job.root_task, True)
+    def queue_job(self, job):
+        self.run_queue.put(job)
+        job.enqueued()
         
-    def restart_job(self, job):
-        job.start_journalling()
+        with self._lock:
+            if self.current_running_job is None:
+                next_job = self.run_queue.get()
+                self._start_job(next_job)
+            
+    def job_completed(self, job, result_ref):
+        assert job is self.current_running_job
+        
+        job.completed(result_ref)
+
+        with self._lock:
+            try:
+                self.current_running_job = self.run_queue.get_nowait()
+                self._start_job(self.current_running_job)
+            except:
+                self.current_running_job = None
+
+    def _start_job(self, job):
+        ciel.log('Starting job ID: %s' % job.id, 'JOB_POOL', logging.INFO)
+        self.current_running_job = job 
+        job.activated()
         self.task_pool.register_job_interest_for_output(job.root_task.expected_outputs[0], job)
         self.task_pool.do_graph_reduction(object_ids=job.root_task.expected_outputs)
+        #self.task_pool.add_task(job.root_task, True)
+        
+#    def restart_job(self, job):
+#        job.start()
+#        self.task_pool.register_job_interest_for_output(job.root_task.expected_outputs[0], job)
+#        self.task_pool.do_graph_reduction(object_ids=job.root_task.expected_outputs)
 
     def wait_for_completion(self, job):
         with job._lock:
-            while job.state == JOB_ACTIVE:
+            while job.state not in (JOB_COMPLETED, JOB_FAILED):
                 if self.is_stopping:
                     break
                 elif self.current_waiters > self.max_concurrent_waiters:

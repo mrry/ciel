@@ -159,7 +159,7 @@ class JobRoot:
             self.backup_sender.add_job(job.id, request_body)
             
             # 2a. Start job. Possibly do this as deferred work.
-            self.job_pool.start_job(job)
+            self.job_pool.queue_job(job)
                         
             # 3. Return descriptor for newly-created job.
             return simplejson.dumps(job.as_descriptor())
@@ -190,10 +190,10 @@ class JobRoot:
             
             if self.monitor is not None and self.monitor.is_primary:
                 # 2a. Start job. Possibly do this as deferred work.
-                self.job_pool.start_job(job)
+                self.job_pool.queue_job(job)
             else:
                 cherrypy.log('Registering job, but not starting it: %s' % job.id, 'JOB_POOL', logging.INFO)
-                self.job_pool.task_pool.add_task(job.root_task, False)
+                #self.job_pool.task_pool.add_task(job.root_task, False)
             
             # 3. Return descriptor for newly-created job.
             
@@ -211,6 +211,9 @@ class JobRoot:
         elif attribute == 'completion':
             # Block until the job is completed.
             self.job_pool.wait_for_completion(job)
+            
+            print job.as_descriptor()
+            
             return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder) 
         else:
             # Invalid attribute.

@@ -229,8 +229,8 @@ class LazyTaskPool(plugins.SimplePlugin):
             iter_consumers = consumers.copy()
             # Avoid problems with deletion from set during iteration
             for consumer in iter_consumers:
-                if isinstance(consumer, Job):
-                    consumer.completed(current_ref)
+                if isinstance(consumer, Job) and consumer.job_pool is not None:
+                    consumer.job_pool.job_completed(consumer, current_ref)
                     self.unregister_job_interest_for_output(current_ref.id, consumer)
                 else:
                     self.notify_task_of_reference(consumer, global_id, current_ref)

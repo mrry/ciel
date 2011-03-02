@@ -20,7 +20,7 @@ import logging
 import os
 import simplejson
 from skywriting.runtime.master.job_pool import RECORD_HEADER_STRUCT,\
-    Job, JOB_ACTIVE
+    Job, JOB_ACTIVE, JOB_RECOVERED
 from skywriting.runtime.task import build_taskpool_task_from_descriptor
 import ciel
 
@@ -80,12 +80,13 @@ class RecoveryManager(plugins.SimplePlugin):
                 root_task_descriptor = simplejson.loads(root_task_descriptor_string, object_hook=json_decode_object_hook)
                 root_task_id = root_task_descriptor['task_id']
                 root_task = build_taskpool_task_from_descriptor(root_task_id, root_task_descriptor, self.task_pool, None)
-                job = Job(job_id, root_task, job_dir)
+                job = Job(job_id, root_task, job_dir, JOB_RECOVERED, self.job_pool)
                 root_task.job = job
                 if result is not None:
                     job.completed(result)
                 self.job_pool.add_job(job)
-                self.task_pool.add_task(root_task)
+                # Adding the job to the job pool should add the root task.
+                #self.task_pool.add_task(root_task)
                 
                 if result is None:
                     self.load_other_tasks_defer(job, journal_file)
@@ -141,7 +142,8 @@ class RecoveryManager(plugins.SimplePlugin):
             journal_file.close()
             if job.state == JOB_ACTIVE:
                 ciel.log.error('Restarting recovered job %s' % job.id, 'RECOVERY', logging.INFO)
-            self.job_pool.restart_job(job)
+            # We no longer immediately start a job when recovering it.
+            #self.job_pool.restart_job(job)
 
     def fetch_block_list_defer(self, worker):
         self.deferred_worker.do_deferred(lambda: self.fetch_block_names_from_worker(worker))
