@@ -530,17 +530,18 @@ class BlockStore(plugins.SimplePlugin):
                 httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (sub, self.refid), "POST", data)
 
         def rollback(self):
+            self.block_store.rollback_file(self.refid)
             if self.file_watch is not None:
                 self.file_watch.cancel()
-            self.block_store.rollback_file(self.refid)
             data = simplejson.dumps({"failed": True})
             self.post_all_netlocs(data)
 
         def close(self):
             self.closed = True
+            self.block_store.commit_stream(self.refid)
+            # At this point no subscribe() calls are in progress.
             if self.file_watch is not None:
                 self.file_watch.cancel()
-            self.block_store.commit_stream(self.refid)
             self.current_size = os.stat(self.block_store.filename(self.refid)).st_size
             data = simplejson.dumps({"bytes": self.current_size, "done": True})
             self.post_all_netlocs(data)
@@ -556,9 +557,10 @@ class BlockStore(plugins.SimplePlugin):
                 return SW2_ConcreteReference(self.refid, size_hint=self.current_size, location_hints=[self.block_store.netloc])
 
         def subscribe(self, otherend_netloc):
-            ciel.log("Remote %s subscribed to output %s" % (otherend_netloc, self.refid), "EXEC", logging.INFO)
+            ciel.log("Remote %s subscribed to output %s" % (otherend_netloc, self.refid), "BLOCKSTORE", logging.INFO)
             self.subscriptions.append(otherend_netloc)
             if self.file_watch is None:
+                ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.INFO)
                 self.file_watch = self.subscribe_callback(self)
 
         def size_update(self, new_size):
@@ -609,7 +611,6 @@ class BlockStore(plugins.SimplePlugin):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
         with self._lock:
             del self.streaming_producers[id]
-            os.unlink(self.streaming_filename(id))
 
     def ref_from_string(self, string, id):
         output_ctx = self.make_local_output(id)
@@ -644,7 +645,7 @@ class BlockStore(plugins.SimplePlugin):
         post = None
         with self._lock:
             try:
-                self.streaming_producers[id].subscribe_output(otherend_netloc, id)
+                self.streaming_producers[id].subscribe(otherend_netloc)
             except KeyError:
                 if id in self.local_blocks:
                     st = os.stat(self.filename(id))
