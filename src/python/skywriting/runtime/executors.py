@@ -798,14 +798,14 @@ class AsyncPushThread:
             while self.bytes_available < self.next_threshold and not self.fetch_done:
                 self.condvar.wait()
             if self.fetch_done:
-                ciel.log("Fetch for %s completed before we got %d bytes: using file directly" % (self.ref, self.start_threshold), "EXEC", logging.INFO)
+                ciel.log("Fetch for %s completed before we got %d bytes: using file directly" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
                 self.stream_done = True
                 self.filename = self.file_fetch.get_filename()
                 self.condvar.notify_all()
                 return
             else:
                 self.stream_started = True
-        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.start_threshold), "EXEC", logging.INFO)
+        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
         self.copy_loop()
 
     def copy_loop(self):

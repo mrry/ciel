@@ -358,7 +358,7 @@ class FileTransferContext:
                 if not self.cancelled:
                     self.start_next_attempt()
 
-    def update_chunk_size(self):
+    def set_chunk_size(self, new_chunk_size):
         # Don't care: we always request the whole file.
         pass
 
@@ -439,12 +439,13 @@ class StreamTransferContext:
         self.block_store.remove_incoming_stream(self.ref.id)
         self.callbacks.result(success)
 
-    def update_chunk_size(self, new_chunk_size):
+    def set_chunk_size(self, new_chunk_size):
         # This is always called at least once per transfer, and so causes the initial advertisment subscription.
         if new_chunk_size != self.current_chunk_size:
-            ciel.log("Stream-fetch %s: change notification chunk size to %d" % new_chunk_size, "CURL_FETCH", logging.INFO)
-        post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": new_chunk_size})
-        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data)
+            ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, new_chunk_size), "CURL_FETCH", logging.INFO)
+            self.current_chunk_size = new_chunk_size
+            post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": new_chunk_size})
+            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data)
 
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
@@ -605,17 +606,29 @@ class BlockStore(plugins.SimplePlugin):
         def update_chunk_size(self):
             self.subscriptions.sort(key=lambda x: x.chunk_size)
             self.chunk_size = self.subscriptions[0].chunk_size
-            self.file_watch.update_chunk_size(self.chunk_size)
+            self.file_watch.set_chunk_size(self.chunk_size)
 
         def subscribe(self, otherend_netloc, chunk_size):
-            ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, self.refid, chunk_size), "BLOCKSTORE", logging.INFO)
-            new_subscriber = BlockStore.FileOutputSubscriber(otherend_netloc, chunk_size)
-            self.subscriptions.append(new_subscriber)
-            if self.file_watch is None:
-                ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.INFO)
-                self.file_watch = self.subscribe_callback(self)
+
+            found = False
+            should_start_watch = False
+            for subscriber in self.subscriptions:
+                if subscriber.netloc == otherend_netloc:
+                    subscriber.chunk_size = chunk_size
+                    ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, self.refid, chunk_size), "BLOCKSTORE", logging.INFO)
+                    found = True
+                    break
+            if not found:
+                ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, self.refid, chunk_size), "BLOCKSTORE", logging.INFO)
+                new_subscriber = BlockStore.FileOutputSubscriber(otherend_netloc, chunk_size)
+                self.subscriptions.append(new_subscriber)
+                if self.file_watch is None:
+                    ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.INFO)
+                    self.file_watch = self.subscribe_callback(self)
+                    should_start_watch = True
             self.update_chunk_size()
-            self.file_watch.start()
+            if should_start_watch:
+                self.file_watch.start()
 
         def unsubscribe(self, otherend_netloc):
             for x in self.subscriptions:
@@ -665,7 +678,7 @@ class BlockStore(plugins.SimplePlugin):
         return new_ctx
 
     def create_file_watch(self, output_ctx):
-        self.file_watcher_thread.create_watch(output_ctx)
+        return self.file_watcher_thread.create_watch(output_ctx)
 
     def commit_stream(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
@@ -791,7 +804,7 @@ class BlockStore(plugins.SimplePlugin):
             self.last_progress = 0
             self.ref = ref
             self.block_store = block_store
-            self.chunk_size = 
+            self.chunk_size = None
             self.completed = False
 
         def set_fetch_context(self, fetch_context):
@@ -815,13 +828,14 @@ class BlockStore(plugins.SimplePlugin):
         def update_chunk_size(self):
             if len(self.listeners) != 0:
                 self.listeners.sort(key=lambda x: x.chunk_size)
-                self.fetch_context.update_chunk_size(self.listeners[0].chunk_size)
+                self.fetch_context.set_chunk_size(self.listeners[0].chunk_size)
 
         def _remove_listener(self, fetch_client):
             if self.completed:
                 ciel.log("Removing fetch client %s: transfer had already completed" % fetch_client, "CURL_FETCH", logging.WARNING)
                 return
             self.listeners.remove(fetch_client)
+            self.update_chunk_size()
             fetch_client.result(False)
             if len(self.listeners) == 0:
                 ciel.log("Removing fetch client %s: no clients remain, cancelling transfer" % fetch_client, "CURL_FETCH", logging.INFO)
@@ -834,6 +848,7 @@ class BlockStore(plugins.SimplePlugin):
         def add_listener(self, fetch_client):
             self.listeners.append(fetch_client)
             fetch_client.progress(self.last_progress)
+            self.update_chunk_size()
 
         def get_filename(self):
             return self.block_store.streaming_filename(self.ref.id)
@@ -933,7 +948,7 @@ class BlockStore(plugins.SimplePlugin):
             new_client.set_fetch_listener(dummy_listener)
             result_callback(True)
         else:
-            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_client, chunk_size))
+            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_client))
         return new_client
 
     class SynchronousTransfer:

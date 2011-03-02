@@ -3,6 +3,7 @@ import simplejson
 import threading
 import os
 import ciel
+import logging
 
 singleton_watcher = None
 
@@ -29,12 +30,12 @@ class FileWatcherThread:
             self.should_stop = True
             self.condvar.notify_all()
 
-    def create_watch(self):
+    def create_watch(self, output_ctx):
         return FileWatch(output_ctx, self)
 
     def add_watch(self, watch):
         with self.lock:
-            self.active_watches.add(new_watch)
+            self.active_watches.add(watch)
             self.condvar.notify_all()
 
     def remove_watch(self, watch):
@@ -79,7 +80,7 @@ class FileWatch:
         self.thread.remove_watch(self)
 
     # Out-of-thread call
-    def update_chunk_size(self, new_chunk_size):
+    def set_chunk_size(self, new_chunk_size):
         ciel.log("File-watch for %s: new chunk size %d. (ignored)" % (self.id, new_chunk_size), "FILE_WATCHER", logging.INFO)
         
 def create_watcher_thread(bus, block_store):
