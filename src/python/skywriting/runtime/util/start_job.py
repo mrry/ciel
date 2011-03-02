@@ -140,4 +140,4 @@ def main():
 
     print "GOT_RESULT", now_as_timestamp()
 
-    print repr(reflist)
+    return reflist
