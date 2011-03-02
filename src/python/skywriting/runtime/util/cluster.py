@@ -66,7 +66,7 @@ def main():
     fakeBlockStore = BlockStore(ciel.engine, None, None, "/tmp")
     reflist = fakeBlockStore.retrieve_object_for_ref(result, "json")
     sw_return = fakeBlockStore.retrieve_object_for_ref(reflist[0], "json")
-    fakeBlockStore.stop_thread()
+    #fakeBlockStore.stop_thread()
     return sw_return
     
 if __name__ == '__main__':
