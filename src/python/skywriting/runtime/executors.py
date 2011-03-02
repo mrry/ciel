@@ -40,6 +40,12 @@ from errno import EPIPE
 
 import ciel
 
+try:
+    from shared.generated.ciel.protoc_pb2 import Task
+    from shared.generated.java2.protoc_pb2 import Java2TaskPrivate
+except:
+    pass
+
 running_children = {}
 
 def add_running_child(proc):
@@ -437,6 +443,7 @@ class Java2Executor(BaseExecutor):
     
     def __init__(self, block_store):
         BaseExecutor.__init__(self, block_store)
+        return buf_descriptor
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
@@ -445,6 +452,7 @@ class Java2Executor(BaseExecutor):
 
     @staticmethod
     def can_run():
+        return False
         cp = os.getenv("CLASSPATH")
         if cp is None:
             ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
@@ -453,11 +461,25 @@ class Java2Executor(BaseExecutor):
             return test_program(["java", "-cp", cp, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
 
     def _run(self, task_private, task_descriptor, task_record):
+        
+        # 1. Convert the task descriptor and task-private data to a protobuf.
+        
+        # 2. Run the JVM, passing in the task protobuf on stdin.
+        
+        # 3. Read from standard output to get any messages (in protobuf format) from the executor.
+        
+        # 4. If we get a non-zero exit code, write SWErrorReferences to all of the task's expected outputs.
+        
+        # 5. Communicate the report back to the master.
+        
         pass
 
-
-    # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
     def spawn_func(self, **otherargs):
+        private_data = FileOrString(otherargs, self.block_store)
+        new_task_descriptor = {"handler": "skypy",
+                               "task_private": private_data}
+        
+        self.task_record.spawn_task(new_task_descriptor)
 
         new_task_descriptor = {"handler": "skypy"}
         coro_data = FileOrString(otherargs, self.block_store)
