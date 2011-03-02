@@ -106,9 +106,12 @@ def spawn_other(task_record, executor_name, small_task, **executor_args):
 
     new_task_descriptor = {"handler": executor_name}
     if small_task:
-        if "task_private" not in new_task_descriptor:
-            new_task_descriptor["task_private"] = dict()
-        new_task_descriptor["task_private"]["hint"] = "small_task"
+        try:
+            worker_private = new_task_descriptor["worker_private"]
+        except KeyError:
+            worker_private = {}
+            new_task_descriptor["worker_private"] = worker_private
+        worker_private["hint"] = "small_task"
     task_record.spawn_task(new_task_descriptor, **executor_args)
     return [SW2_FutureReference(id) for id in new_task_descriptor["expected_outputs"]]
 
@@ -241,12 +244,42 @@ class FileOrString:
     def toobj(self):
         return self.tostr()
 
-class SkyPyExecutor:
+class BaseExecutor:
+    
+    TASK_PRIVATE_ENCODING = 'pickle'
+    
+    def __init__(self, block_store):
+        self.block_store = block_store
+    
+    def run(self, task_descriptor, task_record):
+        # XXX: This is braindead, considering that we just stashed task_private
+        #      in here during prepare().
+        self._run(task_descriptor["task_private"], task_descriptor, task_record)
+        
+    @classmethod
+    def prepare_task_descriptor_for_execute(cls, task_descriptor, block_store):
+        # Convert task_private from a reference to an object in here.
+        try:
+            task_descriptor["task_private"] = block_store.retrieve_object_for_ref(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING)
+        except:
+            ciel.log('Error retrieving task_private reference from task', 'BASE_EXECUTOR', logging.WARN, True)
+            raise
+        
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
+        # Convert task_private to a reference in here. 
+        task_private_id = ("%s:_private" % task_descriptor["task_id"])
+        task_private_ref = block_store.ref_from_object(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING, task_private_id)
+        parent_task_record.publish_ref(task_private_ref)
+        task_descriptor["task_private"] = task_private_ref
+        task_descriptor["dependencies"].append(task_private_ref)
+
+class SkyPyExecutor(BaseExecutor):
 
     handler_name = "skypy"
     
     def __init__(self, block_store):
-        self.block_store = block_store
+        BaseExecutor.__init__(self, block_store)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
 
     def cleanup(self):
@@ -274,6 +307,8 @@ class SkyPyExecutor:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+
     @staticmethod
     def can_run():
         if "CIEL_SKYPY_BASE" not in os.environ:
@@ -282,12 +317,12 @@ class SkyPyExecutor:
         else:
             return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
         
-    def run(self, task_descriptor, task_record):
+    def _run(self, task_private, task_descriptor, task_record):
 
         self.task_descriptor = task_descriptor
         self.task_record = task_record
         halt_dependencies = []
-        skypy_private = task_descriptor["task_private"]
+        skypy_private = task_private
 
         pyfile_ref = self.task_record.retrieve_ref(skypy_private["py_ref"])
         self.pyfile_ref = pyfile_ref
@@ -438,12 +473,12 @@ class SafeLambdaFunction(LambdaFunction):
         safe_args = self.interpreter.do_eager_thunks(args_list)
         return LambdaFunction.call(self, safe_args, stack, stack_base, context)
 
-class SkywritingExecutor:
+class SkywritingExecutor(BaseExecutor):
 
     handler_name = "swi"
 
     def __init__(self, block_store):
-        self.block_store = block_store
+        BaseExecutor.__init__(self, block_store)
         self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
 
     def cleanup(self):
@@ -467,6 +502,8 @@ class SkywritingExecutor:
             task_descriptor["task_private"]["start_env"] = start_env
             task_descriptor["task_private"]["start_args"] = start_args
         add_package_dep(parent_task_record.package_ref, task_descriptor)
+        
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
 
     def start_sw_script(self, swref, args, env):
 
@@ -489,9 +526,9 @@ class SkywritingExecutor:
     def can_run():
         return True
 
-    def run(self, task_descriptor, task_record):
+    def _run(self, task_private, task_descriptor, task_record):
 
-        sw_private = task_descriptor["task_private"]
+        sw_private = task_private
         self.task_id = task_descriptor["task_id"]
         self.task_record = task_record
 
@@ -621,10 +658,10 @@ class SkywritingExecutor:
             raise BlameUserException('The included script did not parse successfully')
         return script
 
-class SimpleExecutor:
+class SimpleExecutor(BaseExecutor):
 
     def __init__(self, block_store):
-        self.block_store = block_store
+        BaseExecutor.__init__(self, block_store)
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs):
@@ -651,6 +688,8 @@ class SimpleExecutor:
         task_descriptor["dependencies"].append(args_ref)
         task_descriptor["task_private"]["simple_exec_args"] = args_ref
         
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+        
     def resolve_required_refs(self, args):
         try:
             args["inputs"] = [self.task_record.retrieve_ref(ref) for ref in args["inputs"]]
@@ -676,13 +715,13 @@ class SimpleExecutor:
     def can_run():
         return True
 
-    def run(self, task_descriptor, task_record):
+    def _run(self, task_private, task_descriptor, task_record):
         self.task_record = task_record
         self.task_id = task_descriptor["task_id"]
         self.output_ids = task_descriptor["expected_outputs"]
         self.output_refs = [None for i in range(len(self.output_ids))]
         self.succeeded = False
-        self.args = self.block_store.retrieve_object_for_ref(task_descriptor["task_private"]["simple_exec_args"], "pickle")
+        self.args = self.block_store.retrieve_object_for_ref(task_private["simple_exec_args"], "pickle")
 
         try:
             self.debug_opts = self.args['debug_options']
@@ -1350,27 +1389,31 @@ class SyncExecutor(SimpleExecutor):
     def check_args_valid(cls, args, n_outputs):
         SimpleExecutor.check_args_valid(args, n_outputs)
         if "inputs" not in args or n_outputs != 1:
-            raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(self.args))            
+            raise BlameUserException('Incorrect arguments to the sync executor: %s' % repr(args))            
 
     def _execute(self):
         reflist = [self.task_record.retrieve_ref(x) for x in self.args["inputs"]]
         self.output_refs[0] = self.block_store.ref_from_object(reflist, "json", self.output_ids[0])
 
-def build_init_descriptor(handler, args, package_ref):
+# XXX: Passing ref_of_string to get round a circular import. Should really move ref_of_string() to
+#      a nice utility package.
+def build_init_descriptor(handler, args, package_ref, master_uri, ref_of_string):
+    task_private_dict = {"package_ref": package_ref, 
+                         "start_handler": handler, 
+                         "start_args": args
+                         } 
+    task_private_ref = ref_of_string(pickle.dumps(task_private_dict), master_uri)
     return {"handler": "init", 
-            "dependencies": [package_ref], 
-            "task_private": {"package_ref": package_ref, 
-                             "start_handler": handler, 
-                             "start_args": args
-                             } 
+            "dependencies": [package_ref, task_private_ref], 
+            "task_private": task_private_ref
             }
 
-class InitExecutor:
+class InitExecutor(BaseExecutor):
 
     handler_name = "init"
 
     def __init__(self, block_store):
-        pass
+        BaseExecutor.__init__(self, block_store)
 
     @staticmethod
     def can_run():
@@ -1380,13 +1423,13 @@ class InitExecutor:
     def build_task_descriptor(cls, descriptor, parent_task_record, **args):
         raise BlameUserException("Can't spawn init tasks directly; build them from outside the cluster using 'build_init_descriptor'")
 
-    def run(self, task_descriptor, task_record):
+    def _run(self, task_private, task_descriptor, task_record):
         
-        args_dict = task_descriptor["task_private"]["start_args"]
+        args_dict = task_private["start_args"]
         # Some versions of simplejson make these ascii keys into unicode objects :(
         args_dict = dict([(str(k), v) for (k, v) in args_dict.items()])
         initial_task_out_refs = spawn_other(task_record,
-                                            task_descriptor["task_private"]["start_handler"], 
+                                            task_private["start_handler"], 
                                             True,
                                             **args_dict)
 

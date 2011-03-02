@@ -88,7 +88,7 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
 
     resolved_args = resolve_vars(start_args, {"__package__": lambda x: submit_package_dict[x["__package__"]]})
 
-    return skywriting.runtime.executors.build_init_descriptor(start_handler, resolved_args, package_ref)
+    return skywriting.runtime.executors.build_init_descriptor(start_handler, resolved_args, package_ref, master_uri, ref_of_string)
 
 def submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri):
     

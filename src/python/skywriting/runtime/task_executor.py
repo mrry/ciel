@@ -20,6 +20,7 @@ from threading import Lock
 import logging
 import hashlib
 import ciel
+from skywriting.runtime.executors import BaseExecutor
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -49,6 +50,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
             self.current_task_set = new_task_set
         new_task_set.run()
         report_data = [(tr.task_descriptor["task_id"], tr.spawned_tasks, tr.published_refs) for tr in new_task_set.task_records]
+        print report_data
         self.master_proxy.report_tasks(report_data)
         with self._lock:
             self.current_task_set = None
@@ -143,6 +145,10 @@ class TaskExecutionRecord:
         self.executor_cache = executor_cache
         self.block_store = block_store
         self.master_proxy = master_proxy
+        
+        # Need to do this to bring task_private into the execution context.
+        BaseExecutor.prepare_task_descriptor_for_execute(task_descriptor, block_store)
+        
         if "package_ref" in task_descriptor["task_private"]:
             self.package_ref = task_descriptor["task_private"]["package_ref"]
         else:
