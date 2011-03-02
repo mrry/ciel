@@ -32,9 +32,10 @@ import cherrypy
 import subprocess
 from skywriting.runtime.master.job_pool import JobPool
 import os
-from skywriting.runtime.master.recovery import RecoveryManager
 import ciel
 from skywriting.runtime.lighttpd import LighttpdAdapter
+from skywriting.runtime.master.recovery import RecoveryManager,\
+    TaskFailureInvestigator
 from skywriting.runtime.master.hot_standby import BackupSender,\
     MasterRecoveryMonitor
 
@@ -53,6 +54,8 @@ def master_main(options):
     job_pool = JobPool(ciel.engine, lazy_task_pool, options.journaldir)
     job_pool.subscribe()
 
+    task_failure_investigator = TaskFailureInvestigator(lazy_task_pool, worker_pool, deferred_worker)
+    
     backup_sender = BackupSender(cherrypy.engine)
     backup_sender.subscribe()
 
@@ -88,7 +91,7 @@ def master_main(options):
     scheduler = LazyScheduler(ciel.engine, lazy_task_pool, worker_pool)
     scheduler.subscribe()
     
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, job_pool, backup_sender, monitor)
+    root = MasterRoot(task_pool_adapter, worker_pool, block_store, job_pool, backup_sender, monitor, task_failure_investigator)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

@@ -86,7 +86,11 @@ class Worker(plugins.SimplePlugin):
         self.log_condition = Condition(self.log_lock)
 
         self.cherrypy_conf = {}
-    
+
+        cherrypy.config.update({"server.thread_pool" : 20})
+
+
+        
         if options.staticbase is not None:
             self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
 

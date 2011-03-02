@@ -203,6 +203,13 @@ class DataRoot:
             if self.task_pool is not None:
                 self.task_pool.publish_refs({safe_id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
+        
+        elif cherrypy.request.method == 'HEAD':
+            if os.path.exists(self.block_store.filename(id)):
+                return
+            else:
+                raise cherrypy.HTTPError(404)
+
         else:
             raise cherrypy.HTTPError(405)
 

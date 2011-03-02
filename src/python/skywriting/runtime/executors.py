@@ -1080,7 +1080,6 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
     @classmethod
     def check_args_valid(cls, args, n_outputs):
-
         ProcessRunningExecutor.check_args_valid(args, n_outputs)
         if "command_line" not in args:
             raise BlameUserException('Incorrect arguments to the env executor: %s' % repr(args))
@@ -1088,6 +1087,12 @@ class EnvironmentExecutor(ProcessRunningExecutor):
     def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
+
+        try:
+            env = args['env']
+        except KeyError:
+            env = {}
+
         ciel.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
 
         with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
@@ -1104,10 +1109,12 @@ class EnvironmentExecutor(ProcessRunningExecutor):
             
         environment = {'INPUT_FILES'  : input_filenames_name,
                        'OUTPUT_FILES' : output_filenames_name}
+        
+        environment.update(env)
             
         proc = subprocess.Popen(map(str, command_line), env=environment, close_fds=True)
 
-        _ = proc.stdout.read(1)
+        #_ = proc.stdout.read(1)
         #print 'Got byte back from Executor'
 
         return proc
