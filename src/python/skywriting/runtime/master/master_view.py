@@ -29,8 +29,8 @@ import socket
 
 class MasterRoot:
     
-    def __init__(self, task_pool, worker_pool, block_store, job_pool, backup_sender, monitor):
-        self.control = ControlRoot(task_pool, worker_pool, block_store, job_pool, backup_sender, monitor)
+    def __init__(self, task_pool, worker_pool, block_store, job_pool, backup_sender, monitor, task_failure_investigator):
+        self.control = ControlRoot(task_pool, worker_pool, block_store, job_pool, backup_sender, monitor, task_failure_investigator)
         self.data = self.control.data
 
 class ControlRoot:

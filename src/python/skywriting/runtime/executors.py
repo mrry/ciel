@@ -902,7 +902,7 @@ class AsyncPushGroup:
 
     def __exit__(self, exnt, exnv, exnbt):
         if exnt is not None:
-            ciel.log("AsyncPushGroup exiting with exception %s" % exnv, "EXEC", logging.WARNING)
+            ciel.log("AsyncPushGroup exiting with exception %s: cancelling threads..." % repr(exnv), "EXEC", logging.WARNING)
             for thread in self.threads:
                 thread.cancel()
         ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
@@ -912,6 +912,10 @@ class AsyncPushGroup:
         failed_threads = filter(lambda t: not t.success, self.threads)
         failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
         if len(failure_bindings) > 0:
+            for fail in failure_bindings:
+                ciel.log("Failed fetch: %s" % fail, "EXEC", logging.WARNING)
+            if exnt is not None:
+                ciel.log("Transfers have failed: replacing old exception with MissingInputException", "EXEC", logging.WARNING)
             raise MissingInputException(failure_bindings)
         else:
             extra_publishes = {}

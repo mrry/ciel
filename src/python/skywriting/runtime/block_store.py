@@ -615,7 +615,7 @@ class BlockStore(plugins.SimplePlugin):
             if exnt is None:
                 self.close()
             else:
-                ciel.log("FileOutputContext %s destroyed due to exception %s: rolling back" % (self.refid, exnv), "BLOCKSTORE", logging.WARNING)
+                ciel.log("FileOutputContext %s destroyed due to exception %s: rolling back" % (self.refid, repr(exnv)), "BLOCKSTORE", logging.WARNING)
                 self.rollback()
             return False
 
