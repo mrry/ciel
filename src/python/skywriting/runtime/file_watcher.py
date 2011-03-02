@@ -15,8 +15,6 @@ class FileWatcherThread:
         self.lock = threading.Lock()
         self.condvar = threading.Condition(self.lock)
         self.active_watches = set()
-        self.new_watches = []
-        self.dead_watches = []
         self.should_stop = False
 
     def subscribe(self):
@@ -34,36 +32,30 @@ class FileWatcherThread:
     def add_watch(self, output_ctx):
         new_watch = FileWatch(output_ctx, self)
         with self.lock:
-            self.new_watches.append(new_watch)
+            self.active_watches.add(new_watch)
             self.condvar.notify_all()
         return new_watch
 
     def remove_watch(self, watch):
         with self.lock:
-            self.dead_watches.append(self)
+            self.active_watches.discard(watch)
             self.condvar.notify_all()
-            while watch in self.dead_watches:
-                self.condvar.wait()
 
     def main_loop(self):
-        while True:
-            if self.should_stop:
-                return
-            for watch in self.active_watches:
-                try:
-                    watch.poll():
-                except Exception as e:
-                    ciel.log("Watch died with exception %s: cancelled" % e, "FILE_WATCHER", logging.ERROR)
-                    self.dead_watches.append(watch)
-            with self.lock:
-                if len(self.new_watches) == 0 and len(self.dead_watches) == 0:
-                    self.condvar.wait(1)
-                for watch in self.new_watches:
-                    self.active_watches.add(watch)
-                self.new_watches = []
-                for watch in self.dead_watches:
-                    self.active_watches.remove(watch)
-                self.dead_watches = []
+        with self.lock:
+            while True:
+                dead_watches = []
+                if self.should_stop:
+                    return
+                for watch in self.active_watches:
+                    try:
+                        watch.poll():
+                    except Exception as e:
+                        ciel.log("Watch died with exception %s: cancelled" % e, "FILE_WATCHER", logging.ERROR)
+                        dead_watches.append(watch)
+                for watch in dead_watches:
+                    self.active_watches.discard(watch)
+                self.condvar.wait(1)
 
 class FileWatch:
 
@@ -71,7 +63,6 @@ class FileWatch:
         self.id = id
         self.filename = thread.block_store.streaming_filename(id)
         self.thread = thread
-        self.done = False
         self.output_ctx = output_ctx
 
     def poll(self):
