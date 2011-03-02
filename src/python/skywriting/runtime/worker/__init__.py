@@ -68,7 +68,7 @@ class Worker(plugins.SimplePlugin):
         self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.subscribe()
         self.block_store.build_pin_set()
-        self.block_store.find_local_blocks()
+        self.block_store.check_local_blocks()
         create_watcher_thread(bus, self.block_store)
         self.upload_deferred_work = DeferredWorkPlugin(bus, 'upload_work')
         self.upload_deferred_work.subscribe()

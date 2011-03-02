@@ -492,9 +492,6 @@ class BlockStore(plugins.SimplePlugin):
         # this maps to FetchListeners for clients to attach and get progress notifications.
         self.incoming_fetches = dict()
 
-        # Block IDs that are held locally and are complete
-        self.local_blocks = set()
-            
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
@@ -628,9 +625,8 @@ class BlockStore(plugins.SimplePlugin):
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback)
         with self._lock:
-            if id in self.local_blocks:
+            if os.path.exists(self.filename(id)):
                 ciel.log("Block %s already existed! Overwriting..." % id, "BLOCKSTORE", logging.WARNING)
-                self.local_blocks.discard(id)
                 os.remove(self.filename(id))
             self.streaming_producers[id] = new_ctx
             dot_filename = self.streaming_filename(id)
@@ -642,10 +638,9 @@ class BlockStore(plugins.SimplePlugin):
 
     def commit_stream(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-        os.link(self.streaming_filename(id), self.filename(id))
         with self._lock:
             del self.streaming_producers[id]
-            self.local_blocks.add(id)
+            os.link(self.streaming_filename(id), self.filename(id))
 
     def rollback_file(self, id):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
@@ -687,10 +682,10 @@ class BlockStore(plugins.SimplePlugin):
             try:
                 self.streaming_producers[id].subscribe(otherend_netloc)
             except KeyError:
-                if id in self.local_blocks:
+                try:
                     st = os.stat(self.filename(id))
                     post = simplejson.dumps({"bytes": st.st_size, "done": True})
-                else:
+                except OSError:
                     post = simplejson.dumps({"absent": True})
         if post is not None:
             self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
@@ -701,10 +696,7 @@ class BlockStore(plugins.SimplePlugin):
                 self.streaming_producers[id].unsubscribe(otherend_netloc)
                 ciel.log("%s unsubscribed from %s" % (otherend_netloc, id), "BLOCKSTORE", logging.INFO)
             except KeyError:
-                if id in self.local_blocks:
-                    ciel.log("Ignored unsubscribe request for completed block %s" % id, "BLOCKSTORE", logging.INFO)
-                else:
-                    ciel.log("Ignored unsubscribe request for unknown block %s" % id, "BLOCKSTORE", logging.WARNING)
+                ciel.log("Ignored unsubscribe request for unknown block %s" % id, "BLOCKSTORE", logging.WARNING)
 
     def encode_datavalue(self, str):
         return (self.dataval_codec.encode(str))[0]
@@ -738,12 +730,11 @@ class BlockStore(plugins.SimplePlugin):
             raise RuntimeSkywritingError()
 
         with self._lock:
-            if ref.id in self.local_blocks:
+            if os.path.exists(self.filename(ref.id)):
                 return True
             if isinstance(ref, SWDataValue):
                 with open(self.filename(ref.id), 'w') as obj_file:
                     obj_file.write(self.decode_datavalue(ref))
-                self.local_blocks.add(ref.id)
                 return True
 
         return False
@@ -838,9 +829,7 @@ class BlockStore(plugins.SimplePlugin):
     def fetch_completed(self, ref, success):
         if success:
             with self._lock:
-                # local_blocks can be accessed from any thread.
                 os.link(self.streaming_filename(ref.id), self.filename(ref.id))
-                self.local_blocks.add(ref.id)
         del self.incoming_fetches[ref.id]
 
     # Called from cURL thread
@@ -1097,7 +1086,7 @@ class BlockStore(plugins.SimplePlugin):
     def post_string(self, url, postdata):
         self.fetch_thread.do_from_curl_thread(lambda: self._post_string(url, postdata))
 
-    def find_local_blocks(self):
+    def check_local_blocks(self):
         ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
         try:
             for block_name in os.listdir(self.base_dir):
@@ -1105,9 +1094,6 @@ class BlockStore(plugins.SimplePlugin):
                     if not os.path.exists(os.path.join(self.base_dir, block_name[1:])):
                         ciel.log("Deleting incomplete block %s" % block_name, "BLOCKSTORE", logging.WARNING)
                         os.remove(os.path.join(self.base_dir, block_name))
-                else:
-                    self.local_blocks.add(block_name)
-                    ciel.log("Found block %s" % block_name, "BLOCKSTORE", logging.INFO)
         except OSError as e:
             ciel.log("Couldn't enumerate existing blocks: %s" % e, "BLOCKSTORE", logging.WARNING)
 
