@@ -759,10 +759,11 @@ class SimpleExecutor(BaseExecutor):
 
 class AsyncPushThread:
 
-    def __init__(self, block_store, ref, start_threshold=67108864):
+    def __init__(self, block_store, ref, chunk_size=67108864):
         self.block_store = block_store
         self.ref = ref
-        self.start_threshold = start_threshold
+        self.chunk_size = chunk_size
+        self.next_threshold = self.chunk_size
         self.success = None
         self.lock = threading.Lock()
         self.fetch_done = False
@@ -770,14 +771,14 @@ class AsyncPushThread:
         self.stream_started = False
         self.bytes_copied = 0
         self.bytes_available = 0
-        self.next_threshold = 0
         self.condvar = threading.Condition(self.lock)
         self.thread = None
         self.filename = None
 
     def start(self, fifos_dir):
         self.fifos_dir = fifos_dir
-        self.file_fetch = self.block_store.fetch_ref_async(self.ref, 
+        self.file_fetch = self.block_store.fetch_ref_async(self.ref,
+                                                           chunk_size=self.chunk_size,
                                                            result_callback=self.result, 
                                                            reset_callback=self.reset, 
                                                            progress_callback=self.progress)
@@ -794,8 +795,7 @@ class AsyncPushThread:
     def thread_main(self):
 
         with self.lock:
-            self.next_threshold = self.start_threshold
-            while self.bytes_available < self.start_threshold and not self.fetch_done:
+            while self.bytes_available < self.next_threshold and not self.fetch_done:
                 self.condvar.wait()
             if self.fetch_done:
                 ciel.log("Fetch for %s completed before we got %d bytes: using file directly" % (self.ref, self.start_threshold), "EXEC", logging.INFO)
@@ -834,7 +834,7 @@ class AsyncPushThread:
                                 # EOF, for now.
                                 break
                         with self.lock:
-                            self.next_threshold = self.bytes_copied + 67108864
+                            self.next_threshold = self.bytes_copied + self.chunk_size
                             while self.bytes_available < self.next_threshold and not self.fetch_done:
                                 self.condvar.wait()
         except Exception as e:

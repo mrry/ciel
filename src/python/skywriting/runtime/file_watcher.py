@@ -29,12 +29,13 @@ class FileWatcherThread:
             self.should_stop = True
             self.condvar.notify_all()
 
-    def add_watch(self, output_ctx):
-        new_watch = FileWatch(output_ctx, self)
+    def create_watch(self):
+        return FileWatch(output_ctx, self)
+
+    def add_watch(self, watch):
         with self.lock:
             self.active_watches.add(new_watch)
             self.condvar.notify_all()
-        return new_watch
 
     def remove_watch(self, watch):
         with self.lock:
@@ -69,9 +70,17 @@ class FileWatch:
         st = os.stat(self.filename)
         self.output_ctx.size_update(st.st_size)
 
+    # Out-of-thread-call
+    def start(self):
+        self.thread.add_watch(self)
+
     # Out-of-thread call
     def cancel(self):
         self.thread.remove_watch(self)
+
+    # Out-of-thread call
+    def update_chunk_size(self, new_chunk_size):
+        ciel.log("File-watch for %s: new chunk size %d. (ignored)" % (self.id, new_chunk_size), "FILE_WATCHER", logging.INFO)
         
 def create_watcher_thread(bus, block_store):
     global singleton_watcher
