@@ -546,6 +546,12 @@ class BlockStore(plugins.SimplePlugin):
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
 
+    def filename_for_ref(self, ref):
+        if isinstance(ref, SW2_FixedReference):
+            return os.path.join(self.base_dir, '.__fixed__.%s' % ref.id)
+        else:
+            return self.filename(ref.id)
+        
     class FileOutputSubscriber:
         
         def __init__(self, netloc, chunk_size):
@@ -691,6 +697,10 @@ class BlockStore(plugins.SimplePlugin):
         with self._lock:
             del self.streaming_producers[id]
 
+    def write_fixed_ref_string(self, string, fixed_ref):
+        with open(self.filename_for_ref(fixed_ref), "w") as fp:
+            fp.write(string)
+
     def ref_from_string(self, string, id):
         output_ctx = self.make_local_output(id)
         with open(output_ctx.get_filename(), "w") as fp:
@@ -773,11 +783,14 @@ class BlockStore(plugins.SimplePlugin):
         if isinstance(ref, SWErrorReference):
             raise RuntimeSkywritingError()
 
+        if isinstance(ref, SW2_FixedReference):
+            assert ref.fixed_netloc == self.netloc
+            
         with self._lock:
-            if os.path.exists(self.filename(ref.id)):
+            if os.path.exists(self.filename_for_ref(ref)):
                 return True
             if isinstance(ref, SWDataValue):
-                with open(self.filename(ref.id), 'w') as obj_file:
+                with open(self.filename_for_ref(ref), 'w') as obj_file:
                     obj_file.write(self.decode_datavalue(ref))
                 return True
 
@@ -873,6 +886,9 @@ class BlockStore(plugins.SimplePlugin):
             ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
         elif isinstance(ref, SW2_StreamReference):
             ctx = StreamTransferContext(ref, self, new_listener)
+        else:
+            ciel.log('Cannot fetch reference type: %s' % repr(ref), 'BLOCKSTORE', logging.INFO)
+            raise RuntimeSkywritingError()
         new_listener.set_fetch_context(ctx)
         self.incoming_fetches[ref.id] = new_listener
         ctx.start()
@@ -889,7 +905,7 @@ class BlockStore(plugins.SimplePlugin):
         
         if self.is_ref_local(ref):
             ciel.log("Ref %s became local during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
-            dummy_listener = BlockStore.DummyFetchListener(self.filename(ref.id))
+            dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
             fetch_client.set_fetch_listener(dummy_listener)
             result_callback(True)
         else:
@@ -944,7 +960,7 @@ class BlockStore(plugins.SimplePlugin):
         new_client = BlockStore.FetchProxy(result_callback, reset_callback, progress_callback, chunk_size)
         if self.is_ref_local(ref):
             ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
-            dummy_listener = BlockStore.DummyFetchListener(self.filename(ref.id))
+            dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
             new_client.set_fetch_listener(dummy_listener)
             result_callback(True)
         else:
@@ -982,7 +998,7 @@ class BlockStore(plugins.SimplePlugin):
         failed_transfers = filter(lambda x: not x.success, ctxs)
         if len(failed_transfers) > 0:
             raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
-        return [self.filename(ref.id) for ref in refs]
+        return [self.filename_for_ref(ref) for ref in refs]
 
     def retrieve_filename_for_ref(self, ref):
 

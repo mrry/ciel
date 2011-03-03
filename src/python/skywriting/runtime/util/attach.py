@@ -17,7 +17,7 @@ import httplib2
 import simplejson
 import urlparse
 
-PROTOCOLS = {'json' : True, 'protobuf' : True, 'pickle' : True}
+PROTOCOLS = {'json' : True, 'protobuf' : True, 'pickle' : True, 'line' : True}
 FORMATS = {'json' : True, 'env' : True, 'protobuf' : True, 'pickle' : True}
 
 def attach(worker_uri, pid, protocol='json'):
@@ -55,7 +55,7 @@ def render(descriptor, format='json'):
 def main():
     parser = optparse.OptionParser(usage='sw-attach [options] -P PID')
     parser.add_option("-w", "--worker", action="store", dest="worker", help="Worker URI", metavar="WORKER", default='http://localhost:8001/')
-    parser.add_option("-P", "--pid", action="store", dest="pid", help="Process ID", metavar="PID", default=None)
+    parser.add_option("-P", "--pid", action="store", dest="pid", help="Process ID", metavar="PID", type="int", default=None)
     parser.add_option("-p", "--protocol", action="store", dest="protocol", help="IPC protocol to use. Valid protocols are json (default), protobuf or pickle", default='json')
     parser.add_option("-F", "--format", action="store", dest="format", help="Format to write out umbilical details. Valid formats are json (default), env, protobuf or pickle", default='json')
     (options, _) = parser.parse_args()

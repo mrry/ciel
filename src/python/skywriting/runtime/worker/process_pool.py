@@ -21,6 +21,9 @@ from shared.references import SW2_FixedReference
 import httplib2
 import urlparse
 from skywriting.runtime.references import SWReferenceJSONEncoder
+import pickle
+import fcntl
+import threading
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""
@@ -36,17 +39,32 @@ class ProcessRecord:
                 
         self.from_process_fifo_name = os.path.join(self.fifos_dir, 'from_process')
         os.mkfifo(self.from_process_fifo_name)
-        self.from_process_fifo = os.open(self.from_process_fifo_name, os.O_RDONLY | os.O_NONBLOCK)
+        self.from_process_fifo = None 
         
         self.to_process_fifo_name = os.path.join(self.fifos_dir, 'to_process')
         os.mkfifo(self.to_process_fifo_name)
-        # Linux hack: this prevents ENXIO when we open the pipe in non-blocking mode.
-        self.to_process_fifo = os.open(self.to_process_fifo_name, os.O_RDWR | os.O_NONBLOCK)
+        self.to_process_fifo = None
+        
+        self._lock = threading.Lock()
+        
+    def get_read_fifo(self):
+        with self._lock:
+            if self.from_process_fifo is None:
+                self.from_process_fifo = open(self.from_process_fifo_name, "r")
+            return self.from_process_fifo
+        
+    def get_write_fifo(self):
+        with self._lock:
+            if self.to_process_fifo is None:
+                self.to_process_fifo = open(self.to_process_fifo_name, "w")
+            return self.to_process_fifo
         
     def cleanup(self):
         try:
-            os.close(self.from_process_fifo)
-            os.close(self.to_process_fifo)
+            if self.from_process_fifo is not None: 
+                os.close(self.from_process_fifo)
+            if self.to_process_fifo is not None:
+                os.close(self.to_process_fifo)
         except:
             ciel.log('Error cleaning up process %s, ignoring' % self.id, 'PROCESS', logging.WARN)
         
@@ -83,8 +101,11 @@ class ProcessPool:
         for record in self.processes.values():
             record.cleanup()
         
-    def get_reference_for_process(self, record):      
-        return SW2_FixedReference(record.id, self.worker.block_store.netloc)
+    def get_reference_for_process(self, record):
+        ref = SW2_FixedReference(record.id, self.worker.block_store.netloc)
+        if not self.worker.block_store.is_ref_local(ref):
+            self.worker.block_store.write_fixed_ref_string(pickle.dumps(record.as_descriptor()), ref)
+        return ref
         
     def create_job_for_process(self, record):
         ref = self.get_reference_for_process(record)

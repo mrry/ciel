@@ -79,7 +79,7 @@ class ExecutionFeatures:
         self.executors = dict([(x.handler_name, x) for x in [SkywritingExecutor, SkyPyExecutor, SWStdinoutExecutor, 
                                                            EnvironmentExecutor, JavaExecutor, DotNetExecutor, 
                                                            CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
-                                                           Java2Executor]])
+                                                           Java2Executor, ProcExecutor]])
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
 
     def all_features(self):
@@ -446,6 +446,36 @@ class SkyPyExecutor(BaseExecutor):
         real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
 
+class ProcExecutor(BaseExecutor):
+    
+    handler_name = "proc"
+    
+    def __init__(self, worker):
+        BaseExecutor.__init__(self, worker)
+        self.process_pool = worker.process_pool
+
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
+        raise BlameUserException('Cannot create "proc" task from inside a running job.')
+
+    @staticmethod
+    def can_run():
+        ciel.log('proc executor enabled', 'PROC', logging.INFO)
+        return True
+    
+    def _run(self, task_private, task_descriptor, task_record):
+        id = task_private['id']
+        process_record = self.process_pool.get_process_record(id)
+        
+        f = process_record.get_read_fifo()
+        #g = process_record.get_write_fifo()
+        foo = f.readline()
+        print foo
+        #print >>g, foo
+
+        for id in task_descriptor['expected_outputs']:
+            task_record.publish_ref(SWDataValue(id, simplejson.dumps(foo)))
+        
 class Java2Executor(BaseExecutor):
     
     handler_name = "java2"
@@ -506,8 +536,6 @@ class Java2Executor(BaseExecutor):
     def deref_json(self, ref):
         real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
-
-
 
 
 # Imports for Skywriting
