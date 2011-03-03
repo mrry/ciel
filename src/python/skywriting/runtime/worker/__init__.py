@@ -35,6 +35,7 @@ import subprocess
 from threading import Lock, Condition
 from datetime import datetime
 from skywriting.runtime.lighttpd import LighttpdAdapter
+from skywriting.runtime.worker.process_pool import ProcessPool
 
 class WorkerState:
     pass
@@ -76,6 +77,8 @@ class Worker(plugins.SimplePlugin):
         self.execution_features = ExecutionFeatures()
         self.task_executor = TaskExecutorPlugin(bus, self.block_store, self.master_proxy, self.execution_features, 1)
         self.task_executor.subscribe()
+        self.process_pool = ProcessPool(bus)
+        self.process_pool.subscribe()
         self.runnable_executors = self.execution_features.runnable_executors.keys()
         self.server_root = WorkerRoot(self)
         self.pinger = Pinger(bus, self.master_proxy, None, 30)

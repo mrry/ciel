@@ -42,6 +42,7 @@ class WorkerRoot:
 class ControlRoot:
 
     def __init__(self, worker):
+        self.worker = worker
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
@@ -52,6 +53,7 @@ class ControlRoot:
         self.upload = UploadRoot(worker.upload_manager)
         self.admin = ManageRoot(worker.block_store)
         self.fetch = FetchRoot(worker.upload_manager)
+        self.process = ProcessRoot(worker.process_pool)
     
     @cherrypy.expose
     def index(self):
@@ -272,6 +274,37 @@ class FetchRoot:
         self.upload_manager.fetch_refs(id, refs)
         
         cherrypy.response.status = '202 Accepted'
+        
+class ProcessRoot:
+    
+    def __init__(self, process_pool):
+        self.process_pool = process_pool
+        
+    @cherrypy.expose
+    def default(self, id=None):
+        
+        if cherrypy.request.method == 'POST' and id is None:
+            # Create a new process record.
+            (pid, protocol) = simplejson.load(cherrypy.request.body)
+            record = self.process_pool.create_process_record(pid, protocol)
+            return simplejson.dumps(record.as_descriptor())
+            
+        elif cherrypy.request.method == 'GET' and id is None:
+            # Return a list of process IDs.
+            return simplejson.dumps(self.process_pool.get_process_ids())
+        
+        elif id is not None:
+            # Return information about a running process (for debugging).
+            record = self.process_pool.get_process_record(id)
+            if record is None:
+                raise cherrypy.HTTPError(404)
+            elif cherrypy.request.method != 'GET':
+                raise cherrypy.HTTPError(405)
+            else:
+                return simplejson.dumps(record.as_descriptor())
+        
+        else:
+            raise cherrypy.HTTPError(405)
         
 class ManageRoot:
     
