@@ -1,0 +1,191 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Getting started</title>
+    <link rel="stylesheet" type="text/css" href="/style.css" media="screen">
+    <meta name="generator" content="nanoc 3.1.6">
+  </head>
+  <body>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-377063-3']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+    <div id="main">
+      <h1>Getting started</h1>
+
+<h2>Downloading CIEL</h2>
+
+<p>The CIEL source code is available from our <a href="http://github.com/mrry/ciel/">github
+repository</a>. To obtain the code, the
+first step is to checkout a working copy of the repository:</p>
+
+<pre><code class="CodeRay language-bash">$ git clone http://github.com/mrry/ciel.git</code></pre>
+
+<p>This will create a directory named <code>ciel</code> in the current
+directory. You can run CIEL directly from that directory.</p>
+
+<h2>Installing dependencies</h2>
+
+<p>Before running CIEL, you may need to install various dependencies. We
+develop CIEL on Ubuntu 10.04 and Fedora, and use the following packages;
+however, these may vary based on the exact version of your operating
+system.</p>
+
+<table>
+<thead><tr>
+<th>Packages</th>
+      <th><code>apt-get</code></th>
+      <th><code>yum install</code></th>
+    </tr></thead>
+<tbody>
+<tr>
+<td><a href="http://www.python.org/">Python 2.5+</a></td>
+      <td><code>python</code></td>
+      <td><code>python</code></td>
+    </tr>
+<tr>
+<td><a href="http://www.dabeaz.com/ply/">PLY 3.0+</a></td>
+      <td><code>python-ply</code></td>
+      <td><code>python-ply</code></td>
+    </tr>
+<tr>
+<td><a href="http://code.google.com/p/httplib2/">httplib2</a></td>
+      <td><code>python-httplib2</code></td>
+      <td><code>python-httplib2</code></td>
+    </tr>
+<tr>
+<td><a href="http://pypi.python.org/pypi/simplejson">simplejson</a></td>
+      <td><code>python-simplejson</code></td>
+      <td><code>python-simplejson</code></td>
+    </tr>
+<tr>
+<td><a href="http://www.cherrypy.org/">CherryPY 3.1.2+</a></td>
+      <td><code>python-cherrypy3</code></td>
+      <td><code>python-cherrypy3</code></td>
+    </tr>
+<tr>
+<td><a href="http://pycurl.sourceforge.net/">PycURL</a></td>
+      <td><code>python-pycurl</code></td>
+      <td><code>python-pycurl</code></td>
+    </tr>
+<tr>
+<td><a href="http://curl.haxx.se/">cURL</a></td>
+      <td><code>curl</code></td>
+      <td><code>curl</code></td>
+    </tr>
+<tr>
+<td><a href="http://www.lighttpd.net/">lighttpd</a></td>
+      <td><code>lighttpd</code></td>
+      <td><code>lighttpd</code></td>
+    </tr>
+<tr>
+<td><a href="http://trac.saddi.com/flup">flup</a></td>
+      <td><code>python-flup</code></td>
+      <td><code>python-flup</code></td>
+    </tr>
+</tbody>
+</table><p>In addition, the following packages are required to build the bindings
+for all languages.</p>
+
+<table>
+<thead><tr>
+<th>Packages</th>
+      <th><code>apt-get</code></th>
+      <th><code>yum install</code></th>
+    </tr></thead>
+<tbody>
+<tr>
+<td><a href="http://ant.apache.org/">ant</a></td>
+      <td><code>ant</code></td>
+      <td><code>ant</code></td>
+    </tr>
+<tr>
+<td><a href="http://openjdk.java.net/">OpenJDK 6</a></td>
+      <td>
+<code>openjdk-6-jdk</code> <code>openjdk-6-jre</code>
+</td>
+      <td><code>java-1.6.0-openjdk-devel</code></td>
+    </tr>
+<tr>
+<td><a href="http://www.go-mono.com/">Mono</a></td>
+      <td>
+<code>mono-devel</code> <code>mono-mcs</code>
+</td>
+      <td><code>mono-devel</code></td>
+    </tr>
+<tr>
+<td><a href="http://www.gnu.org/software/m4/">m4</a></td>
+      <td><code>m4</code></td>
+      <td><code>m4</code></td>
+    </tr>
+<tr>
+<td><a href="http://gcc.gnu.org/">GCC</a></td>
+      <td><code>gcc</code></td>
+      <td><code>gcc</code></td>
+    </tr>
+<tr>
+<td><a href="http://code.google.com/p/protobuf/">Protocol buffers</a></td>
+      <td>
+<code>python-protobuf</code> <code>protobuf-devel</code>
+</td>
+      <td>?</td>
+    </tr>
+</tbody>
+</table><h2>Building the bindings</h2>
+
+<p>If you want to use the foreign language <a href="/executors/">executors</a>, you
+will need to build the bindings by doing the following in the CIEL directory:</p>
+
+<pre><code class="CodeRay language-bash">$ ./build-all.sh</code></pre>
+
+<h2>Setting your `PYTHONPATH`</h2>
+
+<p>You must configure your environment before running CIEL:</p>
+
+<pre><code class="CodeRay language-bash">$ export CLROOT=/path/to/ciel/directory
+export PYTHONPATH=$CLROOT/src/python:$PYTHONPATH
+
+Starting the master and a worker
+
+The master can be started with default options as follows:
+
+$ $CLROOT/scripts/run_master.sh
+
+In another terminal, start a worker with the following:
+
+$ $CLROOT/scripts/run_worker.sh -p 8001
+
+Submitting your first job
+
+The `sw-start-job` script starts a job, based on a package
+file. Example package files can be found in the `src/package`
+directory. The following starts a simple test job:
+
+$
+$CLROOT/scripts/sw-start-job -m http://localhost:8000/ $CLROOT/src/package/test.pack
+</code></pre>
+    </div>
+    <!--<div id="sidebar">
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.stoneship.org/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.stoneship.org/docs/3-getting-started/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://projects.stoneship.org/trac/nanoc/">Wiki</a></li>
+      </ul>
+    </div>-->
+  </body>
+</html>
