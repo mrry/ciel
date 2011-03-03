@@ -20,6 +20,7 @@ message Reference {
     SWEETHEART = 6;
     ERROR = 7;
     FRIVOLOUS = 8;
+    FIXED = 9;
   }
 
   required ReferenceType type = 1;

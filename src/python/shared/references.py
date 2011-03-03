@@ -155,6 +155,34 @@ class SW2_SweetheartReference(SW2_ConcreteReference):
     def __repr__(self):
         return 'SW2_SweetheartReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.sweetheart_netloc), repr(self.size_hint), repr(self.location_hints))
         
+class SW2_FixedReference(SWRealReference):
+    
+    def __init__(self, id, fixed_netloc):
+        self.id = id
+        self.fixed_netloc = fixed_netloc
+    
+    def combine_with(self, ref):
+        pass
+    
+    def as_protobuf(self):
+        ref = Reference()
+        ref.type = Reference.FIXED
+        ref.id = self.id
+        ref.location_hints.add(netloc_to_protobuf(self.fixed_netloc))
+        return ref
+    
+    def as_future(self):
+        return SW2_FutureReference(self.id)
+    
+    def as_tuple(self):
+        return ('fx', str(self.id), self.fixed_netloc)
+        
+    def __str__(self):
+        return "<FixedRef: %s, stored at %s>" % (self.id[:10], self.fixed_netloc)
+        
+    def __repr__(self):
+        return 'SW2_FixedReference(%s, %s)' % (repr(self.id), repr(self.fixed_netloc))
+        
 class SW2_StreamReference(SWRealReference):
     
     def __init__(self, id, location_hints=None):
@@ -301,6 +329,8 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_SweetheartReference(reference_tuple[1], reference_tuple[2], reference_tuple[3], reference_tuple[4])
     elif ref_type == 's2':
         return SW2_StreamReference(reference_tuple[1], reference_tuple[2])
+    elif ref_type == 'fx':
+        return SW2_FixedReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 't2':
         return SW2_TombstoneReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'fetch2':
@@ -324,6 +354,8 @@ try:
             return SW2_SweetheartReference(ref.id, ref.sweetheart, ref.size_hint, map(protobuf_to_netloc, ref.location_hints))
         elif ref.type == Reference.STREAM:
             return SW2_StreamReference(ref.id, map(protobuf_to_netloc, ref.location_hints))
+        elif ref.type == Reference.FIXED:
+            return SW2_FixedReference(ref.id, protobuf_to_netloc(ref.location_hints[0]))
         elif ref.type == Reference.TOMBSTONE:
             return SW2_TombstoneReference(ref.id, map(protobuf_to_netloc, ref.location_hints))
         elif ref.type == Reference.FETCH:
@@ -368,6 +400,10 @@ def combine_references(original, update):
             return original.as_future()
         else:
             return original
+    
+    # Propagate failure if a fixed reference goes away.
+    if (isinstance(original, SW2_FixedReference) and isinstance(update, SW2_TombstoneReference)):
+        return SWErrorReference(original.id, 'LOST_FIXED_OBJECT', original.fixed_netloc)
     
     # If we reach this point, we should ignore the update.
     return original    

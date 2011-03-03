@@ -4,7 +4,8 @@ Created on 17 Aug 2010
 @author: dgm36
 '''
 import datetime
-from shared.references import SW2_FutureReference, SW2_StreamReference
+from shared.references import SW2_FutureReference, SW2_StreamReference,\
+    SW2_FixedReference
 
 import time
 import ciel
@@ -68,6 +69,9 @@ class TaskPoolTask:
         
         self.replay_uuids = replay_uuids
         self.unfinished_input_streams = set()
+
+        self.constrained_location_checked = False
+        self.constrained_location = None
 
         self._blocking_dict = {}
         if select_group is not None:
@@ -193,6 +197,17 @@ class TaskPoolTask:
         for local_id, ref in self.dependencies.items(): 
             new_deps[local_id] = ref.as_future()
         self.dependencies = new_deps
+
+    def has_constrained_location(self):
+        for dep in self.dependencies.values():
+            if isinstance(dep, SW2_FixedReference):
+                self.constrained_location = dep.fixed_netloc
+        self.constrained_location_checked = True
+                
+    def get_constrained_location(self):
+        if not self.constrained_location_checked:
+            self.has_constrained_location()
+        return self.constrained_location
 
     def as_descriptor(self, long=False):        
         descriptor = {'task_id': self.task_id,

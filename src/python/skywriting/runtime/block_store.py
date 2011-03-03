@@ -45,7 +45,7 @@ import simplejson
 from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SW2_StreamReference,\
-    SW2_TombstoneReference, SW2_FetchReference
+    SW2_TombstoneReference, SW2_FetchReference, SW2_FixedReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 import hashlib
 import contextlib
@@ -1032,6 +1032,9 @@ class BlockStore(plugins.SimplePlugin):
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SW2_StreamReference):
             return ["http://%s/data/.%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+        elif isinstance(ref, SW2_FixedReference):
+            assert ref.fixed_netloc == self.netloc
+            return ["http://%s/data/%s" % (self.netloc, ref.id)]
         elif isinstance(ref, SW2_FetchReference):
             return [ref.url]
                 

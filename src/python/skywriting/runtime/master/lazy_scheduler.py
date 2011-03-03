@@ -106,7 +106,10 @@ class LazyScheduler(AsynchronousExecutePlugin):
             
     # Based on TaskPool.add_task_to_queues()
     def add_task_to_worker_queues(self, task):
-        if task.state == TASK_QUEUED_STREAMING:
+        if task.has_constrained_location():
+            fixed_netloc = task.get_constrained_location()
+            self.worker_pool.get_worker_at_netloc(fixed_netloc).local_queue.put(task)
+        elif task.state == TASK_QUEUED_STREAMING:
             handler_queue = self.worker_pool.feature_queues.get_streaming_queue_for_feature(task.handler)
             handler_queue.put(task)
         elif task.state == TASK_QUEUED:
