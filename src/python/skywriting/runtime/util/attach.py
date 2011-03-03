@@ -41,6 +41,12 @@ def render(descriptor, format='json'):
 
     if format == 'json':
         print simplejson.dumps(descriptor)
+    elif format == 'env':
+        print 'export CIEL_PROCESS_ID=%s' % descriptor['id']
+        print 'export CIEL_PROCESS_PROTOCOL=%s' % descriptor['protocol']
+        print 'export CIEL_PIPE_TO_WORKER=%s' % descriptor['to_worker_fifo']
+        print 'export CIEL_PIPE_FROM_WORKER=%s' % descriptor['from_worker_fifo']
+        
     else:
         print >>sys.stderr, 'Format not yet supported: %s' % format
         raise
