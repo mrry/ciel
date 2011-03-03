@@ -194,7 +194,8 @@ def worker_process_main(skypybase, lib, base_dir, task_queue, response_queue):
     execution_features = ExecutionFeatures()
     block_store = BlockStore(ciel.engine, 'localhost', 8000, base_dir, True)
     
-    thread_task_executor = TaskExecutorPlugin(ciel.engine, skypybase, lib, block_store, master_proxy, execution_features, 1)
+    # XXX: Broken because we now need a pseudoworker in place of a block_store.
+    thread_task_executor = TaskExecutorPlugin(ciel.engine, skypybase, lib, worker, master_proxy, execution_features, 1)
    
     while True:
         

@@ -99,9 +99,9 @@ class ExecutionFeatures:
     def can_run(self, name):
         return name in self.runnable_executors
 
-    def get_executor(self, name, block_store):
+    def get_executor(self, name, worker):
         try:
-            return self.runnable_executors[name](block_store)
+            return self.runnable_executors[name](worker)
         except KeyError:
             raise Exception("Can't run %s here" % name)
 
@@ -255,8 +255,9 @@ class BaseExecutor:
     
     TASK_PRIVATE_ENCODING = 'pickle'
     
-    def __init__(self, block_store):
-        self.block_store = block_store
+    def __init__(self, worker):
+        self.worker = worker
+        self.block_store = worker.block_store
     
     def run(self, task_descriptor, task_record):
         # XXX: This is braindead, considering that we just stashed task_private
@@ -285,8 +286,8 @@ class SkyPyExecutor(BaseExecutor):
 
     handler_name = "skypy"
     
-    def __init__(self, block_store):
-        BaseExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        BaseExecutor.__init__(self, worker)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
 
     def cleanup(self):
@@ -449,9 +450,8 @@ class Java2Executor(BaseExecutor):
     
     handler_name = "java2"
     
-    def __init__(self, block_store):
-        BaseExecutor.__init__(self, block_store)
-        return buf_descriptor
+    def __init__(self, worker):
+        BaseExecutor.__init__(self, worker)
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
@@ -549,8 +549,8 @@ class SkywritingExecutor(BaseExecutor):
 
     handler_name = "swi"
 
-    def __init__(self, block_store):
-        BaseExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        BaseExecutor.__init__(self, worker)
         self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
 
     def cleanup(self):
@@ -732,8 +732,8 @@ class SkywritingExecutor(BaseExecutor):
 
 class SimpleExecutor(BaseExecutor):
 
-    def __init__(self, block_store):
-        BaseExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        BaseExecutor.__init__(self, worker)
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs):
@@ -1024,8 +1024,8 @@ class DummyPushGroup:
 
 class ProcessRunningExecutor(SimpleExecutor):
 
-    def __init__(self, block_store):
-        SimpleExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        SimpleExecutor.__init__(self, worker)
 
         self._lock = threading.Lock()
         self.proc = None
@@ -1109,8 +1109,8 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
     
     handler_name = "stdinout"
 
-    def __init__(self, block_store):
-        ProcessRunningExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        ProcessRunningExecutor.__init__(self, worker)
 
     @classmethod
     def check_args_valid(cls, args, n_outputs):
@@ -1151,8 +1151,8 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
     handler_name = "env"
 
-    def __init__(self, block_store):
-        ProcessRunningExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        ProcessRunningExecutor.__init__(self, worker)
 
     @classmethod
     def check_args_valid(cls, args, n_outputs):
@@ -1165,7 +1165,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         command_line = self.args["command_line"]
 
         try:
-            env = args['env']
+            env = self.args['env']
         except KeyError:
             env = {}
 
@@ -1197,8 +1197,8 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
 class FilenamesOnStdinExecutor(ProcessRunningExecutor):
     
-    def __init__(self, block_store):
-        ProcessRunningExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        ProcessRunningExecutor.__init__(self, worker)
 
         self.last_event_time = None
         self.current_state = "Starting up"
@@ -1318,8 +1318,8 @@ class JavaExecutor(FilenamesOnStdinExecutor):
 
     handler_name = "java"
 
-    def __init__(self, block_store):
-        FilenamesOnStdinExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        FilenamesOnStdinExecutor.__init__(self, worker)
 
     @staticmethod
     def can_run():
@@ -1360,8 +1360,8 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
     handler_name = "dotnet"
 
-    def __init__(self, block_store):
-        FilenamesOnStdinExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        FilenamesOnStdinExecutor.__init__(self, worker)
 
     @staticmethod
     def can_run():
@@ -1398,8 +1398,8 @@ class CExecutor(FilenamesOnStdinExecutor):
 
     handler_name = "cso"
 
-    def __init__(self, block_store):
-        FilenamesOnStdinExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        FilenamesOnStdinExecutor.__init__(self, worker)
 
     @staticmethod
     def can_run():
@@ -1435,8 +1435,8 @@ class GrabURLExecutor(SimpleExecutor):
 
     handler_name = "grab"
     
-    def __init__(self, block_store):
-        SimpleExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        SimpleExecutor.__init__(self, worker)
     
     @classmethod
     def check_args_valid(cls, args, n_outputs):
@@ -1465,8 +1465,8 @@ class SyncExecutor(SimpleExecutor):
 
     handler_name = "sync"
     
-    def __init__(self, block_store):
-        SimpleExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        SimpleExecutor.__init__(self, worker)
 
     @classmethod
     def check_args_valid(cls, args, n_outputs):
@@ -1495,8 +1495,8 @@ class InitExecutor(BaseExecutor):
 
     handler_name = "init"
 
-    def __init__(self, block_store):
-        BaseExecutor.__init__(self, block_store)
+    def __init__(self, worker):
+        BaseExecutor.__init__(self, worker)
 
     @staticmethod
     def can_run():

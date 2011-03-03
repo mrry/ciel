@@ -16,6 +16,11 @@ import os
 import uuid
 import ciel
 import logging
+import simplejson
+from shared.references import SW2_FixedReference
+import httplib2
+import urlparse
+from skywriting.runtime.references import SWReferenceJSONEncoder
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""
@@ -24,6 +29,7 @@ class ProcessRecord:
         self.id = id
         self.pid = pid
         self.protocol = protocol
+        self.job_id = None
         
         # The worker communicates with the process using a pair of named pipes.
         self.fifos_dir = tempfile.mkdtemp(prefix="ciel-ipc-fifos-")
@@ -48,7 +54,8 @@ class ProcessRecord:
         return {'id' : self.id,
                 'protocol' : self.protocol,
                 'to_worker_fifo' : self.from_process_fifo_name,
-                'from_worker_fifo' : self.to_process_fifo_name}
+                'from_worker_fifo' : self.to_process_fifo_name,
+                'job_id' : self.job_id}
         
     def __repr__(self):
         return 'ProcessRecord(%s, %s)' % (repr(self.id), repr(self.pid))
@@ -56,9 +63,10 @@ class ProcessRecord:
 class ProcessPool:
     """Represents a collection of long-running processes attached to this worker."""
 
-    def __init__(self, bus):
+    def __init__(self, bus, worker):
         self.processes = {}
         self.bus = bus
+        self.worker = worker
         
     def subscribe(self):
         self.bus.subscribe('start', self.start)
@@ -74,6 +82,33 @@ class ProcessPool:
     def stop(self):
         for record in self.processes.values():
             record.cleanup()
+        
+    def get_reference_for_process(self, record):      
+        return SW2_FixedReference(record.id, self.worker.block_store.netloc)
+        
+    def create_job_for_process(self, record):
+        ref = self.get_reference_for_process(record)
+        root_task_descriptor = {'handler' : 'proc',
+                                'dependencies' : [ref],
+                                'task_private' : ref}
+        
+        master_task_submit_uri = urlparse.urljoin(self.worker.master_url, "control/job/")
+        
+        try:
+            http = httplib2.Http()
+            (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(root_task_descriptor, cls=SWReferenceJSONEncoder))
+        except Exception, e:
+            ciel.log('Network error submitting process job to master', 'PROCESSPOOL', logging.WARN)
+            raise e
+
+        if response['status'] != '200':
+            ciel.log('HTTP error submitting process job to master: %s' % response['status'], 'PROCESSPOOL', logging.WARN)
+            raise
+
+        job_descriptor = simplejson.loads(content)
+        record.job_id = job_descriptor['job_id']
+        ciel.log('Created job %s for process %s (PID=%d)' % (record.job_id, record.id, record.pid), 'PROCESSPOOL', logging.INFO)
+        
         
     def create_process_record(self, pid, protocol, id=None):
         if id is None:

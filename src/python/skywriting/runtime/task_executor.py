@@ -24,13 +24,14 @@ from skywriting.runtime.executors import BaseExecutor
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, block_store, master_proxy, execution_features, num_threads=1):
+    def __init__(self, bus, worker, master_proxy, execution_features, num_threads=1):
         AsynchronousExecutePlugin.__init__(self, bus, num_threads, "execute_task")
-        self.block_store = block_store
+        self.worker = worker
+        self.block_store = worker.block_store
         self.master_proxy = master_proxy
         self.execution_features = execution_features
 
-        self.executor_cache = ExecutorCache(self.execution_features, self.block_store)
+        self.executor_cache = ExecutorCache(self.execution_features, self.worker)
         self.current_task_set = None
         self._lock = Lock()
     
@@ -64,16 +65,16 @@ class ExecutorCache:
     # A cache of executors, permitting helper processes to outlive tasks.
     # Policy: only keep one of each kind around at any time.
 
-    def __init__(self, execution_features, block_store):
+    def __init__(self, execution_features, worker):
         self.execution_features = execution_features
-        self.block_store = block_store
+        self.worker = worker
         self.idle_executors = dict()
     
     def get_executor(self, handler):
         try:
             return self.idle_executors.pop(handler)
         except KeyError:
-            return self.execution_features.get_executor(handler, self.block_store)
+            return self.execution_features.get_executor(handler, self.worker)
 
     def put_executor(self, handler, executor):
         if handler in self.idle_executors:

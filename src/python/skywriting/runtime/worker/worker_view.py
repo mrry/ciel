@@ -287,6 +287,8 @@ class ProcessRoot:
             # Create a new process record.
             (pid, protocol) = simplejson.load(cherrypy.request.body)
             record = self.process_pool.create_process_record(pid, protocol)
+            self.process_pool.create_job_for_process(record)
+            
             return simplejson.dumps(record.as_descriptor())
             
         elif cherrypy.request.method == 'GET' and id is None:
