@@ -147,32 +147,30 @@ will need to build the bindings by doing the following in the CIEL directory:</p
 
 <pre><code class="CodeRay language-bash">$ ./build-all.sh</code></pre>
 
-<h2>Setting your `PYTHONPATH`</h2>
+<h2>Setting your PYTHONPATH</h2>
 
 <p>You must configure your environment before running CIEL:</p>
 
 <pre><code class="CodeRay language-bash">$ export CLROOT=/path/to/ciel/directory
-export PYTHONPATH=$CLROOT/src/python:$PYTHONPATH
+$ export PYTHONPATH=$CLROOT/src/python:$PYTHONPATH</code></pre>
 
-Starting the master and a worker
+<h2>Starting the master and a worker</h2>
 
-The master can be started with default options as follows:
+<p>The master can be started with default options as follows:</p>
 
-$ $CLROOT/scripts/run_master.sh
+<pre><code class="CodeRay language-bash">$ $CLROOT/scripts/run_master.sh</code></pre>
 
-In another terminal, start a worker with the following:
+<p>In another terminal, start a worker with the following:</p>
 
-$ $CLROOT/scripts/run_worker.sh -p 8001
+<pre><code class="CodeRay language-bash">$ $CLROOT/scripts/run_worker.sh -p 8001</code></pre>
 
-Submitting your first job
+<h2>Submitting your first job</h2>
 
-The `sw-start-job` script starts a job, based on a package
-file. Example package files can be found in the `src/package`
-directory. The following starts a simple test job:
+<p>The <code>sw-start-job</code> script starts a job, based on a package
+file. Example package files can be found in the <code>src/package</code>
+directory. The following starts a simple test job:</p>
 
-$
-$CLROOT/scripts/sw-start-job -m http://localhost:8000/ $CLROOT/src/package/test.pack
-</code></pre>
+<pre><code class="CodeRay language-bash">$ $CLROOT/scripts/sw-start-job -m http://localhost:8000/ $CLROOT/src/package/test.pack</code></pre>
     </div>
     <!--<div id="sidebar">
       <h2>Documentation</h2>
