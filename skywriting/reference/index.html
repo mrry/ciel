@@ -353,7 +353,7 @@ result = environ(input_refs, command_line, num_outputs);</code></pre>
     </tr>
 <tr>
 <td><code>command_line</code></td>
-      <td>The command line to run.</td>
+      <td>The command line to run, as a list of strings.</td>
     </tr>
 <tr>
 <td><code>num_outputs</code></td>
@@ -403,7 +403,7 @@ result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
     </tr>
 <tr>
 <td><code>command_line</code></td>
-      <td>The command line to run.</td>
+      <td>The command line to run, as a list of strings.</td>
     </tr>
 <tr>
 <td><code>num_outputs</code></td>
@@ -434,11 +434,7 @@ result = stdinout_stream(input_refs, command_line);</code></pre>
     </tr>
 <tr>
 <td><code>command_line</code></td>
-      <td>The command line to run.</td>
-    </tr>
-<tr>
-<td><code>num_outputs</code></td>
-      <td>The number of outputs to expect.</td>
+      <td>The command line to run, as a list of strings.</td>
     </tr>
 </tbody>
 <tfoot><tr>
