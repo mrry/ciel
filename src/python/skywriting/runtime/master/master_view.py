@@ -210,10 +210,7 @@ class JobRoot:
             return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder, indent=4)
         elif attribute == 'completion':
             # Block until the job is completed.
-            self.job_pool.wait_for_completion(job)
-            
-            print job.as_descriptor()
-            
+            self.job_pool.wait_for_completion(job)            
             return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder) 
         else:
             # Invalid attribute.
