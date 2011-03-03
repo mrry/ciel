@@ -198,7 +198,7 @@ result = environ(input_refs, command_line, num_outputs);</code></pre>
 |Argument|Description|
 |--------------------|
 | `input_refs` | A list of references to be used as inputs. |
-| `command_line` | The command line to run. |
+| `command_line` | The command line to run, as a list of strings. |
 | `num_outputs` | The number of outputs to expect. |
 |===|
 | `result` | A list containing `num_outputs` future references.|
@@ -226,7 +226,7 @@ result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
 |Argument|Description|
 |--------------------|
 | `input_refs` | A list of references to be used as inputs. |
-| `command_line` | The command line to run. |
+| `command_line` | The command line to run, as a list of strings. |
 | `num_outputs` | The number of outputs to expect. |
 |===|
 | `result` | A list containing `num_outputs` future references.|
@@ -242,7 +242,6 @@ result = stdinout_stream(input_refs, command_line);</code></pre>
 |Argument|Description|
 |--------------------|
 | `input_refs` | A list of references to be used as inputs. |
-| `command_line` | The command line to run. |
-| `num_outputs` | The number of outputs to expect. |
+| `command_line` | The command line to run, as a list of strings. |
 |===|
 | `result` | A list containing `num_outputs` future references.|
