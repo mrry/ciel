@@ -76,4 +76,4 @@ class MissingInputException(RuntimeSkywritingError):
         self.bindings = bindings
         
     def __repr__(self):
-        return 'MissingInputException(ref=%s)' % (repr(self.ref), )
+        return 'MissingInputException(refs=%s)' % (repr(self.bindings.values()), )

@@ -7,6 +7,8 @@ import hashlib
 import tempfile
 import traceback
 import os
+import sys
+from contextlib import closing
 from StringIO import StringIO
 
 import shared.references
@@ -61,7 +63,7 @@ def fetch_ref(ref, verb, **kwargs):
         for tries in range(2):
             send_dict = {"request": verb, "ref": ref}
             send_dict.update(kwargs)
-            pickle.dump(sent_dict, runtime_out)
+            pickle.dump(send_dict, runtime_out)
             runtime_out.flush()
             runtime_response = pickle.load(runtime_in)
             if not runtime_response["success"]:
@@ -180,7 +182,7 @@ class CompleteFile:
         self.close()
 
     def __getattr__(self, name):
-        return self.fp.__getattr__(name)
+        return getattr(self.fp, name)
 
     def __getstate__(self):
         return (self.ref, self.fp.tell())
@@ -295,7 +297,7 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
     if not may_stream:
         runtime_response = fetch_ref(ref, "deref")
         try:
-            return StringIO(runtime_response["strdata"])
+            return closing(StringIO(runtime_response["strdata"]))
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
