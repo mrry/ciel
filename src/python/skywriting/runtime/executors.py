@@ -278,7 +278,7 @@ class AsyncFetchCallbackCatcher:
 
     def __init__(self, ref, chunk_size):
         self.lock = threading.Lock()
-        self.condvar = theading.Condition(self.lock)
+        self.condvar = threading.Condition(self.lock)
         self.bytes = 0
         self.ref = ref
         self.chunk_size = chunk_size
@@ -332,6 +332,7 @@ class FetchCallbackCleanup:
             ciel.log("At least one fetch was not terminated: cancelling...", "SKYPY", logging.INFO)
             for transfer in self.cleanup_list:
                 ciel.log("Cancelling fetch %s" % transfer.ref, "SKYPY", logging.INFO)
+                transfer.cancel()
         return False
 
 class SkyPyExecutor(BaseExecutor):
@@ -448,7 +449,11 @@ class SkyPyExecutor(BaseExecutor):
                     ret = {"success": False}
                 pickle.dump(ret, pypy_process.stdin)
             elif request == "deref_async":
-                ret = self.deref_async(**request_args)
+                try:
+                    ret = self.deref_async(**request_args)
+                except ReferenceUnavailableException:
+                    halt_dependencies.append(request_args["ref"])
+                    ret = {"success": False}
                 pickle.dump(ret, pypy_process.stdin)
             elif request == "wait_stream":
                 ret = self.wait_async_file(**request_args)
@@ -514,15 +519,16 @@ class SkyPyExecutor(BaseExecutor):
 
     def deref_async(self, ref, chunk_size):
         new_catcher = AsyncFetchCallbackCatcher(ref, chunk_size)
-        new_fetch = self.block_store.fetch_ref_async(ref, 
+        real_ref = self.task_record.retrieve_ref(ref)
+        new_fetch = self.block_store.fetch_ref_async(real_ref, 
                                                      result_callback=new_catcher.result,
                                                      progress_callback=new_catcher.progress, 
                                                      reset_callback=new_catcher.reset,
                                                      chunk_size=chunk_size)
-        new_catcher.set_client(new_fetch)
+        new_catcher.set_fetch_client(new_fetch)
         self.ongoing_fetches.append(new_catcher)
         ret = {"filename": new_fetch.get_filename(), "done": new_catcher.done, "size": new_catcher.bytes}
-        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s" % (ref, chunk_size, ret["size"], ret["done"]), "SKYPY", logging.INFO)
+        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s" % (real_ref, chunk_size, ret["size"], ret["done"]), "SKYPY", logging.INFO)
         if new_catcher.done:
             if not new_catcher.success:
                 ciel.log("Async fetch %s failed early" % ref, "SKYPY", logging.WARNING)
@@ -540,7 +546,7 @@ class SkyPyExecutor(BaseExecutor):
                 return
         ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "SKYPY", logging.WARNING)
 
-    def wait_async_file(self, id, done=None, size=None):
+    def wait_async_file(self, id, eof=None, bytes=None):
         the_catcher = None
         for catcher in self.ongoing_fetches:
             if catcher.ref.id == id:
@@ -549,18 +555,18 @@ class SkyPyExecutor(BaseExecutor):
         if the_catcher is None:
             ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "SKYPY", logging.WARNING)
             return {"success": False}
-        if done is not None:
+        if eof is not None:
             ciel.log("Waiting for fetch %s to complete" % id, "SKYPY", logging.INFO)
             the_catcher.wait_eof()
         else:
-            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, size), "SKYPY", logging.INFO)
-            the_catcher.wait_bytes(size)
+            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "SKYPY", logging.INFO)
+            the_catcher.wait_bytes(bytes)
         if the_catcher.done and not the_catcher.success:
             ciel.log("Wait %s complete: transfer has failed" % id, "SKYPY", logging.WARNING)
             return {"success": False}
         else:
-            ret = {"size": the_catcher.bytes, "done": the_catcher.done}
-            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (ret["size"], ret["done"]), "SKYPY", logging.INFO)
+            ret = {"size": the_catcher.bytes, "done": the_catcher.done, "success": True}
+            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "SKYPY", logging.INFO)
             return ret
 
 # Imports for Skywriting

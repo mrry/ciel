@@ -56,17 +56,17 @@ def ref_of_object(val, package_path, master_uri):
             file_data = infile.read()
         return ref_of_string(file_data, master_uri)
 
-def task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri):
+def task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri, args):
 
     def resolve_arg(value):
         try:
-            return sys.argv[value["__args__"]]
+            return args[value["__args__"]]
         except IndexError:
             if "default" in value:
                 print "Positional argument", value["__args__"], "not specified; using default", value["default"]
                 return value["default"]
             else:
-                raise Exception("Package requires at least %d args" % value["__args__"])        
+                raise Exception("Package requires at least %d args" % (value["__args__"] + 1))
 
     def resolve_env(value):
         try:
@@ -90,9 +90,9 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
 
     return skywriting.runtime.executors.build_init_descriptor(start_handler, resolved_args, package_ref, master_uri, ref_of_string)
 
-def submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri):
+def submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri, args):
     
-    task_descriptor = task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri)
+    task_descriptor = task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri, args)
 
     print "Submitting descriptor:"
     sw_pprint(task_descriptor, indent=2)
@@ -131,7 +131,7 @@ def main():
 
     (package_path, _) = os.path.split(args[0])
 
-    new_job = submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri)
+    new_job = submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri, args[1:])
     
     job_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % new_job['job_id'])
     print "JOB_URL", job_url

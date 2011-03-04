@@ -647,7 +647,7 @@ class BlockStore(plugins.SimplePlugin):
             if self.last_notify is None or self.current_size - self.last_notify > self.chunk_size:
                 data = simplejson.dumps({"bytes": new_size, "done": False})
                 self.post_all_netlocs(data)
-            self.last_notify = self.current_size
+                self.last_notify = self.current_size
 
         def __enter__(self):
             return self
@@ -873,6 +873,8 @@ class BlockStore(plugins.SimplePlugin):
             ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
         elif isinstance(ref, SW2_StreamReference):
             ctx = StreamTransferContext(ref, self, new_listener)
+        else:
+            raise Exception("Can't start-fetch reference %s: not a concrete or a stream" % ref)
         new_listener.set_fetch_context(ctx)
         self.incoming_fetches[ref.id] = new_listener
         ctx.start()

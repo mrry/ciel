@@ -185,14 +185,19 @@ class CompleteFile:
         return getattr(self.fp, name)
 
     def __getstate__(self):
-        return (self.ref, self.fp.tell())
+        if self.fp.closed:
+            return (self.ref, None)
+        else:
+            return (self.ref, self.fp.tell())
 
     def __setstate__(self, (ref, offset)):
         self.ref = ref
-        runtime_response = fetch_ref(self.ref, "deref")
-        self.filename = runtime_response["filename"]
-        self.fp = open(self.filename, "r")
-        self.fp.seek(offset, os.SEEK_SET)
+        if offset is not None:
+            runtime_response = fetch_ref(self.ref, "deref")
+            self.filename = runtime_response["filename"]
+            self.fp = open(self.filename, "r")
+            self.fp.seek(offset, os.SEEK_SET)
+        # Else this is a closed file object.
 
 class StreamingFile:
     
@@ -223,7 +228,7 @@ class StreamingFile:
     def wait(self, **kwargs):
         out_dict = {"request": "wait_stream", "id": self.ref.id}
         out_dict.update(kwargs)
-        pickle.dump(runtime_out, out_dict)
+        pickle.dump(out_dict, runtime_out)
         runtime_out.flush()
         runtime_response = pickle.load(runtime_in)
         if not runtime_response["success"]:
@@ -236,9 +241,13 @@ class StreamingFile:
         bytes = self.chunk_size * ((bytes / self.chunk_size) + 1)
         self.wait(bytes=bytes)
 
-    def read(self, bytes=None):
+    def read(self, *pargs):
+        if len(pargs) > 0:
+            bytes = pargs[0]
+        else:
+            bytes = None
         while True:
-            ret = self.fp.read(bytes)
+            ret = self.fp.read(*pargs)
             if self.really_eof or (bytes is not None and len(ret) == bytes):
                 return ret
             else:
@@ -248,9 +257,13 @@ class StreamingFile:
                 else:
                     self.wait_bytes(self.fp.tell() + bytes)
 
-    def readline(self, bytes=None):
+    def readline(self, *pargs):
+        if len(pargs) > 0:
+            bytes = pargs[0]
+        else:
+            bytes = None
         while True:
-            ret = self.fp.readline(bytes)
+            ret = self.fp.readline(*pargs)
             if self.really_eof or (bytes is not None and len(ret) == bytes) or ret[-1] == "\n":
                 return ret
             else:
@@ -258,9 +271,13 @@ class StreamingFile:
                 # I wait this long whether or not the byte-limit is set in the hopes of finding a \n before then.
                 self.wait_bytes(self.fp.tell() + len(ret) + 128)
 
-    def readlines(self, bytes=None):
+    def readlines(self, *pargs):
+        if len(pargs) > 0:
+            bytes = pargs[0]
+        else:
+            bytes = None
         while True:
-            ret = self.fp.readlines(bytes)
+            ret = self.fp.readlines(*pargs)
             bytes_read = 0
             for line in ret:
                 bytes_read += len(line)
@@ -282,16 +299,21 @@ class StreamingFile:
             raise StopIteration()
 
     def __getstate__(self):
-        return (self.ref, self.fp.tell(), self.chunk_size)
+        if not self.fp.closed:
+            return (self.ref, self.fp.tell(), self.chunk_size)
+        else:
+            return (self.ref, None, self.chunk_size)
 
     def __setstate__(self, (ref, offset, chunk_size)):
         self.ref = ref
         self.chunk_size = chunk_size
-        runtime_response = fetch_ref(self.ref, "deref_async", chunk_size=chunk_size)
-        self.really_eof = runtime_response["done"]
-        self.current_size = runtime_response["size"]
-        self.fp = open(runtime_response["filename"], "r")
-        self.fp.seek(offset, os.SEEK_SET)
+        if offset is not None:
+            runtime_response = fetch_ref(self.ref, "deref_async", chunk_size=chunk_size)
+            self.really_eof = runtime_response["done"]
+            self.current_size = runtime_response["size"]
+            self.fp = open(runtime_response["filename"], "r")
+            self.fp.seek(offset, os.SEEK_SET)
+        # Else we're already closed
 
 def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
     if not may_stream:

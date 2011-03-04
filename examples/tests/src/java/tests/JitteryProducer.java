@@ -60,7 +60,7 @@ public class JitteryProducer implements Task {
 
 	int seconds_to_run = Integer.parseInt(args[0]);
 
-	System.err.printf("JitteryProducer: feeding %d streams for %d seconds\n", fos.length, seconds_to_run);
+	System.err.printf("JitteryProducer: feeding %d streams for %d seconds\n", fos.length - 1, seconds_to_run);
 
 	for (int i = 0; i < (fos.length - 1); i++) {
 
