@@ -549,7 +549,7 @@ class SkyPyExecutor(BaseExecutor):
         if the_catcher is None:
             ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "SKYPY", logging.WARNING)
             return {"success": False}
-        if done is not None
+        if done is not None:
             ciel.log("Waiting for fetch %s to complete" % id, "SKYPY", logging.INFO)
             the_catcher.wait_eof()
         else:
@@ -560,7 +560,7 @@ class SkyPyExecutor(BaseExecutor):
             return {"success": False}
         else:
             ret = {"size": the_catcher.bytes, "done": the_catcher.done}
-            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (ret["size"], ret["done"]), "SKYPY" logging.INFO)
+            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (ret["size"], ret["done"]), "SKYPY", logging.INFO)
             return ret
 
 # Imports for Skywriting

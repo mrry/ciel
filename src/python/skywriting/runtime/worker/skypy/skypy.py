@@ -256,7 +256,7 @@ class StreamingFile:
                 # I wait this long whether or not the byte-limit is set in the hopes of finding a \n before then.
                 self.wait_bytes(self.fp.tell() + len(ret) + 128)
 
-    def readlines(self, bytes=none):
+    def readlines(self, bytes=None):
         while True:
             ret = self.fp.readlines(bytes)
             bytes_read = 0
