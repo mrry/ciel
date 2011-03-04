@@ -633,6 +633,7 @@ class ProcExecutor(BaseExecutor):
         self.expected_outputs = self.task_descriptor['expected_outputs']
         
         # Stores the indices of expected outputs that have been produced.
+        self.open_output_contexts = {}
         self.expected_output_mask = set()
         
         # XXX: This will block until the attached process opens the pipes.
@@ -753,16 +754,22 @@ class ProcExecutor(BaseExecutor):
     
     def write_output_file(self, index):
         """Creates a file for the output with the given index, and returns the filename."""
-        self.expected_output_mask.add(index)
-        pass
-    
+        ctx = self.block_store.make_local_output(self.expected_outputs[index])
+        self.open_output_contexts[index] = ctx
+        return ctx.get_filename()
+
     def close_ref(self, filename):
         """Closes the open file for a constructed reference."""
         pass
     
     def close_output(self, index):
         """Closes the open file for an output."""
-        pass
+        ctx = self.open_output_contexts.pop(index)
+        self.expected_output_mask.add(index)
+        ctx.close()
+        ref = ctx.get_completed_ref()
+        self.task_record.publish_ref(ref)
+        return ref
     
     def block_on_refs(self, refs):
         """Creates a continuation task for blocking on the given references."""
@@ -837,7 +844,7 @@ class ProcExecutor(BaseExecutor):
                         response = {'ref' : self.write_output_inline(index, args['inline'])}
                     except KeyError:
                         # Return filename for writing.
-                        response = {'filename' : self.create_output_file(index)}
+                        response = {'filename' : self.write_output_file(index)}
                         
                 elif method == 'close_ref':
                     
@@ -863,8 +870,7 @@ class ProcExecutor(BaseExecutor):
                             ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                         
-                    self.close_output(index)
-                    response = True
+                    response = {'ref' : self.close_output(index)}
     
                 elif method == 'block':
                     
