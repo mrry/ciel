@@ -22,6 +22,10 @@ import java.util.Set;
 import com.asgow.ciel.protocol.CielProtos.NetworkLocation;
 import com.asgow.ciel.protocol.CielProtos.Reference.Builder;
 import com.asgow.ciel.protocol.CielProtos.Reference.ReferenceType;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 
 public class ConcreteReference extends Reference {
 
@@ -53,6 +57,13 @@ public class ConcreteReference extends Reference {
 		}
 	}
 	
+	public ConcreteReference (JsonArray refTuple) {
+		this(refTuple.get(1).getAsString(), refTuple.get(2).getAsLong());
+		for (JsonElement elem : refTuple.get(3).getAsJsonArray()) {
+			this.addLocation(new Netloc(elem.getAsString()));
+		}
+	}
+	
 	public void addLocation(Netloc netloc) {
 		this.locationHints.add(netloc);
 	}
@@ -76,6 +87,20 @@ public class ConcreteReference extends Reference {
 			builder.addLocationHints(hint.asProtoBuf());
 		}		
 		return builder;
+	}
+	
+	public static final JsonPrimitive IDENTIFIER = new JsonPrimitive("c2");
+	public JsonObject toJson() {
+		JsonArray ret = new JsonArray();
+		ret.add(IDENTIFIER);
+		ret.add(new JsonPrimitive(this.getId()));
+		ret.add(new JsonPrimitive(this.getSizeHint()));
+		JsonArray hints = new JsonArray();
+		for (Netloc hint : this.locationHints) {
+			hints.add(new JsonPrimitive(hint.toString()));
+		}
+		ret.add(hints);
+		return Reference.wrapAsReference(ret);
 	}
 	
 }
