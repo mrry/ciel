@@ -904,12 +904,13 @@ class BlockStore(plugins.SimplePlugin):
 
     class FetchProxy:
 
-        def __init__(self, result_callback, reset_callback, progress_callback, chunk_size):
+        def __init__(self, ref, result_callback, reset_callback, progress_callback, chunk_size):
             self.ready_event = threading.Event()
             self.result_callback = result_callback
             self.reset_callback = reset_callback
             self.progress_callback = progress_callback
             self.chunk_size = chunk_size
+            self.ref = ref
             self.fetch_listener = None
 
         def result(self, success):
@@ -941,7 +942,7 @@ class BlockStore(plugins.SimplePlugin):
     # Called from arbitrary thread
     def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None, chunk_size=67108864):
 
-        new_client = BlockStore.FetchProxy(result_callback, reset_callback, progress_callback, chunk_size)
+        new_client = BlockStore.FetchProxy(ref, result_callback, reset_callback, progress_callback, chunk_size)
         if self.is_ref_local(ref):
             ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
             dummy_listener = BlockStore.DummyFetchListener(self.filename(ref.id))

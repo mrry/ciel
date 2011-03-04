@@ -41,7 +41,7 @@ def describe_maybe_file(output_fp, out_dict):
 
 class PersistentState:
     def __init__(self):
-        self.ref_dependencies = set()
+        self.ref_dependencies = dict()
 
 class ResumeState:
     
@@ -49,7 +49,7 @@ class ResumeState:
         self.coro = coro
         self.persistent_state = pstate
 
-def fetch_ref(ref, verb):
+def fetch_ref(ref, verb, **kwargs):
 
     global halt_reason
     global ref_cache
@@ -59,7 +59,9 @@ def fetch_ref(ref, verb):
         return ref_cache[ref.id]
     else:
         for tries in range(2):
-            pickle.dump({"request": verb, "ref": ref}, runtime_out)
+            send_dict = {"request": verb, "ref": ref}
+            send_dict.update(kwargs)
+            pickle.dump(sent_dict, runtime_out)
             runtime_out.flush()
             runtime_response = pickle.load(runtime_in)
             if not runtime_response["success"]:
@@ -93,11 +95,16 @@ def deref(ref):
 
 def add_ref_dependency(ref):
     if not ref.is_consumable():
-        persistent_state.ref_dependencies.add(ref)
+        try:
+            persistent_state.ref_dependencies[ref.id] += 1
+        except KeyError:
+            persistent_state.ref_dependencies[ref.id] = 1
 
 def remove_ref_dependency(ref):
     if not ref.is_consumable():
-        persistent_state.ref_dependencies.remove(ref)
+        persistent_state.ref_dependencies[ref.id] -= 1
+        if persistent_state.ref_dependencies[ref.id] == 0:
+            del persistent_state.ref_dependencies[ref.id]
 
 class RequiredRefs():
     def __init__(self, refs):
@@ -153,6 +160,150 @@ def package_lookup(key):
     if retval is None:
         raise PackageKeyError(key)
     return retval
+
+class CompleteFile:
+
+    def __init__(self, ref, filename):
+        self.ref = ref
+        self.filename = filename
+        self.fp = open(self.filename, "r")
+        add_ref_dependency(self.ref)
+
+    def close(self):
+        self.fp.close()
+        remove_ref_dependency(self.ref)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exnt, exnv, exnbt):
+        self.close()
+
+    def __getattr__(self, name):
+        return self.fp.__getattr__(name)
+
+    def __getstate__(self):
+        return (self.ref, self.fp.tell())
+
+    def __setstate__(self, (ref, offset)):
+        self.ref = ref
+        runtime_response = fetch_ref(self.ref, "deref")
+        self.filename = runtime_response["filename"]
+        self.fp = open(self.filename, "r")
+        self.fp.seek(offset, os.SEEK_SET)
+
+class StreamingFile:
+    
+    def __init__(self, ref, filename, initial_size, chunk_size):
+        self.ref = ref
+        self.filename = filename
+        self.chunk_size = chunk_size
+        self.really_eof = False
+        self.current_size = None
+        self.fp = open(self.filename, "r")
+        self.closed = False
+        self.softspace = False
+        add_ref_dependency(self.ref)
+
+    def __enter__(self):
+        return self
+
+    def close(self):
+        self.closed = True
+        self.fp.close()
+        pickle.dump({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size}, runtime_out)
+        runtime_out.flush()
+        remove_ref_dependency(self.ref)
+
+    def __exit__(self, exnt, exnv, exnbt):
+        self.close()
+
+    def wait(self, **kwargs):
+        out_dict = {"request": "wait_stream", "id": self.ref.id}
+        out_dict.update(kwargs)
+        pickle.dump(runtime_out, out_dict)
+        runtime_out.flush()
+        runtime_response = pickle.load(runtime_in)
+        if not runtime_response["success"]:
+            raise Exception("File transfer failed before EOF")
+        else:
+            self.really_eof = runtime_response["done"]
+            self.current_size = runtime_response["size"]
+
+    def wait_bytes(self, bytes):
+        bytes = self.chunk_size * ((bytes / self.chunk_size) + 1)
+        self.wait(bytes=bytes)
+
+    def read(self, bytes=None):
+        while True:
+            ret = self.fp.read(bytes)
+            if self.really_eof or (bytes is not None and len(ret) == bytes):
+                return ret
+            else:
+                self.fp.seek(-len(ret), os.SEEK_CUR)
+                if bytes is None:
+                    self.wait(eof=True)
+                else:
+                    self.wait_bytes(self.fp.tell() + bytes)
+
+    def readline(self, bytes=None):
+        while True:
+            ret = self.fp.readline(bytes)
+            if self.really_eof or (bytes is not None and len(ret) == bytes) or ret[-1] == "\n":
+                return ret
+            else:
+                self.fp.seek(-len(ret), os.SEEK_CUR)
+                # I wait this long whether or not the byte-limit is set in the hopes of finding a \n before then.
+                self.wait_bytes(self.fp.tell() + len(ret) + 128)
+
+    def readlines(self, bytes=none):
+        while True:
+            ret = self.fp.readlines(bytes)
+            bytes_read = 0
+            for line in ret:
+                bytes_read += len(line)
+            if self.really_eof or (bytes is not None and bytes_read == bytes) or ret[-1][-1] == "\n":
+                return ret
+            else:
+                self.fp.seek(-bytes_read, os.SEEK_CUR)
+                self.wait_bytes(self.fp.tell() + bytes_read + 128)
+
+    def xreadlines(self):
+        return self
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        ret = self.readline()
+        if ret == "\n":
+            raise StopIteration()
+
+    def __getstate__(self):
+        return (self.ref, self.fp.tell(), self.chunk_size)
+
+    def __setstate__(self, (ref, offset, chunk_size)):
+        self.ref = ref
+        self.chunk_size = chunk_size
+        runtime_response = fetch_ref(self.ref, "deref_async", chunk_size=chunk_size)
+        self.really_eof = runtime_response["done"]
+        self.current_size = runtime_response["size"]
+        self.fp = open(runtime_response["filename"], "r")
+        self.fp.seek(offset, os.SEEK_SET)
+
+def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
+    if not may_stream:
+        runtime_response = fetch_ref(ref, "deref")
+        try:
+            return StringIO(runtime_response["strdata"])
+        except KeyError:
+            return CompleteFile(ref, runtime_response["filename"])
+    else:
+        runtime_response = fetch_ref(ref, "deref_async", chunk_size=chunk_size)
+        if runtime_response["done"]:
+            return CompleteFile(ref, runtime_response["filename"])
+        else:
+            return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 
 def start_script(entry_point, entry_args):
 
