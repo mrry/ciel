@@ -467,14 +467,56 @@ class ProcExecutor(BaseExecutor):
         id = task_private['id']
         process_record = self.process_pool.get_process_record(id)
         
-        f = process_record.get_read_fifo()
-        #g = process_record.get_write_fifo()
-        foo = f.readline()
-        print foo
-        #print >>g, foo
-
-        for id in task_descriptor['expected_outputs']:
-            task_record.publish_ref(SWDataValue(id, simplejson.dumps(foo)))
+        # XXX: This will block until the attached process opens the pipes.
+        reader = process_record.get_read_fifo()
+        #writer = process_record.get_write_fifo()
+        writer = None
+        
+        ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
+        
+        if process_record.protocol == 'line':
+            finished = self.line_event_loop(reader, writer)
+        elif process_record.protocol == 'json':
+            finished = self.json_event_loop(reader, writer)
+        elif process_record.protocol == 'pickle':
+            finished = self.pickle_event_loop(reader, writer)
+        elif process_record.protocol == 'protobuf':
+            finished = self.protobuf_event_loop(reader, writer)
+        else:
+            raise BlameUserException('Unsupported protocol: %s' % process_record.protocol)
+        
+        if finished:
+            self.process_pool.delete_process_record(process_record)
+            task_record.publish_ref(SWDataValue(task_descriptor['expected_outputs'][0], simplejson.dumps(True)))
+            
+            
+        
+    def line_event_loop(self, reader, writer):
+        print 'In line_event_loop'
+        while True:
+            line = reader.readline()
+            if line == '':
+                return True
+            
+            argv = line.split()
+            
+            if argv[0] == 'exit':
+                return True
+            elif argv[0] == 'echo':
+                print argv[1:]
+            elif argv[0] == 'filename':
+                print argv[1]
+            else:
+                print 'Unrecognised command:', argv
+            
+    def json_event_loop(self, reader, writer):
+        return True
+    
+    def pickle_event_loop(self, reader, writer):
+        return True
+    
+    def protobuf_event_loop(self, reader, writer):
+        return True
         
 class Java2Executor(BaseExecutor):
     
