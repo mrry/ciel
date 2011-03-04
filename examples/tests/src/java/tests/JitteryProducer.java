@@ -45,7 +45,7 @@ class StreamFeeder {
     public void flipCoin() {
 
 	this.active = this.rng.nextBoolean();
-	System.out.printf("Stream %d active: %b\n", this.id, this.active);
+	System.err.printf("Stream %d active: %b\n", this.id, this.active);
 
     }
 
@@ -60,6 +60,8 @@ public class JitteryProducer implements Task {
 
 	int seconds_to_run = Integer.parseInt(args[0]);
 
+	System.err.printf("JitteryProducer: feeding %d streams for %d seconds\n", fos.length - 1, seconds_to_run);
+
 	for (int i = 0; i < (fos.length - 1); i++) {
 
 	    streams.add(new StreamFeeder(fos[i], rng, i));
@@ -69,7 +71,7 @@ public class JitteryProducer implements Task {
 	try {
 	    long seconds_elapsed = 0;
 	    long last_number_written = 0;
-	    System.out.printf("Producer start\n");
+	    System.err.printf("Producer start\n");
 	    while(seconds_elapsed < seconds_to_run) {
 		long last_change_time = System.currentTimeMillis();
 		while(System.currentTimeMillis() < (last_change_time + 1000)) {
@@ -84,7 +86,7 @@ public class JitteryProducer implements Task {
 
 		}
 	    }
-	    System.out.printf("Producer stop\n");
+	    System.err.printf("Producer stop\n");
 	    int total_bytes_written = 0;
 	    for(StreamFeeder stream : streams) {
 		total_bytes_written += stream.bytes_written;
@@ -92,7 +94,7 @@ public class JitteryProducer implements Task {
 	    fos[fos.length - 1].write(Integer.toString(total_bytes_written).getBytes("US-ASCII"));
 	}
 	catch(Exception e) {
-	    System.out.printf("JitteryProducer epic fail: %s\n", e.toString());
+	    System.err.printf("JitteryProducer epic fail: %s\n", e.toString());
 	    throw new Error(e.toString());
 	}
 

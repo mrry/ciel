@@ -653,7 +653,7 @@ class BlockStore(plugins.SimplePlugin):
             if self.last_notify is None or self.current_size - self.last_notify > self.chunk_size:
                 data = simplejson.dumps({"bytes": new_size, "done": False})
                 self.post_all_netlocs(data)
-            self.last_notify = self.current_size
+                self.last_notify = self.current_size
 
         def __enter__(self):
             return self
@@ -888,7 +888,7 @@ class BlockStore(plugins.SimplePlugin):
             ctx = StreamTransferContext(ref, self, new_listener)
         else:
             ciel.log('Cannot fetch reference type: %s' % repr(ref), 'BLOCKSTORE', logging.INFO)
-            raise RuntimeSkywritingError()
+            raise Exception("Can't start-fetch reference %s: not a concrete or a stream" % ref)
         new_listener.set_fetch_context(ctx)
         self.incoming_fetches[ref.id] = new_listener
         ctx.start()
@@ -920,12 +920,13 @@ class BlockStore(plugins.SimplePlugin):
 
     class FetchProxy:
 
-        def __init__(self, result_callback, reset_callback, progress_callback, chunk_size):
+        def __init__(self, ref, result_callback, reset_callback, progress_callback, chunk_size):
             self.ready_event = threading.Event()
             self.result_callback = result_callback
             self.reset_callback = reset_callback
             self.progress_callback = progress_callback
             self.chunk_size = chunk_size
+            self.ref = ref
             self.fetch_listener = None
 
         def result(self, success):
@@ -957,7 +958,7 @@ class BlockStore(plugins.SimplePlugin):
     # Called from arbitrary thread
     def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None, chunk_size=67108864):
 
-        new_client = BlockStore.FetchProxy(result_callback, reset_callback, progress_callback, chunk_size)
+        new_client = BlockStore.FetchProxy(ref, result_callback, reset_callback, progress_callback, chunk_size)
         if self.is_ref_local(ref):
             ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
             dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))

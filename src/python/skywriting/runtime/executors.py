@@ -283,6 +283,67 @@ class BaseExecutor:
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
 
+class AsyncFetchCallbackCatcher:
+
+    def __init__(self, ref, chunk_size):
+        self.lock = threading.Lock()
+        self.condvar = threading.Condition(self.lock)
+        self.bytes = 0
+        self.ref = ref
+        self.chunk_size = chunk_size
+        self.done = False
+
+    def set_fetch_client(self, client):
+        self.client = client
+
+    def progress(self, bytes):
+        with self.lock:
+            self.bytes = bytes
+            self.condvar.notify_all()
+
+    def result(self, success):
+        with self.lock:
+            self.done = True
+            self.success = success
+            self.condvar.notify_all()
+
+    def reset(self):
+        with self.lock:
+            self.done = True
+            self.success = False
+            self.condvar.notify_all()
+        self.client.cancel()
+
+    def wait_bytes(self, bytes):
+        with self.lock:
+            while self.bytes < bytes and not self.done:
+                self.condvar.wait()
+
+    def wait_eof(self):
+        with self.lock:
+            while not self.done:
+                self.condvar.wait()
+
+    def cancel(self):
+        self.client.cancel()
+
+class FetchCallbackCleanup:
+    def __init__(self, cleanup_list):
+        self.cleanup_list = cleanup_list
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exnt, exnv, exnbt):
+        if exnt is not None:
+            ciel.log("Run exiting with exception %s" % repr(exnv), "SKYPY", logging.WARNING)
+        if len(self.cleanup_list) > 0:
+            ciel.log("At least one fetch was not terminated: cancelling...", "SKYPY", logging.INFO)
+            for transfer in self.cleanup_list:
+                ciel.log("Cancelling fetch %s" % transfer.ref, "SKYPY", logging.INFO)
+                transfer.cancel()
+        return False
+
 class SkyPyExecutor(BaseExecutor):
 
     handler_name = "skypy"
@@ -325,8 +386,14 @@ class SkyPyExecutor(BaseExecutor):
             return False
         else:
             return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
-        
+
     def _run(self, task_private, task_descriptor, task_record):
+        
+        self.ongoing_fetches = []
+        with FetchCallbackCleanup(self.ongoing_fetches):
+            self._guarded_run(task_private, task_descriptor, task_record)
+
+    def _guarded_run(self, task_private, task_descriptor, task_record):
 
         self.task_descriptor = task_descriptor
         self.task_record = task_record
@@ -389,7 +456,19 @@ class SkyPyExecutor(BaseExecutor):
                 except ReferenceUnavailableException:
                     halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
-                pickle.dump(ret, pypy_process.stdin)                
+                pickle.dump(ret, pypy_process.stdin)
+            elif request == "deref_async":
+                try:
+                    ret = self.deref_async(**request_args)
+                except ReferenceUnavailableException:
+                    halt_dependencies.append(request_args["ref"])
+                    ret = {"success": False}
+                pickle.dump(ret, pypy_process.stdin)
+            elif request == "wait_stream":
+                ret = self.wait_async_file(**request_args)
+                pickle.dump(ret, pypy_process.stdin)
+            elif request == "close_stream":
+                self.close_async_file(request_args["id"], request_args["chunk_size"])
             elif request == "spawn":
                 out_ref = self.spawn_func(**request_args)
                 pickle.dump({"output": out_ref}, pypy_process.stdin)
@@ -446,6 +525,59 @@ class SkyPyExecutor(BaseExecutor):
     def deref_json(self, ref):
         real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
+
+    def deref_async(self, ref, chunk_size):
+        new_catcher = AsyncFetchCallbackCatcher(ref, chunk_size)
+        real_ref = self.task_record.retrieve_ref(ref)
+        new_fetch = self.block_store.fetch_ref_async(real_ref, 
+                                                     result_callback=new_catcher.result,
+                                                     progress_callback=new_catcher.progress, 
+                                                     reset_callback=new_catcher.reset,
+                                                     chunk_size=chunk_size)
+        new_catcher.set_fetch_client(new_fetch)
+        self.ongoing_fetches.append(new_catcher)
+        ret = {"filename": new_fetch.get_filename(), "done": new_catcher.done, "size": new_catcher.bytes}
+        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s" % (real_ref, chunk_size, ret["size"], ret["done"]), "SKYPY", logging.INFO)
+        if new_catcher.done:
+            if not new_catcher.success:
+                ciel.log("Async fetch %s failed early" % ref, "SKYPY", logging.WARNING)
+            ret["success"] = new_catcher.success
+        else:
+            ret["success"] = True
+        return ret
+
+    def close_async_file(self, id, chunk_size):
+        for catcher in self.ongoing_fetches:
+            if catcher.ref.id == id and catcher.chunk_size == chunk_size:
+                catcher.cancel()
+                self.ongoing_fetches.remove(catcher)
+                ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "SKYPY", logging.INFO)
+                return
+        ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "SKYPY", logging.WARNING)
+
+    def wait_async_file(self, id, eof=None, bytes=None):
+        the_catcher = None
+        for catcher in self.ongoing_fetches:
+            if catcher.ref.id == id:
+                the_catcher = catcher
+                break
+        if the_catcher is None:
+            ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "SKYPY", logging.WARNING)
+            return {"success": False}
+        if eof is not None:
+            ciel.log("Waiting for fetch %s to complete" % id, "SKYPY", logging.INFO)
+            the_catcher.wait_eof()
+        else:
+            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "SKYPY", logging.INFO)
+            the_catcher.wait_bytes(bytes)
+        if the_catcher.done and not the_catcher.success:
+            ciel.log("Wait %s complete: transfer has failed" % id, "SKYPY", logging.WARNING)
+            return {"success": False}
+        else:
+            ret = {"size": the_catcher.bytes, "done": the_catcher.done, "success": True}
+            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "SKYPY", logging.INFO)
+            return ret
+
 
 # Return states for proc task termination.
 PROC_EXITED = 0
@@ -755,6 +887,7 @@ class Java2Executor(BaseExecutor):
     def deref_json(self, ref):
         real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
+
 
 
 # Imports for Skywriting

@@ -15,6 +15,7 @@ import os
 import skypy
 
 from shared.io_helpers import MaybeFile
+from shared.references import SW2_FutureReference
 
 parser = optparse.OptionParser()
 parser.add_option("-r", "--resume_state", dest="state_file", 
@@ -67,7 +68,7 @@ with MaybeFile() as output_fp:
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
         pickle.dump(resume_state, output_fp)
         out_dict = {"request": "freeze", 
-                    "additional_deps": skypy.persistent_state.ref_dependencies}
+                    "additional_deps": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]}
     elif skypy.halt_reason == skypy.HALT_DONE:
         pickle.dump(skypy.script_return_val, output_fp)
         out_dict = {"request": "done"}
