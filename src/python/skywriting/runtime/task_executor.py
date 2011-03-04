@@ -151,6 +151,7 @@ class TaskExecutionRecord:
         self.published_refs = []
         self.spawned_tasks = []
         self.spawn_counter = 0
+        self.publish_counter = 0
         self.task_descriptor = task_descriptor
         self.task_set = task_set
         self.executor_cache = executor_cache
@@ -205,6 +206,11 @@ class TaskExecutionRecord:
         sha.update('%s:%d' % (self.task_descriptor["task_id"], self.spawn_counter))
         ret = sha.hexdigest()
         self.spawn_counter += 1
+        return ret
+    
+    def create_published_output_name(self):
+        ret = '%s:pub:%d' % (self.task_id, self.publish_counter)
+        self.publish_counter += 1
         return ret
 
     def spawn_task(self, new_task_descriptor, **args):
