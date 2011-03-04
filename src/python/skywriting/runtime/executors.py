@@ -35,10 +35,11 @@ import time
 import codecs
 from subprocess import PIPE
 from datetime import datetime
-from skywriting.runtime.block_store import STREAM_RETRY
+from skywriting.runtime.block_store import STREAM_RETRY, json_decode_object_hook
 from errno import EPIPE
 
 import ciel
+import struct
 
 try:
     from shared.generated.ciel.protoc_pb2 import Task
@@ -446,7 +447,13 @@ class SkyPyExecutor(BaseExecutor):
         real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
 
+# Return states for proc task termination.
+PROC_EXITED = 0
+PROC_BLOCKED = 1
+PROC_ERROR = 2
+
 class ProcExecutor(BaseExecutor):
+    """Executor for running long-lived legacy processes."""
     
     handler_name = "proc"
     
@@ -467,10 +474,15 @@ class ProcExecutor(BaseExecutor):
         id = task_private['id']
         process_record = self.process_pool.get_process_record(id)
         
+        self.task_record = task_record
+        self.task_descriptor = task_descriptor
+        
+        # Stores the indices of expected outputs that have been produced.
+        self.expected_output_mask = set()
+        
         # XXX: This will block until the attached process opens the pipes.
         reader = process_record.get_read_fifo()
-        #writer = process_record.get_write_fifo()
-        writer = None
+        writer = process_record.get_write_fifo()
         
         ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
         
@@ -488,11 +500,10 @@ class ProcExecutor(BaseExecutor):
         if finished:
             self.process_pool.delete_process_record(process_record)
             task_record.publish_ref(SWDataValue(task_descriptor['expected_outputs'][0], simplejson.dumps(True)))
-            
-            
-        
+
+
     def line_event_loop(self, reader, writer):
-        print 'In line_event_loop'
+        """Dummy event loop for testing interactive tasks."""
         while True:
             line = reader.readline()
             if line == '':
@@ -508,15 +519,181 @@ class ProcExecutor(BaseExecutor):
                 print argv[1]
             else:
                 print 'Unrecognised command:', argv
-            
+        
+    def open_ref(self, ref):
+        """Fetches a reference if it is available, and returns a filename for reading it.
+        Options to do with eagerness, streaming, etc.
+        If reference is unavailable, raises a ReferenceUnavailableException."""
+        ref = self.task_record.retrieve_ref(ref)
+        return self.block_store.retrieve_filename_for_ref(ref)
+        
+    def spawn(self, request_args):
+        """Spawns a child task. Arguments define a task_private structure. Returns a list
+        of future references."""
+        return spawn_other(self.task_record, **request_args)
+    
+    def create_ref_inline(self, content):
+        """Creates a new reference, with the given string contents."""
+        ref = self.block_store.ref_from_string(content, self.task_record.create_published_output_name())
+        self.task_record.publish_ref(ref)
+        return ref
+    
+    def create_ref_file(self):
+        """Creates a new reference, and returns a filename for writing it.
+        Also, can supply a string and create the new reference inline.
+        Also, can specify what output is being created.
+        Returns the created reference to the object, and (if necessary) filename."""
+        pass
+    
+    def write_output_inline(self, index, content):
+        """Creates a concrete object for the output with the given index, having the given string contents."""
+        self.expected_output_mask.add(index)
+        ref = self.block_store.ref_from_string(content, self.task_descriptor['expected_outputs'][index])
+        self.task_record.publish_ref(ref)
+        return ref
+    
+    def write_output_file(self, index):
+        """Creates a file for the output with the given index, and returns the filename."""
+        self.expected_output_mask.add(index)
+        pass
+    
+    def close_ref(self, ref):
+        """Closes the open file for a constructed reference."""
+        pass
+    
+    def close_output(self, index):
+        """Closes the open file for an output."""
+        pass
+    
+    def block_on_refs(self, refs):
+        """Creates a continuation task for blocking on the given references."""
+        pass
+    
     def json_event_loop(self, reader, writer):
+        
+        while True:
+            try:
+                request_len, = struct.unpack_from('I', reader)
+                request_string = reader.read(request_len)
+            except:
+                ciel.log('Error reading in JSON event loop', 'PROC', logging.WARN, True)
+                return PROC_ERROR
+        
+            try:
+                (method, args) = simplejson.loads(request_string, object_hook=json_decode_object_hook)
+            except:
+                ciel.log('Error parsing JSON request', 'PROC', logging.WARN, True)
+                return PROC_ERROR
+        
+            try:
+                if method == 'open_ref':
+                    
+                    try:
+                        ref = args['ref']
+                    except KeyError:
+                        ciel.log('Missing required argument key: ref', 'PROC', logging.ERROR, False)
+                        return PROC_ERROR
+                    
+                    try:
+                        response = {'filename' : self.open_ref(ref)}
+                    except ReferenceUnavailableException:
+                        response = {'error' : 'EWOULDBLOCK'}
+                    
+                elif method == 'spawn':
+                    
+                    response = self.spawn(args)
+                    
+                elif method == 'create_ref':
+                    
+                    try:
+                        # Create ref for inline string.
+                        response = {'ref' : self.create_ref_inline(args['inline'])}
+                    except KeyError:
+                        # Create ref and return filename for writing.
+                        ref, filename = self.create_ref_file()
+                        response = {'ref' : ref, 'filename' : filename}
+                        
+                elif method == 'write_output':
+                    
+                    try:
+                        index = int(args['i'])
+                        if index < 0 or index > len(self.task_descriptor['expected_outputs']):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.task_descriptor['expected_outputs'], 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                    except KeyError:
+                        if len(self.task_descriptor['expected_outputs']) == 1:
+                            index = 0
+                        else:
+                            ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                        
+                    try:
+                        # Write output with inline string.
+                        response = {'ref' : self.write_output_inline(index, args['inline'])}
+                    except KeyError:
+                        # Return filename for writing.
+                        response = {'filename' : self.create_output_file(index)}
+                        
+                elif method == 'close_ref':
+                    
+                    try:
+                        ref = args['ref']
+                    except KeyError:
+                        ciel.log('Missing required argument: ref', 'PROC', logging.ERROR, False)
+                        return PROC_ERROR
+                    
+                    self.close_ref(args)
+                        
+                elif method == 'close_output':
+    
+                    try:
+                        index = int(args['i'])
+                        if index < 0 or index > len(self.task_descriptor['expected_outputs']):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.task_descriptor['expected_outputs'], 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                    except KeyError:
+                        if len(self.task_descriptor['expected_outputs']) == 1:
+                            index = 0
+                        else:
+                            ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                        
+                    self.close_output(index)
+                    response = True
+    
+                elif method == 'block':
+                    
+                    self.block_on_refs(args)
+                    return PROC_BLOCKED
+    
+                elif method == 'exit':
+                    
+                    return PROC_EXITED
+                
+                else:
+                    ciel.log('Invalid method: %s' % method, 'PROC', logging.WARN, False)
+                    return PROC_ERROR
+
+            except:
+                ciel.log('Error during method handling in JSON event loop', 'PROC', logging.ERROR, True)
+                return PROC_ERROR
+        
+            try:
+                response_string = simplejson.dumps(response, cls=SWReferenceJSONEncoder)
+                struct.pack_into("I", writer, 0, len(response_string))
+                writer.write(response_string)
+            except:
+                ciel.log('Error writing response in JSON event loop', 'PROC', logging.WARN, True)
+                return PROC_ERROR
+        
         return True
     
     def pickle_event_loop(self, reader, writer):
-        return True
+        """Could be on the SkyPy event loop, above"""
+        return PROC_ERROR
     
     def protobuf_event_loop(self, reader, writer):
-        return True
+        return PROC_ERROR
         
 class Java2Executor(BaseExecutor):
     
