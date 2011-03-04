@@ -103,4 +103,8 @@ public class ConcreteReference extends Reference {
 		return Reference.wrapAsReference(ret);
 	}
 	
+	public String toString() {
+		return "ConcreteReference(" + this.getId() + ")";
+	}
+	
 }

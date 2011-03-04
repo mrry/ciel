@@ -16,7 +16,8 @@ from __future__ import with_statement
 
 from shared.references import \
     SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference
+    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
+    SW2_FixedReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
@@ -594,8 +595,25 @@ class ProcExecutor(BaseExecutor):
         self.process_pool = worker.process_pool
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
-        raise BlameUserException('Cannot create "proc" task from inside a running job.')
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, process_record_id, blocking_refs, current_outputs, output_mask):
+
+        task_descriptor["task_private"]["id"] = process_record_id
+        task_descriptor["task_private"]["blocking_refs"] = blocking_refs
+        task_descriptor["dependencies"].extend(blocking_refs)
+
+        task_descriptor["expected_outputs"] = []
+
+        for i, id in enumerate(current_outputs):
+            if i not in output_mask:
+                task_descriptor["expected_outputs"].append(id)
+
+        task_private_id = ("%s:_private" % task_descriptor["task_id"])        
+        task_private_ref = SW2_FixedReference(task_private_id, block_store.netloc)
+        block_store.write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
+        parent_task_record.publish_ref(task_private_ref)
+        
+        task_descriptor["task_private"] = task_private_ref
+        task_descriptor["dependencies"].append(task_private_ref)
 
     @staticmethod
     def can_run():
@@ -603,37 +621,77 @@ class ProcExecutor(BaseExecutor):
         return True
     
     def _run(self, task_private, task_descriptor, task_record):
+        
+        print task_private
+        
         id = task_private['id']
-        process_record = self.process_pool.get_process_record(id)
+        self.process_record = self.process_pool.get_process_record(id)
         
         self.task_record = task_record
         self.task_descriptor = task_descriptor
+        
+        self.expected_outputs = self.task_descriptor['expected_outputs']
         
         # Stores the indices of expected outputs that have been produced.
         self.expected_output_mask = set()
         
         # XXX: This will block until the attached process opens the pipes.
-        reader = process_record.get_read_fifo()
-        writer = process_record.get_write_fifo()
+        reader = self.process_record.get_read_fifo()
+        writer = self.process_record.get_write_fifo()
         
         ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
         
-        if process_record.protocol == 'line':
-            finished = self.line_event_loop(reader, writer)
-        elif process_record.protocol == 'json':
-            finished = self.json_event_loop(reader, writer)
-        elif process_record.protocol == 'pickle':
-            finished = self.pickle_event_loop(reader, writer)
-        elif process_record.protocol == 'protobuf':
-            finished = self.protobuf_event_loop(reader, writer)
-        else:
-            raise BlameUserException('Unsupported protocol: %s' % process_record.protocol)
+        try:
+            # If we are resuming, we need to unblock the process by replying to the block RPC.
+            prev_block_refs = task_private['blocking_refs']
+            assert self.process_record.protocol == 'json'
+            reply_refs = [self.task_record.retrieve_ref(x) for x in prev_block_refs]
+
+            response_string = simplejson.dumps(reply_refs, cls=SWReferenceJSONEncoder)
+            ciel.log('Writing %d bytes response to blocking RPC' % len(response_string), 'PROC', logging.INFO)
+            writer.write(struct.pack('!I', len(response_string)))
+            writer.write(response_string)
+            writer.flush()
+            
+        except:
+            pass
         
-        if finished:
-            self.process_pool.delete_process_record(process_record)
-            task_record.publish_ref(SWDataValue(task_descriptor['expected_outputs'][0], simplejson.dumps(True)))
-
-
+        
+        try:
+            if self.process_record.protocol == 'line':
+                finished = self.line_event_loop(reader, writer)
+            elif self.process_record.protocol == 'json':
+                finished = self.json_event_loop(reader, writer)
+            elif self.process_record.protocol == 'pickle':
+                finished = self.pickle_event_loop(reader, writer)
+            elif self.process_record.protocol == 'protobuf':
+                finished = self.protobuf_event_loop(reader, writer)
+            else:
+                raise BlameUserException('Unsupported protocol: %s' % self.process_record.protocol)
+        except:
+            ciel.log('Got unexpected error', 'PROC', logging.ERROR, True)
+            finished = PROC_ERROR
+        
+        if finished == PROC_EXITED:
+            
+            if len(self.expected_output_mask) != len(self.expected_outputs):
+                # Not all outputs have been produced, but we have exited.
+                # So let's publish error references for those.
+                for i, id in enumerate(self.expected_outputs):
+                    if i not in self.expected_output_mask:
+                        ciel.log('No output written for output[%d] = %s' % (i, id), 'PROC', logging.ERROR)
+                        task_record.publish_ref(SWErrorReference(id, 'OUTPUT_NOT_WRITTEN', str(i))) 
+                            
+            self.process_pool.delete_process_record(self.process_record)
+            
+        elif finished == PROC_BLOCKED:
+            pass
+        elif finished == PROC_ERROR:
+            ciel.log('Task died with an error', 'PROC', logging.ERROR)
+            for output_id in self.expected_outputs:
+                task_record.publish_ref(SWErrorReference(output_id, 'RUNTIME_ERROR', None))
+            self.process_pool.delete_process_record(self.process_record)
+        
     def line_event_loop(self, reader, writer):
         """Dummy event loop for testing interactive tasks."""
         while True:
@@ -662,7 +720,16 @@ class ProcExecutor(BaseExecutor):
     def spawn(self, request_args):
         """Spawns a child task. Arguments define a task_private structure. Returns a list
         of future references."""
-        return spawn_other(self.task_record, **request_args)
+        
+        # Args dict arrives from sw with unicode keys :(
+        str_args = dict([(str(k), v) for (k, v) in request_args.items()])
+        
+        try:
+            small_task = str_args['small_task']
+        except KeyError:
+            str_args['small_task'] = False
+        
+        return spawn_other(self.task_record, **str_args)
     
     def create_ref_inline(self, content):
         """Creates a new reference, with the given string contents."""
@@ -689,7 +756,7 @@ class ProcExecutor(BaseExecutor):
         self.expected_output_mask.add(index)
         pass
     
-    def close_ref(self, ref):
+    def close_ref(self, filename):
         """Closes the open file for a constructed reference."""
         pass
     
@@ -699,13 +766,17 @@ class ProcExecutor(BaseExecutor):
     
     def block_on_refs(self, refs):
         """Creates a continuation task for blocking on the given references."""
-        pass
+        
+        task_descriptor = {"handler" : "proc"}
+        spawn_other(self.task_record, "proc", False, process_record_id=self.process_record.id, blocking_refs=refs, current_outputs=self.expected_outputs, output_mask=self.expected_output_mask)
+        
     
     def json_event_loop(self, reader, writer):
-        
+        print 'In json_event_loop'
         while True:
             try:
-                request_len, = struct.unpack_from('I', reader)
+                request_len, = struct.unpack_from('!I', reader.read(4))
+                ciel.log('Reading %d bytes request' % request_len, 'PROC', logging.INFO)
                 request_string = reader.read(request_len)
             except:
                 ciel.log('Error reading in JSON event loop', 'PROC', logging.WARN, True)
@@ -716,6 +787,8 @@ class ProcExecutor(BaseExecutor):
             except:
                 ciel.log('Error parsing JSON request', 'PROC', logging.WARN, True)
                 return PROC_ERROR
+        
+            ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
         
             try:
                 if method == 'open_ref':
@@ -769,7 +842,7 @@ class ProcExecutor(BaseExecutor):
                 elif method == 'close_ref':
                     
                     try:
-                        ref = args['ref']
+                        ref = args['filename']
                     except KeyError:
                         ciel.log('Missing required argument: ref', 'PROC', logging.ERROR, False)
                         return PROC_ERROR
@@ -798,6 +871,10 @@ class ProcExecutor(BaseExecutor):
                     self.block_on_refs(args)
                     return PROC_BLOCKED
     
+                elif method == 'error':
+                    ciel.log('Got error from task: %s' % args, 'PROC', logging.ERROR, False)
+                    return PROC_ERROR
+    
                 elif method == 'exit':
                     
                     return PROC_EXITED
@@ -812,8 +889,10 @@ class ProcExecutor(BaseExecutor):
         
             try:
                 response_string = simplejson.dumps(response, cls=SWReferenceJSONEncoder)
-                struct.pack_into("I", writer, 0, len(response_string))
+                ciel.log('Writing %d bytes response' % len(response_string), 'PROC', logging.INFO)
+                writer.write(struct.pack('!I', len(response_string)))
                 writer.write(response_string)
+                writer.flush()
             except:
                 ciel.log('Error writing response in JSON event loop', 'PROC', logging.WARN, True)
                 return PROC_ERROR

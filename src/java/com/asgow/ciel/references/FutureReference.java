@@ -58,6 +58,10 @@ public final class FutureReference extends Reference {
 		return Reference.wrapAsReference(ret);
 	}
 	
+	public String toString() {
+		return "FutureReference(" + this.getId() + ")";
+	}
+	
 	
 
 	

@@ -47,6 +47,7 @@
 
 	<path id="bindingclasspath">
 	  <pathelement location="/usr/share/java/protobuf.jar"/>
+	  <pathelement location="ext/google-gson-1.6/gson-1.6.jar"/>
 	</path>
 
 	<macrodef name="compileExampleJar">
