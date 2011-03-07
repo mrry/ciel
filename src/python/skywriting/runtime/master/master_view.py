@@ -15,10 +15,7 @@ from __future__ import with_statement
 from cherrypy import HTTPError
 from skywriting.runtime.block_store import json_decode_object_hook,\
     SWReferenceJSONEncoder
-from cherrypy.lib.static import serve_file
 import sys
-import os
-import tempfile
 import simplejson
 import cherrypy
 from skywriting.runtime.worker.worker_view import DataRoot
@@ -26,7 +23,6 @@ from skywriting.runtime.master.cluster_view import WebBrowserRoot
 import ciel
 import logging
 import socket
-from skywriting.runtime.task import build_taskpool_task_from_descriptor
 from skywriting.runtime.task_graph import TaskGraphUpdate
 
 class MasterRoot:

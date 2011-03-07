@@ -22,7 +22,6 @@ import datetime
 import logging
 import os
 import simplejson
-import skywriting.runtime.executors
 import struct
 import time
 import uuid
