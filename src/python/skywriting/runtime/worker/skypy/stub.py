@@ -35,9 +35,6 @@ skypy.runtime_out = sys.stdout
 skypy.runtime_in = sys.stdin
 user_script_namespace = imp.load_source("user_script_namespace", entry_dict["source_filename"])
 
-skypy.ret_output = entry_dict["ret_output"]
-skypy.other_outputs = entry_dict["other_outputs"]
-
 if "coro_filename" in entry_dict:
     print >>sys.stderr, "SkyPy: Resuming"
     resume_fp = open(entry_dict["coro_filename"], "r")
@@ -52,6 +49,15 @@ else:
     user_coro = stackless.coroutine()
     user_coro.bind(skypy.start_script, user_script_namespace.__dict__[entry_dict["entry_point"]], entry_dict["entry_args"])
     resume_state = skypy.ResumeState(skypy.persistent_state, user_coro)
+if not entry_dict["is_continuation"]:
+    skypy.persistent_state = skypy.PersistentState()
+    skypy.persistent_state.export_json = entry_dict["export_json"]
+    skypy.persistent_state.ret_output = entry_dict["ret_output"]
+    skypy.persistent_state.anonymous_outputs = entry_dict["anonymous_outputs"]
+    skypy.persistent_state.delegated_outputs = entry_dict["delegated_outputs"]
+skypy.anonymous_outputs = skypy.persistent_state.anonymous_outputs
+skypy.delegated_outputs = skypy.persistent_state.delegated_outputs
+
 user_coro.switch()
 # We're back -- either the user script is done, or else it's stuck waiting on a reference.
 with MaybeFile() as output_fp:
@@ -61,7 +67,9 @@ with MaybeFile() as output_fp:
                     "additional_deps": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]}
     elif skypy.halt_reason == skypy.HALT_DONE:
         pickle.dump(skypy.script_return_val, output_fp)
-        out_dict = {"request": "done"}
+        out_dict = {"request": "done",
+                    "ret_output": skypy.persistent_state.ret_output,
+                    "export_json": skypy.persistent_state.export_json}
     elif skypy.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
         pickle.dump("Runtime exception %s\n%s" % (str(skypy.script_return_val), skypy.script_backtrace), output_fp)
         out_dict = {"request": "exception"}

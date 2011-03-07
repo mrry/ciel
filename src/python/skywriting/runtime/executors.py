@@ -365,7 +365,7 @@ class SkyPyExecutor(BaseExecutor):
         pass
         
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False, ret_output=None, other_outputs=[]):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, anonymous_outputs, delegated_outputs, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False, is_continuation=False):
 
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
@@ -379,14 +379,16 @@ class SkyPyExecutor(BaseExecutor):
         else:
             task_descriptor["task_private"]["entry_point"] = entry_point
             task_descriptor["task_private"]["entry_args"] = entry_args
-        if ret_output is None:
+        if is_continuation:
             ret_output = "%s:retval" % task_descriptor["task_id"]
             task_descriptor["expected_outputs"].append(ret_output)
-        task_descriptor["task_private"]["ret_output"] = ret_output
-        task_descriptor["task_private"]["other_outputs"] = other_outputs
+            task_descriptor["task_private"]["ret_output"] = ret_output
+            task_descriptor["task_private"]["anonymous_outputs"] = anonymous_outputs
+            task_descriptor["task_private"]["delegated_outputs"] = delegated_outputs
+            task_descriptor["task_private"]["export_json"] = export_json
+        task_descriptor["task_private"]["is_continuation"] = is_continuation
         task_descriptor["task_private"]["py_ref"] = pyfile_ref
         task_descriptor["dependencies"].append(pyfile_ref)
-        task_descriptor["task_private"]["export_json"] = export_json
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
         BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
@@ -444,7 +446,12 @@ class SkyPyExecutor(BaseExecutor):
             start_dict = {"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}
         else:
             start_dict = {"coro_filename": coroutine_filename}
-        start_dict.update({"source_filename": py_source_filename, "ret_output": skypy_private["ret_output"], "other_outputs": skypy_private["other_outputs"]})
+        start_dict["source_filename"] = py_source_filename
+        if not skypy_private["is_continuation"]:
+            start_dict.update({"anonymous_outputs": skypy_private["anonymous_outputs"], 
+                               "ret_output": skypy_private["ret_output"], 
+                               "delegated_outputs": skypy_private["delegated_outputs"], 
+                               "export_json": skypy_private["export_json"]})
         pickle.dump(start_dict, pypy_process.stdin)
 
         while True:
@@ -510,17 +517,15 @@ class SkyPyExecutor(BaseExecutor):
                                   dependencies=cont_deps, 
                                   coro_data=coro_data, 
                                   pyfile_ref=pyfile_ref, 
-                                  export_json=skypy_private["export_json"],
-                                  ret_output=skypy_private["ret_output"],
-                                  other_outputs=skypy_private["other_outputs"])
+                                  is_continuation=True)
                 return
             elif request == "done":
                 # The interpreter is stopping because the function has completed
                 result = FileOrString(request_args, self.block_store)
-                if skypy_private["export_json"]:
-                    result_ref = self.block_store.ref_from_object(result.toobj(), "json", task_descriptor["expected_outputs"][0])
+                if request_args["export_json"]:
+                    result_ref = self.block_store.ref_from_object(result.toobj(), "json", request_args["ret_output"])
                 else:
-                    result_ref = result.toref(task_descriptor["expected_outputs"][0])
+                    result_ref = result.toref(request_args["ret_output"])
                 self.task_record.publish_ref(result_ref)
                 return
             elif request == "exception":
@@ -530,6 +535,7 @@ class SkyPyExecutor(BaseExecutor):
                 raise Exception("Pypy requested bad operation: %s / %s" % (request, request_args))
 
     # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
+    # This is tricky to implement as a spawn_other because we need self.pyfile_ref. Could pass that down to SkyPy at start of day perhaps.
     def spawn_func(self, coro_descriptor, **otherargs):
 
         coro_data = FileOrString(coro_descriptor, self.block_store)
@@ -670,10 +676,12 @@ class SkywritingExecutor(BaseExecutor):
         pass
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, sw_file_ref=None, start_env=None, start_args=None, cont=None):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, anonymous_outputs, delegated_outputs, sw_file_ref=None, start_env=None, start_args=None, cont=None):
 
         if len(task_descriptor["expected_outputs"]) == 0:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+        if len(anonymous_outputs) > 0 or len(delegated_outputs) > 1:
+            raise BlameUserException("Skywriting doesn't support anonymous outputs or more than one delegated output")
         if cont is not None:
             cont_id = "%s:cont" % task_descriptor["task_id"]
             spawned_cont_ref = block_store.ref_from_object(cont, "pickle", cont_id)
@@ -848,7 +856,10 @@ class SimpleExecutor(BaseExecutor):
         BaseExecutor.__init__(self, block_store)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, anonymous_outputs, delegated_outputs, args, n_outputs):
+
+        if len(anonymous_outputs) > 0:
+            raise BlameUserException("Simple executors don't support anonymous outputs")
 
         # Throw early if the args are bad
         cls.check_args_valid(args, n_outputs)

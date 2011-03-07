@@ -216,10 +216,11 @@ class TaskExecutionRecord:
         if "expected_outputs" not in new_task_descriptor:
             new_task_descriptor["expected_outputs"] = []
         new_task_descriptor["expected_outputs"].extend(delegated_outputs)
-        new_task_descriptor["expected_outputs"].extend(["%s:anonout:%d" % (new_task_descriptor["task_id"], i) for i in range(n_anonymous_outputs)])
+        anonymous_outputs = ["%s:anonout:%d" % (new_task_descriptor["task_id"], i) for i in range(n_anonymous_outputs)]
+        new_task_descriptor["expected_outputs"].extend(anonymous_outputs)
         executor_class = self.executor_cache.execution_features.get_executor_class(new_task_descriptor["handler"])
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
-        executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, **args)
+        executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, anonymous_outputs=anonymous_outputs, delegated_outputs=delegated_outputs, **args)
         self.spawned_tasks.append(new_task_descriptor)
         return new_task_descriptor
 
