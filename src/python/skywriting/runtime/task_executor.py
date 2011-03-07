@@ -15,7 +15,7 @@
 from __future__ import with_statement
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
 from skywriting.runtime.exceptions import ReferenceUnavailableException, MissingInputException
-from skywriting.runtime.worker.local_task_graph import LocalTaskGraph, LocalJobOutput
+from skywriting.runtime.local_task_graph import LocalTaskGraph, LocalJobOutput
 from threading import Lock
 import logging
 import hashlib
