@@ -743,7 +743,10 @@ class ProcExecutor(BaseExecutor):
         Also, can supply a string and create the new reference inline.
         Also, can specify what output is being created.
         Returns the created reference to the object, and (if necessary) filename."""
-        pass
+        id = self.task_record.create_published_output_name()
+        ctx = self.block_store.make_local_output(id)
+        self.open_ref_contexts[ctx.get_filename()] = ctx
+        return ctx.get_filename()
     
     def write_output_inline(self, index, content):
         """Creates a concrete object for the output with the given index, having the given string contents."""
@@ -760,7 +763,11 @@ class ProcExecutor(BaseExecutor):
 
     def close_ref(self, filename):
         """Closes the open file for a constructed reference."""
-        pass
+        ctx = self.open_ref_contexts.pop(filename)
+        ctx.close()
+        ref = ctx.get_completed_ref()
+        self.task_record.publish_ref(ref)
+        return ref
     
     def close_output(self, index):
         """Closes the open file for an output."""
@@ -822,8 +829,7 @@ class ProcExecutor(BaseExecutor):
                         response = {'ref' : self.create_ref_inline(args['inline'])}
                     except KeyError:
                         # Create ref and return filename for writing.
-                        ref, filename = self.create_ref_file()
-                        response = {'ref' : ref, 'filename' : filename}
+                        response = {'filename' : self.create_ref_file()}
                         
                 elif method == 'write_output':
                     
@@ -849,12 +855,12 @@ class ProcExecutor(BaseExecutor):
                 elif method == 'close_ref':
                     
                     try:
-                        ref = args['filename']
+                        filename = args['filename']
                     except KeyError:
                         ciel.log('Missing required argument: ref', 'PROC', logging.ERROR, False)
                         return PROC_ERROR
                     
-                    self.close_ref(args)
+                    response = {'ref' : self.close_ref(filename)}
                         
                 elif method == 'close_output':
     
