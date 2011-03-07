@@ -45,7 +45,8 @@ import simplejson
 from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SW2_StreamReference,\
-    SW2_TombstoneReference, SW2_FetchReference, SW2_FixedReference
+    SW2_TombstoneReference, SW2_FetchReference, SW2_FixedReference,\
+    SW2_SweetheartReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 import hashlib
 import contextlib
@@ -256,7 +257,7 @@ class pycURLThread:
     def do_from_curl_thread_sync(self, callback):
         e = threading.Event()
         ret = pycURLThread.ReturnBucket()
-        self.event_queue.post_event(lambda: call_and_signal(callback, e, ret))
+        self.event_queue.post_event(lambda: self.call_and_signal(callback, e, ret))
         e.wait()
         return ret.ret
 
