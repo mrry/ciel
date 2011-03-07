@@ -352,15 +352,6 @@ def main():
 
     block_name = index_ref.id
     index_targets = index_ref.netlocs
-    suffix = ''
-    i = 0
-    while os.path.exists(block_name + suffix):
-        i += 1
-        suffix = '.%d' % i
-    filename = block_name + suffix
-    with open(filename, 'w') as f:
-        simplejson.dump(output_references, f, cls=SWReferenceJSONEncoder)
-    print >>sys.stderr, 'Wrote index to %s' % filename
 
     for target in index_targets:
         print 'swbs://%s/%s' % (target, block_name)
