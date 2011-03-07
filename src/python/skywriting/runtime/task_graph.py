@@ -105,7 +105,8 @@ class DynamicTaskGraph:
         reference table entry for the reference."""
         try:
             ref_table_entry = self.get_reference_info(reference.id)
-            ref_table_entry.update_producing_task(producing_task)
+            if producing_task is not None:
+                ref_table_entry.update_producing_task(producing_task)
             ref_table_entry.combine_references(reference)
             
             if ref_table_entry.has_consumers():
