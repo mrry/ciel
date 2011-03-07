@@ -141,17 +141,10 @@ class DynamicTaskGraph:
     def notify_task_of_reference(self, task, ref_table_entry):
         if ref_table_entry.ref.is_consumable():
             was_queued_streaming = task.is_queued_streaming()
-            was_assigned_streaming = task.is_assigned_streaming()
             was_blocked = task.is_blocked()
             task.notify_ref_table_updated(ref_table_entry)
             if was_blocked and not task.is_blocked():
                 self.task_runnable(task)
-            elif was_assigned_streaming and not task.is_assigned_streaming():
-                # All input streams have finished; poke the task for prompt finish
-                # XXX: Want to remove dependency on the worker pool.
-                # FIXME: Add this as a method on Task.
-                #self.worker_pool.notify_task_streams_done(task.worker, task)
-                pass
             elif was_queued_streaming and not task.is_queued_streaming():
                 # Submit this to the scheduler again
                 self.task_runnable(task)
