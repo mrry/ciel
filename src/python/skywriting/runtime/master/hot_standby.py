@@ -14,7 +14,6 @@
 from urlparse import urljoin
 import httplib2
 import logging
-import cherrypy
 import simplejson
 
 from cherrypy.process import plugins

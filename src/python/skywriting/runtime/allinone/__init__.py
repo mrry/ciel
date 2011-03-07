@@ -25,8 +25,11 @@ import ciel
 import logging
 import skywriting
 from skywriting.runtime.util.cluster import now_as_timestamp
+from ciel.logger import CielLogger
 
 def allinone_main(options, args):
+    
+    ciel.log = CielLogger()
     
     script_filename = args[0]
     run_id = args[1] if len(args) > 1 else 'allinone'
@@ -44,7 +47,7 @@ def allinone_main(options, args):
     
     initial_task_descriptor, cont_ref = build_initial_task_descriptor(script_filename, block_store, 'root', 'root_cont', 'root_output')
         
-    initial_task_object = build_taskpool_task_from_descriptor('root', initial_task_descriptor, None, None)
+    initial_task_object = build_taskpool_task_from_descriptor(initial_task_descriptor, None)
     
     task_runner = TaskRunner(initial_task_object, cont_ref, block_store, options)
     
@@ -57,7 +60,5 @@ def allinone_main(options, args):
     except:
         pass
     
-    block_store.stop_thread()
-
 if __name__ == '__main__':
     skywriting.main("allinone")

@@ -11,12 +11,11 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.lang.parser import SWScriptParser
-import sys
-from skywriting.runtime.executors import SWContinuation
 from skywriting.lang.context import SimpleContext
+from skywriting.lang.parser import SWScriptParser
+from skywriting.runtime.executors import SWContinuation
 import os
-from shared.references import SW2_ConcreteReference
+import sys
 
 def build_initial_task_descriptor(filename, block_store, task_name='root', cont_id='root_cont', output_id='root_output', env=False):
 
@@ -34,10 +33,14 @@ def build_initial_task_descriptor(filename, block_store, task_name='root', cont_
         cont.context.bind_identifier('env', os.environ)
        
     cont_id = 'root_cont'
-    _, cont_len = block_store.store_object(cont, 'pickle', cont_id)
-    cont_ref = SW2_ConcreteReference(cont_id, cont_len, [block_store.netloc])
+    cont_ref = block_store.ref_from_object(cont, 'pickle', cont_id)
+    print cont_ref
+    #cont_ref = SW2_ConcreteReference(cont_id, cont_len, [block_store.netloc])
     expected_output_id = 'root_output'
-    task_descriptor = {'id' : 'root', 'dependencies': [cont_ref], 'task_private':{'cont':cont_ref}, 'handler': 'swi', 'expected_outputs' : [expected_output_id]}
+    
+    tp_ref = block_store.ref_from_object({'cont' : cont_ref}, 'pickle', cont_id + ':tp')
+    
+    task_descriptor = {'task_id' : 'root', 'dependencies': [cont_ref], 'task_private': tp_ref, 'handler': 'swi', 'expected_outputs' : [expected_output_id]}
     
     return task_descriptor, cont_ref
     

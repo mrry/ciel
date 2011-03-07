@@ -346,7 +346,7 @@ def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None):
         try:
             job = DummyJob(task_descriptor['job'])
         except KeyError:
-            job = None
+            job = DummyJob(None)
     
     try:
         inputs = dict([(ref.id, ref) for ref in task_descriptor['inputs']])

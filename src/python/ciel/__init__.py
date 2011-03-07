@@ -19,8 +19,6 @@ try:
     log = cherrypy.log
 except ImportError:
     log = CielLogger()
- 
-#log = CielLogger()
     
 try:
     import cherrypy
