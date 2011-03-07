@@ -21,6 +21,8 @@ runtime_out = None
 runtime_in = None
 persistent_state = None
 taskid = None
+ret_output = None
+other_outputs = None
 
 # Volatile; emptied each run
 ref_cache = dict()
@@ -328,6 +330,39 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
             return CompleteFile(ref, runtime_response["filename"])
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
+
+def open_output(self, id):
+    pickle.dump({"request": "open_output", "id": self.id}, runtime_out)
+    runtime_out.flush()
+    runtime_reponse = pickle.load(runtime_in)
+    return OutputFile(runtime_response["filename"], id)
+
+class OutputFile:
+    def __init__(self, filename, id):
+        self.id = id
+        self.filename = filename
+        self.fp = open(self.filename, "w")
+
+    def __enter__(self):
+        return self
+
+    def close(self):
+        self.closed = True
+        self.fp.close()
+        pickle.dump({"request": "close_output", "id": self.id}, runtime_out)
+        runtime_out.flush()
+
+    def rollback(self):
+        self.closed = True
+        self.fp.close()
+        pickle.dump({"request": "rollback_output", "id": self.id}, runtime_out)
+        runtime_out.flush()
+
+    def __exit__(self, exnt, exnv, exnbt):
+        if exnt is None:
+            self.close()
+        else:
+            self.rollback()
 
 def start_script(entry_point, entry_args):
 

@@ -18,15 +18,8 @@ from shared.io_helpers import MaybeFile
 from shared.references import SW2_FutureReference
 
 parser = optparse.OptionParser()
-parser.add_option("-r", "--resume_state", dest="state_file", 
-                  help="load state image from FILE", metavar="FILE")
-parser.add_option("-s", "--source", dest="source_file",
-                  help="load user source from FILE", metavar="FILE")
-parser.add_option("-a", "--await_entry_point", action="store_true", dest="await_entry_point",
-                  default=False, help="wait to receive a pickled dict on stdin giving entry point and args")
 parser.add_option("-v", "--version", action="store_true", dest="version", default=False, help="Display version info")
 
-sys.stderr.write("SkyPy: Started with args %s\n" % sys.argv)
 (options, args) = parser.parse_args()
 
 if options.version:
@@ -34,29 +27,26 @@ if options.version:
     print sys.version
     sys.exit(0)
 
-resume_file = None
-try:
-    resume_file = options.state_file
-except:
-    pass
-source_file = options.source_file
+print >>sys.stderr, "SkyPy: Awaiting task"
+entry_dict = pickle.load(sys.stdin)
 
 skypy.main_coro = stackless.coroutine.getcurrent()
 skypy.runtime_out = sys.stdout
 skypy.runtime_in = sys.stdin
-user_script_namespace = imp.load_source("user_script_namespace", source_file)
+user_script_namespace = imp.load_source("user_script_namespace", entry_dict["source_filename"])
 
-if resume_file is not None:
+skypy.ret_output = entry_dict["ret_output"]
+skypy.other_outputs = entry_dict["other_outputs"]
+
+if "coro_filename" in entry_dict:
     print >>sys.stderr, "SkyPy: Resuming"
-    resume_fp = open(resume_file, "r")
+    resume_fp = open(entry_dict["coro_filename"], "r")
     resume_state = pickle.load(resume_fp)
     resume_fp.close()
 
     skypy.persistent_state = resume_state.persistent_state
     user_coro = resume_state.coro
 else:
-    print >>sys.stderr, "SkyPy: Awaiting entry point and arguments"
-    entry_dict = pickle.load(sys.stdin)
     print >>sys.stderr, "Entering at ", entry_dict["entry_point"], "args", entry_dict["entry_args"]
     skypy.persistent_state = skypy.PersistentState()
     user_coro = stackless.coroutine()
