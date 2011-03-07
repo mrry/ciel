@@ -908,7 +908,7 @@ class BlockStore(plugins.SimplePlugin):
             ciel.log("Ref %s became local during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
             dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
             fetch_client.set_fetch_listener(dummy_listener)
-            result_callback(True)
+            fetch_client.result_callback(True)
         else:
             # No locking from now on, as the following structures are only touched by the cURL thread.
             if ref.id not in self.incoming_fetches:
