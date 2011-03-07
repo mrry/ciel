@@ -126,7 +126,7 @@ def spawn(spawn_callable, *args):
     
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, args)
-    save_obj = ResumeState(PersistentState(), new_coro)
+    save_obj = ResumeState(None, new_coro)
     with MaybeFile() as new_coro_fp:
         pickle.dump(save_obj, new_coro_fp)
         out_dict = {"request": "spawn"}
@@ -331,10 +331,10 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 
-def open_output(self, id):
-    pickle.dump({"request": "open_output", "id": self.id}, runtime_out)
+def open_output(id):
+    pickle.dump({"request": "open_output", "id": id}, runtime_out)
     runtime_out.flush()
-    runtime_reponse = pickle.load(runtime_in)
+    runtime_response = pickle.load(runtime_in)
     return OutputFile(runtime_response["filename"], id)
 
 class OutputFile:

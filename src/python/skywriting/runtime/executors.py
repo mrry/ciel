@@ -379,7 +379,7 @@ class SkyPyExecutor(BaseExecutor):
         else:
             task_descriptor["task_private"]["entry_point"] = entry_point
             task_descriptor["task_private"]["entry_args"] = entry_args
-        if is_continuation:
+        if not is_continuation:
             ret_output = "%s:retval" % task_descriptor["task_id"]
             task_descriptor["expected_outputs"].append(ret_output)
             task_descriptor["task_private"]["ret_output"] = ret_output
@@ -403,7 +403,7 @@ class SkyPyExecutor(BaseExecutor):
 
     def _run(self, task_private, task_descriptor, task_record):
         
-        with ContextManager() as manager:
+        with ContextManager("SkyPy task %s" % task_descriptor["task_id"]) as manager:
             self.context_manager = manager
             self._guarded_run(task_private, task_descriptor, task_record)
 
@@ -446,7 +446,8 @@ class SkyPyExecutor(BaseExecutor):
             start_dict = {"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}
         else:
             start_dict = {"coro_filename": coroutine_filename}
-        start_dict["source_filename"] = py_source_filename
+        start_dict.update({"source_filename": py_source_filename,
+                           "is_continuation": skypy_private["is_continuation"]})
         if not skypy_private["is_continuation"]:
             start_dict.update({"anonymous_outputs": skypy_private["anonymous_outputs"], 
                                "ret_output": skypy_private["ret_output"], 
@@ -496,7 +497,7 @@ class SkyPyExecutor(BaseExecutor):
                 pickle.dump({"outputs": out_refs}, pypy_process.stdin)
             elif request == "open_output":
                 filename = self.open_output(**request_args)
-                pickle.dump({"filename": filename})
+                pickle.dump({"filename": filename}, pypy_process.stdin)
             elif request == "close_output":
                 self.close_output(**request_args)
             elif request == "rollback_output":
@@ -814,10 +815,10 @@ class SkywritingExecutor(BaseExecutor):
         return spawn_task_helper(self.task_record, executor_name, small_task, **str_args)
 
     def spawn_exec_func(self, executor_name, args, num_outputs):
-        return spawn_other(self.task_record, executor_name, False, args=args, n_outputs=num_outputs)
+        return self.spawn_other(executor_name, {"args": args, "n_outputs": num_outputs})
 
     def exec_func(self, executor_name, args, num_outputs):
-        return spawn_other(self.task_record, executor_name, True, args=args, n_outputs=num_outputs)        
+        return self.spawn_other(executor_name, {"args": args, "n_outputs": num_outputs, "small_task": True})
 
     def lazy_dereference(self, ref):
         self.lazy_derefs.add(ref)

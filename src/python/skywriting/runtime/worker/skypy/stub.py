@@ -40,21 +40,20 @@ if "coro_filename" in entry_dict:
     resume_fp = open(entry_dict["coro_filename"], "r")
     resume_state = pickle.load(resume_fp)
     resume_fp.close()
-
-    skypy.persistent_state = resume_state.persistent_state
     user_coro = resume_state.coro
 else:
-    print >>sys.stderr, "Entering at ", entry_dict["entry_point"], "args", entry_dict["entry_args"]
+    print >>sys.stderr, "Entering at", entry_dict["entry_point"], "args", entry_dict["entry_args"]
     skypy.persistent_state = skypy.PersistentState()
     user_coro = stackless.coroutine()
     user_coro.bind(skypy.start_script, user_script_namespace.__dict__[entry_dict["entry_point"]], entry_dict["entry_args"])
     resume_state = skypy.ResumeState(skypy.persistent_state, user_coro)
 if not entry_dict["is_continuation"]:
-    skypy.persistent_state = skypy.PersistentState()
-    skypy.persistent_state.export_json = entry_dict["export_json"]
-    skypy.persistent_state.ret_output = entry_dict["ret_output"]
-    skypy.persistent_state.anonymous_outputs = entry_dict["anonymous_outputs"]
-    skypy.persistent_state.delegated_outputs = entry_dict["delegated_outputs"]
+    resume_state.persistent_state = skypy.PersistentState()
+    resume_state.persistent_state.export_json = entry_dict["export_json"]
+    resume_state.persistent_state.ret_output = entry_dict["ret_output"]
+    resume_state.persistent_state.anonymous_outputs = entry_dict["anonymous_outputs"]
+    resume_state.persistent_state.delegated_outputs = entry_dict["delegated_outputs"]
+skypy.persistent_state = resume_state.persistent_state
 skypy.anonymous_outputs = skypy.persistent_state.anonymous_outputs
 skypy.delegated_outputs = skypy.persistent_state.delegated_outputs
 
