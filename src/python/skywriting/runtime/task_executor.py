@@ -56,7 +56,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
                 report_data.append((tr.task_descriptor["task_id"], tr.success, (tr.spawned_tasks, tr.published_refs)))
             else:
                 report_data.append((tr.task_descriptor["task_id"], tr.success, (tr.failure_reason, tr.failure_details, tr.failure_bindings)))
-        self.master_proxy.report_tasks(report_data)
+        self.master_proxy.report_tasks(input['job'], input['task_id'], report_data)
         with self._lock:
             self.current_task_set = None
 

@@ -161,10 +161,9 @@ class LogRoot:
 
 class DataRoot:
     
-    def __init__(self, block_store, backup_sender=None, task_pool=None):
+    def __init__(self, block_store, backup_sender=None):
         self.block_store = block_store
         self.backup_sender = backup_sender
-        self.task_pool = task_pool
         
     @cherrypy.expose
     def default(self, id):
@@ -202,8 +201,8 @@ class DataRoot:
             new_ref = self.block_store.ref_from_string(request_body, safe_id)
             if self.backup_sender is not None:
                 self.backup_sender.add_data(safe_id, request_body)
-            if self.task_pool is not None:
-                self.task_pool.publish_refs({safe_id : new_ref})
+            #if self.task_pool is not None:
+            #    self.task_pool.publish_refs({safe_id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
         
         elif cherrypy.request.method == 'HEAD':
@@ -223,8 +222,8 @@ class DataRoot:
             new_ref = self.block_store.ref_from_string(request_body, id)
             if self.backup_sender is not None:
                 self.backup_sender.add_data(id, request_body)
-            if self.task_pool is not None:
-                self.task_pool.publish_refs({id : new_ref})
+            #if self.task_pool is not None:
+            #    self.task_pool.publish_refs({id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
         elif cherrypy.request.method == 'GET':
             return serve_file(self.block_store.generate_block_list_file())

@@ -104,6 +104,7 @@ class DynamicTaskGraph:
         """Updates the information held about a reference. Returns the updated
         reference table entry for the reference."""
         try:
+            
             ref_table_entry = self.get_reference_info(reference.id)
             if producing_task is not None:
                 ref_table_entry.update_producing_task(producing_task)

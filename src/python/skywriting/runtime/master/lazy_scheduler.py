@@ -16,6 +16,7 @@ from skywriting.runtime.task import TASK_QUEUED, TASK_QUEUED_STREAMING
 import logging
 import ciel
 import random
+import Queue
 
 '''
 Created on 15 Apr 2010
@@ -30,16 +31,16 @@ EQUALLY_LOCAL_MARGIN = 0.9
 
 class LazyScheduler(AsynchronousExecutePlugin):
     
-    def __init__(self, bus, task_pool, worker_pool):
+    def __init__(self, bus, worker_pool):
         AsynchronousExecutePlugin.__init__(self, bus, 1, 'schedule')
         self.worker_pool = worker_pool
-        self.task_pool = task_pool
+        self.scheduler_queue = Queue.Queue()
         
     def handle_input(self, input):
         
-        # 1. Read runnable tasks from the task pool's task queue, and assign
+        # 1. Read runnable tasks from the scheduler's task queue, and assign
         #    them to workers.
-        queue = self.task_pool.get_task_queue()
+        queue = self.scheduler_queue
         while True:
             try:
                 task = queue.get_nowait()
@@ -80,7 +81,7 @@ class LazyScheduler(AsynchronousExecutePlugin):
                     current_saving_for_netloc = netlocs[input.sweetheart_netloc]
                 except KeyError:
                     current_saving_for_netloc = 0
-                netlocs[netloc] = current_saving_for_netloc + SWEETHEART_FACTOR * input.size_hint
+                netlocs[input.sweetheart_netloc] = current_saving_for_netloc + SWEETHEART_FACTOR * input.size_hint
                 
                 # Accord the unboosted saving to other locations.
                 for netloc in input.location_hints:

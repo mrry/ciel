@@ -45,7 +45,7 @@ class LocalTaskGraph(DynamicTaskGraph):
             producer_task = self.get_task(producer["task_id"])
         upd = TaskGraphUpdate()
         for spawn in spawns:
-            task_object = build_taskpool_task_from_descriptor(spawn['task_id'], spawn, None, producer_task)
+            task_object = build_taskpool_task_from_descriptor(spawn, producer_task)
             upd.spawn(task_object)
         for ref in refs:
             upd.publish(ref, producer_task)

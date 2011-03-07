@@ -12,12 +12,12 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-import httplib2
-import sys
 from Queue import Queue, Empty
 from skywriting.runtime.block_store import json_decode_object_hook
+from urlparse import urljoin, urlparse
+import httplib2
 import simplejson
-from urlparse import urljoin, urlparse, urlunparse
+import sys
 
 def main():
     
@@ -27,19 +27,27 @@ def main():
     
     # Postel's Law!
     # We expect the URL of a root task; however, we should liberally accept
-    # URLs starting with '/browse/job/', '/job/' and '/browse/task/'.
+    # URLs starting with '/control/browse/job/', '/control/job/' and '/control/browse/task/', and URLs missing '/control'.
     url_parts = urlparse(root_url)
 
-    if url_parts.path.startswith('/browse/'):
-        root_url = urljoin(root_url, url_parts.path[7:])
+    print root_url
+
+    if not url_parts.path.startswith('/control'):
+        root_url = urljoin(root_url, '/control' + url_parts.path)
         url_parts = urlparse(root_url)
 
-    if url_parts.path.startswith('/job/'):
+    if url_parts.path.startswith('/control/browse/'):
+        root_url = urljoin(root_url, '/control' + url_parts.path[len('/control/browse'):])
+        url_parts = urlparse(root_url)
+
+    print root_url
+
+    if url_parts.path.startswith('/control/job/'):
         job_url = root_url
         _, content = h.request(job_url)
         job_descriptor = simplejson.loads(content)
-        root_url = urljoin(root_url, '/task/' + job_descriptor['root_task'])
-    elif not url_parts.path.startswith('/task/'):
+        root_url = urljoin(root_url, '/control/task/%s/%s' % (job_descriptor['job_id'], job_descriptor['root_task']))
+    elif not url_parts.path.startswith('/control/task/'):
         print >>sys.stderr, "Error: must specify task or job URL."
         sys.exit(-1)
 

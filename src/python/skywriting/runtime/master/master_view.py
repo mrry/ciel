@@ -26,25 +26,25 @@ from skywriting.runtime.master.cluster_view import WebBrowserRoot
 import ciel
 import logging
 import socket
+from skywriting.runtime.task import build_taskpool_task_from_descriptor
+from skywriting.runtime.task_graph import TaskGraphUpdate
 
 class MasterRoot:
     
-    def __init__(self, task_pool, worker_pool, block_store, job_pool, backup_sender, monitor):
-        self.control = ControlRoot(task_pool, worker_pool, block_store, job_pool, backup_sender, monitor)
+    def __init__(self, worker_pool, block_store, job_pool, backup_sender, monitor):
+        self.control = ControlRoot(worker_pool, block_store, job_pool, backup_sender, monitor)
         self.data = self.control.data
 
 class ControlRoot:
 
-    def __init__(self, task_pool, worker_pool, block_store, job_pool, backup_sender, monitor):
+    def __init__(self, worker_pool, block_store, job_pool, backup_sender, monitor):
         self.worker = WorkersRoot(worker_pool, backup_sender, monitor)
         self.job = JobRoot(job_pool, backup_sender, monitor)
-        self.task = MasterTaskRoot(task_pool, backup_sender)
-        self.streamtask = MasterStreamTaskRoot(task_pool)
-        self.data = DataRoot(block_store, backup_sender, task_pool.lazy_task_pool)
+        self.task = MasterTaskRoot(job_pool, backup_sender)
+        self.data = DataRoot(block_store, backup_sender)
         self.gethostname = HostnameRoot()
         self.shutdown = ShutdownRoot(worker_pool)
-        self.refs = ReferenceInfoRoot(task_pool)
-        self.browse = WebBrowserRoot(job_pool, task_pool)
+        self.browse = WebBrowserRoot(job_pool)
         self.backup = BackupMasterRoot(backup_sender)
 
     @cherrypy.expose
@@ -55,7 +55,7 @@ class HostnameRoot:
 
     @cherrypy.expose
     def index(self):
-        (name, aliases, addresses) = socket.gethostbyaddr(cherrypy.request.remote.ip)
+        (name, _, _) = socket.gethostbyaddr(cherrypy.request.remote.ip)
         return simplejson.dumps(name)
 
 class ShutdownRoot:
@@ -216,156 +216,76 @@ class JobRoot:
             # Invalid attribute.
             raise HTTPError(404)
         
-
-class MasterStreamTaskRoot:
-    
-    def __init__(self, task_pool):
-        self.task_pool = task_pool
-
-    @cherrypy.expose
-    def index(self):
-        if cherrypy.request.method == 'GET':
-
-            def index_gen():
-                enc = SWReferenceJSONEncoder()
-                evtcount = self.task_pool.event_index
-                vals = self.task_pool.tasks.values()
-                if len(vals) == 0:
-                    yield "{\"taskmap\": [], \"evtcount\": " + str(evtcount) + "}"
-                else:
-                    yield ("{\"taskmap\": [" + enc.encode(vals[0].as_descriptor(long=True)))
-                    for x in vals[1:]:
-                        next_desc = x.as_descriptor(long=True)
-                        yield ("," + enc.encode(next_desc))
-                    yield "], \"evtcount\": " + str(evtcount) + "}"
-                           
-            # Produces a JSON generator which itself feeds off a descriptor-generator
-            # return enc.iterencode([x.as_descriptor(long=True) for x in self.task_pool.tasks.values()])
-            # (Too slow)
-            return index_gen()
-
-        else:
-            raise HTTPError(405)
-    index._cp_config = {'response.stream': True}
-
-
 class MasterTaskRoot:
     
-    def __init__(self, task_pool, backup_sender):
-        self.task_pool = task_pool
+    def __init__(self, job_pool, backup_sender):
+        self.job_pool = job_pool
         self.backup_sender = backup_sender
-        
-    # TODO: decide how to submit tasks to the cluster. Effectively, we want to mirror
-    #       the way workers do it. Want to have a one-shot distributed execution on the
-    #       master before sending out continuations to the cluster. The master should
-    #       have minimal exec functionality, and should short-circuit the RPCs for spawning
-    #       and creating global IDs.
-    #
-    #       The master might also have some special functionality that can only be provided
-    #       by invoking the master (such as cluster details), but this could potentially be
-    #       provided at the master.
        
     @cherrypy.expose 
-    def default(self, id=None, action=None):
-        if id is not None:
+    def default(self, job_id, task_id, action=None):
         
-            task_id = id
-            if id == 'flush':
-                self.task_pool.flush_task_dict()
-                return
-            elif id == "wait_event_count":
-                try:
-                    self.task_pool.wait_event_after(int(action))
-                    return simplejson.dumps({ "latest_event_index" : self.task_pool.event_index })
-                except Exception as t:
-                    return simplejson.dumps({ "error" : repr(t)})
-
-            elif id == "events":
-                report_event_index = self.task_pool.event_index
-                start_event_index = int(action)
-                finish_event_index = None
-                if ((report_event_index - start_event_index) > 1000):
-                    # Maximum report size; should make client-configurable
-                    finish_event_index = start_event_index + 1000
-                else:
-                    finish_event_index = report_event_index
-                events_to_send = self.task_pool.events[start_event_index:finish_event_index]
-                #sys.stderr.write("Events: %s. Sending %d-%d == %s\n" % (repr(self.task_pool.events), start_event_index, finish_event_index, repr(events_to_send)))
-                events_reply = {"events": events_to_send, 
-                                "next_event_to_fetch": finish_event_index, 
-                                "first_unavailable_event": report_event_index}
-                return simplejson.dumps(events_reply, cls=SWReferenceJSONEncoder)
-
-            elif id == "report":
-                # Multi-spawn-and-commit
-                report = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                self.task_pool.report_tasks(report)
-            
-            if action == 'spawn':
-                if cherrypy.request.method == 'POST':
-                    parent_task = self.task_pool.get_task_by_id(task_id)
-                    request_body = cherrypy.request.body.read()
-                    task_descriptors = simplejson.loads(request_body, object_hook=json_decode_object_hook)
-                    self.task_pool.spawn_child_tasks(parent_task, task_descriptors)
-                    self.backup_sender.spawn_tasks(task_id, request_body)
-                    return
-                else:
-                    raise HTTPError(405)
-            elif action == 'commit':
-                if cherrypy.request.method == 'POST':
-                    request_body = cherrypy.request.body.read()
-                    commit_payload = simplejson.loads(request_body, object_hook=json_decode_object_hook)
-                    self.task_pool.commit_task(task_id, commit_payload)
-                    self.backup_sender.commit_task(task_id, request_body)
-                    return simplejson.dumps(True)
-                else:
-                    raise HTTPError(405)
-            elif action == 'failed':
-                if cherrypy.request.method == 'POST':
-                    task = self.task_pool.get_task_by_id(task_id)
-                    failure_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-                    #cherrypy.engine.publish('task_failed', task, failure_payload)
-                    self.task_pool.investigate_task_failure(task, failure_payload)
-                    return simplejson.dumps(True)
-                else:
-                    raise HTTPError(405)
-            elif action == 'publish':
-                if cherrypy.request.method == 'POST':
-                    request_body = cherrypy.request.body.read()
-                    task = self.task_pool.get_task_by_id(task_id)
-                    refs = simplejson.loads(request_body, object_hook=json_decode_object_hook)
-                    self.task_pool.publish_refs(task, refs)
-                    self.backup_sender.publish_refs(task_id, refs)
-                    ciel.engine.publish('schedule')
-            elif action == 'abort':
-                self.task_pool.abort(task_id)
-            elif action is None:
-                if cherrypy.request.method == 'GET':
-                    return simplejson.dumps(self.task_pool.get_task_by_id(task_id).as_descriptor(long=True), cls=SWReferenceJSONEncoder)
-        elif cherrypy.request.method == 'POST':
-            # New task spawning in here.
-            ciel.log('Attempted to spawn a task using deprecated POST to /task/ API', 'MASTER', logging.WARN, False)
-            raise HTTPError(405)
-        else:
-            if cherrypy.request.method == 'GET':
-                task_fd, filename = tempfile.mkstemp()
-                task_file = os.fdopen(task_fd, 'w')
-                simplejson.dump(map(lambda x: x.as_descriptor(long=True), self.task_pool.tasks.values()), fp=task_file, cls=SWReferenceJSONEncoder)
-                task_file.close()
-                return serve_file(filename)
-            
-class ReferenceInfoRoot:
-    
-    def __init__(self, task_pool):
-        self.task_pool = task_pool
-        
-    @cherrypy.expose
-    def default(self, id):
         try:
-            return simplejson.dumps(self.task_pool.get_reference_info(id), cls=SWReferenceJSONEncoder)
+            job = self.job_pool.get_job_by_id(job_id)
         except KeyError:
+            ciel.log('No such job: %s' % job_id, 'MASTER', logging.ERROR)
             raise HTTPError(404)
 
+        try:
+            task = job.task_graph.get_task(task_id)
+        except KeyError:
+            ciel.log('No such task: %s in job: %s' % (task_id, job_id), 'MASTER', logging.ERROR)
+            raise HTTPError(404)
+
+        if cherrypy.request.method == 'GET':
+            if action is None:
+                return simplejson.dumps(task.as_descriptor(long=True), cls=SWReferenceJSONEncoder)
+            else:
+                ciel.log('Invalid operation: cannot GET with an action', 'MASTER', logging.ERROR)
+                raise HTTPError(405)
+        elif cherrypy.request.method != 'POST':
+            ciel.log('Invalid operation: only POST is supported for task operations', 'MASTER', logging.ERROR)
+            raise HTTPError(405)
+
+        # Action-handling starts here.
+
+        if action == 'report':
+            # Multi-spawn-and-commit
+            report = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+            job.report_tasks(report, task)
+            return
+
+        elif action == 'failed':
+            failure_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+            job.investigate_task_failure(task, failure_payload)
+            return simplejson.dumps(True)
+        
+        elif action == 'publish':
+            request_body = cherrypy.request.body.read()
+            refs = simplejson.loads(request_body, object_hook=json_decode_object_hook)
+            
+            tx = TaskGraphUpdate()
+            for ref in refs:
+                tx.publish(ref, task)
+            tx.commit(job.task_graph)
+
+            self.backup_sender.publish_refs(task_id, refs)
+            ciel.engine.publish('schedule')
+            return
+            
+        elif action == 'abort':
+            # FIXME (maybe): There is currently no abort method on Task.
+            task.abort(task_id)
+            return
+        
+        elif action is None:
+            ciel.log('Invalid operation: only GET is supported for tasks', 'MASTER', logging.ERROR)
+            raise HTTPError(404)
+        else:
+            ciel.log('Unknown action (%s) on task (%s)' % (action, task_id), 'MASTER', logging.ERROR)
+            raise HTTPError(404)
+            
+            
 class BackupMasterRoot:
     
     def __init__(self, backup_sender):

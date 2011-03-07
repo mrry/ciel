@@ -415,8 +415,9 @@ class LazyTaskPoolAdapter:
             task_id = task_descriptor['task_id']
         except:
             task_id = self.generate_task_id()
+            task_descriptor['task_id'] = task_id
         
-        task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, parent_task)
+        task = build_taskpool_task_from_descriptor(task_descriptor, parent_task)
         task.job = job
         
         self.lazy_task_pool.add_task(task, parent_task is None, may_reduce)

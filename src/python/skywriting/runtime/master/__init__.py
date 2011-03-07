@@ -12,32 +12,30 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from skywriting.runtime.master.lazy_task_pool import LazyTaskPool,\
-    LazyTaskPoolAdapter
-from skywriting.runtime.master.lazy_scheduler import LazyScheduler
-from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
-from skywriting.runtime.master.master_view import MasterRoot
-from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.block_store import BlockStore
-from skywriting.runtime.task_executor import TaskExecutorPlugin
-import skywriting
-import simplejson
-import logging
-import urllib2
-import urllib
-import httplib2
-import tempfile
-import socket
-import cherrypy
-import subprocess
-from skywriting.runtime.master.job_pool import JobPool
-import os
-import ciel
 from skywriting.runtime.lighttpd import LighttpdAdapter
-from skywriting.runtime.master.recovery import RecoveryManager,\
-    TaskFailureInvestigator
-from skywriting.runtime.master.hot_standby import BackupSender,\
+from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
+from skywriting.runtime.master.hot_standby import BackupSender, \
     MasterRecoveryMonitor
+from skywriting.runtime.master.job_pool import JobPool
+from skywriting.runtime.master.lazy_scheduler import LazyScheduler
+from skywriting.runtime.master.master_view import MasterRoot
+from skywriting.runtime.master.recovery import RecoveryManager, \
+    TaskFailureInvestigator
+from skywriting.runtime.master.worker_pool import WorkerPool
+from skywriting.runtime.task_executor import TaskExecutorPlugin
+import cherrypy
+import ciel
+import httplib2
+import logging
+import os
+import simplejson
+import skywriting
+import socket
+import subprocess
+import tempfile
+import urllib
+import urllib2
 
 def master_main(options):
 
@@ -47,16 +45,14 @@ def master_main(options):
     worker_pool = WorkerPool(ciel.engine, deferred_worker)
     worker_pool.subscribe()
 
-    lazy_task_pool = LazyTaskPool(ciel.engine, worker_pool)
-    lazy_task_pool.subscribe()
+    scheduler = LazyScheduler(ciel.engine, worker_pool)
+    scheduler.subscribe()
+
+    task_failure_investigator = TaskFailureInvestigator(worker_pool, deferred_worker)
     
-    job_pool = JobPool(ciel.engine, lazy_task_pool, options.journaldir)
+    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator)
     job_pool.subscribe()
 
-    task_failure_investigator = TaskFailureInvestigator(lazy_task_pool, worker_pool, deferred_worker)
-
-    task_pool_adapter = LazyTaskPoolAdapter(lazy_task_pool, task_failure_investigator)
-    
     backup_sender = BackupSender(cherrypy.engine)
     backup_sender.subscribe()
 
@@ -86,13 +82,10 @@ def master_main(options):
     else:
         monitor = None
 
-    recovery_manager = RecoveryManager(ciel.engine, job_pool, lazy_task_pool, block_store, deferred_worker)
+    recovery_manager = RecoveryManager(ciel.engine, job_pool, block_store, deferred_worker)
     recovery_manager.subscribe()
-
-    scheduler = LazyScheduler(ciel.engine, lazy_task_pool, worker_pool)
-    scheduler.subscribe()
-    
-    root = MasterRoot(task_pool_adapter, worker_pool, block_store, job_pool, backup_sender, monitor)
+  
+    root = MasterRoot(worker_pool, block_store, job_pool, backup_sender, monitor)
 
     cherrypy.config.update({"server.thread_pool" : 50})
 

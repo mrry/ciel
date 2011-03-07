@@ -28,8 +28,7 @@ import httplib2
 
 class TaskFailureInvestigator:
     
-    def __init__(self, task_pool, worker_pool, deferred_worker):
-        self.task_pool = task_pool
+    def __init__(self, worker_pool, deferred_worker):
         self.worker_pool = worker_pool
         self.deferred_worker = deferred_worker
         
@@ -75,14 +74,14 @@ class TaskFailureInvestigator:
                 self.worker_pool.worker_failed(worker)
                 
         # Finally, propagate the failure to the task pool, so that we can re-run the failed task.
-        self.task_pool.task_failed(task, (reason, detail, revised_bindings))
+        # FIXME: need to route this through the job.
+        task.job.task_graph.task_failed(task, revised_bindings, reason, detail)
 
 class RecoveryManager(plugins.SimplePlugin):
     
-    def __init__(self, bus, job_pool, task_pool, block_store, deferred_worker):
+    def __init__(self, bus, job_pool, block_store, deferred_worker):
         plugins.SimplePlugin.__init__(self, bus)
         self.job_pool = job_pool
-        self.task_pool = task_pool
         self.block_store = block_store
         self.deferred_worker = deferred_worker
         
@@ -105,8 +104,11 @@ class RecoveryManager(plugins.SimplePlugin):
             for block_name, block_size in self.block_store.block_list_generator():
                 conc_ref = SW2_ConcreteReference(block_name, block_size)
                 conc_ref.add_location_hint(self.block_store.netloc)
+                
+                # FIXME: What should we do with recovered blocks?
+                
                 #ciel.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
-                self.task_pool.publish_single_ref(block_name, conc_ref, None, False)                
+                #self.task_pool.publish_single_ref(block_name, conc_ref, None, False)                
 
     def recover_job_descriptors(self):
         root = self.job_pool.journal_root
@@ -131,9 +133,11 @@ class RecoveryManager(plugins.SimplePlugin):
                 assert record_type == 'T'
                 assert len(root_task_descriptor_string) == root_task_descriptor_length
                 root_task_descriptor = simplejson.loads(root_task_descriptor_string, object_hook=json_decode_object_hook)
-                root_task_id = root_task_descriptor['task_id']
-                root_task = build_taskpool_task_from_descriptor(root_task_id, root_task_descriptor, self.task_pool, None)
+                root_task = build_taskpool_task_from_descriptor(root_task_descriptor, None)
+                
+                # FIXME: Get the job pool to create this job, because it has access to the scheduler queue and task failure investigator.
                 job = Job(job_id, root_task, job_dir, JOB_RECOVERED, self.job_pool)
+                
                 root_task.job = job
                 if result is not None:
                     job.completed(result)
@@ -144,7 +148,7 @@ class RecoveryManager(plugins.SimplePlugin):
                 if result is None:
                     self.load_other_tasks_defer(job, journal_file)
                     ciel.log.error('Recovered job %s' % job_id, 'RECOVERY', logging.INFO, False)
-                    ciel.log.error('Recovered task %s for job %s' % (root_task_id, job_id), 'RECOVERY', logging.INFO, False)
+                    ciel.log.error('Recovered task %s for job %s' % (root_task['task_id'], job_id), 'RECOVERY', logging.INFO, False)
                 else:
                     journal_file.close()
                     ciel.log.error('Found information about job %s' % job_id, 'RECOVERY', logging.INFO, False)
@@ -179,7 +183,7 @@ class RecoveryManager(plugins.SimplePlugin):
                 elif record_type == 'T':
                     task_id = rec['task_id']
                     parent_task = self.task_pool.get_task_by_id(rec['parent'])
-                    task = build_taskpool_task_from_descriptor(task_id, rec, self.task_pool, parent_task)
+                    task = build_taskpool_task_from_descriptor(rec, parent_task)
                     task.job = job
                     task.parent.children.append(task)
     
@@ -199,7 +203,8 @@ class RecoveryManager(plugins.SimplePlugin):
             #self.job_pool.restart_job(job)
 
     def fetch_block_list_defer(self, worker):
-        self.deferred_worker.do_deferred(lambda: self.fetch_block_names_from_worker(worker))
+        ciel.log('Fetching block list is currently disabled', 'RECOVERY', logging.WARNING)
+        #self.deferred_worker.do_deferred(lambda: self.fetch_block_names_from_worker(worker))
         
     def fetch_block_names_from_worker(self, worker):
         '''
@@ -218,6 +223,7 @@ class RecoveryManager(plugins.SimplePlugin):
             conc_ref.add_location_hint(worker.netloc)
             
             #ciel.log.error('Recovering block %s (size=%d)' % (block_name, block_size), 'RECOVERY', logging.INFO)
+            # FIXME: What should we do with recovered blocks?
             self.task_pool.publish_single_ref(block_name, conc_ref, None, False)
 
         

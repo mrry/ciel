@@ -180,17 +180,7 @@ class BackupSender:
     def register_standby_url(self, url):
         self.is_logging = True
         self.queue.put(('U', url))
-        
-    def spawn_tasks(self, parent_id, task_descriptor):
-        if not self.is_logging:
-            return
-        self.queue.put(('S', parent_id, task_descriptor))
-        
-    def commit_task(self, task_id, commit_bindings):
-        if not self.is_logging:
-            return
-        self.queue.put(('C', task_id, commit_bindings))
-        
+
     def publish_refs(self, task_id, ref):
         if not self.is_logging:
             return
@@ -210,18 +200,6 @@ class BackupSender:
         if not self.is_logging:
             return
         self.queue.put(('D', id, data))
-        
-    def do_spawn_tasks(self, parent_id, task_descriptor):
-        for url in self.standby_urls:
-            spawn_url = urljoin(url, '/task/%s/spawn' % parent_id)
-            h = httplib2.Http()
-            h.request(spawn_url, 'POST', task_descriptor)
-        
-    def do_commit_task(self, task_id, commit_bindings):
-        for url in self.standby_urls:
-            spawn_url = urljoin(url, '/task/%s/commit' % task_id)
-            h = httplib2.Http()
-            h.request(spawn_url, 'POST', commit_bindings)
 
     def do_publish_refs(self, task_id, ref):
         for url in self.standby_urls:
@@ -287,10 +265,6 @@ class BackupSender:
                 try:
                     if log_entry[0] == 'U':
                         self.standby_urls.add(log_entry[1])
-                    elif log_entry[0] == 'S':
-                        self.do_spawn_tasks(log_entry[1], log_entry[2])
-                    elif log_entry[0] == 'C':
-                        self.do_commit_task(log_entry[1], log_entry[2])
                     elif log_entry[0] == 'P':
                         self.do_publish_refs(log_entry[1], log_entry[2])
                     elif log_entry[0] == 'W':

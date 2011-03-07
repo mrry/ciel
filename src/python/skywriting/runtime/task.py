@@ -81,6 +81,7 @@ class TaskPoolTask:
         
         self.job = job
         
+        self.state = None
         self.set_state(state)
         
         self.worker = None
@@ -90,7 +91,7 @@ class TaskPoolTask:
         self.current_attempt = 0
 
     def set_state(self, state):
-        if self.job is not None:
+        if self.job is not None and self.state is not None:
             self.job.record_state_change(self.state, state)
         self.record_event(TASK_STATE_NAMES[state])
         self.state = state
@@ -215,7 +216,8 @@ class TaskPoolTask:
                       'handler': self.handler,
                       'expected_outputs': self.expected_outputs,
                       'inputs': self.inputs.values(),
-                      'event_index': self.event_index}
+                      'event_index': self.event_index,
+                      'job' : self.job.id}
 
         descriptor['parent'] = self.parent.task_id if self.parent is not None else None
         
@@ -286,7 +288,7 @@ try:
     from shared.generated.ciel.protoc_pb2 import Task
     from shared.references import build_reference_from_protobuf
     
-    def build_taskpool_task_from_protobuf(buf_task, task_pool, parent_task=None):
+    def build_taskpool_task_from_protobuf(buf_task, parent_task=None):
         
         task_id = buf_task.id
         
@@ -316,16 +318,35 @@ try:
         return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
 
     def build_protobuf_task_from_worker_task_descriptor(task_descriptor):
-        return build_taskpool_task_from_descriptor(task_descriptor["task_id"], task_descriptor, None, None).as_protobuf_for_spawning()
+        return build_taskpool_task_from_descriptor(task_descriptor).as_protobuf_for_spawning()
         
                         
 except ImportError:
     pass
 
 
-def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, parent_task=None):
+class DummyJob:
+    """Used to ensure that tasks on the worker can refer to their job (for inheriting job ID, e.g.)."""
+    
+    def __init__(self, id):
+        self.id = id
+        
+    def record_state_change(self, from_state, to_state):
+        pass
+
+def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None):
+
+    task_id = task_descriptor['task_id']
 
     handler = task_descriptor['handler']
+    
+    if parent_task is not None:
+        job = parent_task.job
+    else:
+        try:
+            job = DummyJob(task_descriptor['job'])
+        except KeyError:
+            job = None
     
     try:
         inputs = dict([(ref.id, ref) for ref in task_descriptor['inputs']])
@@ -360,8 +381,4 @@ def build_taskpool_task_from_descriptor(task_id, task_descriptor, task_pool, par
     
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state)
-
-
-
-    
+    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state, job)

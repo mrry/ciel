@@ -47,7 +47,7 @@ class FeatureQueues:
 
 class Worker:
     
-    def __init__(self, worker_id, worker_descriptor, feature_queues):
+    def __init__(self, worker_id, worker_descriptor, feature_queues, worker_pool):
         self.id = worker_id
         self.netloc = worker_descriptor['netloc']
         self.features = worker_descriptor['features']
@@ -56,12 +56,17 @@ class Worker:
         
         self.failed = False
         
+        self.worker_pool = worker_pool
+        
         self.local_queue = Queue()
         self.queues = [self.local_queue]
         for feature in self.features:
             self.queues.append(feature_queues.get_queue_for_feature(feature))
         for feature in self.features:
             self.queues.append(feature_queues.get_streaming_queue_for_feature(feature))
+
+    def idle(self):
+        self.worker_pool.worker_idle(self)
 
     def __repr__(self):
         return 'Worker(%s)' % self.id
@@ -122,7 +127,7 @@ class WorkerPool(plugins.SimplePlugin):
     def create_worker(self, worker_descriptor):
         with self._lock:
             id = self.allocate_worker_id()
-            worker = Worker(id, worker_descriptor, self.feature_queues)
+            worker = Worker(id, worker_descriptor, self.feature_queues, self)
             self.workers[id] = worker
             try:
                 previous_worker_at_netloc = self.netlocs[worker.netloc]
