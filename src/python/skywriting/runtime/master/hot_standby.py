@@ -21,6 +21,7 @@ from cherrypy.process import plugins
 from Queue import Queue, Empty
 from skywriting.runtime.plugins import THREAD_TERMINATOR
 import threading
+import ciel
     
 class PingerPoker:
     pass
@@ -96,10 +97,10 @@ class MasterRecoveryMonitor(plugins.SimplePlugin):
         try:
             response, _ = h.request(self.master_url, 'GET')
         except:
-            cherrypy.log('Error contacting primary master', 'MONITOR', logging.WARN, True)
+            ciel.log('Error contacting primary master', 'MONITOR', logging.WARN, True)
             return False
         if response['status'] != '200':
-            cherrypy.log('Got unusual status from primary master: %s' % response['status'], 'MONITOR', logging.WARN)
+            ciel.log('Got unusual status from primary master: %s' % response['status'], 'MONITOR', logging.WARN)
             return False
         return True
     
@@ -112,13 +113,13 @@ class MasterRecoveryMonitor(plugins.SimplePlugin):
         with self._lock:
             for netloc in self.workers:
                 h = httplib2.Http()
-                cherrypy.log('Notifying worker: %s' % netloc, 'MONITOR', logging.INFO)
+                ciel.log('Notifying worker: %s' % netloc, 'MONITOR', logging.INFO)
                 try:
                     response, _ = h.request('http://%s/master/' % netloc, 'POST', master_details)
                     if response['status'] != '200':
-                        cherrypy.log('Error %s when notifying worker of new master: %s' % (response['status'], netloc), 'MONITOR', logging.WARN, True)
+                        ciel.log('Error %s when notifying worker of new master: %s' % (response['status'], netloc), 'MONITOR', logging.WARN, True)
                 except:
-                    cherrypy.log('Error notifying worker of new master: %s' % netloc, 'MONITOR', logging.WARN, True)
+                    ciel.log('Error notifying worker of new master: %s' % netloc, 'MONITOR', logging.WARN, True)
     
     def thread_main(self):
         
@@ -127,11 +128,11 @@ class MasterRecoveryMonitor(plugins.SimplePlugin):
         
             try:    
                 self.register_as_backup()
-                cherrypy.log('Registered as backup master for %s' % self.master_url, 'MONITOR', logging.INFO)
+                ciel.log('Registered as backup master for %s' % self.master_url, 'MONITOR', logging.INFO)
                 self.is_connected = True
                 break
             except:
-                cherrypy.log('Unable to register with master', 'MONITOR', logging.WARN, True)
+                ciel.log('Unable to register with master', 'MONITOR', logging.WARN, True)
                 pass
         
             try:
@@ -276,4 +277,4 @@ class BackupSender:
                     else:
                         raise
                 except:
-                    cherrypy.log('Error passing log to backup master.', 'BACKUP_SENDER', logging.WARN, True)
+                    ciel.log('Error passing log to backup master.', 'BACKUP_SENDER', logging.WARN, True)

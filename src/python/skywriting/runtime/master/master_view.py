@@ -169,7 +169,7 @@ class JobRoot:
     @cherrypy.expose
     def default(self, id, attribute=None):
         if cherrypy.request.method == 'POST':
-            cherrypy.log('Creating job for ID: %s' % id, 'JOB_POOL', logging.INFO)
+            ciel.log('Creating job for ID: %s' % id, 'JOB_POOL', logging.INFO)
             # Need to support this for backup masters, so that the job ID is
             # consistent.
             
@@ -188,12 +188,12 @@ class JobRoot:
                 # 2a. Start job. Possibly do this as deferred work.
                 self.job_pool.queue_job(job)
             else:
-                cherrypy.log('Registering job, but not starting it: %s' % job.id, 'JOB_POOL', logging.INFO)
+                ciel.log('Registering job, but not starting it: %s' % job.id, 'JOB_POOL', logging.INFO)
                 #self.job_pool.task_pool.add_task(job.root_task, False)
             
             # 3. Return descriptor for newly-created job.
             
-            cherrypy.log('Done handling job POST', 'JOB_POOL', logging.INFO)
+            ciel.log('Done handling job POST', 'JOB_POOL', logging.INFO)
             return simplejson.dumps(job.as_descriptor())            
         
         try:
