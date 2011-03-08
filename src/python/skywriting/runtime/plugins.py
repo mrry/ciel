@@ -13,7 +13,6 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 import ciel
-from cherrypy.process.plugins import SimplePlugin
 from Queue import Queue
 import logging
 import threading
@@ -22,10 +21,10 @@ class ThreadTerminator:
     pass
 THREAD_TERMINATOR = ThreadTerminator()
 
-class AsynchronousExecutePlugin(SimplePlugin):
+class AsynchronousExecutePlugin:
     
     def __init__(self, bus, num_threads, subscribe_event, publish_success_event=None, publish_fail_event=None):
-        SimplePlugin.__init__(self, bus)
+        self.bus = bus
         self.threads = []
         
         self.queue = Queue()
