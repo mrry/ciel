@@ -42,7 +42,7 @@ for (name, number) in TASK_STATES.items():
 
 class TaskPoolTask:
     
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, job=None, taskset=None):
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, job=None, taskset=None, worker_private=None):
         self.task_id = task_id
         
         # Task creation graph.
@@ -81,6 +81,8 @@ class TaskPoolTask:
         
         self.job = job
         self.taskset = taskset
+        
+        self.worker_private = worker_private
         
         self.state = None
         self.set_state(state)
@@ -378,8 +380,13 @@ def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None, tasks
         select_group = None
     select_result = None
 
+    try:
+        worker_private = task_descriptor['worker_private']
+    except:
+        worker_private = {}
+
     replay_uuids = None
     
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state, job, taskset)
+    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state, job, taskset, worker_private)
