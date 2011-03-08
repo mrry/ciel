@@ -66,19 +66,26 @@ class LocalTaskGraph(DynamicTaskGraph):
         upd.commit(self)
 
     def task_runnable(self, task):
-        td = task.as_descriptor()
-        if self.execution_features.can_run(td["handler"]):
-            if td["task_id"] in self.root_task_ids:
-                self.runnable_small_tasks.put(td)
+        if self.execution_features.can_run(task.handler):
+            if task.task_id in self.root_task_ids:
+                self.runnable_small_tasks.put(task)
             else:
                 try:
-                    is_small_task = td["worker_private"]["hint"] == "small_task"
+                    is_small_task = task.worker_private['hint'] == 'small_task'
                     if is_small_task:
-                        self.runnable_small_tasks.put(td)
+                        self.runnable_small_tasks.put(task)
                 except KeyError:
+                    pass
+                except AttributeError:
                     pass
 
     def get_runnable_task(self):
+        ret = self.get_runnable_task_as_task()
+        if ret is not None:
+            ret = ret.as_descriptor()
+        return ret
+        
+    def get_runnable_task_as_task(self):
         try:
             return self.runnable_small_tasks.get_nowait()
         except Queue.Empty:
