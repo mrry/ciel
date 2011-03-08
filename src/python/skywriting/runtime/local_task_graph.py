@@ -33,11 +33,17 @@ class LocalJobOutput:
 
 class LocalTaskGraph(DynamicTaskGraph):
 
-    def __init__(self, root_task_id, execution_features):
+    def __init__(self, execution_features, root_task_ids=[]):
         DynamicTaskGraph.__init__(self)
-        self.root_task_id = root_task_id
+        self.root_task_ids = set(root_task_ids)
         self.execution_features = execution_features
         self.runnable_small_tasks = Queue.Queue()
+
+    def add_root_task_id(self, root_task_id):
+        self.root_task_ids.add(root_task_id)
+        
+    def remove_root_task_id(self, root_task_id):
+        self.root_task_ids.remove(root_task_id)
 
     def spawn_and_publish(self, spawns, refs, producer=None):
         
@@ -55,7 +61,7 @@ class LocalTaskGraph(DynamicTaskGraph):
     def task_runnable(self, task):
         td = task.as_descriptor()
         if self.execution_features.can_run(td["handler"]):
-            if td["task_id"] == self.root_task_id:
+            if td["task_id"] in self.root_task_ids:
                 self.runnable_small_tasks.put(td)
             else:
                 try:

@@ -71,7 +71,7 @@ class TaskSetExecutionRecord:
         self.worker = worker
         self.reference_cache = dict([(ref.id, ref) for ref in root_task_descriptor["inputs"]])
         self.initial_td = root_task_descriptor
-        self.task_graph = LocalTaskGraph(self.initial_td["task_id"], execution_features)
+        self.task_graph = LocalTaskGraph(execution_features, [self.initial_td["task_id"]])
         self.job_output = LocalJobOutput(self.initial_td["expected_outputs"])
         for ref in self.initial_td["expected_outputs"]:
             self.task_graph.subscribe(ref, self.job_output)
