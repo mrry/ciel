@@ -18,8 +18,9 @@ import Queue
 
 class LocalJobOutput:
     
-    def __init__(self, required_refs):
+    def __init__(self, required_refs, taskset=None):
         self.required_refs = set(required_refs)
+        self.taskset = taskset
     def is_queued_streaming(self):
         return False
     def is_assigned_streaming(self):
@@ -30,14 +31,19 @@ class LocalJobOutput:
         return len(self.required_refs) == 0
     def notify_ref_table_updated(self, ref_table_entry):
         self.required_refs.remove(ref_table_entry.ref)
+        if self.is_complete() and self.taskset is not None:
+            self.taskset.notify_completed()
 
 class LocalTaskGraph(DynamicTaskGraph):
 
-    def __init__(self, execution_features, root_task_ids=[]):
+    def __init__(self, execution_features, root_task_ids=[], runnable_queue=None):
         DynamicTaskGraph.__init__(self)
         self.root_task_ids = set(root_task_ids)
         self.execution_features = execution_features
-        self.runnable_small_tasks = Queue.Queue()
+        if runnable_queue is None:
+            self.runnable_small_tasks = Queue.Queue()
+        else:
+            self.runnable_small_tasks = runnable_queue
 
     def add_root_task_id(self, root_task_id):
         self.root_task_ids.add(root_task_id)
@@ -45,14 +51,14 @@ class LocalTaskGraph(DynamicTaskGraph):
     def remove_root_task_id(self, root_task_id):
         self.root_task_ids.remove(root_task_id)
 
-    def spawn_and_publish(self, spawns, refs, producer=None):
+    def spawn_and_publish(self, spawns, refs, producer=None, taskset=None):
         
         producer_task = None
         if producer is not None:
             producer_task = self.get_task(producer["task_id"])
         upd = TaskGraphUpdate()
         for spawn in spawns:
-            task_object = build_taskpool_task_from_descriptor(spawn, producer_task)
+            task_object = build_taskpool_task_from_descriptor(spawn, producer_task, taskset)
             upd.spawn(task_object)
         for ref in refs:
             upd.publish(ref, producer_task)
