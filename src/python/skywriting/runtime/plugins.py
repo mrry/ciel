@@ -23,7 +23,7 @@ THREAD_TERMINATOR = ThreadTerminator()
 
 class AsynchronousExecutePlugin:
     
-    def __init__(self, bus, num_threads, subscribe_event, publish_success_event=None, publish_fail_event=None):
+    def __init__(self, bus, num_threads, subscribe_event=None, publish_success_event=None, publish_fail_event=None):
         self.bus = bus
         self.threads = []
         
@@ -37,12 +37,14 @@ class AsynchronousExecutePlugin:
     def subscribe(self):
         self.bus.subscribe('start', self.start)
         self.bus.subscribe('stop', self.stop)
-        self.bus.subscribe(self.subscribe_event, self.receive_input)
+        if self.subscribe_event is not None:
+            self.bus.subscribe(self.subscribe_event, self.receive_input)
             
     def unsubscribe(self):
         self.bus.unsubscribe('start', self.start)
         self.bus.unsubscribe('stop', self.stop)
-        self.bus.unsubscribe(self.subscribe_event, self.receive_input)
+        if self.subscribe_event is not None:
+            self.bus.unsubscribe(self.subscribe_event, self.receive_input)
             
     def start(self):
         self.is_running = True
