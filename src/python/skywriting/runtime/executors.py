@@ -401,7 +401,7 @@ class SkyPyExecutor(BaseExecutor):
         elif n_extra_outputs == 0:
             return SW2_FutureReference(ret_output)
         else:
-            return SkyPySpawn(ret_output, extra_outputs)
+            return SkyPySpawn(SW2_FutureReference(ret_output), [SW2_FutureReference(x) for x in extra_outputs])
 
     @staticmethod
     def can_run():
@@ -459,9 +459,8 @@ class SkyPyExecutor(BaseExecutor):
         start_dict.update({"source_filename": py_source_filename,
                            "is_continuation": skypy_private["is_continuation"]})
         if not skypy_private["is_continuation"]:
-            start_dict.update({"anonymous_outputs": skypy_private["anonymous_outputs"], 
+            start_dict.update({"extra_outputs": skypy_private["extra_outputs"], 
                                "ret_output": skypy_private["ret_output"], 
-                               "delegated_outputs": skypy_private["delegated_outputs"], 
                                "export_json": skypy_private["export_json"]})
         pickle.dump(start_dict, pypy_process.stdin)
 
@@ -1664,10 +1663,12 @@ class InitExecutor(BaseExecutor):
         args_dict = task_private["start_args"]
         # Some versions of simplejson make these ascii keys into unicode objects :(
         args_dict = dict([(str(k), v) for (k, v) in args_dict.items()])
-        initial_task_out_refs = spawn_task_helper(task_record,
-                                                  task_private["start_handler"], 
-                                                  True,
-                                                  **args_dict)
+        initial_task_out_obj = spawn_task_helper(task_record,
+                                                 task_private["start_handler"], 
+                                                 True,
+                                                 **args_dict)
+        print initial_task_out_obj
+        initial_task_out_refs = list(initial_task_out_obj)
         spawn_task_helper(task_record, "sync", True, delegated_outputs = task_descriptor["expected_outputs"], args = {"inputs": initial_task_out_refs}, n_outputs=1)
 
     def cleanup(self):

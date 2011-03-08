@@ -122,7 +122,7 @@ class RequiredRefs():
         for ref in self.refs:
             remove_ref_dependency(ref)
 
-def spawn(spawn_callable, *pargs, executor_args=None):
+def spawn(spawn_callable, *pargs, **kwargs):
     
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, args)
@@ -131,8 +131,7 @@ def spawn(spawn_callable, *pargs, executor_args=None):
         pickle.dump(save_obj, new_coro_fp)
         out_dict = {"request": "spawn", "coro_descriptor": dict()}
         describe_maybe_file(new_coro_fp, out_dict["coro_descriptor"])
-    if executor_args is not None:
-        out_dict.update(executor_args)
+    out_dict.update(kwargs)
     pickle.dump(out_dict, runtime_out)
     runtime_out.flush()
     response = pickle.load(runtime_in)
