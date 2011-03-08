@@ -265,6 +265,9 @@ class BaseExecutor:
         # XXX: This is braindead, considering that we just stashed task_private
         #      in here during prepare().
         self._run(task_descriptor["task_private"], task_descriptor, task_record)
+    
+    def cleanup(self):
+        pass
         
     @classmethod
     def prepare_task_descriptor_for_execute(cls, task_descriptor, block_store):
@@ -371,9 +374,6 @@ class SkyPyExecutor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
 
-    def cleanup(self):
-        pass
-        
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, cont_delegated_outputs=None, extra_dependencies=[]):
 
@@ -1098,9 +1098,6 @@ class SkywritingExecutor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
         self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
 
-    def cleanup(self):
-        pass
-
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, sw_file_ref=None, start_env=None, start_args=None, cont=None, cont_delegated_output=None, extra_dependencies={}):
 
@@ -1384,9 +1381,6 @@ class SimpleExecutor(BaseExecutor):
         self._cleanup_task()
     
     def _cleanup_task(self):
-        pass
-
-    def cleanup(self):
         pass
     
     def abort(self):
@@ -2086,5 +2080,3 @@ class InitExecutor(BaseExecutor):
             initial_task_out_refs = list(initial_task_out_obj)
         spawn_task_helper(task_record, "sync", True, delegated_outputs = task_descriptor["expected_outputs"], args = {"inputs": initial_task_out_refs}, n_outputs=1)
 
-    def cleanup(self):
-        pass

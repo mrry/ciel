@@ -30,8 +30,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.block_store = worker.block_store
         self.master_proxy = master_proxy
         self.execution_features = execution_features
-
-        self.executor_cache = ExecutorCache(self.execution_features, self.worker)
         self.current_task_set = None
         self._lock = Lock()
     
@@ -46,7 +44,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
     def handle_input(self, input):
 
-        new_task_set = TaskSetExecutionRecord(self.executor_cache, input, self.block_store, self.master_proxy, self.execution_features)
+        new_task_set = TaskSetExecutionRecord(input, self.block_store, self.master_proxy, self.execution_features, self.worker)
         with self._lock:
             self.current_task_set = new_task_set
         new_task_set.run()
@@ -60,38 +58,17 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         with self._lock:
             self.current_task_set = None
 
-class ExecutorCache:
-
-    # A cache of executors, permitting helper processes to outlive tasks.
-    # Policy: only keep one of each kind around at any time.
-
-    def __init__(self, execution_features, worker):
-        self.execution_features = execution_features
-        self.worker = worker
-        self.idle_executors = dict()
-    
-    def get_executor(self, handler):
-        try:
-            return self.idle_executors.pop(handler)
-        except KeyError:
-            return self.execution_features.get_executor(handler, self.worker)
-
-    def put_executor(self, handler, executor):
-        if handler in self.idle_executors:
-            executor.cleanup()
-        else:
-            self.idle_executors[handler] = executor
-
 class TaskSetExecutionRecord:
 
-    def __init__(self, executor_cache, root_task_descriptor, block_store, master_proxy, execution_features):
+    def __init__(self, root_task_descriptor, block_store, master_proxy, execution_features, worker):
         self._lock = Lock()
         self.task_records = []
         self.current_task = None
         self.current_td = None
         self.block_store = block_store
         self.master_proxy = master_proxy
-        self.executor_cache = executor_cache
+        self.execution_features = execution_features
+        self.worker = worker
         self.reference_cache = dict([(ref.id, ref) for ref in root_task_descriptor["inputs"]])
         self.initial_td = root_task_descriptor
         self.task_graph = LocalTaskGraph(self.initial_td["task_id"], execution_features)
@@ -109,7 +86,7 @@ class TaskSetExecutionRecord:
                 ciel.log.error("No more runnable tasks", "TASKEXEC", logging.INFO)
                 break
             next_td["inputs"] = [self.retrieve_ref(ref) for ref in next_td["dependencies"]]
-            task_record = TaskExecutionRecord(next_td, self, self.executor_cache, self.block_store, self.master_proxy)
+            task_record = TaskExecutionRecord(next_td, self, self.execution_features, self.block_store, self.master_proxy, self.worker)
             with self._lock:
                 self.current_task = task_record
                 self.current_td = next_td
@@ -147,16 +124,17 @@ class TaskSetExecutionRecord:
 
 class TaskExecutionRecord:
 
-    def __init__(self, task_descriptor, task_set, executor_cache, block_store, master_proxy):
+    def __init__(self, task_descriptor, task_set, execution_features, block_store, master_proxy, worker):
         self.published_refs = []
         self.spawned_tasks = []
         self.spawn_counter = 0
         self.publish_counter = 0
         self.task_descriptor = task_descriptor
         self.task_set = task_set
-        self.executor_cache = executor_cache
+        self.execution_features = execution_features
         self.block_store = block_store
         self.master_proxy = master_proxy
+        self.worker = worker
         self.executor = None
         self.success = False
         
@@ -171,7 +149,7 @@ class TaskExecutionRecord:
                 self.package_ref = self.task_descriptor["task_private"]["package_ref"]
             else:
                 self.package_ref = None
-            self.executor = self.executor_cache.get_executor(self.task_descriptor["handler"])
+            self.executor = self.execution_features.get_executor(self.task_descriptor["handler"], self.worker)
             self.executor.run(self.task_descriptor, self)
             self.success = True
             ciel.engine.publish("worker_event", "Completed execution " + repr(self.task_descriptor['task_id']))
@@ -191,8 +169,9 @@ class TaskExecutionRecord:
 
     def cleanup(self):
         if self.executor is not None:
-            self.executor_cache.put_executor(self.task_descriptor["handler"], self.executor)
-
+            self.executor.cleanup()
+            del self.executor
+    
     def publish_ref(self, ref):
         self.published_refs.append(ref)
         self.task_set.publish_ref(ref)
@@ -221,7 +200,7 @@ class TaskExecutionRecord:
             new_task_descriptor["task_private"] = dict()
         if "expected_outputs" not in new_task_descriptor:
             new_task_descriptor["expected_outputs"] = []
-        executor_class = self.executor_cache.execution_features.get_executor_class(new_task_descriptor["handler"])
+        executor_class = self.execution_features.get_executor_class(new_task_descriptor["handler"])
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
         return_obj = executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, **args)
         self.spawned_tasks.append(new_task_descriptor)
