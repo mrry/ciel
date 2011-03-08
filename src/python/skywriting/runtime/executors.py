@@ -511,8 +511,8 @@ class SkyPyExecutor(BaseExecutor):
             elif request == "spawn":
                 coro_descriptor = request_args["coro_descriptor"]
                 del request_args["coro_descriptor"]
-                out_ref = self.spawn_func(coro_descriptor, **request_args)
-                pickle.dump({"outputs": out_refs}, pypy_process.stdin)
+                out_obj = self.spawn_func(coro_descriptor, **request_args)
+                pickle.dump({"outputs": out_obj}, pypy_process.stdin)
             elif request == "exec":
                 out_refs = spawn_task_helper(self.task_record, **request_args)
                 pickle.dump({"outputs": out_refs}, pypy_process.stdin)
@@ -805,7 +805,7 @@ class ProcExecutor(BaseExecutor):
         except KeyError:
             str_args['small_task'] = False
         
-        return spawn_other(self.task_record, **str_args)
+        return spawn_task_helper(self.task_record, **str_args)
     
     def create_ref_inline(self, content):
         """Creates a new reference, with the given string contents."""
@@ -857,7 +857,7 @@ class ProcExecutor(BaseExecutor):
         """Creates a continuation task for blocking on the given references."""
         
         task_descriptor = {"handler" : "proc"}
-        spawn_other(self.task_record, "proc", False, process_record_id=self.process_record.id, blocking_refs=refs, current_outputs=self.expected_outputs, output_mask=self.expected_output_mask)
+        spawn_task_helper(self.task_record, "proc", False, process_record_id=self.process_record.id, blocking_refs=refs, current_outputs=self.expected_outputs, output_mask=self.expected_output_mask)
         
     
     def json_event_loop(self, reader, writer):
