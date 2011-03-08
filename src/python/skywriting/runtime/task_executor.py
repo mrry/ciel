@@ -150,6 +150,7 @@ class TaskExecutionRecord:
         self.published_refs = []
         self.spawned_tasks = []
         self.spawn_counter = 0
+        self.publish_counter = 0
         self.task_descriptor = task_descriptor
         self.task_set = task_set
         self.executor_cache = executor_cache
@@ -206,23 +207,24 @@ class TaskExecutionRecord:
         self.spawn_counter += 1
         return ret
 
-    def spawn_task(self, new_task_descriptor, dependencies, n_anonymous_outputs, delegated_outputs, **args):
+    def create_published_output_name(self):
+        ret = '%s:pub:%d' % (self.task_id, self.publish_counter)
+        self.publish_counter += 1
+        return ret
+
+    def spawn_task(self, new_task_descriptor, **args):
         new_task_descriptor["task_id"] = self.create_spawned_task_name()
         if "dependencies" not in new_task_descriptor:
             new_task_descriptor["dependencies"] = []
-        new_task_descriptor["dependencies"].extend(dependencies)
         if "task_private" not in new_task_descriptor:
             new_task_descriptor["task_private"] = dict()
         if "expected_outputs" not in new_task_descriptor:
             new_task_descriptor["expected_outputs"] = []
-        new_task_descriptor["expected_outputs"].extend(delegated_outputs)
-        anonymous_outputs = ["%s:anonout:%d" % (new_task_descriptor["task_id"], i) for i in range(n_anonymous_outputs)]
-        new_task_descriptor["expected_outputs"].extend(anonymous_outputs)
         executor_class = self.executor_cache.execution_features.get_executor_class(new_task_descriptor["handler"])
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
-        executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, anonymous_outputs=anonymous_outputs, delegated_outputs=delegated_outputs, **args)
+        return_obj = executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, **args)
         self.spawned_tasks.append(new_task_descriptor)
-        return new_task_descriptor
+        return return_obj
 
     def retrieve_ref(self, ref):
         return self.task_set.retrieve_ref(ref)

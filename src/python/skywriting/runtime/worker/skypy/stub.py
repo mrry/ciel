@@ -51,11 +51,9 @@ if not entry_dict["is_continuation"]:
     resume_state.persistent_state = skypy.PersistentState()
     resume_state.persistent_state.export_json = entry_dict["export_json"]
     resume_state.persistent_state.ret_output = entry_dict["ret_output"]
-    resume_state.persistent_state.anonymous_outputs = entry_dict["anonymous_outputs"]
-    resume_state.persistent_state.delegated_outputs = entry_dict["delegated_outputs"]
+    resume_state.persistent_state.extra_outputs = entry_dict["extra_outputs"]
 skypy.persistent_state = resume_state.persistent_state
-skypy.anonymous_outputs = skypy.persistent_state.anonymous_outputs
-skypy.delegated_outputs = skypy.persistent_state.delegated_outputs
+skypy.extra_outputs = skypy.persistent_state.extra_outputs
 
 user_coro.switch()
 # We're back -- either the user script is done, or else it's stuck waiting on a reference.
