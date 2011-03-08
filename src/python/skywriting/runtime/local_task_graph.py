@@ -56,6 +56,7 @@ class LocalTaskGraph(DynamicTaskGraph):
         producer_task = None
         if producer is not None:
             producer_task = self.get_task(producer["task_id"])
+            taskset = producer_task.taskset
         upd = TaskGraphUpdate()
         for spawn in spawns:
             task_object = build_taskpool_task_from_descriptor(spawn, producer_task, taskset)
