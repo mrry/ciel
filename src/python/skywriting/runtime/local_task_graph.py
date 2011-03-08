@@ -14,6 +14,7 @@
 
 from skywriting.runtime.task_graph import DynamicTaskGraph, TaskGraphUpdate
 from skywriting.runtime.task import build_taskpool_task_from_descriptor
+import Queue
 
 class LocalJobOutput:
     
@@ -36,7 +37,7 @@ class LocalTaskGraph(DynamicTaskGraph):
         DynamicTaskGraph.__init__(self)
         self.root_task_id = root_task_id
         self.execution_features = execution_features
-        self.runnable_small_tasks = []
+        self.runnable_small_tasks = Queue.Queue()
 
     def spawn_and_publish(self, spawns, refs, producer=None):
         
@@ -55,14 +56,17 @@ class LocalTaskGraph(DynamicTaskGraph):
         td = task.as_descriptor()
         if self.execution_features.can_run(td["handler"]):
             if td["task_id"] == self.root_task_id:
-                self.runnable_small_tasks.append(td)
+                self.runnable_small_tasks.put(td)
             else:
                 try:
                     is_small_task = td["worker_private"]["hint"] == "small_task"
                     if is_small_task:
-                        self.runnable_small_tasks.append(td)
+                        self.runnable_small_tasks.put(td)
                 except KeyError:
                     pass
 
     def get_runnable_task(self):
-        return self.runnable_small_tasks.pop()
+        try:
+            return self.runnable_small_tasks.get_nowait()
+        except Queue.Empty:
+            return None

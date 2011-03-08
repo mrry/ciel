@@ -80,9 +80,8 @@ class TaskSetExecutionRecord:
     def run(self):
         ciel.log.error("Running taskset starting at %s" % self.initial_td["task_id"], "TASKEXEC", logging.INFO)
         while not self.job_output.is_complete():
-            try:
-                next_td = self.task_graph.get_runnable_task()
-            except IndexError:
+            next_td = self.task_graph.get_runnable_task()
+            if next_td is None:
                 ciel.log.error("No more runnable tasks", "TASKEXEC", logging.INFO)
                 break
             next_td["inputs"] = [self.retrieve_ref(ref) for ref in next_td["dependencies"]]
