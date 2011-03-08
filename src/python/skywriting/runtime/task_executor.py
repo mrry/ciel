@@ -213,11 +213,6 @@ class TaskExecutionRecord:
         self.publish_counter += 1
         return ret
 
-    def create_published_output_name(self):
-        ret = '%s:pub:%d' % (self.task_id, self.publish_counter)
-        self.publish_counter += 1
-        return ret
-
     def spawn_task(self, new_task_descriptor, **args):
         new_task_descriptor["task_id"] = self.create_spawned_task_name()
         if "dependencies" not in new_task_descriptor:
