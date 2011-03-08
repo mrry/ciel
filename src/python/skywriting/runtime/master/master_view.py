@@ -259,6 +259,7 @@ class MasterTaskRoot:
         elif action == 'publish':
             request_body = cherrypy.request.body.read()
             refs = simplejson.loads(request_body, object_hook=json_decode_object_hook)
+            print refs
             
             tx = TaskGraphUpdate()
             for ref in refs:

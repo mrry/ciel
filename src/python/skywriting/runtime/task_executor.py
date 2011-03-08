@@ -199,7 +199,7 @@ class TaskExecutionRecord:
 
     def prepublish_refs(self, refs):
         # I don't put these in the ref-cache now because local-master operation is currently single-threaded.
-        self.master_proxy.publish_refs(self.task_descriptor["task_id"], refs)
+        self.master_proxy.publish_refs(self.task_descriptor["job"], self.task_descriptor["task_id"], refs)
 
     def create_spawned_task_name(self):
         sha = hashlib.sha1()

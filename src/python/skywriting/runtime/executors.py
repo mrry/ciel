@@ -1635,8 +1635,7 @@ class ProcessRunningExecutor(SimpleExecutor):
                 if self.stream_output:
            
                     stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
-                    to_publish = dict([(ref.id, ref) for ref in stream_refs])
-                    self.task_record.prepublish_refs(to_publish)
+                    self.task_record.prepublish_refs(stream_refs)
 
                 self.proc = self.start_process(file_inputs, file_outputs)
                 add_running_child(self.proc)
