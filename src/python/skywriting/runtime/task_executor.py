@@ -213,18 +213,24 @@ class TaskExecutionRecord:
         self.publish_counter += 1
         return ret
 
+    def create_published_output_name(self):
+        ret = '%s:pub:%d' % (self.task_id, self.publish_counter)
+        self.publish_counter += 1
+        return ret
+
     def spawn_task(self, new_task_descriptor, **args):
         new_task_descriptor["task_id"] = self.create_spawned_task_name()
         if "dependencies" not in new_task_descriptor:
             new_task_descriptor["dependencies"] = []
         if "task_private" not in new_task_descriptor:
             new_task_descriptor["task_private"] = dict()
-                     
+        if "expected_outputs" not in new_task_descriptor:
+            new_task_descriptor["expected_outputs"] = []
         executor_class = self.executor_cache.execution_features.get_executor_class(new_task_descriptor["handler"])
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
-        executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, **args)
+        return_obj = executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, **args)
         self.spawned_tasks.append(new_task_descriptor)
-        return new_task_descriptor
+        return return_obj
 
     def retrieve_ref(self, ref):
         return self.task_set.retrieve_ref(ref)

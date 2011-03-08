@@ -584,6 +584,7 @@ class BlockStore(plugins.SimplePlugin):
                 httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (sub.netloc, self.refid), "POST", message)
 
         def rollback(self):
+            self.closed = True
             self.block_store.rollback_file(self.refid)
             if self.file_watch is not None:
                 self.file_watch.cancel()
@@ -660,11 +661,12 @@ class BlockStore(plugins.SimplePlugin):
             return self
 
         def __exit__(self, exnt, exnv, exntb):
-            if exnt is None:
-                self.close()
-            else:
-                ciel.log("FileOutputContext %s destroyed due to exception %s: rolling back" % (self.refid, repr(exnv)), "BLOCKSTORE", logging.WARNING)
-                self.rollback()
+            if not self.closed:
+                if exnt is None:
+                    self.close()
+                else:
+                    ciel.log("FileOutputContext %s destroyed due to exception %s: rolling back" % (self.refid, repr(exnv)), "BLOCKSTORE", logging.WARNING)
+                    self.rollback()
             return False
 
     def make_local_output(self, id, subscribe_callback=None):

@@ -21,6 +21,8 @@ runtime_out = None
 runtime_in = None
 persistent_state = None
 taskid = None
+ret_output = None
+other_outputs = None
 
 # Volatile; emptied each run
 ref_cache = dict()
@@ -120,15 +122,16 @@ class RequiredRefs():
         for ref in self.refs:
             remove_ref_dependency(ref)
 
-def spawn(spawn_callable, *args):
+def spawn(spawn_callable, *pargs, **kwargs):
     
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, args)
-    save_obj = ResumeState(PersistentState(), new_coro)
+    save_obj = ResumeState(None, new_coro)
     with MaybeFile() as new_coro_fp:
         pickle.dump(save_obj, new_coro_fp)
-        out_dict = {"request": "spawn"}
-        describe_maybe_file(new_coro_fp, out_dict)
+        out_dict = {"request": "spawn", "coro_descriptor": dict()}
+        describe_maybe_file(new_coro_fp, out_dict["coro_descriptor"])
+    out_dict.update(kwargs)
     pickle.dump(out_dict, runtime_out)
     runtime_out.flush()
     response = pickle.load(runtime_in)
@@ -328,6 +331,41 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
             return CompleteFile(ref, runtime_response["filename"])
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
+
+def open_output(id):
+    pickle.dump({"request": "open_output", "id": id}, runtime_out)
+    runtime_out.flush()
+    runtime_response = pickle.load(runtime_in)
+    return OutputFile(runtime_response["filename"], id)
+
+class OutputFile:
+    def __init__(self, filename, id):
+        self.id = id
+        self.filename = filename
+        self.fp = open(self.filename, "w")
+
+    def __enter__(self):
+        return self
+
+    def close(self):
+        self.closed = True
+        self.fp.close()
+        pickle.dump({"request": "close_output", "id": self.id}, runtime_out)
+        runtime_out.flush()
+        runtime_ret = pickle.load(runtime_in)
+        self.ref = runtime_ret["ref"]
+
+    def rollback(self):
+        self.closed = True
+        self.fp.close()
+        pickle.dump({"request": "rollback_output", "id": self.id}, runtime_out)
+        runtime_out.flush()
+
+    def __exit__(self, exnt, exnv, exnbt):
+        if exnt is None:
+            self.close()
+        else:
+            self.rollback()
 
 def start_script(entry_point, entry_args):
 
