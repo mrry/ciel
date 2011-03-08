@@ -1,3 +1,4 @@
+/bin
 /dist
 /ext
 /data
@@ -11,3 +12,7 @@ parsetab.py
 /journal
 /src/python/shared/generated/
 /src/java/com/asgow/ciel/protocol/
+/src/c/src/loader
+/src/csharp/bin/
+*.dll
+*.exe
