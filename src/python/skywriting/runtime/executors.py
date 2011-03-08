@@ -692,7 +692,7 @@ class SkywritingExecutor(BaseExecutor):
         pass
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, sw_file_ref=None, start_env=None, start_args=None, cont=None, cont_delegated_output=None, extra_dependencies=None):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, sw_file_ref=None, start_env=None, start_args=None, cont=None, cont_delegated_output=None, extra_dependencies={}):
 
         if cont_delegated_output is None:
             ret_output = "%s:retval" % task_descriptor["task_id"]
@@ -833,7 +833,11 @@ class SkywritingExecutor(BaseExecutor):
             small_task = str_args.pop("small_task")
         except:
             small_task = False
-        return list(spawn_task_helper(self.task_record, executor_name, small_task, **str_args))
+        ret = spawn_task_helper(self.task_record, executor_name, small_task, **str_args)
+        if isinstance(ret, SWRealReference):
+            return ret
+        else:
+            return list(ret)
 
     def spawn_exec_func(self, executor_name, args, num_outputs):
         return self.spawn_other(executor_name, {"args": args, "n_outputs": num_outputs})
@@ -1667,8 +1671,10 @@ class InitExecutor(BaseExecutor):
                                                  task_private["start_handler"], 
                                                  True,
                                                  **args_dict)
-        print initial_task_out_obj
-        initial_task_out_refs = list(initial_task_out_obj)
+        if isinstance(initial_task_out_obj, SWRealReference):
+            initial_task_out_refs = [initial_task_out_obj]
+        else:
+            initial_task_out_refs = list(initial_task_out_obj)
         spawn_task_helper(task_record, "sync", True, delegated_outputs = task_descriptor["expected_outputs"], args = {"inputs": initial_task_out_refs}, n_outputs=1)
 
     def cleanup(self):
