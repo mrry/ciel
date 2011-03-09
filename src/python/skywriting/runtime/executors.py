@@ -363,6 +363,43 @@ class ContextManager:
             ctx.__exit__(exnt, exnv, exnbt)
         return False
 
+class SkyPyOutput:
+
+    def __init__(self, output_ctx, executor):
+        self.output_ctx = output_ctx
+        self.watch_chunk_size = None
+        self.executor = executor
+
+    def __enter__(self):
+        return self
+
+    def size_update(self, new_size):
+        self.output_ctx.size_update(new_size)
+
+    def close(self):
+        self.output_ctx.close()
+
+    def rollback(self):
+        self.output_ctx.rollback()
+
+    def set_chunk_size(self, new_chunk_size):
+        if self.watch_chunk_size is not None:
+            self.executor._subscribe_output(self.output_ctx.refid, new_chunk_size)
+        self.watch_chunk_size = new_chunk_size
+
+    def start(self):
+        self.executor._subscribe_output(self.output_ctx.refid, self.watch_chunk_size)
+
+    def cancel(self):
+        self.watch_chunk_size = None
+        self.executor._unsubscribe_output(self.output_ctx.refid)
+
+    def __exit__(self, exnt, exnv, exnbt):
+        if exnt is not None:
+            self.rollback()
+        else:
+            self.close()
+
 class SkyPyExecutor(BaseExecutor):
 
     handler_name = "skypy"
@@ -370,6 +407,7 @@ class SkyPyExecutor(BaseExecutor):
     def __init__(self, worker):
         BaseExecutor.__init__(self, worker)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
+        self.trasmit_lock = threading.Lock()
 
     def cleanup(self):
         pass
@@ -460,7 +498,7 @@ class SkyPyExecutor(BaseExecutor):
 
         pypy_args = ["pypy", self.skypybase + "/stub.py"]
             
-        pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        self.pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
         if "coro_ref" not in skypy_private:
             start_dict = {"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}
@@ -472,14 +510,15 @@ class SkyPyExecutor(BaseExecutor):
             start_dict.update({"extra_outputs": skypy_private["extra_outputs"], 
                                "ret_output": skypy_private["ret_output"], 
                                "export_json": skypy_private["export_json"]})
-        pickle.dump(start_dict, pypy_process.stdin)
+        pickle.dump(start_dict, self.pypy_process.stdin)
 
         while True:
             
-            request_args = pickle.load(pypy_process.stdout)
+            request_args = pickle.load(self.pypy_process.stdout)
             request = request_args["request"]
             del request_args["request"]
             ciel.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
+            ret = None
             # The key difference between deref and deref_json is that the JSON variant MUST be decoded locally
             # This is a hack around the fact that the simplejson library hasn't been ported to pypy.
             if request == "deref":
@@ -488,47 +527,45 @@ class SkyPyExecutor(BaseExecutor):
                 except ReferenceUnavailableException:
                     halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
-                pickle.dump(ret, pypy_process.stdin)
             elif request == "deref_json":
                 try:
                     ret = self.deref_json(**request_args)
                 except ReferenceUnavailableException:
                     halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
-                pickle.dump(ret, pypy_process.stdin)
             elif request == "deref_async":
                 try:
                     ret = self.deref_async(**request_args)
                 except ReferenceUnavailableException:
                     halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
-                pickle.dump(ret, pypy_process.stdin)
             elif request == "wait_stream":
                 ret = self.wait_async_file(**request_args)
-                pickle.dump(ret, pypy_process.stdin)
             elif request == "close_stream":
                 self.close_async_file(request_args["id"], request_args["chunk_size"])
             elif request == "spawn":
                 coro_descriptor = request_args["coro_descriptor"]
                 del request_args["coro_descriptor"]
                 out_obj = self.spawn_func(coro_descriptor, **request_args)
-                pickle.dump({"outputs": out_obj}, pypy_process.stdin)
+                ret = {"outputs": out_obj}
             elif request == "exec":
                 out_refs = spawn_task_helper(self.task_record, **request_args)
-                pickle.dump({"outputs": out_refs}, pypy_process.stdin)
+                ret = {"outputs": out_refs}
             elif request == "create_fresh_output":
                 new_output_name = self.task_record.create_published_output_name()
-                pickle.dump({"name": new_output_name}, pypy_process.stdin)
+                ret = {"name": new_output_name}
             elif request == "open_output":
                 filename = self.open_output(**request_args)
-                pickle.dump({"filename": filename}, pypy_process.stdin)
+                ret = {"filename": filename}
             elif request == "close_output":
                 ret_ref = self.close_output(**request_args)
-                pickle.dump({"ref": ret_ref}, pypy_process.stdin)
+                ret = {"ref": ret_ref}
+            elif request == "advert":
+                self.output_size_update(**request_args)
             elif request == "rollback_output":
                 self.rollback_output(**request_args)
             elif request == "package_lookup":
-                pickle.dump({"value": package_lookup(self.task_record, self.block_store, request_args["key"])}, pypy_process.stdin)
+                ret = {"value": package_lookup(self.task_record, self.block_store, request_args["key"])}
             elif request == "freeze":
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 if len(self.ongoing_outputs) != 0:
@@ -558,6 +595,11 @@ class SkyPyExecutor(BaseExecutor):
                 raise Exception("Fatal pypy exception: %s" % report_text)
             else:
                 raise Exception("Pypy requested bad operation: %s / %s" % (request, request_args))
+            
+            if ret is not None:
+                ret["request"] = request
+                with self.transmit_lock:
+                    pickle.dump(ret, self.pypy_process.stdin)
 
     # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
     # This is tricky to implement as a spawn_other because we need self.pyfile_ref. Could pass that down to SkyPy at start of day perhaps.
@@ -635,17 +677,19 @@ class SkyPyExecutor(BaseExecutor):
     def open_output(self, id):
         if id in self.ongoing_outputs:
             raise Exception("SkyPy tried to open output %s which was already open" % id)
-        new_output = self.block_store.make_local_output(id)
-        self.ongoing_outputs[id] = new_output
-        self.context_manager.add_context(new_output)
+        new_output = self.block_store.make_local_output(id, subscribe_callback=self.subscribe_output)
+        skypy_output = SkyPyOutput(new_output)
+        self.ongoing_outputs[id] = skypy_output
+        self.context_manager.add_context(skypy_output)
         return new_output.get_filename()
 
     def stop_output(self, id):
         self.context_manager.remove_context(self.ongoing_outputs[id])
         del self.ongoing_outputs[id]
 
-    def close_output(self, id):
+    def close_output(self, id, size):
         output = self.ongoing_outputs[id]
+        output.size_update(size)
         self.stop_output(id)
         ret_ref = output.get_completed_ref()
         self.task_record.publish_ref(ret_ref)
@@ -654,6 +698,20 @@ class SkyPyExecutor(BaseExecutor):
     def rollback_output(self, id):
         self.ongoing_outputs[id].rollback()
         self.stop_output(id)
+
+    def subscribe_output(self, output_ctx):
+        return self.ongoing_outputs[output_ctx.refid]
+
+    def output_size_update(self, id, size):
+        self.ongoing_outputs[id].size_update(size)
+
+    def _subscribe_output(self, id, chunk_size):
+        with self.transmit_lock:
+            pickle.dump({"request": "subscribe", "id": id, "chunk_size": chunk_size}, self.pypy_process.stdin)
+
+    def _unsubscribe_output(self, id):
+        with self.transmit_lock:
+            pickle.dump({"request": "unsubscribe", "id": id})
 
 # Return states for proc task termination.
 PROC_EXITED = 0
