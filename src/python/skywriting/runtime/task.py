@@ -42,7 +42,7 @@ for (name, number) in TASK_STATES.items():
 
 class TaskPoolTask:
     
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, job=None, taskset=None, worker_private=None):
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation=False, continues_task=None, task_private=None, replay_uuids=None, select_group=None, select_result=None, state=TASK_CREATED, job=None, taskset=None, worker_private=None, workers=[]):
         self.task_id = task_id
         
         # Task creation graph.
@@ -87,7 +87,9 @@ class TaskPoolTask:
         self.state = None
         self.set_state(state)
         
-        self.worker = None
+        #self.worker = None
+        self.workers = set(workers)
+        
         self.saved_continuation_uri = None
 
         self.event_index = 0
@@ -129,6 +131,16 @@ class TaskPoolTask:
             return self._blocking_dict.keys()
         else:
             return []
+
+    def assign_netloc(self, netloc):
+        self.workers.add(netloc)
+
+    def delete_netloc(self, netloc):
+        self.workers.remove(netloc)
+
+    def get_netlocs(self):
+        """Returns a list of network locations representing the workers on which this task is running."""
+        return list(self.workers)
 
     def block_on(self, global_id, local_id):
         self.set_state(TASK_BLOCKING)
@@ -385,8 +397,13 @@ def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None, tasks
     except:
         worker_private = {}
 
+    try:
+        workers = task_descriptor['workers']
+    except:
+        workers = []
+
     replay_uuids = None
     
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state, job, taskset, worker_private)
+    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, save_continuation, continues_task, task_private, replay_uuids, select_group, select_result, state, job, taskset, worker_private, workers)
