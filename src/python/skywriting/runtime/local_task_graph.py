@@ -15,6 +15,8 @@
 from skywriting.runtime.task_graph import DynamicTaskGraph, TaskGraphUpdate
 from skywriting.runtime.task import build_taskpool_task_from_descriptor
 import Queue
+import ciel
+import logging
 
 class LocalJobOutput:
     
@@ -31,8 +33,9 @@ class LocalJobOutput:
         return len(self.required_refs) == 0
     def notify_ref_table_updated(self, ref_table_entry):
         self.required_refs.remove(ref_table_entry.ref)
-        if self.is_complete() and self.taskset is not None:
-            self.taskset.notify_completed()
+        # Commented out because the refcounting should take care of it.
+        #if self.is_complete() and self.taskset is not None:
+        #    self.taskset.notify_completed()
 
 class LocalTaskGraph(DynamicTaskGraph):
 
@@ -66,13 +69,18 @@ class LocalTaskGraph(DynamicTaskGraph):
         upd.commit(self)
 
     def task_runnable(self, task):
+        ciel.log('Task %s became runnable!' % task.task_id, 'LTG', logging.INFO)
         if self.execution_features.can_run(task.handler):
             if task.task_id in self.root_task_ids:
+                task.taskset.inc_runnable_count()
+                ciel.log('Putting task %s in the runnableQ because it is a root' % task.task_id, 'LTG', logging.INFO)
                 self.runnable_small_tasks.put(task)
             else:
                 try:
                     is_small_task = task.worker_private['hint'] == 'small_task'
                     if is_small_task:
+                        self.taskset.inc_runnable_count()
+                        ciel.log('Putting task %s in the runnableQ because it is small' % task.task_id, 'LTG', logging.INFO)
                         self.runnable_small_tasks.put(task)
                 except KeyError:
                     pass

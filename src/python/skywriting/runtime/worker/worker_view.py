@@ -114,7 +114,7 @@ class TaskRoot:
         if cherrypy.request.method == 'POST':
             task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
-                self.worker.submit_task(task_descriptor)
+                self.worker.multiworker.create_and_queue_taskset(task_descriptor)
                 return
         raise cherrypy.HTTPError(405)
     
