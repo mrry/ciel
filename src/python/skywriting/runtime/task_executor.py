@@ -14,13 +14,15 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
-from skywriting.runtime.exceptions import ReferenceUnavailableException, MissingInputException
+from skywriting.runtime.exceptions import ReferenceUnavailableException, MissingInputException,\
+    AbortedException
 from skywriting.runtime.local_task_graph import LocalTaskGraph, LocalJobOutput
 from threading import Lock
 import logging
 import hashlib
 import ciel
 from skywriting.runtime.executors import BaseExecutor
+import threading
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -136,6 +138,8 @@ class TaskExecutionRecord:
         self.worker = worker
         self.executor = None
         self.success = False
+        self.aborted = False
+        self._executor_lock = threading.Lock()
         
     def run(self):
         ciel.engine.publish("worker_event", "Start execution " + repr(self.task_descriptor['task_id']) + " with handler " + self.task_descriptor['handler'])
@@ -148,9 +152,16 @@ class TaskExecutionRecord:
                 self.package_ref = self.task_descriptor["task_private"]["package_ref"]
             else:
                 self.package_ref = None
-            self.executor = self.execution_features.get_executor(self.task_descriptor["handler"], self.worker)
+            
+            with self._executor_lock:
+                if self.aborted:
+                    raise AbortedException()
+                else:
+                    self.executor = self.execution_features.get_executor(self.task_descriptor["handler"], self.worker)
             self.executor.run(self.task_descriptor, self)
+            
             self.success = True
+            
             ciel.engine.publish("worker_event", "Completed execution " + repr(self.task_descriptor['task_id']))
             ciel.log.error("Completed task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.INFO, False)
         except MissingInputException as mie:
@@ -158,6 +169,8 @@ class TaskExecutionRecord:
             self.failure_bindings = mie.bindings
             self.failure_details = ""
             self.failure_reason = "MISSING_INPUT"
+            raise
+        except AbortedException:
             raise
         except:
             ciel.log.error("Error in task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.ERROR, True)
@@ -167,9 +180,11 @@ class TaskExecutionRecord:
             raise
 
     def cleanup(self):
-        if self.executor is not None:
-            self.executor.cleanup()
-            del self.executor
+        with self._executor_lock:
+            if self.executor is not None:
+                self.executor.cleanup()
+                del self.executor
+                self.executor = None
     
     def publish_ref(self, ref):
         self.published_refs.append(ref)
@@ -208,3 +223,8 @@ class TaskExecutionRecord:
     def retrieve_ref(self, ref):
         return self.task_set.retrieve_ref(ref)
 
+    def abort(self):
+        with self._executor_lock:
+            self.aborted = True
+            if self.executor is not None:
+                self.executor.abort()

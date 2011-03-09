@@ -11,7 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.exceptions import ReferenceUnavailableException
+from skywriting.runtime.exceptions import ReferenceUnavailableException,\
+    AbortedException
 from skywriting.runtime.local_task_graph import LocalTaskGraph, LocalJobOutput
 from skywriting.runtime.task_executor import TaskExecutionRecord
 import Queue
@@ -29,14 +30,44 @@ class WorkerJob:
         self.reference_cache = {}
         self.task_graph = LocalTaskGraph(local_execution_features, runnable_queue=self.runnable_queue)
         self.active_or_queued_tasksets = 0
+        self.active_tasksets = {}
         self.tickets = tickets
+        self.job_aborted = False
+        self._tasksets_lock = threading.Lock()
 
     def add_taskset(self, taskset):
-        self.incoming_queue.put(taskset)
-        self.active_or_queued_tasksets += 1
+        with self._tasksets_lock:
+            if not self.job_aborted: 
+                self.incoming_queue.put(taskset)
+                self.active_or_queued_tasksets += 1
+            else:
+                raise AbortedException()
+        
+    def abort_all_active_tasksets(self, id):
+        with self._tasksets_lock:
+            self.job_aborted = True
+            for taskset in self.active_tasksets.values():
+                taskset.abort_all_tasks()
+            
+    def abort_taskset_with_id(self, id):
+        try:
+            taskset = self.active_tasksets[id]
+            taskset.abort_all_tasks()
+            # Taskset completion routine will eventually call self.taskset_completed(taskset)
+        except KeyError:
+            pass
+        
+    def taskset_activated(self, taskset):
+        with self._tasksets_lock:
+            if not self.job_aborted:
+                self.active_tasksets[taskset.id] = taskset
+            else:
+                raise AbortedException()
         
     def taskset_completed(self, taskset):
-        self.active_or_queued_tasksets -= 1
+        with self._tasksets_lock:
+            del self.active_tasksets[taskset.id]
+            self.active_or_queued_tasksets -= 1
 
 class MultiWorker:
     """FKA JobManager."""
@@ -62,6 +93,9 @@ class MultiWorker:
     def get_active_jobs(self):
         return self.jobs.values()
     
+    def get_job_by_id(self, job_id):
+        return self.jobs[job_id]
+    
     def create_and_queue_taskset(self, task_descriptor):
         with self._lock:
             job_id = task_descriptor['job']
@@ -86,7 +120,8 @@ class MultiWorker:
 class MultiWorkerTaskSetExecutionRecord:
 
     def __init__(self, root_task_descriptor, block_store, master_proxy, execution_features, worker, job, job_manager):
-        self._lock = threading.Lock()
+        self.id = root_task_descriptor['task_id']
+        self._record_list_lock = threading.Lock()
         self.task_records = []
         self.block_store = worker.block_store
         self.master_proxy = worker.master_proxy
@@ -104,10 +139,18 @@ class MultiWorkerTaskSetExecutionRecord:
         self.job = job
         self.job_manager = job_manager
         
+        self.aborted = False
         
         # LocalJobOutput gets self so that it can notify us when done.
         self.job_output = LocalJobOutput(self.initial_td["expected_outputs"], self)
 
+    def abort_all_tasks(self):
+        # This will inhibit the sending of a report, and also the creation of any new task records.
+        self.aborted = True
+
+        with self._record_list_lock:
+            for record in self.task_records:
+                record.abort()
             
     def inc_runnable_count(self):
         self._refcount += 1
@@ -120,6 +163,8 @@ class MultiWorkerTaskSetExecutionRecord:
 
     def start(self):
         ciel.log.error('Starting taskset with %s' % self.initial_td['task_id'], 'TASKEXEC', logging.INFO)
+        self.job.taskset_activated(self)
+        
         self.task_graph.add_root_task_id(self.initial_td['task_id'])
         for ref in self.initial_td['expected_outputs']:
             self.task_graph.subscribe(ref, self.job_output)
@@ -133,52 +178,29 @@ class MultiWorkerTaskSetExecutionRecord:
         """Called by LocalJobOutput.notify_ref_table_updated() when the taskset is complete."""
         ciel.log.error('Taskset complete', 'TASKEXEC', logging.INFO)
         
-        # Send a task report back to the master.
-        report_data = []
-        for tr in self.task_records:
-            if tr.success:
-                report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.spawned_tasks, tr.published_refs)))
-            else:
-                report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.failure_reason, tr.failure_details, tr.failure_bindings)))
-        self.master_proxy.report_tasks(self.job.id, self.initial_td['task_id'], report_data)
-        with self._lock:
-            self.current_task_set = None
+        if not self.aborted:
+            # Send a task report back to the master.
+            report_data = []
+            for tr in self.task_records:
+                if tr.success:
+                    report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.spawned_tasks, tr.published_refs)))
+                else:
+                    ciel.log('Appending failure to report for task %s' % tr.task_descriptor['task_id'], 'TASKEXEC', logging.INFO)
+                    report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.failure_reason, tr.failure_details, tr.failure_bindings)))
+            self.master_proxy.report_tasks(self.job.id, self.initial_td['task_id'], report_data)
 
         # Release this task set, which may allow the JobManager to delete the job.
         self.job_manager.taskset_completed(self)
 
     def build_task_record(self, task_descriptor):
         """Creates a new TaskExecutionRecord for the given task, and adds it to the journal for this task set."""
-        record = TaskExecutionRecord(task_descriptor, self, self.execution_features, self.block_store, self.master_proxy, self.worker)
-        self.task_records.append(record) 
-        return record
-
-    def run(self):
-
-        while not self.job_output.is_complete():
-            next_td = self.task_graph.get_runnable_task()
-            if next_td is None:
-                ciel.log.error("No more runnable tasks", "TASKEXEC", logging.INFO)
-                break
-            next_td["inputs"] = [self.retrieve_ref(ref) for ref in next_td["dependencies"]]
-            task_record = TaskExecutionRecord(next_td, self, self.execution_features, self.block_store, self.master_proxy, self.worker)
-            with self._lock:
-                self.current_task = task_record
-                self.current_td = next_td
-            try:
-                task_record.run()
-            except:
-                ciel.log.error('Error during executor task execution', 'TASKEXEC', logging.ERROR, True)
-            with self._lock:
-                self.current_task.cleanup()
-                self.current_task = None
-                self.current_td = None
-            self.task_records.append(task_record)
-            if task_record.success:
-                self.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
+        with self._record_list_lock:
+            if not self.aborted:
+                record = TaskExecutionRecord(task_descriptor, self, self.execution_features, self.block_store, self.master_proxy, self.worker)
+                self.task_records.append(record) 
+                return record
             else:
-                break
-        ciel.log.error("Taskset complete", "TASKEXEC", logging.INFO)
+                raise AbortedException()
 
     def retrieve_ref(self, ref):
         if ref.is_consumable():

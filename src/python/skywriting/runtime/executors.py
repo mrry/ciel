@@ -266,6 +266,9 @@ class BaseExecutor:
         #      in here during prepare().
         self._run(task_descriptor["task_private"], task_descriptor, task_record)
     
+    def abort(self):
+        self._abort()    
+    
     def cleanup(self):
         pass
         
@@ -373,6 +376,7 @@ class SkyPyExecutor(BaseExecutor):
     def __init__(self, worker):
         BaseExecutor.__init__(self, worker)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
+        self.proc = None
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, cont_delegated_outputs=None, extra_dependencies=[]):
@@ -461,6 +465,9 @@ class SkyPyExecutor(BaseExecutor):
         pypy_args = ["pypy", self.skypybase + "/stub.py"]
             
         pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+
+        # Handle used for aborting the process.
+        self.proc = pypy_process
 
         if "coro_ref" not in skypy_private:
             start_dict = {"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}
@@ -654,6 +661,13 @@ class SkyPyExecutor(BaseExecutor):
     def rollback_output(self, id):
         self.ongoing_outputs[id].rollback()
         self.stop_output(id)
+
+    def _abort(self):
+        try:
+            if self.proc is not None:
+                self.proc.kill()
+        except:
+            ciel.log('Error killing SkyPy process', 'SKYPY', logging.ERROR, )
 
 # Return states for proc task termination.
 PROC_EXITED = 0
@@ -1382,12 +1396,6 @@ class SimpleExecutor(BaseExecutor):
     
     def _cleanup_task(self):
         pass
-    
-    def abort(self):
-        self._abort()
-        
-    def _abort(self):
-        pass
 
 class AsyncPushThread:
 
@@ -1659,7 +1667,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
     def _cleanup_task(self):
         pass
-        
+
     def _abort(self):
         if self.proc is not None:
             self.proc.kill()
@@ -2079,4 +2087,3 @@ class InitExecutor(BaseExecutor):
         else:
             initial_task_out_refs = list(initial_task_out_obj)
         spawn_task_helper(task_record, "sync", True, delegated_outputs = task_descriptor["expected_outputs"], args = {"inputs": initial_task_out_refs}, n_outputs=1)
-
