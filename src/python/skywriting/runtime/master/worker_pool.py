@@ -81,7 +81,6 @@ class Worker:
         return {'worker_id': self.id,
                 'netloc': self.netloc,
                 'features': self.features,
-                'current_task_id': self.current_task.task_id if self.current_task is not None else None,
                 'last_ping': self.last_ping.ctime(),
                 'failed':  self.failed}
         
