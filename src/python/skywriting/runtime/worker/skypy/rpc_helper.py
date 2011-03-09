@@ -12,7 +12,7 @@ class RpcRequest:
 
         self.response = None
 
-class RpcThread:
+class RpcHelper:
 
     def __init__(self, in_fp, out_fp, active_outputs):
 
@@ -20,7 +20,7 @@ class RpcThread:
         self.in_fd = in_fp.fileno()
         self.out_fp = out_fp
         self.active_outputs = active_outputs
-        self.synchronous_request = None
+        self.pending_request = None
 
     def drain_receive_buffer(self):
 
@@ -43,8 +43,8 @@ class RpcThread:
             if next_message["request"] == "subscribe" or next_message["request"] == "unsubscribe":
                 self.active_outputs.handle_request(next_message)
             else:
-                if self.synchronous_request is not None:
-                    self.synchronous_request.response = next_message
+                if self.pending_request is not None:
+                    self.pending_request.response = next_message
                 else:
                     print >>sys.stderr, "Ignored request", next_message
         return have_message
@@ -52,12 +52,12 @@ class RpcThread:
     def synchronous_request(self, request):
         
 
-        self.synchronous_request = RpcRequest()
+        self.pending_request = RpcRequest()
         self.send_message(request)
-        while self.synchronous_request.response is None:
+        while self.pending_request.response is None:
             self.receive_message(block=True)
-            ret = self.synchronous_request.response
-        self.synchronous_request = None
+            ret = self.pending_request.response
+        self.pending_request = None
         return ret
 
     def send_message(self, message):

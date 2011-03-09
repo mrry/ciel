@@ -57,7 +57,7 @@ class OutputFile:
             self.notify_threshold += self.chunk_size
             should_notify = True
         if should_notify:
-            message_helper.send_message({"request": "advert", "size": self.bytes_written})
+            self.message_helper.send_message({"request": "advert", "size": self.bytes_written})
 
     def writelines(self, lines):
         for line in lines:
@@ -75,14 +75,14 @@ class OutputFile:
         self.closed = True
         self.fp.close()
         self.file_outputs.remove_output(self.id)
-        runtime_response = message_helper.synchronous_request({"request": "close_output", "size": self.bytes_written, "id": self.id})
+        runtime_response = self.message_helper.synchronous_request({"request": "close_output", "size": self.bytes_written, "id": self.id})
         self.ref = runtime_response["ref"]
 
     def rollback(self):
         self.closed = True
         self.fp.close()
         self.file_outputs.remove_output(self.id)
-        message_helper.send_message({"request": "rollback_output", "id": self.id})
+        self.message_helper.send_message({"request": "rollback_output", "id": self.id})
 
     def __exit__(self, exnt, exnv, exnbt):
         if exnt is None:

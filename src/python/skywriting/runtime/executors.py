@@ -387,6 +387,9 @@ class SkyPyOutput:
             self.executor._subscribe_output(self.output_ctx.refid, new_chunk_size)
         self.watch_chunk_size = new_chunk_size
 
+    def get_completed_ref(self):
+        return self.output_ctx.get_completed_ref()
+
     def start(self):
         self.executor._subscribe_output(self.output_ctx.refid, self.watch_chunk_size)
 
@@ -407,7 +410,7 @@ class SkyPyExecutor(BaseExecutor):
     def __init__(self, worker):
         BaseExecutor.__init__(self, worker)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
-        self.trasmit_lock = threading.Lock()
+        self.transmit_lock = threading.Lock()
 
     def cleanup(self):
         pass
@@ -678,7 +681,7 @@ class SkyPyExecutor(BaseExecutor):
         if id in self.ongoing_outputs:
             raise Exception("SkyPy tried to open output %s which was already open" % id)
         new_output = self.block_store.make_local_output(id, subscribe_callback=self.subscribe_output)
-        skypy_output = SkyPyOutput(new_output)
+        skypy_output = SkyPyOutput(new_output, self)
         self.ongoing_outputs[id] = skypy_output
         self.context_manager.add_context(skypy_output)
         return new_output.get_filename()
