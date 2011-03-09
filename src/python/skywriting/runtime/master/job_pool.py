@@ -193,7 +193,6 @@ class Job:
             else:
                 # Only one failed task per-report, at the moment.
                 self.investigate_task_failure(parent_task, payload)
-                self.lazy_task_pool.worker_pool.worker_idle(toplevel_task.worker)
                 ciel.engine.publish('schedule')
                 return
                 
@@ -204,7 +203,7 @@ class Job:
 
                 
     def investigate_task_failure(self, task, payload):
-        self.task_failure_investigator.investigate_task_failure(task, payload)
+        self.job_pool.task_failure_investigator.investigate_task_failure(task, payload)
 
 class MasterJobOutput:
     
@@ -250,7 +249,8 @@ class JobTaskGraph(DynamicTaskGraph):
 
         task.record_event(reason)
 
-        self.publish_refs(bindings, task.job)
+        for ref in bindings.values():
+            self.publish(ref, None)
 
         if reason == 'WORKER_FAILED':
             # Try to reschedule task.
@@ -261,16 +261,15 @@ class JobTaskGraph(DynamicTaskGraph):
                 task.set_state(TASK_FAILED)
                 should_notify_outputs = True
             else:
-                ciel.log.error('Rescheduling task %s after worker failure' % task.task_id, 'TASKPOOL', logging.WARNING)
+                ciel.log.error('Rescheduling task %s after worker failure' % task.task_id, 'TASKFAIL', logging.WARNING)
                 task.set_state(TASK_FAILED)
                 self.add_runnable_task(task)
-                ciel.engine.publish('schedule')
                 
         elif reason == 'MISSING_INPUT':
             # Problem fetching input, so we will have to re-execute it.
             worker = task.worker
             for binding in bindings.values():
-                ciel.log('Missing input: %s' % str(binding), 'TASKPOOL', logging.WARNING)
+                ciel.log('Missing input: %s' % str(binding), 'TASKFAIL', logging.WARNING)
             self.handle_missing_input(task)
             
         elif reason == 'RUNTIME_EXCEPTION':
@@ -281,10 +280,10 @@ class JobTaskGraph(DynamicTaskGraph):
 
         if should_notify_outputs:
             for output in task.expected_outputs:
-                self.publish(output, SWErrorReference(output, reason, details), task)
-
-        if worker is not None:
-            self.bus.publish('worker_idle', worker)
+                ciel.log('Publishing error reference for %s (because %s)' % (output, reason), 'TASKFAIL', logging.ERROR)
+                self.publish(SWErrorReference(output, reason, details), task)
+                
+        ciel.engine.publish('schedule')
 
     def handle_missing_input(self, task):
         task.set_state(TASK_FAILED)
