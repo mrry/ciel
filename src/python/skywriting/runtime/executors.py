@@ -1624,11 +1624,8 @@ class AsyncPushGroup:
                 ciel.log("Transfers have failed: replacing old exception with MissingInputException", "EXEC", logging.WARNING)
             raise MissingInputException(failure_bindings)
         else:
-            extra_publishes = {}
-            for t in self.threads:
-                new_ref = t.get_completed_ref(t.ref.id in self.sweethearts)
-                if new_ref is not None:
-                    extra_publishes[new_ref.id] = new_ref
+            extra_publishes = [t.get_completed_ref(t.ref.id in self.sweethearts) for t in self.threads]
+            extra_publishes = filter(lambda x: x is not None, extra_publishes)
             if len(extra_publishes) > 0:
                 self.task_record.prepublish_refs(extra_publishes)
 
