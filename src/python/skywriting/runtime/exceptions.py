@@ -18,6 +18,10 @@ Created on 22 Apr 2010
 @author: dgm36
 '''
 
+class WorkerFailedException(Exception):
+    def __init__(self, worker):
+        self.worker = worke
+
 class AbortedException(Exception):
     def __init__(self):
         pass
