@@ -8,7 +8,6 @@ import tempfile
 import traceback
 import os
 import sys
-import threading
 from contextlib import closing
 from StringIO import StringIO
 
@@ -66,7 +65,7 @@ def fetch_ref(ref, verb, **kwargs):
         for tries in range(2):
             send_dict = {"request": verb, "ref": ref}
             send_dict.update(kwargs)
-            runtime_response = message_thread.synchronous_request(send_dict)
+            runtime_response = message_helper.synchronous_request(send_dict)
             if not runtime_response["success"]:
                 if tries == 0:
                     halt_reason = HALT_REFERENCE_UNAVAILABLE
@@ -131,7 +130,7 @@ def spawn(spawn_callable, *pargs, **kwargs):
         out_dict = {"request": "spawn", "coro_descriptor": dict()}
         describe_maybe_file(new_coro_fp, out_dict["coro_descriptor"])
     out_dict.update(kwargs)
-    response = message_thread.synchronous_request(out_dict)
+    response = message_helper.synchronous_request(out_dict)
     return response["output"]
 
 def do_exec(executor_name, small_task, **args):
@@ -139,7 +138,7 @@ def do_exec(executor_name, small_task, **args):
     args["request"] = "exec"
     args["small_task"] = small_task
     args["executor_name"] = executor_name
-    response = message_thread.synchronous_request(args)
+    response = message_helper.synchronous_request(args)
     return response["outputs"]
 
 def spawn_exec(executor_name, **args):
@@ -154,7 +153,7 @@ class PackageKeyError:
 
 def package_lookup(key):
     
-    response = message_thread.synchronous_request({"request": "package_lookup", "key": key})
+    response = message_helper.synchronous_request({"request": "package_lookup", "key": key})
     retval = response["value"]
     if retval is None:
         raise PackageKeyError(key)
@@ -215,7 +214,7 @@ class StreamingFile:
     def close(self):
         self.closed = True
         self.fp.close()
-        message_thread.send_message({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size})
+        message_helper.send_message({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size})
         remove_ref_dependency(self.ref)
 
     def __exit__(self, exnt, exnv, exnbt):
@@ -224,7 +223,7 @@ class StreamingFile:
     def wait(self, **kwargs):
         out_dict = {"request": "wait_stream", "id": self.ref.id}
         out_dict.update(kwargs)
-        runtime_response = message_thread.synchronous_request(out_dict)
+        runtime_response = message_helper.synchronous_request(out_dict)
         if not runtime_response["success"]:
             raise Exception("File transfer failed before EOF")
         else:
@@ -324,12 +323,12 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 
 def get_fresh_output_name():
-    runtime_response = message_thread.synchronous_request({"request": "create_fresh_output"})
+    runtime_response = message_helper.synchronous_request({"request": "create_fresh_output"})
     return runtime_response["name"]
 
 def open_output(id):
-    new_output = OutputFile(message_thread, file_outputs, id)
-    runtime_response = message_thread.synchronous_request({"request": "open_output", "id": id})
+    new_output = OutputFile(message_helper, file_outputs, id)
+    runtime_response = message_helper.synchronous_request({"request": "open_output", "id": id})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 

@@ -13,7 +13,7 @@ import traceback
 import os
 
 import skypy
-from rpc_thread import RpcThread
+from rpc_helper import RpcHelper
 from file_outputs import FileOutputRecords
 
 from shared.io_helpers import MaybeFile
@@ -56,9 +56,8 @@ skypy.persistent_state = resume_state.persistent_state
 skypy.extra_outputs = skypy.persistent_state.extra_outputs
 
 skypy.file_outputs = FileOutputRecords()
-skypy.message_thread = RpcThread(sys.stdin, sys.stdout, skypy.file_outputs)
-skypy.file_outputs.set_message_thread(message_thread)
-skypy.message_thread.start()
+skypy.message_helper = RpcHelper(sys.stdin, sys.stdout, skypy.file_outputs)
+skypy.file_outputs.set_message_helper(skypy.message_helper)
 
 user_coro.switch()
 # We're back -- either the user script is done, or else it's stuck waiting on a reference.
@@ -77,8 +76,6 @@ with MaybeFile() as output_fp:
         out_dict = {"request": "exception"}
     skypy.describe_maybe_file(output_fp, out_dict)
 pickle.dump(out_dict, sys.stdout)
-
-skypy.message_thread.kill_thread()
 
 
 
