@@ -319,6 +319,9 @@ class JobPool(plugins.SimplePlugin):
         self.current_running_job = None
         self.run_queue = Queue.Queue()
         
+        self.num_running_jobs = 0
+        self.max_running_jobs = 10
+        
         # Synchronisation code for stopping/waiters.
         self.is_stopping = False
         self.current_waiters = 0
@@ -387,6 +390,8 @@ class JobPool(plugins.SimplePlugin):
         job = Job(job_id, task, job_dir, JOB_CREATED, self, self.scheduler.scheduler_queue, self.task_failure_investigator)
         task.job = job
         
+        print 'About to add job'
+        
         self.add_job(job)
         
         ciel.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
@@ -401,35 +406,36 @@ class JobPool(plugins.SimplePlugin):
         else:
             return None
 
+    def maybe_start_new_job(self):
+        with self._lock:
+            if self.num_running_jobs < self.max_running_jobs:
+                self.num_running_jobs += 1
+                try:
+                    next_job = self.run_queue.get_nowait()
+                    self._start_job(next_job)
+                except Queue.Empty:
+                    ciel.log('Not starting a new job because there are no more to start', 'JOB_POOL', logging.INFO)
+            else:
+                ciel.log('Not starting a new job because there is insufficient capacity', 'JOB_POOL', logging.INFO)
+                
     def queue_job(self, job):
         self.run_queue.put(job)
         job.enqueued()
-        
-        with self._lock:
-            if self.current_running_job is None:
-                next_job = self.run_queue.get()
-                self._start_job(next_job)
+        self.maybe_start_new_job()
             
     def job_completed(self, job):
-        assert job is self.current_running_job
-        
+        self.num_running_jobs -= 1
         #job.completed(result_ref)
-
-        with self._lock:
-            try:
-                self.current_running_job = self.run_queue.get_nowait()
-                self._start_job(self.current_running_job)
-            except:
-                self.current_running_job = None
+        self.maybe_start_new_job()
 
     def _start_job(self, job):
         ciel.log('Starting job ID: %s' % job.id, 'JOB_POOL', logging.INFO)
-        self.current_running_job = job 
         # This will also start the job by subscribing to the root task output and reducing.
         job.activated()
 
     def wait_for_completion(self, job):
         with job._lock:
+            ciel.log('Waiting for completion of job %s' % job.id, 'JOB_POOL', logging.INFO)
             while job.state not in (JOB_COMPLETED, JOB_FAILED):
                 if self.is_stopping:
                     break
