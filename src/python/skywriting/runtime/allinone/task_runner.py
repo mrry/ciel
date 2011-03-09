@@ -162,7 +162,7 @@ class TaskRunner:
         self.options = options
 
         self.is_running = False
-        self.num_workers = options.num_workers
+        self.num_workers = options.num_threads
         self.workers = None
 
     def run(self):
