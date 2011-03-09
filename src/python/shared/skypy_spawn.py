@@ -1,12 +1,12 @@
 
 class SkyPySpawn:
 
-    def __init__(self, ret_output, other_outputs):
+    def __init__(self, ret_output, extra_outputs):
 
         self.ret_output = ret_output
-        self.other_outputs = other_outputs
+        self.extra_outputs = extra_outputs
         self.apparent_list = [ret_output]
-        self.apparent_list.extend(other_outputs)
+        self.apparent_list.extend(extra_outputs)
 
     def __getitem__(self, i):
 

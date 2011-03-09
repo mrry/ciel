@@ -37,8 +37,10 @@ class OutputFile:
         self.bytes_written = 0
         self.chunk_size = None
         self.notify_threshold = None
+        self.ref = None
         self.message_helper = message_helper
         self.file_outputs = file_outputs
+        self.closed = False
         file_outputs.add_output(self.id, self)
 
     def set_filename(self, filename):
@@ -78,6 +80,11 @@ class OutputFile:
         runtime_response = self.message_helper.synchronous_request({"request": "close_output", "size": self.bytes_written, "id": self.id})
         self.ref = runtime_response["ref"]
 
+    def get_completed_ref(self):
+        if self.ref is None:
+            raise Exception("Tried to get completed ref for %s before it was closed" % self.id)
+        return self.ref
+
     def rollback(self):
         self.closed = True
         self.fp.close()
@@ -89,3 +96,14 @@ class OutputFile:
             self.close()
         else:
             self.rollback()
+
+    def __getstate__(self):
+        if self.closed:
+            return (self.id, self.ref)
+        else:
+            raise Exception("Can't pickle open output-file with id '%s'" % self.id)
+
+    def __setstate__(self, (id, ref)):
+        self.id = id
+        self.ref = ref
+        self.closed = True

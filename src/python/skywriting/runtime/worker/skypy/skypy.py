@@ -122,8 +122,9 @@ class RequiredRefs():
 
 def spawn(spawn_callable, *pargs, **kwargs):
     
+    print >>sys.stderr, pargs
     new_coro = stackless.coroutine()
-    new_coro.bind(start_script, spawn_callable, args)
+    new_coro.bind(start_script, spawn_callable, pargs)
     save_obj = ResumeState(None, new_coro)
     with MaybeFile() as new_coro_fp:
         pickle.dump(save_obj, new_coro_fp)
@@ -131,7 +132,7 @@ def spawn(spawn_callable, *pargs, **kwargs):
         describe_maybe_file(new_coro_fp, out_dict["coro_descriptor"])
     out_dict.update(kwargs)
     response = message_helper.synchronous_request(out_dict)
-    return response["output"]
+    return response["outputs"]
 
 def do_exec(executor_name, small_task, **args):
     
