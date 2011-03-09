@@ -719,7 +719,7 @@ class SkyPyExecutor(BaseExecutor):
 
     def _unsubscribe_output(self, id):
         with self.transmit_lock:
-            pickle.dump({"request": "unsubscribe", "id": id})
+            pickle.dump({"request": "unsubscribe", "id": id}, self.pypy_process.stdin)
 
 # Return states for proc task termination.
 PROC_EXITED = 0

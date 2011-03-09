@@ -584,22 +584,24 @@ class BlockStore(plugins.SimplePlugin):
                 httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (sub.netloc, self.refid), "POST", message)
 
         def rollback(self):
-            self.closed = True
-            self.block_store.rollback_file(self.refid)
-            if self.file_watch is not None:
-                self.file_watch.cancel()
-            data = simplejson.dumps({"failed": True})
-            self.post_all_netlocs(data)
+            if not self.closed:
+                self.closed = True
+                self.block_store.rollback_file(self.refid)
+                if self.file_watch is not None:
+                    self.file_watch.cancel()
+                data = simplejson.dumps({"failed": True})
+                self.post_all_netlocs(data)
 
         def close(self):
-            self.closed = True
-            self.block_store.commit_stream(self.refid)
-            # At this point no subscribe() calls are in progress.
-            if self.file_watch is not None:
-                self.file_watch.cancel()
-            self.current_size = os.stat(self.block_store.filename(self.refid)).st_size
-            data = simplejson.dumps({"bytes": self.current_size, "done": True})
-            self.post_all_netlocs(data)
+            if not self.closed:
+                self.closed = True
+                self.block_store.commit_stream(self.refid)
+                # At this point no subscribe() calls are in progress.
+                if self.file_watch is not None:
+                    self.file_watch.cancel()
+                self.current_size = os.stat(self.block_store.filename(self.refid)).st_size
+                data = simplejson.dumps({"bytes": self.current_size, "done": True})
+                self.post_all_netlocs(data)
 
         def get_completed_ref(self):
             if not self.closed:

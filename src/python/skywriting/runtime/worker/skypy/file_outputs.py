@@ -1,6 +1,8 @@
 
 from __future__ import with_statement
 
+import sys
+
 class FileOutputRecords:
 
     def __init__(self):
@@ -14,13 +16,13 @@ class FileOutputRecords:
 
         if message["request"] == "subscribe":
             try:
-                output = ongoing_outputs[message["id"]]
+                output = self.ongoing_outputs[message["id"]]
                 output.subscribe(message["chunk_size"])
             except KeyError:
                 print >>sys.stderr, "Ignored subscribe for non-existent output", message["id"]
         elif message["request"] == "unsubscribe":
             try:
-                output = ongoing_outputs[message["id"]]
+                output = self.ongoing_outputs[message["id"]]
                 output.unsubscribe()
             except KeyError:
                 print >>sys.stderr, "Ignored unsubscribe for output", message["id"], "not in progress"
@@ -59,7 +61,7 @@ class OutputFile:
             self.notify_threshold += self.chunk_size
             should_notify = True
         if should_notify:
-            self.message_helper.send_message({"request": "advert", "size": self.bytes_written})
+            self.message_helper.send_message({"request": "advert", "id": self.id, "size": self.bytes_written})
 
     def writelines(self, lines):
         for line in lines:
@@ -67,11 +69,11 @@ class OutputFile:
 
     def subscribe(self, new_chunk_size):
         self.chunk_size = new_chunk_size
-        self.next_threshold = self.chunk_size * ((self.bytes_written / self.chunk_size) + 1)
+        self.notify_threshold = self.chunk_size * ((self.bytes_written / self.chunk_size) + 1)
 
     def unsubscribe(self):
         self.chunk_size = None
-        self.next_threshold = None
+        self.notify_threshold = None
 
     def close(self):
         self.closed = True
@@ -98,6 +100,7 @@ class OutputFile:
             self.rollback()
 
     def __getstate__(self):
+        print >>sys.stderr, "GETSTATE CALLED", self.id
         if self.closed:
             return (self.id, self.ref)
         else:

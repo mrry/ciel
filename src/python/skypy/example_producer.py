@@ -8,8 +8,8 @@ def stream_producer(chunk_size, chunks_to_produce):
 
     bytes_written = 0
 
-    while bytes_written < (chunk_size * chunks_to_produce):
-        with skypy.open_output(skypy.extra_outputs[0]) as file_out:
+    with skypy.open_output(skypy.extra_outputs[0]) as file_out:
+        while bytes_written < (chunk_size * chunks_to_produce):
             file_out.write("Have some bytes!")
             bytes_written += 16
 
@@ -26,7 +26,7 @@ def stream_consumer(chunk_size, in_ref):
             if len(str) == 0:
                 break
 
-    return "Read %d bytes"
+    return "Read %d bytes" % bytes_read
 
 def reader_function(refs):
     
@@ -39,6 +39,13 @@ def reader_function(refs):
     with skypy.open_output(skypy.extra_outputs[0]) as file_out:
         file_out.write("Complete read results: %s\n" % str(results))
     return "Read %d results" % len(refs)
+
+def read_result(reader_result):
+
+    with skypy.RequiredRefs(list(reader_result)):
+        cooked_result = skypy.deref(reader_result.ret_output)
+        with skypy.deref_as_raw_file(reader_result.extra_outputs[0]) as in_file:
+            return (cooked_result, in_file.read())
 
 def skypy_main():
 
@@ -64,11 +71,8 @@ def skypy_main():
     # Step 3: Test reading those results back.
 
     reader_result = skypy.spawn(reader_function, refs, n_extra_outputs=1)
-
-    with skypy.RequiredRefs(list(reader_result)):
-        cooked_result = skypy.deref(reader_result.ret_output)
-        with skypy.deref_as_raw_file(reader_result.extra_outputs[0]) as in_file:
-            raw_result = in_file.read()
+#    cooked_result, raw_result = read_result(reader_result)
+    cooked_result, raw_result = "Dummy", "text"
 
     # Step 4: Test a stream producer/consumer pair.
 
