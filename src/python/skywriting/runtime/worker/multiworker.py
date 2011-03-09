@@ -183,7 +183,7 @@ class MultiWorkerTaskSetExecutionRecord:
             report_data = []
             for tr in self.task_records:
                 if tr.success:
-                    report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.spawned_tasks, tr.published_refs)))
+                    report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.spawned_tasks, tr.published_refs, tr.get_profiling())))
                 else:
                     ciel.log('Appending failure to report for task %s' % tr.task_descriptor['task_id'], 'TASKEXEC', logging.INFO)
                     report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.failure_reason, tr.failure_details, tr.failure_bindings)))

@@ -102,15 +102,13 @@ class TaskPoolTask:
         self.state = state
         if state in (TASK_COMMITTED, TASK_ASSIGNED):
             evt_time = self.history[-1][0]
-            if self.worker is not None:
-                worker_str = self.worker.id
-            else:
-                worker_str = "<no worker>"
-            ciel.log('%s %s %s @ %f' % (self.task_id, TASK_STATE_NAMES[self.state], worker_str, time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'TASK', logging.INFO)
+            ciel.log('%s %s @ %f' % (self.task_id, TASK_STATE_NAMES[self.state], time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'TASK', logging.INFO)
         #ciel.log('Task %s: --> %s' % (self.task_id, TASK_STATE_NAMES[self.state]), 'TASK', logging.INFO)
         
-    def record_event(self, description):
-        self.history.append((datetime.datetime.now(), description))
+    def record_event(self, description, time=None):
+        if time is None:
+            time = datetime.datetime.now()
+        self.history.append((time, description))
         
     def is_replay_task(self):
         return self.replay_ref is not None
@@ -131,6 +129,21 @@ class TaskPoolTask:
             return self._blocking_dict.keys()
         else:
             return []
+
+    def set_profiling(self, profiling):
+        self.profiling = profiling
+    
+        ordered_events = [(timestamp, event) for (event, timestamp) in profiling.items()]
+        ordered_events.sort()
+        
+        for timestamp, event in ordered_events:
+            self.record_event(event, datetime.datetime.fromtimestamp(timestamp))
+    
+    def get_profiling(self):
+        try:
+            return self.profiling
+        except AttributeError:
+            return {}
 
     def assign_netloc(self, netloc):
         self.workers.add(netloc)

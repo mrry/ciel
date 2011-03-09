@@ -23,6 +23,8 @@ import hashlib
 import ciel
 from skywriting.runtime.executors import BaseExecutor
 import threading
+import datetime
+import time
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -141,6 +143,18 @@ class TaskExecutionRecord:
         self.aborted = False
         self._executor_lock = threading.Lock()
         
+        self.creation_time = datetime.datetime.now()
+        self.start_time = None
+        self.finish_time = None
+        
+    def as_timestamp(self, t):
+        return time.mktime(t.timetuple()) + t.microsecond / 1e6
+        
+    def get_profiling(self):
+        return {'CREATED' : self.as_timestamp(self.creation_time),
+                'STARTED' : self.as_timestamp(self.start_time),
+                'FINISHED' : self.as_timestamp(self.finish_time)}
+        
     def run(self):
         ciel.engine.publish("worker_event", "Start execution " + repr(self.task_descriptor['task_id']) + " with handler " + self.task_descriptor['handler'])
         ciel.log.error("Starting task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.INFO, False)
@@ -158,7 +172,9 @@ class TaskExecutionRecord:
                     raise AbortedException()
                 else:
                     self.executor = self.execution_features.get_executor(self.task_descriptor["handler"], self.worker)
+            self.start_time = datetime.datetime.now()
             self.executor.run(self.task_descriptor, self)
+            self.finish_time = datetime.datetime.now()
             
             self.success = True
             

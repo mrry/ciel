@@ -14,7 +14,8 @@
 from cherrypy.process import plugins
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 from skywriting.runtime.task import TASK_STATES, \
-    build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED
+    build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED,\
+    TASK_COMMITTED
 from threading import Lock, Condition
 import Queue
 import ciel
@@ -180,7 +181,10 @@ class Job:
         for (parent_id, success, payload) in report:
             parent_task = self.task_graph.get_task(parent_id)
             if success:
-                (spawned, published) = payload
+                (spawned, published, profiling) = payload
+                
+                parent_task.set_profiling(profiling)
+                parent_task.set_state(TASK_COMMITTED)
                 
                 for child in spawned:
                     child_task = build_taskpool_task_from_descriptor(child, parent_task)
