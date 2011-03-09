@@ -50,13 +50,13 @@ def main():
     sp_package = {"skypymain": {"filename": script_name}}
     sp_args = {"pyfile_ref": {"__package__": "skypymain"}, "entry_point": "skypy_main", "entry_args": script_args}
 
-    new_job = skywriting.runtime.util.start_job.submit_job_with_package(sp_package, "skypy", sp_args, os.getcwd(), master_uri)
+    new_job = skywriting.runtime.util.start_job.submit_job_with_package(sp_package, "skypy", sp_args, os.getcwd(), master_uri, args)
     
     result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
 
     fakeBlockStore = BlockStore(ciel.engine, None, None, "/tmp")
     reflist = fakeBlockStore.retrieve_object_for_ref(result, "json")
-    fakeBlockStore.stop_thread()
+
     return reflist[0]
 
 if __name__ == '__main__':
