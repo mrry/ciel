@@ -71,8 +71,8 @@ def skypy_main():
     # Step 3: Test reading those results back.
 
     reader_result = skypy.spawn(reader_function, refs, n_extra_outputs=1)
-#    cooked_result, raw_result = read_result(reader_result)
-    cooked_result, raw_result = "Dummy", "text"
+    cooked_result, raw_result = read_result(reader_result)
+#    cooked_result, raw_result = "Dummy", "text"
 
     # Step 4: Test a stream producer/consumer pair.
 
