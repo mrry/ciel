@@ -234,6 +234,14 @@ class JobTaskGraph(DynamicTaskGraph):
         self.job = job
         self.scheduler_queue = scheduler_queue
     
+    def spawn(self, task, tx=None):
+        self.job.add_task(task)
+        DynamicTaskGraph.spawn(self, task, tx)
+        
+    def publish(self, reference, producing_task=None):
+        self.job.add_reference(reference.id, reference)
+        return DynamicTaskGraph.publish(self, reference, producing_task)
+    
     def task_runnable(self, task):
         if self.job.state == JOB_ACTIVE:
             task.set_state(TASK_QUEUED)
@@ -267,14 +275,12 @@ class JobTaskGraph(DynamicTaskGraph):
                 
         elif reason == 'MISSING_INPUT':
             # Problem fetching input, so we will have to re-execute it.
-            worker = task.worker
             for binding in bindings.values():
                 ciel.log('Missing input: %s' % str(binding), 'TASKFAIL', logging.WARNING)
             self.handle_missing_input(task)
             
         elif reason == 'RUNTIME_EXCEPTION':
             # A hard error, so kill the entire job, citing the problem.
-            worker = task.worker
             task.set_state(TASK_FAILED)
             should_notify_outputs = True
 
