@@ -198,7 +198,9 @@ class Job:
                 
         tx.commit(self.task_graph)
         self.task_graph.reduce_graph_for_references(toplevel_task.expected_outputs)
-        toplevel_task.worker.idle()
+        
+        # XXX: Need to remove assigned task from worker(s).
+        
         ciel.engine.publish('schedule')
 
                 
