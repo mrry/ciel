@@ -36,6 +36,7 @@ import subprocess
 import tempfile
 import urllib
 import urllib2
+from skywriting.runtime.master.pushy_scheduler import PushyScheduler
 
 def master_main(options):
 
@@ -45,7 +46,7 @@ def master_main(options):
     worker_pool = WorkerPool(ciel.engine, deferred_worker)
     worker_pool.subscribe()
 
-    scheduler = LazyScheduler(ciel.engine, worker_pool)
+    scheduler = PushyScheduler(ciel.engine, worker_pool)
     scheduler.subscribe()
 
     task_failure_investigator = TaskFailureInvestigator(worker_pool, deferred_worker)

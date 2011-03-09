@@ -170,7 +170,7 @@ class WorkerPool(plugins.SimplePlugin):
     
     def execute_task_on_worker(self, worker, task):
         with self._lock:
-            self.idle_set.remove(worker.id)
+            #self.idle_set.remove(worker.id)
             worker.current_task = task
             task.set_assigned_to_worker(worker)
             self.event_count += 1
