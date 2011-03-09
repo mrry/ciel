@@ -18,6 +18,10 @@ Created on 22 Apr 2010
 @author: dgm36
 '''
 
+class AbortedException(Exception):
+    def __init__(self):
+        pass
+
 class RuntimeSkywritingError(Exception):
     def __init__(self):
         pass
