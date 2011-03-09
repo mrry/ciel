@@ -13,6 +13,8 @@ import traceback
 import os
 
 import skypy
+from rpc_helper import RpcHelper
+from file_outputs import FileOutputRecords
 
 from shared.io_helpers import MaybeFile
 from shared.references import SW2_FutureReference
@@ -31,8 +33,6 @@ print >>sys.stderr, "SkyPy: Awaiting task"
 entry_dict = pickle.load(sys.stdin)
 
 skypy.main_coro = stackless.coroutine.getcurrent()
-skypy.runtime_out = sys.stdout
-skypy.runtime_in = sys.stdin
 user_script_namespace = imp.load_source("user_script_namespace", entry_dict["source_filename"])
 
 if "coro_filename" in entry_dict:
@@ -55,6 +55,10 @@ if not entry_dict["is_continuation"]:
 skypy.persistent_state = resume_state.persistent_state
 skypy.extra_outputs = skypy.persistent_state.extra_outputs
 
+skypy.file_outputs = FileOutputRecords()
+skypy.message_helper = RpcHelper(sys.stdin, sys.stdout, skypy.file_outputs)
+skypy.file_outputs.set_message_helper(skypy.message_helper)
+
 user_coro.switch()
 # We're back -- either the user script is done, or else it's stuck waiting on a reference.
 with MaybeFile() as output_fp:
@@ -72,5 +76,6 @@ with MaybeFile() as output_fp:
         out_dict = {"request": "exception"}
     skypy.describe_maybe_file(output_fp, out_dict)
 pickle.dump(out_dict, sys.stdout)
+
 
 

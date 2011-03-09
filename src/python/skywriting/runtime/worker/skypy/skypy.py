@@ -15,10 +15,10 @@ import shared.references
 from shared.references import SW2_FutureReference
 from shared.io_helpers import MaybeFile
 
+from file_outputs import OutputFile
+
 # Changes from run to run; set externally
 main_coro = None
-runtime_out = None
-runtime_in = None
 persistent_state = None
 taskid = None
 ret_output = None
@@ -65,9 +65,7 @@ def fetch_ref(ref, verb, **kwargs):
         for tries in range(2):
             send_dict = {"request": verb, "ref": ref}
             send_dict.update(kwargs)
-            pickle.dump(send_dict, runtime_out)
-            runtime_out.flush()
-            runtime_response = pickle.load(runtime_in)
+            runtime_response = message_helper.synchronous_request(send_dict)
             if not runtime_response["success"]:
                 if tries == 0:
                     halt_reason = HALT_REFERENCE_UNAVAILABLE
@@ -124,28 +122,25 @@ class RequiredRefs():
 
 def spawn(spawn_callable, *pargs, **kwargs):
     
+    print >>sys.stderr, pargs
     new_coro = stackless.coroutine()
-    new_coro.bind(start_script, spawn_callable, args)
+    new_coro.bind(start_script, spawn_callable, pargs)
     save_obj = ResumeState(None, new_coro)
     with MaybeFile() as new_coro_fp:
         pickle.dump(save_obj, new_coro_fp)
         out_dict = {"request": "spawn", "coro_descriptor": dict()}
         describe_maybe_file(new_coro_fp, out_dict["coro_descriptor"])
     out_dict.update(kwargs)
-    pickle.dump(out_dict, runtime_out)
-    runtime_out.flush()
-    response = pickle.load(runtime_in)
-    return response["output"]
+    response = message_helper.synchronous_request(out_dict)
+    return response["outputs"]
 
 def do_exec(executor_name, small_task, **args):
     
     args["request"] = "exec"
     args["small_task"] = small_task
     args["executor_name"] = executor_name
-    pickle.dump(args,
-                runtime_out)
-    runtime_out.flush()
-    return pickle.load(runtime_in)["outputs"]
+    response = message_helper.synchronous_request(args)
+    return response["outputs"]
 
 def spawn_exec(executor_name, **args):
     return do_exec(executor_name, False, **args)
@@ -159,9 +154,8 @@ class PackageKeyError:
 
 def package_lookup(key):
     
-    pickle.dump({"request": "package_lookup", "key": key}, runtime_out)
-    runtime_out.flush()
-    retval = pickle.load(runtime_in)["value"]
+    response = message_helper.synchronous_request({"request": "package_lookup", "key": key})
+    retval = response["value"]
     if retval is None:
         raise PackageKeyError(key)
     return retval
@@ -221,8 +215,7 @@ class StreamingFile:
     def close(self):
         self.closed = True
         self.fp.close()
-        pickle.dump({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size}, runtime_out)
-        runtime_out.flush()
+        message_helper.send_message({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size})
         remove_ref_dependency(self.ref)
 
     def __exit__(self, exnt, exnv, exnbt):
@@ -231,9 +224,7 @@ class StreamingFile:
     def wait(self, **kwargs):
         out_dict = {"request": "wait_stream", "id": self.ref.id}
         out_dict.update(kwargs)
-        pickle.dump(out_dict, runtime_out)
-        runtime_out.flush()
-        runtime_response = pickle.load(runtime_in)
+        runtime_response = message_helper.synchronous_request(out_dict)
         if not runtime_response["success"]:
             raise Exception("File transfer failed before EOF")
         else:
@@ -332,40 +323,15 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 
+def get_fresh_output_name():
+    runtime_response = message_helper.synchronous_request({"request": "create_fresh_output"})
+    return runtime_response["name"]
+
 def open_output(id):
-    pickle.dump({"request": "open_output", "id": id}, runtime_out)
-    runtime_out.flush()
-    runtime_response = pickle.load(runtime_in)
-    return OutputFile(runtime_response["filename"], id)
-
-class OutputFile:
-    def __init__(self, filename, id):
-        self.id = id
-        self.filename = filename
-        self.fp = open(self.filename, "w")
-
-    def __enter__(self):
-        return self
-
-    def close(self):
-        self.closed = True
-        self.fp.close()
-        pickle.dump({"request": "close_output", "id": self.id}, runtime_out)
-        runtime_out.flush()
-        runtime_ret = pickle.load(runtime_in)
-        self.ref = runtime_ret["ref"]
-
-    def rollback(self):
-        self.closed = True
-        self.fp.close()
-        pickle.dump({"request": "rollback_output", "id": self.id}, runtime_out)
-        runtime_out.flush()
-
-    def __exit__(self, exnt, exnv, exnbt):
-        if exnt is None:
-            self.close()
-        else:
-            self.rollback()
+    new_output = OutputFile(message_helper, file_outputs, id)
+    runtime_response = message_helper.synchronous_request({"request": "open_output", "id": id})
+    new_output.set_filename(runtime_response["filename"])
+    return new_output
 
 def start_script(entry_point, entry_args):
 

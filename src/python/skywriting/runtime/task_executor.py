@@ -202,7 +202,7 @@ class TaskExecutionRecord:
         return ret
     
     def create_published_output_name(self):
-        ret = '%s:pub:%d' % (self.task_id, self.publish_counter)
+        ret = '%s:pub:%d' % (self.task_descriptor["task_id"], self.publish_counter)
         self.publish_counter += 1
         return ret
 
