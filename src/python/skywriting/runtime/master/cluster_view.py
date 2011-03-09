@@ -126,7 +126,7 @@ class TaskBrowserRoot:
 class RefBrowserRoot:
     
     def __init__(self, job_pool):
-        self.task_pool = job_pool
+        self.job_pool = job_pool
 
     @cherrypy.expose         
     def default(self, job_id, ref_id):
