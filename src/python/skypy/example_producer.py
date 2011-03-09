@@ -10,7 +10,12 @@ def skypy_main():
 
     for i, id in enumerate(skypy.extra_outputs):
         with skypy.open_output(id) as file_out:
-            file_out.fp.write("Skypy writing output %d" % i)
+            file_out.write("Skypy writing output %d" % i)
 
-    return "Wrote %d outputs" % len(skypy.extra_outputs)
+    for i in range(3):
+        name = skypy.get_fresh_output_name()
+        with skypy.open_output(name) as file_out:
+            file_out.write("Skypy writing anonymous output %d" % i)
+
+    return "Wrote %d external outputs and 3 I created myself" % len(skypy.extra_outputs)
 
