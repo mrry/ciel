@@ -386,6 +386,10 @@ def combine_references(original, update):
     if isinstance(original, SW2_FutureReference) and isinstance(update, SW2_StreamReference):
         return update
     
+    # Error reference > future reference.
+    if isinstance(original, SW2_FutureReference) and isinstance(update, SWErrorReference):
+        return update
+    
     # For references of the same type, merge the location hints for the two references.
     if isinstance(original, SW2_StreamReference) and isinstance(update, SW2_StreamReference):
         original.combine_with(update)
@@ -406,5 +410,5 @@ def combine_references(original, update):
         return SWErrorReference(original.id, 'LOST_FIXED_OBJECT', original.fixed_netloc)
     
     # If we reach this point, we should ignore the update.
-    return original    
+    return original
 
