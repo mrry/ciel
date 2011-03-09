@@ -387,6 +387,9 @@ class SkyPyOutput:
             self.executor._subscribe_output(self.output_ctx.refid, new_chunk_size)
         self.watch_chunk_size = new_chunk_size
 
+    def get_stream_ref(self):
+        return self.output_ctx.get_stream_ref()
+
     def get_completed_ref(self):
         return self.output_ctx.get_completed_ref()
 
@@ -684,6 +687,8 @@ class SkyPyExecutor(BaseExecutor):
         skypy_output = SkyPyOutput(new_output, self)
         self.ongoing_outputs[id] = skypy_output
         self.context_manager.add_context(skypy_output)
+        ref = skypy_output.get_stream_ref()
+        self.task_record.prepublish_refs([ref])
         return new_output.get_filename()
 
     def stop_output(self, id):
