@@ -18,8 +18,8 @@ import cherrypy
 import time
 from shared.references import SWDataValue
 
-def table_row(key, value):
-    return '<tr><td><b>%s</b></td><td>%s</td></tr>' % (key, str(value))
+def table_row(key, *args):
+    return '<tr><td><b>%s</b></td>' % key + ''.join(['<td>%s</td>' % str(x) for x in args]) + '</tr>'
         
 def span_row(heading):
     return '<tr><td colspan="2" bgcolor="#cccccc" align="center">%s</td></tr>' % heading
@@ -56,8 +56,9 @@ class JobBrowserRoot:
         jobs = self.job_pool.get_all_job_ids()
         job_string = '<html><head><title>Job Browser</title></head>'
         job_string += '<body><table>'
-        for job in jobs:
-            job_string += table_row('Job', job_link(self.job_pool.get_job_by_id(job)))
+        for job_id in jobs:
+            job = self.job_pool.get_job_by_id(job_id)
+            job_string += table_row('Job', job_link(job), JOB_STATE_NAMES[job.state])
         job_string += '</table></body></html>'
         return job_string
         
@@ -126,7 +127,7 @@ class TaskBrowserRoot:
 class RefBrowserRoot:
     
     def __init__(self, job_pool):
-        self.task_pool = job_pool
+        self.job_pool = job_pool
 
     @cherrypy.expose         
     def default(self, job_id, ref_id):

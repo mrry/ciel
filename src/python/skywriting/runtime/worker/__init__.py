@@ -36,6 +36,7 @@ from threading import Lock, Condition
 from datetime import datetime
 from skywriting.runtime.lighttpd import LighttpdAdapter
 from skywriting.runtime.worker.process_pool import ProcessPool
+from skywriting.runtime.worker.multiworker import MultiWorker
 
 class WorkerState:
     pass
@@ -75,8 +76,10 @@ class Worker(plugins.SimplePlugin):
         self.upload_deferred_work.subscribe()
         self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)
         self.execution_features = ExecutionFeatures()
-        self.task_executor = TaskExecutorPlugin(bus, self, self.master_proxy, self.execution_features, 1)
-        self.task_executor.subscribe()
+        #self.task_executor = TaskExecutorPlugin(bus, self, self.master_proxy, self.execution_features, 1)
+        #self.task_executor.subscribe()
+        self.multiworker = MultiWorker(ciel.engine, self, options.num_threads)
+        self.multiworker.subscribe()
         self.process_pool = ProcessPool(bus, self)
         self.process_pool.subscribe()
         self.runnable_executors = self.execution_features.runnable_executors.keys()

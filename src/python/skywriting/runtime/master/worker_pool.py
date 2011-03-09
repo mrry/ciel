@@ -23,6 +23,7 @@ import uuid
 import random
 import logging
 import ciel
+from skywriting.runtime.exceptions import WorkerFailedException
 
 class FeatureQueues:
     def __init__(self):
@@ -51,22 +52,27 @@ class Worker:
         self.id = worker_id
         self.netloc = worker_descriptor['netloc']
         self.features = worker_descriptor['features']
-        self.current_task = None
         self.last_ping = datetime.datetime.now()
-        
         self.failed = False
-        
         self.worker_pool = worker_pool
+        self.assigned_tasks = set()
         
-        self.local_queue = Queue()
-        self.queues = [self.local_queue]
-        for feature in self.features:
-            self.queues.append(feature_queues.get_queue_for_feature(feature))
-        for feature in self.features:
-            self.queues.append(feature_queues.get_streaming_queue_for_feature(feature))
+    def add_assigned_task(self, task):
+        if self.failed:
+            raise WorkerFailedException(self)
+        self.assigned_tasks.add(task)
+        
+    def remove_assigned_task(self, task):
+        self.assigned_tasks.remove(task)
+        
+    def get_assigned_tasks(self):
+        return self.assigned_tasks.copy()
+
+    def load(self):
+        return len(self.assigned_tasks)
 
     def idle(self):
-        self.worker_pool.worker_idle(self)
+        pass
 
     def __repr__(self):
         return 'Worker(%s)' % self.id
@@ -99,14 +105,12 @@ class WorkerPool(plugins.SimplePlugin):
 
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
-        self.bus.subscribe('worker_idle', self.worker_idle)
         self.bus.subscribe('worker_ping', self.worker_ping)
         self.bus.subscribe('start', self.start, 75)
         self.bus.subscribe('stop', self.server_stopping, 10) 
         
     def unsubscribe(self):
         self.bus.unsubscribe('worker_failed', self.worker_failed)
-        self.bus.unsubscribe('worker_idle', self.worker_idle)
         self.bus.unsubscribe('worker_ping', self.worker_ping)
         self.bus.unsubscribe('start', self.start, 75)
         self.bus.unsubscribe('stop', self.server_stopping) 
@@ -169,55 +173,36 @@ class WorkerPool(plugins.SimplePlugin):
         return worker_list
     
     def execute_task_on_worker(self, worker, task):
-        with self._lock:
-            self.idle_set.remove(worker.id)
-            worker.current_task = task
-            task.set_assigned_to_worker(worker)
-            self.event_count += 1
-            self.event_condvar.notify_all()
-            
         try:
+            worker.add_assigned_task(task)
             httplib2.Http().request("http://%s/control/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
         except:
             self.worker_failed(worker)
+            
+    def task_completed_on_worker(self, task, done_worker):
+        for worker in task.get_workers():
+            worker.remove_assigned_task(task)
+            if worker is not done_worker:
+                self.abort_task_on_worker(task, worker)
         
-    def abort_task_on_worker(self, task):
-        worker = task.worker
-    
+    def abort_task_on_worker(self, task, worker):
         try:
             print "Aborting task %d on worker %s" % (task.task_id, worker)
-            response, _ = httplib2.Http().request('http://%s/control/task/%d/abort' % (worker.netloc, task.task_id), 'POST')
-            if response.status == 200:
-                self.worker_idle(worker)
-            else:
-                print response
-                print 'Worker failed to abort a task:', worker 
-                self.worker_failed(worker)
+            httplib2.Http().request('http://%s/control/abort/%s/%s' % (worker.netloc, task.job.id, task.task_id), 'POST')
         except:
             self.worker_failed(worker)
     
     def worker_failed(self, worker):
-        ciel.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
+        ciel.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING, True)
         with self._lock:
-            self.event_count += 1
-            self.event_condvar.notify_all()
-            self.idle_set.discard(worker.id)
-            failed_task = worker.current_task
+            failed_tasks = worker.get_assigned_tasks()
             worker.failed = True
             del self.netlocs[worker.netloc]
             del self.workers[worker.id]
 
-        if failed_task is not None:
-            self.bus.publish('task_failed', failed_task, ('WORKER_FAILED', None, {}))
+        for failed_task in failed_tasks:
+            failed_task.job.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
         
-    def worker_idle(self, worker):
-        with self._lock:
-            worker.current_task = None
-            self.idle_set.add(worker.id)
-            self.event_count += 1
-            self.event_condvar.notify_all()
-        self.bus.publish('schedule')
-            
     def worker_ping(self, worker):
         with self._lock:
             self.event_count += 1
@@ -228,31 +213,10 @@ class WorkerPool(plugins.SimplePlugin):
         with self._lock:
             return self.workers.values()
 
-    def get_all_workers_with_version(self):
-        with self._lock:
-            return (self.event_count, map(lambda x: x.as_descriptor(), self.workers.values()))
-
     def server_stopping(self):
         with self._lock:
             self.is_stopping = True
             self.event_condvar.notify_all()
-
-    def await_version_after(self, target):
-        with self._lock:
-            self.current_waiters = self.current_waiters + 1
-            while self.event_count <= target:
-                if self.current_waiters > self.max_concurrent_waiters:
-                    break
-                elif self.is_stopping:
-                    break
-                else:
-                    self.event_condvar.wait()
-            self.current_waiters = self.current_waiters - 1
-            if self.current_waiters >= self.max_concurrent_waiters:
-                raise Exception("Too many concurrent waiters")
-            elif self.is_stopping:
-                raise Exception("Server stopping")
-            return self.event_count
 
     def investigate_worker_failure(self, worker):
         ciel.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)

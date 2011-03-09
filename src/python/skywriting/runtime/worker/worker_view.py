@@ -54,6 +54,7 @@ class ControlRoot:
         self.admin = ManageRoot(worker.block_store)
         self.fetch = FetchRoot(worker.upload_manager)
         self.process = ProcessRoot(worker.process_pool)
+        self.abort = AbortRoot(worker)
     
     @cherrypy.expose
     def index(self):
@@ -114,26 +115,34 @@ class TaskRoot:
         if cherrypy.request.method == 'POST':
             task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
-                self.worker.submit_task(task_descriptor)
+                self.worker.multiworker.create_and_queue_taskset(task_descriptor)
                 return
         raise cherrypy.HTTPError(405)
-    
-    @cherrypy.expose
-    def default(self, task_id, action):
-        real_id = task_id
-        if action == 'abort':
-            if cherrypy.request.method == 'POST':
-                self.worker.abort_task(real_id)
-            else:
-                raise cherrypy.HTTPError(405)
-        else:
-            raise cherrypy.HTTPError(404)
     
     # TODO: Add some way of checking up on the status of a running task.
     #       This should grow to include a way of getting the present activity of the task
     #       and a way of setting breakpoints.
     #       ...and a way of killing the task.
     #       Ideally, we should create a task view (Root) for each running task.    
+
+class AbortRoot:
+    
+    def __init__(self, worker):
+        self.worker = worker
+    
+    @cherrypy.expose
+    def default(self, job_id, task_id=None):
+        
+        try:
+            job = self.worker.multiworker.get_job_by_id(job_id)
+        except KeyError:
+            return
+            
+        if task_id is None:
+            job.abort_all_active_tasksets()
+        else:
+            job.abort_taskset_with_id(task_id)
+            
 
 class LogRoot:
 

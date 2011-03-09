@@ -198,7 +198,9 @@ class Job:
                 
         tx.commit(self.task_graph)
         self.task_graph.reduce_graph_for_references(toplevel_task.expected_outputs)
-        toplevel_task.worker.idle()
+        
+        # XXX: Need to remove assigned task from worker(s).
+        
         ciel.engine.publish('schedule')
 
                 
@@ -234,6 +236,14 @@ class JobTaskGraph(DynamicTaskGraph):
         self.job = job
         self.scheduler_queue = scheduler_queue
     
+    def spawn(self, task, tx=None):
+        self.job.add_task(task)
+        DynamicTaskGraph.spawn(self, task, tx)
+        
+    def publish(self, reference, producing_task=None):
+        self.job.add_reference(reference.id, reference)
+        return DynamicTaskGraph.publish(self, reference, producing_task)
+    
     def task_runnable(self, task):
         if self.job.state == JOB_ACTIVE:
             task.set_state(TASK_QUEUED)
@@ -267,14 +277,12 @@ class JobTaskGraph(DynamicTaskGraph):
                 
         elif reason == 'MISSING_INPUT':
             # Problem fetching input, so we will have to re-execute it.
-            worker = task.worker
             for binding in bindings.values():
                 ciel.log('Missing input: %s' % str(binding), 'TASKFAIL', logging.WARNING)
             self.handle_missing_input(task)
             
         elif reason == 'RUNTIME_EXCEPTION':
             # A hard error, so kill the entire job, citing the problem.
-            worker = task.worker
             task.set_state(TASK_FAILED)
             should_notify_outputs = True
 
@@ -312,6 +320,9 @@ class JobPool(plugins.SimplePlugin):
         
         self.current_running_job = None
         self.run_queue = Queue.Queue()
+        
+        self.num_running_jobs = 0
+        self.max_running_jobs = 10
         
         # Synchronisation code for stopping/waiters.
         self.is_stopping = False
@@ -381,6 +392,8 @@ class JobPool(plugins.SimplePlugin):
         job = Job(job_id, task, job_dir, JOB_CREATED, self, self.scheduler.scheduler_queue, self.task_failure_investigator)
         task.job = job
         
+        print 'About to add job'
+        
         self.add_job(job)
         
         ciel.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
@@ -395,35 +408,36 @@ class JobPool(plugins.SimplePlugin):
         else:
             return None
 
+    def maybe_start_new_job(self):
+        with self._lock:
+            if self.num_running_jobs < self.max_running_jobs:
+                self.num_running_jobs += 1
+                try:
+                    next_job = self.run_queue.get_nowait()
+                    self._start_job(next_job)
+                except Queue.Empty:
+                    ciel.log('Not starting a new job because there are no more to start', 'JOB_POOL', logging.INFO)
+            else:
+                ciel.log('Not starting a new job because there is insufficient capacity', 'JOB_POOL', logging.INFO)
+                
     def queue_job(self, job):
         self.run_queue.put(job)
         job.enqueued()
-        
-        with self._lock:
-            if self.current_running_job is None:
-                next_job = self.run_queue.get()
-                self._start_job(next_job)
+        self.maybe_start_new_job()
             
     def job_completed(self, job):
-        assert job is self.current_running_job
-        
+        self.num_running_jobs -= 1
         #job.completed(result_ref)
-
-        with self._lock:
-            try:
-                self.current_running_job = self.run_queue.get_nowait()
-                self._start_job(self.current_running_job)
-            except:
-                self.current_running_job = None
+        self.maybe_start_new_job()
 
     def _start_job(self, job):
         ciel.log('Starting job ID: %s' % job.id, 'JOB_POOL', logging.INFO)
-        self.current_running_job = job 
         # This will also start the job by subscribing to the root task output and reducing.
         job.activated()
 
     def wait_for_completion(self, job):
         with job._lock:
+            ciel.log('Waiting for completion of job %s' % job.id, 'JOB_POOL', logging.INFO)
             while job.state not in (JOB_COMPLETED, JOB_FAILED):
                 if self.is_stopping:
                     break

@@ -14,13 +14,15 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from skywriting.runtime.plugins import AsynchronousExecutePlugin
-from skywriting.runtime.exceptions import ReferenceUnavailableException, MissingInputException
+from skywriting.runtime.exceptions import ReferenceUnavailableException, MissingInputException,\
+    AbortedException
 from skywriting.runtime.local_task_graph import LocalTaskGraph, LocalJobOutput
 from threading import Lock
 import logging
 import hashlib
 import ciel
 from skywriting.runtime.executors import BaseExecutor
+import threading
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -30,8 +32,6 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         self.block_store = worker.block_store
         self.master_proxy = master_proxy
         self.execution_features = execution_features
-
-        self.executor_cache = ExecutorCache(self.execution_features, self.worker)
         self.current_task_set = None
         self._lock = Lock()
     
@@ -46,7 +46,7 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
 
     def handle_input(self, input):
 
-        new_task_set = TaskSetExecutionRecord(self.executor_cache, input, self.block_store, self.master_proxy, self.execution_features)
+        new_task_set = TaskSetExecutionRecord(input, self.block_store, self.master_proxy, self.execution_features, self.worker)
         with self._lock:
             self.current_task_set = new_task_set
         new_task_set.run()
@@ -60,41 +60,20 @@ class TaskExecutorPlugin(AsynchronousExecutePlugin):
         with self._lock:
             self.current_task_set = None
 
-class ExecutorCache:
-
-    # A cache of executors, permitting helper processes to outlive tasks.
-    # Policy: only keep one of each kind around at any time.
-
-    def __init__(self, execution_features, worker):
-        self.execution_features = execution_features
-        self.worker = worker
-        self.idle_executors = dict()
-    
-    def get_executor(self, handler):
-        try:
-            return self.idle_executors.pop(handler)
-        except KeyError:
-            return self.execution_features.get_executor(handler, self.worker)
-
-    def put_executor(self, handler, executor):
-        if handler in self.idle_executors:
-            executor.cleanup()
-        else:
-            self.idle_executors[handler] = executor
-
 class TaskSetExecutionRecord:
 
-    def __init__(self, executor_cache, root_task_descriptor, block_store, master_proxy, execution_features):
+    def __init__(self, root_task_descriptor, block_store, master_proxy, execution_features, worker):
         self._lock = Lock()
         self.task_records = []
         self.current_task = None
         self.current_td = None
         self.block_store = block_store
         self.master_proxy = master_proxy
-        self.executor_cache = executor_cache
+        self.execution_features = execution_features
+        self.worker = worker
         self.reference_cache = dict([(ref.id, ref) for ref in root_task_descriptor["inputs"]])
         self.initial_td = root_task_descriptor
-        self.task_graph = LocalTaskGraph(self.initial_td["task_id"], execution_features)
+        self.task_graph = LocalTaskGraph(execution_features, [self.initial_td["task_id"]])
         self.job_output = LocalJobOutput(self.initial_td["expected_outputs"])
         for ref in self.initial_td["expected_outputs"]:
             self.task_graph.subscribe(ref, self.job_output)
@@ -103,13 +82,12 @@ class TaskSetExecutionRecord:
     def run(self):
         ciel.log.error("Running taskset starting at %s" % self.initial_td["task_id"], "TASKEXEC", logging.INFO)
         while not self.job_output.is_complete():
-            try:
-                next_td = self.task_graph.get_runnable_task()
-            except IndexError:
+            next_td = self.task_graph.get_runnable_task()
+            if next_td is None:
                 ciel.log.error("No more runnable tasks", "TASKEXEC", logging.INFO)
                 break
             next_td["inputs"] = [self.retrieve_ref(ref) for ref in next_td["dependencies"]]
-            task_record = TaskExecutionRecord(next_td, self, self.executor_cache, self.block_store, self.master_proxy)
+            task_record = TaskExecutionRecord(next_td, self, self.execution_features, self.block_store, self.master_proxy, self.worker)
             with self._lock:
                 self.current_task = task_record
                 self.current_td = next_td
@@ -147,18 +125,21 @@ class TaskSetExecutionRecord:
 
 class TaskExecutionRecord:
 
-    def __init__(self, task_descriptor, task_set, executor_cache, block_store, master_proxy):
+    def __init__(self, task_descriptor, task_set, execution_features, block_store, master_proxy, worker):
         self.published_refs = []
         self.spawned_tasks = []
         self.spawn_counter = 0
         self.publish_counter = 0
         self.task_descriptor = task_descriptor
         self.task_set = task_set
-        self.executor_cache = executor_cache
+        self.execution_features = execution_features
         self.block_store = block_store
         self.master_proxy = master_proxy
+        self.worker = worker
         self.executor = None
         self.success = False
+        self.aborted = False
+        self._executor_lock = threading.Lock()
         
     def run(self):
         ciel.engine.publish("worker_event", "Start execution " + repr(self.task_descriptor['task_id']) + " with handler " + self.task_descriptor['handler'])
@@ -171,9 +152,16 @@ class TaskExecutionRecord:
                 self.package_ref = self.task_descriptor["task_private"]["package_ref"]
             else:
                 self.package_ref = None
-            self.executor = self.executor_cache.get_executor(self.task_descriptor["handler"])
+            
+            with self._executor_lock:
+                if self.aborted:
+                    raise AbortedException()
+                else:
+                    self.executor = self.execution_features.get_executor(self.task_descriptor["handler"], self.worker)
             self.executor.run(self.task_descriptor, self)
+            
             self.success = True
+            
             ciel.engine.publish("worker_event", "Completed execution " + repr(self.task_descriptor['task_id']))
             ciel.log.error("Completed task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.INFO, False)
         except MissingInputException as mie:
@@ -181,6 +169,8 @@ class TaskExecutionRecord:
             self.failure_bindings = mie.bindings
             self.failure_details = ""
             self.failure_reason = "MISSING_INPUT"
+            raise
+        except AbortedException:
             raise
         except:
             ciel.log.error("Error in task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.ERROR, True)
@@ -190,9 +180,12 @@ class TaskExecutionRecord:
             raise
 
     def cleanup(self):
-        if self.executor is not None:
-            self.executor_cache.put_executor(self.task_descriptor["handler"], self.executor)
-
+        with self._executor_lock:
+            if self.executor is not None:
+                self.executor.cleanup()
+                del self.executor
+                self.executor = None
+    
     def publish_ref(self, ref):
         self.published_refs.append(ref)
         self.task_set.publish_ref(ref)
@@ -221,7 +214,7 @@ class TaskExecutionRecord:
             new_task_descriptor["task_private"] = dict()
         if "expected_outputs" not in new_task_descriptor:
             new_task_descriptor["expected_outputs"] = []
-        executor_class = self.executor_cache.execution_features.get_executor_class(new_task_descriptor["handler"])
+        executor_class = self.execution_features.get_executor_class(new_task_descriptor["handler"])
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
         return_obj = executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, **args)
         self.spawned_tasks.append(new_task_descriptor)
@@ -230,3 +223,8 @@ class TaskExecutionRecord:
     def retrieve_ref(self, ref):
         return self.task_set.retrieve_ref(ref)
 
+    def abort(self):
+        with self._executor_lock:
+            self.aborted = True
+            if self.executor is not None:
+                self.executor.abort()
