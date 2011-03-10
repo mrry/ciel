@@ -511,7 +511,7 @@ class SkyPyExecutor(BaseExecutor):
         self.pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
         # Handle used for aborting the process.
-        self.proc = pypy_process
+        self.proc = self.pypy_process
 
         if "coro_ref" not in skypy_private:
             start_dict = {"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}

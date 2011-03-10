@@ -93,6 +93,7 @@ class pycURLContext:
 
         self.multi = multi
         self.result_callback = result_callback
+        self.url = url
 
         self.curl_ctx = pycurl.Curl()
         self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
@@ -112,6 +113,7 @@ class pycURLContext:
         self.cleanup()
 
     def failure(self, errno, errmsg):
+        ciel.log("Transfer failure: %s error %s / %s" % (self.url, errno, errmsg), "CURL", logging.WARNING)
         self.result_callback(False)
         self.cleanup()
 
@@ -160,7 +162,7 @@ class pycURLBufferContext(pycURLContext):
             self.curl_ctx.setopt(pycurl.READFUNCTION, self.read)
             self.curl_ctx.setopt(pycurl.POST, True)
             self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
-            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream"])
+            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream", "Expect:"])
 
     def write(self, data):
         self.write_fp.write(data)
@@ -1138,17 +1140,15 @@ class BlockStore(plugins.SimplePlugin):
         def get_result(self):
 
             self.completed_event.wait()
-            if self.response_string is not None:
+            if self.success:
                 return self.response_string
             else:
-                raise Exception("Curl-post failed")
+                raise Exception("Curl-post failed. Possible error-document: %s" % self.response_string)
 
         def result(self, success):
             
-            if success:
-                self.response_string = self.response_buffer.getvalue()
-            else:
-                self.response_string = None
+            self.response_string = self.response_buffer.getvalue()
+            self.success = success
             self.post_buffer.close()
             self.response_buffer.close()
             self.completed_event.set()
