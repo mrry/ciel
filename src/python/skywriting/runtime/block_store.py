@@ -17,7 +17,6 @@ from skywriting.runtime.exceptions import \
     MissingInputException, RuntimeSkywritingError
 import random
 import urllib2
-import httplib2
 import shutil
 import pickle
 import os
@@ -66,6 +65,8 @@ class StreamRetry:
     pass
 STREAM_RETRY = StreamRetry()
 
+singleton_blockstore = None
+
 def get_netloc_for_sw_url(url):
     return urlparse.urlparse(url).netloc
 
@@ -92,6 +93,7 @@ class pycURLContext:
 
         self.multi = multi
         self.result_callback = result_callback
+        self.url = url
 
         self.curl_ctx = pycurl.Curl()
         self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
@@ -111,6 +113,7 @@ class pycURLContext:
         self.cleanup()
 
     def failure(self, errno, errmsg):
+        ciel.log("Transfer failure: %s error %s / %s" % (self.url, errno, errmsg), "CURL", logging.WARNING)
         self.result_callback(False)
         self.cleanup()
 
@@ -145,9 +148,9 @@ class pycURLFetchContext(pycURLContext):
     def progress(self, toDownload, downloaded, toUpload, uploaded):
         self.progress_callback(downloaded)
 
-class pycURLPostContext(pycURLContext):
+class pycURLBufferContext(pycURLContext):
 
-    def __init__(self, in_fp, in_length, out_fp, url, multi, result_callback):
+    def __init__(self, method, in_fp, in_length, out_fp, url, multi, result_callback):
         
         pycURLContext.__init__(self, url, multi, result_callback)
 
@@ -155,10 +158,11 @@ class pycURLPostContext(pycURLContext):
         self.write_fp = out_fp
 
         self.curl_ctx.setopt(pycurl.WRITEFUNCTION, self.write)
-        self.curl_ctx.setopt(pycurl.READFUNCTION, self.read)
-        self.curl_ctx.setopt(pycurl.POST, True)
-        self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
-        self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream"])
+        if method == "POST":
+            self.curl_ctx.setopt(pycurl.READFUNCTION, self.read)
+            self.curl_ctx.setopt(pycurl.POST, True)
+            self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
+            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream", "Expect:"])
 
     def write(self, data):
         self.write_fp.write(data)
@@ -209,11 +213,12 @@ class SelectableEventQueue:
     def dispatch_events(self):
         with self._lock:
             ret = (len(self.event_queue) > 0)
-            for event in self.event_queue:
-                event()
+            to_run = self.event_queue
             self.event_queue = []
             self.drain_event_pipe()
-            return ret
+        for event in to_run:
+            event()
+        return ret
 
     def get_select_fds(self):
         return [self.event_pipe_read], [], []
@@ -507,6 +512,10 @@ class BlockStore(plugins.SimplePlugin):
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
+        global singleton_blockstore
+        assert singleton_blockstore is None
+        singleton_blockstore = self
+
     def start(self):
         self.fetch_thread.start()
         self.file_watcher_thread = get_watcher_thread()
@@ -581,7 +590,7 @@ class BlockStore(plugins.SimplePlugin):
         def post_all_netlocs(self, message):
             # FIXME: All subscribed endpoints currently get adverts as often as the one with the smallest chunk size.
             for sub in self.subscriptions:
-                httplib2.Http().request("http://%s/control/streamstat/%s/advert" % (sub.netloc, self.refid), "POST", message)
+                self.block_store.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (sub.netloc, self.refid), message)
 
         def rollback(self):
             if not self.closed:
@@ -1128,14 +1137,14 @@ class BlockStore(plugins.SimplePlugin):
                     return url
             return random.choice(urls)
 
-    class PostContext:
+    class BufferTransferContext:
         
-        def __init__(self, url, postdata, fetch_thread):
+        def __init__(self, method, url, postdata, fetch_thread):
 
             self.post_buffer = StringIO(postdata)
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
-            self.curl_ctx = pycURLPostContext(self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
+            self.curl_ctx = pycURLBufferContext(method, self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
 
         def start(self):
 
@@ -1144,17 +1153,15 @@ class BlockStore(plugins.SimplePlugin):
         def get_result(self):
 
             self.completed_event.wait()
-            if self.response_string is not None:
+            if self.success:
                 return self.response_string
             else:
-                raise Exception("Curl-post failed")
+                raise Exception("Curl-post failed. Possible error-document: %s" % self.response_string)
 
         def result(self, success):
             
-            if success:
-                self.response_string = self.response_buffer.getvalue()
-            else:
-                self.response_string = None
+            self.response_string = self.response_buffer.getvalue()
+            self.success = success
             self.post_buffer.close()
             self.response_buffer.close()
             self.completed_event.set()
@@ -1162,7 +1169,7 @@ class BlockStore(plugins.SimplePlugin):
     # This is only a BlockStore method because it uses the fetch_thread.
     # Called from cURL thread
     def _post_string_noreturn(self, url, postdata):
-        ctx = BlockStore.PostContext(url, postdata, self.fetch_thread)
+        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread)
         ctx.start()
         return
 
@@ -1171,12 +1178,22 @@ class BlockStore(plugins.SimplePlugin):
 
     # Called from cURL thread
     def _post_string(self, url, postdata):
-        ctx = BlockStore.PostContext(url, postdata, self.fetch_thread)
+        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread)
         ctx.start()
-        return ctx.get_result()
+        return ctx
 
     def post_string(self, url, postdata):
-        self.fetch_thread.do_from_curl_thread(lambda: self._post_string(url, postdata))
+        ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._post_string(url, postdata))
+        return ctx.get_result()
+
+    def _get_string(self, url):
+        ctx = BlockStore.BufferTransferContext("GET", url, "", self.fetch_thread)
+        ctx.start()
+        return ctx
+
+    def get_string(self, url):
+        ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._get_string(url))
+        return ctx.get_result()
 
     def check_local_blocks(self):
         ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
@@ -1243,3 +1260,13 @@ class BlockStore(plugins.SimplePlugin):
 
     def is_empty(self):
         return self.ignore_blocks or len(os.listdir(self.base_dir)) == 0
+
+def get_string(url):
+    return singleton_blockstore.get_string(url)
+
+def post_string(url, content):
+    return singleton_blockstore.post_string(url, content)
+
+def post_string_noreturn(url, content):
+    singleton_blockstore.post_string_noreturn(url, content)
+    

@@ -18,12 +18,12 @@ import ciel
 import logging
 import simplejson
 from shared.references import SW2_FixedReference
-import httplib2
 import urlparse
 from skywriting.runtime.references import SWReferenceJSONEncoder
 import pickle
 import fcntl
 import threading
+from skywriting.runtime.block_store import post_string
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""
@@ -116,15 +116,11 @@ class ProcessPool:
         master_task_submit_uri = urlparse.urljoin(self.worker.master_url, "control/job/")
         
         try:
-            http = httplib2.Http()
-            (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(root_task_descriptor, cls=SWReferenceJSONEncoder))
+            message = simplejson.dumps(root_task_descriptor, cls=SWReferenceJSONEncoder)
+            content = post_string(master_task_submit_uri, message)
         except Exception, e:
             ciel.log('Network error submitting process job to master', 'PROCESSPOOL', logging.WARN)
             raise e
-
-        if response['status'] != '200':
-            ciel.log('HTTP error submitting process job to master: %s' % response['status'], 'PROCESSPOOL', logging.WARN)
-            raise
 
         job_descriptor = simplejson.loads(content)
         record.job_id = job_descriptor['job_id']

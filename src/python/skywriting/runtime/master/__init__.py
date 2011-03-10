@@ -24,9 +24,9 @@ from skywriting.runtime.master.recovery import RecoveryManager, \
     TaskFailureInvestigator
 from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.task_executor import TaskExecutorPlugin
+from skywriting.runtime.block_store import post_string
 import cherrypy
 import ciel
-import httplib2
 import logging
 import os
 import simplejson
@@ -120,8 +120,7 @@ def master_main(options):
         with (open(options.workerlist, "r")) as f:
             for worker_url in f.readlines():
                 try:
-                    http = httplib2.Http()
-                    http.request(urllib2.urlparse.urljoin(worker_url, 'control/master/'), "POST", master_details_as_json)
+                    post_string(urllib2.urlparse.urljoin(worker_url, 'control/master/'), master_details_as_json)
                     # Worker will be created by a callback.
                 except:
                     ciel.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)

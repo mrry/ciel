@@ -1,4 +1,3 @@
-import httplib2
 import simplejson
 import threading
 import os

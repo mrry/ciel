@@ -28,6 +28,7 @@ import random
 import cherrypy
 import socket
 import httplib2
+from skywriting.runtime.block_store import post_string, get_string
 from threading import Event
 
 import simplejson
@@ -66,14 +67,16 @@ class MasterProxy:
             if self.stop_event.is_set():
                 break
             try:
-                # This sucks: httplib2 doesn't have any sort of cancellation method, so if the worker
-                # is shutting down we must wait for this request to fail or time out.
-                response, content = httplib2.Http().request(url, method, payload)
-                if response.status == 200:
-                    return response, content
-                else:
-                    ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
-                    ciel.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
+                try:
+                    if method == "POST":
+                        content = post_string(url, payload)
+                    elif method == "GET":
+                        content = get_string(url)
+                    else:
+                        raise Exception("Invalid method %s" % method)
+                    return 200, content
+                except Exception as e:
+                    ciel.log("Backoff-request failed with exception %s; re-raising MasterNotResponding" % e, "MASTER_PROXY", logging.ERROR)
                     raise MasterNotRespondingException()
             except:
                 ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
@@ -87,7 +90,8 @@ class MasterProxy:
 
     def get_public_hostname(self):
         message_url = urljoin(self.master_url, "control/gethostname/")
-        _, result = self.backoff_request(message_url, 'GET')
+        h = httplib2.Http()
+        _, result = h.request(message_url, "GET")
         return simplejson.loads(result)
 
     def register_as_worker(self):
