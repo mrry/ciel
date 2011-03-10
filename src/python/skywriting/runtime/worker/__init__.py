@@ -26,7 +26,6 @@ import logging
 import tempfile
 import cherrypy
 import skywriting
-import httplib2
 import os
 import socket
 import urlparse

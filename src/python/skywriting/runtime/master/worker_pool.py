@@ -18,12 +18,12 @@ from threading import Condition, RLock
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 import datetime
 import simplejson
-import httplib2
 import uuid
 import random
 import logging
 import ciel
 from skywriting.runtime.exceptions import WorkerFailedException
+from skywriting.runtime.block_store import get_string, post_string
 
 class FeatureQueues:
     def __init__(self):
@@ -158,7 +158,7 @@ class WorkerPool(plugins.SimplePlugin):
     def shutdown(self):
         for worker in self.workers.values():
             try:
-                httplib2.Http().request('http://%s/control/kill/' % worker.netloc)
+                get_string('http://%s/control/kill/' % worker.netloc)
             except:
                 pass
         
@@ -174,7 +174,8 @@ class WorkerPool(plugins.SimplePlugin):
     def execute_task_on_worker(self, worker, task):
         try:
             worker.add_assigned_task(task)
-            httplib2.Http().request("http://%s/control/task/" % (worker.netloc), "POST", simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder), )
+            message = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
+            post_string("http://%s/control/task/" % (worker.netloc), message)
         except:
             self.worker_failed(worker)
             
@@ -186,8 +187,8 @@ class WorkerPool(plugins.SimplePlugin):
         
     def abort_task_on_worker(self, task, worker):
         try:
-            print "Aborting task %d on worker %s" % (task.task_id, worker)
-            httplib2.Http().request('http://%s/control/abort/%s/%s' % (worker.netloc, task.job.id, task.task_id), 'POST')
+            ciel.log("Aborting task %d on worker %s" % (task.task_id, worker), "WORKER_POOL", logging.WARNING)
+            post_string('http://%s/control/abort/%s/%s' % (worker.netloc, task.job.id, task.task_id), "")
         except:
             self.worker_failed(worker)
     
@@ -220,7 +221,7 @@ class WorkerPool(plugins.SimplePlugin):
     def investigate_worker_failure(self, worker):
         ciel.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         try:
-            _, content = httplib2.Http().request('http://%s/control' % (worker.netloc, ), 'GET')
+            content = get_string('http://%s/control' % worker.netloc)
             id = simplejson.loads(content)
             assert id == worker.id
         except:
