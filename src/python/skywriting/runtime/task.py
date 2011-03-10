@@ -100,10 +100,6 @@ class TaskPoolTask:
             self.job.record_state_change(self.state, state)
         self.record_event(TASK_STATE_NAMES[state])
         self.state = state
-        if state in (TASK_COMMITTED, TASK_ASSIGNED):
-            evt_time = self.history[-1][0]
-            ciel.log('%s %s @ %f' % (self.task_id, TASK_STATE_NAMES[self.state], time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'TASK', logging.INFO)
-        #ciel.log('Task %s: --> %s' % (self.task_id, TASK_STATE_NAMES[self.state]), 'TASK', logging.INFO)
         
     def record_event(self, description, time=None):
         if time is None:
