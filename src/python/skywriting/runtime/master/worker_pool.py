@@ -12,18 +12,18 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from cherrypy.process import plugins
 from Queue import Queue
-from threading import Condition, RLock
-from skywriting.runtime.block_store import SWReferenceJSONEncoder
-import datetime
-import simplejson
-import uuid
-import random
-import logging
-import ciel
+from cherrypy.process import plugins
+from skywriting.runtime.block_store import SWReferenceJSONEncoder, get_string, \
+    post_string
 from skywriting.runtime.exceptions import WorkerFailedException
-from skywriting.runtime.block_store import get_string, post_string
+import ciel
+import datetime
+import logging
+import random
+import simplejson
+import threading
+import uuid
 
 class FeatureQueues:
     def __init__(self):
@@ -85,7 +85,6 @@ class Worker:
                 'last_ping': self.last_ping.ctime(),
                 'failed':  self.failed}
         
-
 class WorkerPool(plugins.SimplePlugin):
     
     def __init__(self, bus, deferred_worker):
@@ -95,13 +94,16 @@ class WorkerPool(plugins.SimplePlugin):
         self.workers = {}
         self.netlocs = {}
         self.idle_set = set()
-        self._lock = RLock()
+        self._lock = threading.RLock()
         self.feature_queues = FeatureQueues()
         self.event_count = 0
-        self.event_condvar = Condition(self._lock)
+        self.event_condvar = threading.Condition(self._lock)
         self.max_concurrent_waiters = 5
         self.current_waiters = 0
-        self.is_stopping = False        
+        self.is_stopping = False
+        self._classes_lock = threading.Lock()
+        self.scheduling_class_capacities = {}
+        self.scheduling_class_total_capacities = {}
 
     def subscribe(self):
         self.bus.subscribe('worker_failed', self.worker_failed)
@@ -143,6 +145,18 @@ class WorkerPool(plugins.SimplePlugin):
             self.idle_set.add(id)
             self.event_count += 1
             self.event_condvar.notify_all()
+            
+        with self._classes_lock:
+            for scheduling_class, capacity in worker.scheduling_classes.items():
+                try:
+                    capacities = self.scheduling_class_capacities[scheduling_class]
+                    current_total = self.scheduling_class_total_capacities[scheduling_class]
+                except:
+                    capacities = []
+                    self.scheduling_class_capacities[scheduling_class] = capacities
+                    current_total = 0
+                capacities.append((worker, capacity))
+                self.scheduling_class_total_capacities[scheduling_class] = current_total + capacity
             
         try:
             has_blocks = worker_descriptor['has_blocks']
@@ -201,6 +215,14 @@ class WorkerPool(plugins.SimplePlugin):
             del self.netlocs[worker.netloc]
             del self.workers[worker.id]
 
+        with self._classes_lock:
+            for scheduling_class, capacity in worker.scheduling_classes.items():
+                self.scheduling_class_capacities[scheduling_class].remove((worker, capacity))
+                self.scheduling_class_total_capacities[scheduling_class] -= capacity
+                if self.scheduling_class_total_capacities[scheduling_class] == 0:
+                    del self.scheduling_class_capacities[scheduling_class]
+                    del self.scheduling_class_total_capacities[scheduling_class]
+
         for failed_task in failed_tasks:
             failed_task.job.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
         
@@ -231,6 +253,25 @@ class WorkerPool(plugins.SimplePlugin):
     def get_random_worker(self):
         with self._lock:
             return random.choice(self.workers.values())
+        
+    def get_random_worker_with_capacity_weight(self, scheduling_class):
+        
+        with self._classes_lock:
+            try:
+                candidates = self.scheduling_class_capacities[scheduling_class]
+                total_capacity = self.scheduling_class_total_capacities[scheduling_class]
+            except KeyError:
+                candidates = self.scheduling_class_capacities['*']
+                total_capacity = self.scheduling_class_total_capacities['*']
+        
+            selected_slot = random.randrange(total_capacity)
+            curr_slot = 0
+            i = 0
+            while curr_slot < selected_slot:
+                curr_slot += candidates[i][1]
+                i += 1
+            
+            return candidates[i][0]
         
     def get_worker_at_netloc(self, netloc):
         try:
