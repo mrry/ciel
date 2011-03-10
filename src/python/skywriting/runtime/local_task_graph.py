@@ -39,14 +39,11 @@ class LocalJobOutput:
 
 class LocalTaskGraph(DynamicTaskGraph):
 
-    def __init__(self, execution_features, root_task_ids=[], runnable_queue=None):
+    def __init__(self, execution_features, runnable_queues):
         DynamicTaskGraph.__init__(self)
-        self.root_task_ids = set(root_task_ids)
+        self.root_task_ids = set()
         self.execution_features = execution_features
-        if runnable_queue is None:
-            self.runnable_small_tasks = Queue.Queue()
-        else:
-            self.runnable_small_tasks = runnable_queue
+        self.runnable_queues = runnable_queues
 
     def add_root_task_id(self, root_task_id):
         self.root_task_ids.add(root_task_id)
@@ -72,16 +69,30 @@ class LocalTaskGraph(DynamicTaskGraph):
         ciel.log('Task %s became runnable!' % task.task_id, 'LTG', logging.INFO)
         if self.execution_features.can_run(task.handler):
             if task.task_id in self.root_task_ids:
-                task.taskset.inc_runnable_count()
                 ciel.log('Putting task %s in the runnableQ because it is a root' % task.task_id, 'LTG', logging.INFO)
-                self.runnable_small_tasks.put(task)
+                try:
+                    self.runnable_queues[task.scheduling_class].put(task)
+                except KeyError:
+                    try:
+                        self.runnable_queues['*'].put(task)
+                    except KeyError:
+                        ciel.log('Scheduling class %s not supported on this worker (for task %s)' % (task.scheduling_class, task.task_id), 'LTG', logging.ERROR)
+                        raise
+                task.taskset.inc_runnable_count()
             else:
                 try:
                     is_small_task = task.worker_private['hint'] == 'small_task'
                     if is_small_task:
-                        self.taskset.inc_runnable_count()
                         ciel.log('Putting task %s in the runnableQ because it is small' % task.task_id, 'LTG', logging.INFO)
-                        self.runnable_small_tasks.put(task)
+                        try:
+                            self.runnable_queues[task.scheduling_class].put(task)
+                        except KeyError:
+                            try:
+                                self.runnable_queues['*'].put(task)
+                            except KeyError:
+                                ciel.log('Scheduling class %s not supported on this worker (for task %s)' % (task.scheduling_class, task.task_id), 'LTG', logging.ERROR)
+                                raise
+                        self.taskset.inc_runnable_count()
                 except KeyError:
                     pass
                 except AttributeError:

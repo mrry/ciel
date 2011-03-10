@@ -23,12 +23,17 @@ import threading
 
 class WorkerJob:
     
-    def __init__(self, id, local_execution_features, tickets=100):
+    def __init__(self, id, worker, tickets=100):
         self.id = id
-        self.incoming_queue = Queue.Queue()
-        self.runnable_queue = Queue.Queue()
+        self.incoming_queues = {}
+        self.runnable_queues = {}
+        
+        for scheduling_class in worker.scheduling_classes.keys():
+            self.incoming_queues[scheduling_class] = Queue.Queue()
+            self.runnable_queues[scheduling_class] = Queue.Queue()
+        
         self.reference_cache = {}
-        self.task_graph = LocalTaskGraph(local_execution_features, runnable_queue=self.runnable_queue)
+        self.task_graph = LocalTaskGraph(worker.execution_features, runnable_queues=self.runnable_queues)
         self.active_or_queued_tasksets = 0
         self.running_tasks = 0
         self.active_tasksets = {}
@@ -39,7 +44,14 @@ class WorkerJob:
     def add_taskset(self, taskset):
         with self._tasksets_lock:
             if not self.job_aborted: 
-                self.incoming_queue.put(taskset)
+                try:
+                    self.incoming_queues[taskset.initial_td['scheduling_class']].put(taskset)
+                except KeyError:
+                    try:
+                        self.incoming_queues['*'].put(taskset)
+                    except KeyError:
+                        ciel.log('Scheduling class %s not supported on this worker (for taskset %s)' % (taskset.initial_td['scheduling_class'], taskset.initial_td['task_id']), 'WJOB', logging.ERROR)
+                        raise
                 self.active_or_queued_tasksets += 1
             else:
                 raise AbortedException()
@@ -84,20 +96,26 @@ class WorkerJob:
 class MultiWorker:
     """FKA JobManager."""
     
-    def __init__(self, bus, worker, num_threads=1):
+    def __init__(self, bus, worker):
         self.worker = worker
         self.jobs = {}
+        self.scheduling_classes = worker.scheduling_classes
         self._lock = threading.Lock()
-        self.queue_manager = QueueManager(bus, self)
-        self.thread_pool = WorkerThreadPool(bus, 'q', self.queue_manager, num_threads)
-    
+        self.queue_manager = QueueManager(bus, self, worker)
+        
+        self.thread_pools = {}
+        for (scheduling_class, capacity) in worker.scheduling_classes.items():
+            self.thread_pools[scheduling_class] = WorkerThreadPool(bus, self.queue_manager, scheduling_class, capacity)
+        
     def subscribe(self):
         self.queue_manager.subscribe()
-        self.thread_pool.subscribe()
+        for thread_pool in self.thread_pools.values():
+            thread_pool.subscribe()
     
     def unsubscribe(self):
         self.queue_manager.unsubscribe()
-        self.thread_pool.unsubscribe()
+        for thread_pool in self.thread_pools.values():
+            thread_pool.unsubscribe()
     
     def num_active_jobs(self):
         return len(self.jobs)
@@ -114,7 +132,7 @@ class MultiWorker:
             try:
                 job = self.jobs[job_id]
             except:
-                job = WorkerJob(job_id, self.worker.execution_features)
+                job = WorkerJob(job_id, self.worker)
                 self.jobs[job_id] = job
                 
             taskset = MultiWorkerTaskSetExecutionRecord(task_descriptor, self.worker.block_store, self.worker.master_proxy, self.worker.execution_features, self.worker, job, self)
@@ -184,7 +202,7 @@ class MultiWorkerTaskSetExecutionRecord:
         self.task_graph.spawn_and_publish([self.initial_td], self.initial_td["inputs"], taskset=self)
         
         # Notify a sleeping worker thread.
-        self.job_manager.queue_manager.notify()
+        self.job_manager.queue_manager.notify(self.initial_td['scheduling_class'])
 
     def notify_completed(self):
         """Called by LocalJobOutput.notify_ref_table_updated() when the taskset is complete."""
@@ -228,13 +246,18 @@ class MultiWorkerTaskSetExecutionRecord:
 
 class QueueManager:
     
-    def __init__(self, bus, job_manager):
+    def __init__(self, bus, job_manager, worker):
         self.bus = bus
         self.job_manager = job_manager
+        self.worker = worker
         #self._lock = threading.Lock()
-        self._cond = threading.Condition()
+        self._cond = {}
+        
         self.current_heads = {}
-
+        for scheduling_class in worker.scheduling_classes.keys():
+            self.current_heads[scheduling_class] = {}
+            self._cond[scheduling_class] = threading.Condition()
+            
     def subscribe(self):
         self.bus.subscribe('start', self.start)
         self.bus.subscribe('stop', self.stop, 25)
@@ -248,16 +271,28 @@ class QueueManager:
 
     def stop(self):
         self.is_running = False
-        with self._cond:
-            self._cond.notifyAll()
+        for cond in self._cond.values():
+            with cond:
+                cond.notifyAll()
             
-    def notify(self):
-        with self._cond:
-            ciel.log('Notifying Qmanager', 'LOTTERY', logging.INFO)
-            self._cond.notify()
+    def notify(self, scheduling_class):
+        try:
+            with self._cond[scheduling_class]:
+                ciel.log('Notifying Qmanager for class %s' % scheduling_class, 'LOTTERY', logging.INFO)
+                self._cond[scheduling_class].notify()
+        except KeyError:
+            try:
+                with self._cond['*']:
+                    ciel.log('Notifying Qmanager for class *', 'LOTTERY', logging.INFO)
+                    self._cond['*'].notify()
+            except:
+                assert False
             
-    def get_next_task(self, work_class):
-        with self._cond:
+    def get_next_task(self, scheduling_class):
+        
+        current_heads = self.current_heads[scheduling_class]
+        
+        with self._cond[scheduling_class]:
             
             # Loop until a task has been assigned, or we get terminated. 
             while self.is_running:
@@ -265,11 +300,11 @@ class QueueManager:
                 total_tickets = 0
                 for job in self.job_manager.get_active_jobs():
                     try:
-                        candidate = self.current_heads[job]
+                        candidate = current_heads[job]
                     except KeyError:
                         try:
-                            candidate = job.runnable_queue.get_nowait()
-                            self.current_heads[job] = candidate
+                            candidate = job.runnable_queues[scheduling_class].get_nowait()
+                            current_heads[job] = candidate
                         except Queue.Empty:
                             continue
                         
@@ -289,20 +324,20 @@ class QueueManager:
                         if curr_ticket > chosen_ticket:
                             ciel.log('Ticket corresponds to job: %s' % job.id, 'LOTTERY', logging.INFO)
                             # Choose the current head from this job.
-                            del self.current_heads[job]
+                            del current_heads[job]
                             return current_head
 
-                self._cond.wait()
+                self._cond[scheduling_class].wait()
                 
         # If we return None, the consuming thread should terminate.
         return None
             
 class WorkerThreadPool:
     
-    def __init__(self, bus, name, queue_manager, num_threads=1):
+    def __init__(self, bus, queue_manager, scheduling_class, num_threads=1):
         self.bus = bus
-        self.name = name
         self.queue_manager = queue_manager
+        self.scheduling_class = scheduling_class
         self.num_threads = num_threads
         self.is_running = False
         self.threads = []
@@ -331,15 +366,15 @@ class WorkerThreadPool:
         
     def thread_main(self):
         while True:
-            task = self.queue_manager.get_next_task(self.name)
+            task = self.queue_manager.get_next_task(self.scheduling_class)
             if task is None:
                 return
             else:
                 try:
                     self.handle_task(task)
                 except Exception:
-                    ciel.log.error('Uncaught error handling task in pool: %s' % (self.name), 'MULTIWORKER', logging.ERROR, True)
-                self.queue_manager.notify()
+                    ciel.log.error('Uncaught error handling task in pool: %s' % (self.scheduling_class), 'MULTIWORKER', logging.ERROR, True)
+                self.queue_manager.notify(self.scheduling_class)
 
     def handle_task(self, task):
         next_td = task.as_descriptor()
