@@ -27,6 +27,7 @@ import logging
 import random
 import cherrypy
 import socket
+import httplib2
 from skywriting.runtime.block_store import post_string, get_string
 from threading import Event
 
@@ -89,7 +90,8 @@ class MasterProxy:
 
     def get_public_hostname(self):
         message_url = urljoin(self.master_url, "control/gethostname/")
-        _, result = self.backoff_request(message_url, 'GET')
+        h = httplib2.Http()
+        _, result = h.request(message_url, "GET")
         return simplejson.loads(result)
 
     def register_as_worker(self):

@@ -211,11 +211,12 @@ class SelectableEventQueue:
     def dispatch_events(self):
         with self._lock:
             ret = (len(self.event_queue) > 0)
-            for event in self.event_queue:
-                event()
+            to_run = self.event_queue
             self.event_queue = []
             self.drain_event_pipe()
-            return ret
+        for event in to_run:
+            event()
+        return ret
 
     def get_select_fds(self):
         return [self.event_pipe_read], [], []
@@ -1166,18 +1167,20 @@ class BlockStore(plugins.SimplePlugin):
     def _post_string(self, url, postdata):
         ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread)
         ctx.start()
-        return ctx.get_result()
+        return ctx
 
     def post_string(self, url, postdata):
-        self.fetch_thread.do_from_curl_thread(lambda: self._post_string(url, postdata))
+        ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._post_string(url, postdata))
+        return ctx.get_result()
 
     def _get_string(self, url):
         ctx = BlockStore.BufferTransferContext("GET", url, "", self.fetch_thread)
         ctx.start()
-        return ctx.get_result()
+        return ctx
 
     def get_string(self, url):
-        self.fetch_thread.do_from_curl_thread(lambda: self._get_string(url))
+        ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._get_string(url))
+        return ctx.get_result()
 
     def check_local_blocks(self):
         ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
