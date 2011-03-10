@@ -95,6 +95,14 @@ class Job:
                                "SCHEDULER", logging.ERROR)
             return []     
 
+    def assign_scheduling_class_to_task(self, task):
+        if task.handler == 'swi':
+            task.scheduling_class = 'cpu'
+        elif task.handler == 'java':
+            task.scheduling_class = 'disk'
+        else:
+            task.scheduling_class = 'disk'
+
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
                     

@@ -50,6 +50,7 @@ class PushyScheduler(AsynchronousExecutePlugin):
             except Empty:
                 break
             
+            task.job.assign_scheduling_class_to_task(task)
             workers = task.job.assign_task_to_workers(task, self.worker_pool)
             
             for worker in workers:
