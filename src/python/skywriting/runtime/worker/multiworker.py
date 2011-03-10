@@ -59,7 +59,7 @@ class WorkerJob:
             pass
         
     def get_tickets(self):
-        return self.tickets
+        return self.tickets / (self.running_tasks + 1)
         
     def taskset_activated(self, taskset):
         with self._tasksets_lock:
@@ -75,9 +75,11 @@ class WorkerJob:
             
     def task_started(self):
         self.running_tasks += 1
+        ciel.log('Job %s started a task (now running %d)' % (self.id, self.running_tasks), 'JOB', logging.INFO)
         
     def task_finished(self):
         self.running_tasks -= 1
+        ciel.log('Job %s finished a task (now running %d)' % (self.id, self.running_tasks), 'JOB', logging.INFO)
 
 class MultiWorker:
     """FKA JobManager."""
