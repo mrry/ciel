@@ -15,7 +15,7 @@ from cherrypy.process import plugins
 from skywriting.runtime.block_store import SWReferenceJSONEncoder
 from skywriting.runtime.task import TASK_STATES, \
     build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED,\
-    TASK_COMMITTED
+    TASK_COMMITTED, TASK_QUEUED_STREAMING
 from threading import Lock, Condition
 import Queue
 import ciel
@@ -28,6 +28,7 @@ import time
 import uuid
 from skywriting.runtime.task_graph import DynamicTaskGraph, TaskGraphUpdate
 from shared.references import SWErrorReference
+from skywriting.runtime.master.scheduling_policy import LocalitySchedulingPolicy
 
 JOB_CREATED = -1
 JOB_ACTIVE = 0
@@ -67,6 +68,8 @@ class Job:
         self.result_ref = None
 
         self.task_journal_fp = None
+
+        self.scheduling_policy = LocalitySchedulingPolicy()
         
         self.task_graph = JobTaskGraph(self, scheduler_queue)
         
@@ -77,7 +80,20 @@ class Job:
         self._lock = Lock()
         self._condition = Condition(self._lock)
         
-        
+    def assign_task_to_workers(self, task, worker_pool):
+        if task.has_constrained_location():
+            fixed_netloc = task.get_constrained_location()
+            task.assign_netloc(fixed_netloc)
+            return [self.worker_pool.get_worker_at_netloc(fixed_netloc)]
+        elif task.state in (TASK_QUEUED_STREAMING, TASK_QUEUED):
+            workers = self.scheduling_policy.select_workers_for_task(task, worker_pool)
+            for worker in workers:
+                task.assign_netloc(worker.netloc)
+            return workers
+        else:
+            ciel.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
+                               "SCHEDULER", logging.ERROR)
+            return []     
 
     def record_event(self, description):
         self.history.append((datetime.datetime.now(), description))
@@ -318,6 +334,7 @@ class JobPool(plugins.SimplePlugin):
     
         # Mapping from job ID to job object.
         self.jobs = {}
+        
         
         self.current_running_job = None
         self.run_queue = Queue.Queue()
