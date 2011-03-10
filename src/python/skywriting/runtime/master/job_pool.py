@@ -277,7 +277,7 @@ class JobTaskGraph(DynamicTaskGraph):
             else:
                 ciel.log.error('Rescheduling task %s after worker failure' % task.task_id, 'TASKFAIL', logging.WARNING)
                 task.set_state(TASK_FAILED)
-                self.add_runnable_task(task)
+                self.task_runnable(task)
                 
         elif reason == 'MISSING_INPUT':
             # Problem fetching input, so we will have to re-execute it.
