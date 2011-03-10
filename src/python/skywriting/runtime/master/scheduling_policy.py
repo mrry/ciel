@@ -33,6 +33,14 @@ class RandomSchedulingPolicy(SchedulingPolicy):
     def select_workers_for_task(self, task, worker_pool):
         return [worker_pool.get_random_worker()]
     
+class WeightedRandomSchedulingPolicy(SchedulingPolicy):
+    
+    def __init__(self):
+        pass
+    
+    def select_workers_for_task(self, task, worker_pool):
+        return [worker_pool.get_random_worker_with_capacity_weight(task.scheduling_class)]
+    
 class TwoRandomChoiceSchedulingPolicy(SchedulingPolicy):
     
     def __init__(self):
@@ -97,12 +105,8 @@ class LocalitySchedulingPolicy(SchedulingPolicy):
         
         if len(filtered_ranked_netlocs) == 0:
             # If we have no preference for any worker, use the power of two random choices. [Azar et al. STOC 1994]
-            worker1 = worker_pool.get_random_worker()
-            worker2 = worker_pool.get_random_worker()
-            if worker1.load() < worker2.load():
-                return [worker1]
-            else:
-                return [worker2]
+            worker1 = worker_pool.get_random_worker_with_capacity_weight(task.scheduling_class)
+            return [worker1]
         elif len(filtered_ranked_netlocs) == 1:
             return [worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1])]
         

@@ -261,18 +261,21 @@ class WorkerPool(plugins.SimplePlugin):
                 candidates = self.scheduling_class_capacities[scheduling_class]
                 total_capacity = self.scheduling_class_total_capacities[scheduling_class]
             except KeyError:
+                scheduling_class = '*'
                 candidates = self.scheduling_class_capacities['*']
                 total_capacity = self.scheduling_class_total_capacities['*']
         
             selected_slot = random.randrange(total_capacity)
             curr_slot = 0
             i = 0
-            while curr_slot < selected_slot:
-                curr_slot += candidates[i][1]
-                i += 1
             
-            return candidates[i][0]
-        
+            for worker, capacity in candidates:
+                curr_slot += capacity
+                if curr_slot > selected_slot:
+                    return worker
+            
+            ciel.log('Ran out of workers in capacity-weighted selection class=%s selected=%d total=%d' % (scheduling_class, selected_slot, total_capacity), 'WORKER_POOL', logging.ERROR)
+            
     def get_worker_at_netloc(self, netloc):
         try:
             return self.netlocs[netloc]
