@@ -103,7 +103,7 @@ class Job:
         with self._lock:
             self._condition.notify_all()
         self.stop_journalling()
-        self.job_pool.job_completed(self)  
+        self.job_pool.job_completed(self)
 
     def activated(self):
         self.set_state(JOB_ACTIVE)
@@ -415,9 +415,9 @@ class JobPool(plugins.SimplePlugin):
     def maybe_start_new_job(self):
         with self._lock:
             if self.num_running_jobs < self.max_running_jobs:
-                self.num_running_jobs += 1
                 try:
                     next_job = self.run_queue.get_nowait()
+                    self.num_running_jobs += 1
                     self._start_job(next_job)
                 except Queue.Empty:
                     ciel.log('Not starting a new job because there are no more to start', 'JOB_POOL', logging.INFO)
@@ -431,7 +431,6 @@ class JobPool(plugins.SimplePlugin):
             
     def job_completed(self, job):
         self.num_running_jobs -= 1
-        #job.completed(result_ref)
         self.maybe_start_new_job()
 
     def _start_job(self, job):
