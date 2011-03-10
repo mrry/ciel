@@ -131,7 +131,11 @@ def main():
 
     (package_path, _) = os.path.split(args[0])
 
+    print "BEFORE_SUBMIT", now_as_timestamp()
+
     new_job = submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri, args[1:])
+
+    print "SUBMITTED", now_as_timestamp()
     
     job_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % new_job['job_id'])
     print "JOB_URL", job_url
