@@ -225,10 +225,7 @@ class MasterJobOutput:
     def is_complete(self):
         return len(self.required_ids) == 0
     def notify_ref_table_updated(self, ref_table_entry):
-        try:
-            self.required_ids.remove(ref_table_entry.ref.id)
-        except:
-            ciel.log('Error removing required ref!', 'JOBOUTPUT', logging.ERROR, True)
+        self.required_ids.discard(ref_table_entry.ref.id)
         if self.is_complete():
             self.job.completed(ref_table_entry.ref)
 
