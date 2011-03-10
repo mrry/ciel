@@ -72,7 +72,7 @@ class TaskPoolTask:
         
         #self.worker = None
         self.workers = set(workers)
-        self.scheduling_class = None
+        self.scheduling_class = scheduling_class
         
         self.saved_continuation_uri = None
 
@@ -284,7 +284,11 @@ def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None, tasks
     try:
         scheduling_class = task_descriptor['scheduling_class']
     except:
-        scheduling_class = None
+        if parent_task is not None:
+            # With no other information, scheduling class is inherited from the parent.
+            scheduling_class = parent_task.scheduling_class
+        else:
+            scheduling_class = None
     
     state = TASK_CREATED
     
