@@ -52,6 +52,7 @@ class Worker:
         self.id = worker_id
         self.netloc = worker_descriptor['netloc']
         self.features = worker_descriptor['features']
+        self.scheduling_classes = worker_descriptor['scheduling_classes']
         self.last_ping = datetime.datetime.now()
         self.failed = False
         self.worker_pool = worker_pool
