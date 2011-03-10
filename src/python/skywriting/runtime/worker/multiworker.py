@@ -30,6 +30,7 @@ class WorkerJob:
         self.reference_cache = {}
         self.task_graph = LocalTaskGraph(local_execution_features, runnable_queue=self.runnable_queue)
         self.active_or_queued_tasksets = 0
+        self.running_tasks = 0
         self.active_tasksets = {}
         self.tickets = tickets
         self.job_aborted = False
@@ -57,6 +58,9 @@ class WorkerJob:
         except KeyError:
             pass
         
+    def get_tickets(self):
+        return self.tickets
+        
     def taskset_activated(self, taskset):
         with self._tasksets_lock:
             if not self.job_aborted:
@@ -68,6 +72,12 @@ class WorkerJob:
         with self._tasksets_lock:
             del self.active_tasksets[taskset.id]
             self.active_or_queued_tasksets -= 1
+            
+    def task_started(self):
+        self.running_tasks += 1
+        
+    def task_finished(self):
+        self.running_tasks -= 1
 
 class MultiWorker:
     """FKA JobManager."""
@@ -249,6 +259,7 @@ class QueueManager:
             
             # Loop until a task has been assigned, or we get terminated. 
             while self.is_running:
+                ticket_list = []
                 total_tickets = 0
                 for job in self.job_manager.get_active_jobs():
                     try:
@@ -259,7 +270,10 @@ class QueueManager:
                             self.current_heads[job] = candidate
                         except Queue.Empty:
                             continue
-                    total_tickets += job.tickets
+                        
+                    job_tickets = job.get_tickets()
+                    total_tickets += job_tickets
+                    ticket_list.append((job, job_tickets, candidate))
         
                 ciel.log('Total tickets in all runnable jobs is %d' % total_tickets, 'LOTTERY', logging.INFO)
                 
@@ -268,8 +282,8 @@ class QueueManager:
                     ciel.log('Chose ticket: %d' % chosen_ticket, 'LOTTERY', logging.INFO)
                     
                     curr_ticket = 0
-                    for job, current_head in self.current_heads.items():
-                        curr_ticket += job.tickets
+                    for job, job_tickets, current_head in ticket_list:
+                        curr_ticket += job_tickets
                         if curr_ticket > chosen_ticket:
                             ciel.log('Ticket corresponds to job: %s' % job.id, 'LOTTERY', logging.INFO)
                             # Choose the current head from this job.
@@ -329,10 +343,12 @@ class WorkerThreadPool:
         next_td = task.as_descriptor()
         next_td["inputs"] = [task.taskset.retrieve_ref(ref) for ref in next_td["dependencies"]]
         task_record = task.taskset.build_task_record(next_td)
+        task_record.task_set.job.task_started()
         try:
             task_record.run()
         except:
             ciel.log.error('Error during executor task execution', 'MWPOOL', logging.ERROR, True)
+        task_record.task_set.job.task_finished()
         if task_record.success:
             task.taskset.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
         task.taskset.dec_runnable_count()
