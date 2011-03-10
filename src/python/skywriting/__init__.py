@@ -52,6 +52,7 @@ def main(default_role=None):
     parser.add_option("-D", "--daemonise", action="store_true", dest="daemonise", help="Run as a daemon", default=False)
     parser.add_option("-o", "--logfile", action="store", dest="logfile", help="If daemonised, log to FILE", default="/dev/null", metavar="FILE")
     parser.add_option("-T", "--process-tag", action="store", dest="tag", help="Ignored, for tagging the process", metavar="STRING")
+    parser.add_option("-C", "--scheduling-classes", action="store", dest="scheduling_classes", help="List of semicolon-delimited scheduling classes", metavar="CLASS,N;CLASS,N;...", default=None)
     (options, args) = parser.parse_args()
 
     if options.daemonise:
@@ -70,9 +71,6 @@ def main(default_role=None):
             print >> sys.stderr, "Must specify port for worker with --port\n"
             sys.exit(1)
         worker_main(options)
-    elif options.role == 'interactive':
-        from skywriting.runtime.interactive import interactive_main
-        interactive_main(options)
     elif options.role == 'allinone':
         from skywriting.runtime.allinone import allinone_main
         allinone_main(options, args) 
