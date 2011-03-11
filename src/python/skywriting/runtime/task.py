@@ -161,6 +161,7 @@ class TaskPoolTask:
         if global_id in self.unfinished_input_streams:
             self.unfinished_input_streams.remove(global_id)
             task_pool.unsubscribe_task_from_ref(self, ref)
+            self.inputs[ref.id] = ref
             if len(self.unfinished_input_streams) == 0:
                 if self.state == TASK_QUEUED_STREAMING:
                     self.set_state(TASK_QUEUED)
