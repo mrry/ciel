@@ -550,8 +550,6 @@ class JobPool(plugins.SimplePlugin):
             job = Job(job_id, task, job_dir, JOB_CREATED, self, self.scheduler.scheduler_queue)
             task.job = job
             
-            print 'About to add job'
-            
             self.add_job(job)
             
             ciel.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
