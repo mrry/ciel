@@ -226,22 +226,6 @@ class SW2_StreamReference(SWRealReference):
     def __repr__(self):
         return 'SW2_StreamReference(%s, %s)' % (repr(self.id), repr(self.location_hints))
 
-class SW2_PipeStreamReference(SW2_StreamReference):
-
-    def __init__(self, id, location_hints, fifo_netloc, fifo_path):
-        SW2_StreamReference.__init__(self, id, location_hints)
-        self.fifo_netloc = fifo_netloc
-        self.fifo_path = fifo_path
-        
-    def as_tuple(self):
-        return ('ps2', str(self.id), list(self.location_hints), self.fifo_path)
-
-    def __str__(self,):
-        return "<PipeStreamRef: %s..., held in %d locations and pipeable at %s>" % (self.id[:10], len(self.location_hints), self.fifo_netloc)
-        
-    def __repr__(self):
-        return 'SW2_PipeStreamReference(%s, %s, %s, %s)' % (repr(self.id), repr(self.location_hints), self.fifo_path, self.fifo_netloc)
-
 class SW2_TombstoneReference(SWRealReference):
     
     def __init__(self, id, netlocs=None):

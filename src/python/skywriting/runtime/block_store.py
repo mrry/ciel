@@ -603,7 +603,7 @@ class BlockStore(plugins.SimplePlugin):
         
     class FileOutputContext:
 
-        def __init__(self, refid, block_store, subscribe_callback):
+        def __init__(self, refid, block_store, subscribe_callback, may_pipe):
             self.refid = refid
             self.block_store = block_store
             self.subscribe_callback = subscribe_callback
@@ -611,8 +611,26 @@ class BlockStore(plugins.SimplePlugin):
             self.subscriptions = []
             self.current_size = None
             self.closed = False
+            self.may_pipe = may_pipe
+            if self.may_pipe:
+                self.fifo_name = tempfile.mktemp()
+                os.mkfifo(self.fifo_name)
+            self.started = False
+            self.pipe_attached = False
+            self.pipe_cond = threading.Condition(self.block_store._lock)
 
         def get_filename(self):
+            if self.may_pipe:
+                ciel.log("Producer for %s: waiting for pipe pickup" % self.refid)
+                with self.block_store._lock:
+                    if not self.pipe_attached:
+                        self.pipe_cond.wait(5)
+                    self.started = True
+                    if self.pipe_attached:
+                        ciel.log("Producer for %s: using pipe" % self.refid)
+                        return self.fifo_name
+                    else:
+                        ciel.log("Producer for %s: no consumer picked up, using conventional stream-file" % self.refid)
             return self.block_store.streaming_filename(self.refid)
 
         def get_stream_ref(self):
@@ -642,6 +660,8 @@ class BlockStore(plugins.SimplePlugin):
         def get_completed_ref(self):
             if not self.closed:
                 raise Exception("FileOutputContext for ref %s must be closed before it is realised as a concrete reference" % self.refid)
+            if self.pipe_attached:
+                return SW2_CompletedReference(self.refid)
             completed_file = self.block_store.filename(self.refid)
             if self.current_size < 1024:
                 with open(completed_file, "r") as fp:
@@ -652,6 +672,19 @@ class BlockStore(plugins.SimplePlugin):
         def update_chunk_size(self):
             self.subscriptions.sort(key=lambda x: x.chunk_size)
             self.file_watch.set_chunk_size(self.subscriptions[0].chunk_size)
+
+        def try_get_pipe(self):
+            if not self.may_pipe:
+                return None
+            else:
+                with self.block_store._lock:
+                    if self.started:
+                        ciel.log("Consumer for %s: production already started, not using pipe" % self.refid)
+                        return None
+                    ciel.log("Consumer for %s: attached to pipe" % self.refid)
+                    self.pipe_attached = True
+                    self.pipe_cond.notify_all()
+                    return self.fifo_name
 
         def subscribe(self, new_subscriber):
 
@@ -699,14 +732,14 @@ class BlockStore(plugins.SimplePlugin):
                     self.rollback()
             return False
 
-    def make_local_output(self, id, subscribe_callback=None):
+    def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
         '''
         Creates a file-in-progress in the block store directory.
         '''
         if subscribe_callback is None:
             subscribe_callback = self.create_file_watch
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback)
+        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, may_pipe)
         with self._lock:
             if os.path.exists(self.filename(id)):
                 ciel.log("Block %s already existed! Overwriting..." % id, "BLOCKSTORE", logging.WARNING)
@@ -718,6 +751,8 @@ class BlockStore(plugins.SimplePlugin):
 
     def create_file_watch(self, output_ctx):
         return self.file_watcher_thread.create_watch(output_ctx)
+
+
 
     def commit_stream(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
@@ -1011,8 +1046,16 @@ class BlockStore(plugins.SimplePlugin):
                 result_callback(True)
             elif isinstance(ref, SW2_StreamReference) and self.netloc in ref.location_hints and ref.id in self.streaming_producers:
                 ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
-                self.streaming_producers[ref.id].subscribe(new_client)
-                new_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
+                producer = self.streaming_producers[ref.id]
+                pipe_name = producer.try_get_pipe()
+                if pipe_name is not None:
+                    ciel.log("Ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
+                    dummy_listener = BlockStore.DummyFetchListener(pipe_name)
+                    new_client.set_producer(dummy_listener)
+                    result_callback(True)
+                else:
+                    producer.subscribe(new_client)
+                    new_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
             else:
                 self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_client))
         return new_client
