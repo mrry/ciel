@@ -43,7 +43,7 @@ def master_main(options):
     deferred_worker = DeferredWorkPlugin(ciel.engine)
     deferred_worker.subscribe()
 
-    worker_pool = WorkerPool(ciel.engine, deferred_worker)
+    worker_pool = WorkerPool(ciel.engine, deferred_worker, None)
     worker_pool.subscribe()
 
     scheduler = PushyScheduler(ciel.engine, worker_pool)
@@ -53,6 +53,8 @@ def master_main(options):
     
     job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator, deferred_worker)
     job_pool.subscribe()
+    
+    worker_pool.job_pool = job_pool
 
     backup_sender = BackupSender(cherrypy.engine)
     backup_sender.subscribe()

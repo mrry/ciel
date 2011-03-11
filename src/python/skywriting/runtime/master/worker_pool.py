@@ -85,11 +85,12 @@ class Worker:
                 'last_ping': self.last_ping.ctime(),
                 'failed':  self.failed}
         
-class WorkerPool(plugins.SimplePlugin):
+class WorkerPool:
     
-    def __init__(self, bus, deferred_worker):
-        plugins.SimplePlugin.__init__(self, bus)
+    def __init__(self, bus, deferred_worker, job_pool):
+        self.bus = bus
         self.deferred_worker = deferred_worker
+        self.job_pool = job_pool
         self.idle_worker_queue = Queue()
         self.workers = {}
         self.netlocs = {}
