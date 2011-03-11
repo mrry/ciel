@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from threading import Lock
+from threading import RLock, Lock
 from skywriting.runtime.exceptions import \
     MissingInputException, RuntimeSkywritingError
 import random
@@ -484,7 +484,7 @@ class BlockStore(plugins.SimplePlugin):
 
     def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False):
         plugins.SimplePlugin.__init__(self, bus)
-        self._lock = Lock()
+        self._lock = RLock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
         self.object_cache = {}
@@ -609,6 +609,7 @@ class BlockStore(plugins.SimplePlugin):
             self.subscribe_callback = subscribe_callback
             self.file_watch = None
             self.subscriptions = []
+            self.current_size = None
             self.closed = False
 
         def get_filename(self):
@@ -650,7 +651,7 @@ class BlockStore(plugins.SimplePlugin):
 
         def update_chunk_size(self):
             self.subscriptions.sort(key=lambda x: x.chunk_size)
-            self.file_watch.set_chunk_size(self.chunk_size)
+            self.file_watch.set_chunk_size(self.subscriptions[0].chunk_size)
 
         def subscribe(self, new_subscriber):
 
@@ -682,6 +683,7 @@ class BlockStore(plugins.SimplePlugin):
             self.update_chunk_size()
 
         def size_update(self, new_size):
+            self.current_size = new_size
             for subscriber in self.subscriptions:
                 subscriber.progress(new_size)
 
@@ -1007,7 +1009,7 @@ class BlockStore(plugins.SimplePlugin):
                 dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
                 new_client.set_producer(dummy_listener)
                 result_callback(True)
-            elif isinstance(ref, SW2_StreamReference) and self.netloc in ref.netlocs and ref.id in self.streaming_producers:
+            elif isinstance(ref, SW2_StreamReference) and self.netloc in ref.location_hints and ref.id in self.streaming_producers:
                 ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
                 self.streaming_producers[ref.id].subscribe(new_client)
                 new_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
@@ -1164,7 +1166,7 @@ class BlockStore(plugins.SimplePlugin):
             self.post_buffer = StringIO(postdata)
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
-            self.result_callback = self.result_callback
+            self.result_callback = result_callback
             self.url = url
             self.curl_ctx = pycURLBufferContext(method, self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
 
@@ -1291,6 +1293,6 @@ def get_string(url):
 def post_string(url, content):
     return singleton_blockstore.post_string(url, content)
 
-def post_string_noreturn(url, content):
-    singleton_blockstore.post_string_noreturn(url, content)
+def post_string_noreturn(url, content, result_callback=None):
+    singleton_blockstore.post_string_noreturn(url, content, result_callback=None)
     

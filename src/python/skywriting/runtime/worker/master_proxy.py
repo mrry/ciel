@@ -72,6 +72,7 @@ class MasterProxy:
                             content = post_string(url, payload)
                         else:
                             post_string_noreturn(url, payload, result_callback=self.master_post_result_callback)
+                            return
                     elif method == "GET":
                         content = get_string(url)
                     else:
