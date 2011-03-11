@@ -62,6 +62,18 @@ class Worker:
     def idle(self):
         pass
 
+    def get_effective_scheduling_class(self, scheduling_class):
+        if scheduling_class in self.scheduling_classes:
+            return scheduling_class
+        else:
+            return '*'
+
+    def get_effective_scheduling_class_capacity(self, scheduling_class):
+        try:
+            return self.scheduling_classes[scheduling_class]
+        except KeyError:
+            return self.scheduling_classes['*']
+
     def __repr__(self):
         return 'Worker(%s)' % self.id
 

@@ -31,7 +31,7 @@ class RandomSchedulingPolicy(SchedulingPolicy):
         pass
     
     def select_worker_for_task(self, task, worker_pool):
-        return worker_pool.get_random_worker()
+        return (worker_pool.get_random_worker(), [])
     
 class WeightedRandomSchedulingPolicy(SchedulingPolicy):
     
@@ -49,10 +49,10 @@ class TwoRandomChoiceSchedulingPolicy(SchedulingPolicy):
     def select_worker_for_task(self, task, worker_pool):
         worker1 = worker_pool.get_random_worker()
         worker2 = worker_pool.get_random_worker()
-        if worker1.load() < worker2.load():
-            return worker1
+        if task.job.guess_task_cost_on_worker(task, worker1) < task.job.guess_task_cost_on_worker(task, worker2):
+            return (worker1, [])
         else:
-            return worker2
+            return (worker2, [])
 
 class LocalitySchedulingPolicy(SchedulingPolicy):
     
@@ -106,13 +106,13 @@ class LocalitySchedulingPolicy(SchedulingPolicy):
         if len(filtered_ranked_netlocs) == 0:
             # If we have no preference for any worker, use the power of two random choices. [Azar et al. STOC 1994]
             worker1 = worker_pool.get_random_worker_with_capacity_weight(task.scheduling_class)
-            return worker1
+            return worker1, []
         elif len(filtered_ranked_netlocs) == 1:
-            return worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1])
+            return worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1]), []
         
         elif filtered_ranked_netlocs[0][0] * self.equally_local_margin > filtered_ranked_netlocs[1][0]:
             # Many potential netlocs, but one clear best.
-            return worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1])
+            return worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1]), []
         
         else:
             # Get all the equally-good netlocs, but in a random order.
@@ -121,7 +121,8 @@ class LocalitySchedulingPolicy(SchedulingPolicy):
                 i += 1
             
             ret = [worker_pool.get_worker_at_netloc(x[1]) for x in filtered_ranked_netlocs[0:i]]
-            return random.choice(ret)
+            random.shuffle(ret)
+            return ret[0], ret[1:]
         
 SCHEDULING_POLICIES = {'random' : RandomSchedulingPolicy,
                        'tworandom' : TwoRandomChoiceSchedulingPolicy,
@@ -131,4 +132,4 @@ def get_scheduling_policy(policy_name, *args, **kwargs):
     if policy_name is None:
         return LocalitySchedulingPolicy()
     else:
-        return SchedulingPolicy.policies[policy_name](*args, **kwargs)
+        return SCHEDULING_POLICIES[policy_name](*args, **kwargs)
