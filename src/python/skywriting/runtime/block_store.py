@@ -1165,6 +1165,7 @@ class BlockStore(plugins.SimplePlugin):
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
             self.result_callback = self.result_callback
+            self.url = url
             self.curl_ctx = pycURLBufferContext(method, self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
 
         def start(self):
@@ -1187,7 +1188,7 @@ class BlockStore(plugins.SimplePlugin):
             self.response_buffer.close()
             self.completed_event.set()
             if self.result_callback is not None:
-                self.result_callback(success)
+                self.result_callback(success, self.url)
 
     # This is only a BlockStore method because it uses the fetch_thread.
     # Called from cURL thread

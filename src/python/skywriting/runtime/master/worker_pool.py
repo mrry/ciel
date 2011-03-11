@@ -22,8 +22,9 @@ import uuid
 import random
 import logging
 import ciel
+from urlparse import urlparse
 from skywriting.runtime.exceptions import WorkerFailedException
-from skywriting.runtime.block_store import get_string, post_string
+from skywriting.runtime.block_store import get_string, post_string_noreturn
 
 class FeatureQueues:
     def __init__(self):
@@ -175,7 +176,7 @@ class WorkerPool(plugins.SimplePlugin):
         try:
             worker.add_assigned_task(task)
             message = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
-            post_string("http://%s/control/task/" % (worker.netloc), message)
+            post_string_noreturn("http://%s/control/task/" % (worker.netloc), message, result_callback=self.worker_post_result_callback)
         except:
             self.worker_failed(worker)
             
@@ -188,7 +189,7 @@ class WorkerPool(plugins.SimplePlugin):
     def abort_task_on_worker(self, task, worker):
         try:
             ciel.log("Aborting task %d on worker %s" % (task.task_id, worker), "WORKER_POOL", logging.WARNING)
-            post_string('http://%s/control/abort/%s/%s' % (worker.netloc, task.job.id, task.task_id), "")
+            post_string_noreturn('http://%s/control/abort/%s/%s' % (worker.netloc, task.job.id, task.task_id), "", result_callback=self.worker_post_result_callback)
         except:
             self.worker_failed(worker)
     
@@ -247,3 +248,16 @@ class WorkerPool(plugins.SimplePlugin):
                     self.deferred_worker.do_deferred(lambda: self.investigate_worker_failure(failed_worker))
                     
             self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
+
+    def worker_post_result_callback(self, success, url):
+        # An asynchronous post_string_noreturn has completed against 'url'. Called from the cURL thread.
+        if not success:
+            parsed = urlparse(url)
+            worker = self.get_worker_at_netloc(url.netloc)
+            if worker is not None:
+                ciel.log("Aysnchronous post against %s failed: investigating" % url, "WORKER_POOL", logging.ERROR)
+                # Safe to call from here: this bottoms out in a deferred-work call quickly.
+                self.worker_failed(worker)
+            else:
+                ciel.log("Asynchronous post against %s failed, but we have no matching worker. Ignored." % url, "WORKER_POOL", logging.WARNING)
+
