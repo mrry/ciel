@@ -112,7 +112,7 @@ class ExecutionFeatures:
         return self.executors[name]
 
 # Helper functions
-def spawn_task_helper(task_record, executor_name, small_task=False, **executor_args):
+def spawn_task_helper(task_record, executor_name, small_task=False, scheduling_class=None, scheduling_type=None, **executor_args):
 
     new_task_descriptor = {"handler": executor_name}
     if small_task:
@@ -122,6 +122,10 @@ def spawn_task_helper(task_record, executor_name, small_task=False, **executor_a
             worker_private = {}
             new_task_descriptor["worker_private"] = worker_private
         worker_private["hint"] = "small_task"
+    if scheduling_class is not None:
+        new_task_descriptor["scheduling_class"] = scheduling_class
+    if scheduling_type is not None:
+        new_task_descriptor["scheduling_type"] = scheduling_type
     return task_record.spawn_task(new_task_descriptor, **executor_args)
 
 def package_lookup(task_record, block_store, key):
@@ -941,7 +945,6 @@ class ProcExecutor(BaseExecutor):
         
     
     def json_event_loop(self, reader, writer):
-        print 'In json_event_loop'
         while True:
             try:
                 request_len, = struct.unpack_from('!I', reader.read(4))

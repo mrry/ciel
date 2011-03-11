@@ -231,6 +231,8 @@ class TaskPoolTask:
             descriptor['task_private'] = self.task_private
         if self.scheduling_class is not None:
             descriptor['scheduling_class'] = self.scheduling_class
+        if self.type is not None:
+            descriptor['scheduling_type'] = self.type
         
         return descriptor        
 
