@@ -18,7 +18,6 @@ from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 from skywriting.runtime.master.hot_standby import BackupSender, \
     MasterRecoveryMonitor
 from skywriting.runtime.master.job_pool import JobPool
-from skywriting.runtime.master.lazy_scheduler import LazyScheduler
 from skywriting.runtime.master.master_view import MasterRoot
 from skywriting.runtime.master.recovery import RecoveryManager, \
     TaskFailureInvestigator
