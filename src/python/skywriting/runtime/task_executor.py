@@ -159,6 +159,8 @@ class TaskExecutionRecord:
         ciel.engine.publish("worker_event", "Start execution " + repr(self.task_descriptor['task_id']) + " with handler " + self.task_descriptor['handler'])
         ciel.log.error("Starting task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.INFO, False)
         try:
+            self.start_time = datetime.datetime.now()
+            
             # Need to do this to bring task_private into the execution context.
             BaseExecutor.prepare_task_descriptor_for_execute(self.task_descriptor, self.block_store)
         
@@ -172,7 +174,7 @@ class TaskExecutionRecord:
                     raise AbortedException()
                 else:
                     self.executor = self.execution_features.get_executor(self.task_descriptor["handler"], self.worker)
-            self.start_time = datetime.datetime.now()
+
             self.executor.run(self.task_descriptor, self)
             self.finish_time = datetime.datetime.now()
             
