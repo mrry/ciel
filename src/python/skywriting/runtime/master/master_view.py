@@ -124,9 +124,9 @@ class WorkersRoot:
                 raise HTTPError(404)
         if cherrypy.request.method == 'POST':
             if action == 'ping':
-                ciel.engine.publish('worker_ping', worker)
+                self.worker_pool.worker_ping(worker)
             elif action == 'stopping':
-                ciel.engine.publish('worker_failed', worker)
+                self.worker_pool.worker_failed(worker)
             else:
                 raise HTTPError(404)
         else:
