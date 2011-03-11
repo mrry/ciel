@@ -20,6 +20,10 @@ import ciel
 import logging
 import random
 import threading
+import math
+
+EWMA_ALPHA = 0.75
+INITIAL_TASK_COST = 0.5
 
 class WorkerJob:
     
@@ -40,6 +44,7 @@ class WorkerJob:
         self.tickets = tickets
         self.job_aborted = False
         self._tasksets_lock = threading.Lock()
+        self.task_cost = INITIAL_TASK_COST
 
     def add_taskset(self, taskset):
         with self._tasksets_lock:
@@ -71,7 +76,7 @@ class WorkerJob:
             pass
         
     def get_tickets(self):
-        return self.tickets / (self.running_tasks + 1)
+        return math.ceil(self.tickets * (INITIAL_TASK_COST / self.task_cost))
         
     def taskset_activated(self, taskset):
         with self._tasksets_lock:
@@ -89,9 +94,10 @@ class WorkerJob:
         self.running_tasks += 1
         ciel.log('Job %s started a task (now running %d)' % (self.id, self.running_tasks), 'JOB', logging.INFO)
         
-    def task_finished(self):
+    def task_finished(self, task, time):
         self.running_tasks -= 1
-        ciel.log('Job %s finished a task (now running %d)' % (self.id, self.running_tasks), 'JOB', logging.INFO)
+        self.task_cost = EWMA_ALPHA * time + (1 - EWMA_ALPHA) * self.task_cost
+        ciel.log('Job %s finished a task (now running %d, task cost now %f)' % (self.id, self.running_tasks, self.task_cost), 'JOB', logging.INFO)
 
 class MultiWorker:
     """FKA JobManager."""
@@ -385,7 +391,9 @@ class WorkerThreadPool:
             task_record.run()
         except:
             ciel.log.error('Error during executor task execution', 'MWPOOL', logging.ERROR, True)
-        task_record.task_set.job.task_finished()
+        execution_time = task_record.finish_time - task_record.start_time
+        execution_secs = execution_time.seconds + execution_time.microseconds / 1000000.0
+        task_record.task_set.job.task_finished(task, execution_secs)
         if task_record.success:
             task.taskset.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
         task.taskset.dec_runnable_count()
