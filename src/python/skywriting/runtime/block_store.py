@@ -1008,6 +1008,7 @@ class BlockStore(plugins.SimplePlugin):
                 new_client.set_producer(dummy_listener)
                 result_callback(True)
             elif isinstance(ref, SW2_StreamReference) and self.netloc in ref.netlocs and ref.id in self.streaming_producers:
+                ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
                 self.streaming_producers[ref.id].subscribe(new_client)
                 new_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
             else:
@@ -1158,11 +1159,12 @@ class BlockStore(plugins.SimplePlugin):
 
     class BufferTransferContext:
         
-        def __init__(self, method, url, postdata, fetch_thread):
+        def __init__(self, method, url, postdata, fetch_thread, result_callback=None):
 
             self.post_buffer = StringIO(postdata)
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
+            self.result_callback = self.result_callback
             self.curl_ctx = pycURLBufferContext(method, self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
 
         def start(self):
@@ -1184,16 +1186,18 @@ class BlockStore(plugins.SimplePlugin):
             self.post_buffer.close()
             self.response_buffer.close()
             self.completed_event.set()
+            if self.result_callback is not None:
+                self.result_callback(success)
 
     # This is only a BlockStore method because it uses the fetch_thread.
     # Called from cURL thread
-    def _post_string_noreturn(self, url, postdata):
-        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread)
+    def _post_string_noreturn(self, url, postdata, result_callback=None):
+        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread, result_callback)
         ctx.start()
         return
 
-    def post_string_noreturn(self, url, postdata):
-        self.fetch_thread.do_from_curl_thread(lambda: self._post_string_noreturn(url, postdata))
+    def post_string_noreturn(self, url, postdata, result_callback=None):
+        self.fetch_thread.do_from_curl_thread(lambda: self._post_string_noreturn(url, postdata, result_callback))
 
     # Called from cURL thread
     def _post_string(self, url, postdata):
