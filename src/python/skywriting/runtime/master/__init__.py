@@ -61,7 +61,7 @@ def master_main(options):
     local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
     master_netloc = '%s:%d' % (local_hostname, local_port)
-    print 'Local port is', local_port
+    ciel.log('Local port is %d' % local_port, 'STARTUP', logging.INFO)
     
     if options.blockstore is None:
         static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))

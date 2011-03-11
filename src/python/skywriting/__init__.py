@@ -19,6 +19,8 @@ import socket
 import cherrypy
 import sys
 import os
+import logging
+import ciel
 
 def set_port(port):
     cherrypy.config.update({'server.socket_port': port})
@@ -28,7 +30,7 @@ def set_config(filename):
 
 def main(default_role=None):
 
-    print "Ciel started with args", sys.argv
+    ciel.log("CIEL started with args: %s" % " ".join(sys.argv), "STARTUP", logging.INFO)
 
     cherrypy.config.update({'server.socket_host': '0.0.0.0'})
     
@@ -68,7 +70,7 @@ def main(default_role=None):
         from skywriting.runtime.worker import worker_main
         if not cherrypy.config.get('server.socket_port'):
             parser.print_help()
-            print >> sys.stderr, "Must specify port for worker with --port\n"
+            ciel.log("Must specify port for worker with --port", "STARTUP", logging.ERROR) 
             sys.exit(1)
         worker_main(options)
     elif options.role == 'allinone':
