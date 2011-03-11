@@ -27,7 +27,7 @@ INITIAL_TASK_COST = 0.5
 
 class WorkerJob:
     
-    def __init__(self, id, worker, tickets=100):
+    def __init__(self, id, worker, tickets=1000000):
         self.id = id
         self.incoming_queues = {}
         self.runnable_queues = {}
