@@ -104,6 +104,12 @@ class Job:
     def assign_scheduling_class_to_task(self, task):
         if task.handler == 'swi':
             task.scheduling_class = 'cpu'
+        elif task.handler == 'init':
+            task.scheduling_class = 'cpu'
+        elif task.handler == 'sync':
+            task.scheduling_class = 'cpu'
+        elif task.handler == 'grab':
+            task.scheduling_class = 'disk'
         elif task.handler == 'java':
             task.scheduling_class = 'disk'
         else:
