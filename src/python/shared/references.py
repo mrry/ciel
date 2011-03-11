@@ -24,8 +24,9 @@ class SWRealReference:
         return True
 
     def as_future(self):
-        pass
-
+        # XXX: Should really make id a field of RealReference.
+        return SW2_FutureReference(self.id)
+    
 def netloc_to_protobuf(netloc):
     hostname, port = netloc.split(':')
     loc = NetworkLocation()
@@ -111,9 +112,6 @@ class SW2_ConcreteReference(SWRealReference):
             # We calculate the union of the two sets of location hints.
             self.location_hints.update(ref.location_hints)
             
-    def as_future(self):
-        return SW2_FutureReference(self.id)
-        
     def as_protobuf(self):
         ref = Reference()
         ref.type = Reference.CONCRETE
@@ -171,9 +169,6 @@ class SW2_FixedReference(SWRealReference):
         ref.location_hints.add(netloc_to_protobuf(self.fixed_netloc))
         return ref
     
-    def as_future(self):
-        return SW2_FutureReference(self.id)
-    
     def as_tuple(self):
         return ('fx', str(self.id), self.fixed_netloc)
         
@@ -205,9 +200,6 @@ class SW2_StreamReference(SWRealReference):
             
             # We calculate the union of the two sets of location hints.
             self.location_hints.update(ref.location_hints)
-            
-    def as_future(self):
-        return SW2_FutureReference(self.id)
         
     def as_protobuf(self):
         ref = Reference()
