@@ -97,7 +97,7 @@ class Job:
         else:
             ciel.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
                                "SCHEDULER", logging.ERROR)
-            return []     
+            return []
 
     def assign_scheduling_class_to_task(self, task):
         if task.handler == 'swi':
@@ -265,13 +265,26 @@ class Job:
 
 class RunningAverage:
     
+    NEGATIVE_INF = float('-Inf')
+    POSITIVE_INF = float('+Inf')
+    
     def __init__(self, initial_observation=None):
-        self.total = 0.0 if initial_observation is None else initial_observation
-        self.count = 0 if initial_observation is None else 1
+        if initial_observation is None:
+            self.min = RunningAverage.POSITIVE_INF
+            self.max = RunningAverage.NEGATIVE_INF
+            self.total = 0.0
+            self.count = 0
+        else:
+            self.min = initial_observation
+            self.max = initial_observation
+            self.total = initial_observation
+            self.count = 1
         
     def update(self, observation):
         self.total += observation
         self.count += 1
+        self.max = max(self.max, observation)
+        self.min = min(self.min, observation)
         
     def get(self):
         return self.total / self.count
@@ -434,6 +447,12 @@ class JobPool(plugins.SimplePlugin):
         # We will use this both for new jobs and on recovery.
         if job.root_task is not None:
             job.task_graph.spawn(job.root_task)
+    
+    def notify_worker_added(self, worker):
+        pass
+    
+    def notify_worker_failed(self, worker):
+        pass
     
     def add_failed_job(self, job_id):
         job = Job(job_id, None, None, JOB_FAILED, self, self.scheduler.scheduler_queue)
