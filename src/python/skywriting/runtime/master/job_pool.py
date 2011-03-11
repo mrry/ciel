@@ -73,6 +73,9 @@ class Job:
         
         self.task_graph = JobTaskGraph(self, scheduler_queue)
         
+        self.workers = {}
+        self.job_pool.worker_pool.notify_job_about_current_workers(self)
+        
         # Counters for each task state.
         self.task_state_counts = {}
         for state in TASK_STATES.values():
@@ -82,7 +85,6 @@ class Job:
         
         self.all_tasks = RunningAverage()
         self.all_tasks_by_type = {}
-        self.all_tasks_by_worker_and_type = {}
         
     def assign_task_to_workers(self, task, worker_pool):
         if task.has_constrained_location():
@@ -249,10 +251,9 @@ class Job:
                 self.all_tasks_by_type[task_type].update(task_execution_time)
             except KeyError:
                 self.all_tasks_by_type[task_type] = RunningAverage(task_execution_time)
-            try:
-                self.all_tasks_by_worker_and_type[(worker, task_type)].update(task_execution_time)
-            except KeyError:
-                self.all_tasks_by_worker_and_type[(worker, task_type)] = RunningAverage(task_execution_time)            
+                
+            self.workers[worker].record_task_stats(task)
+
         except:
             ciel.log('Error recording task statistics for task: %s' % task.task_id, 'JOB', logging.WARNING)
 
@@ -262,6 +263,53 @@ class Job:
                 
     def investigate_task_failure(self, task, payload):
         self.job_pool.task_failure_investigator.investigate_task_failure(task, payload)
+        
+    def notify_worker_added(self, worker):
+        try:
+            _ = self.workers[worker]
+            return
+        except KeyError:
+            worker_state = JobWorkerState(worker)
+            self.workers[worker] = worker_state
+    
+    def notify_worker_failed(self, worker):
+        try:
+            worker_state = self.workers[worker]
+        except KeyError:
+            pass
+
+class JobWorkerState:
+    
+    def __init__(self, worker):
+        self.worker = worker
+        self.assigned_tasks = set()
+        self.running_average = RunningAverage()
+        self.running_average_by_type = {}
+        
+    def add_task(self, task):
+        self.assigned_tasks.add(task)
+        
+    def remove_task(self, task):
+        self.assigned_tasks.remove(task)
+        
+    def load(self):
+        return len(self.assigned_tasks)
+    
+    def record_task_stats(self, task):
+        try:
+            task_profiling = task.get_profiling()
+            task_type = task.get_type()
+            task_execution_time = task_profiling['FINISHED'] - task_profiling['STARTED']
+            
+            self.running_average.update(task_execution_time)
+            try:
+                self.running_average_by_type[task_type].update(task_execution_time)
+            except KeyError:
+                self.running_average_by_type[task_type] = RunningAverage(task_execution_time)
+
+        except:
+            ciel.log('Error recording task statistics for task: %s' % task.task_id, 'JOB', logging.WARNING)
+
 
 class RunningAverage:
     
@@ -387,13 +435,14 @@ class JobTaskGraph(DynamicTaskGraph):
 
 class JobPool(plugins.SimplePlugin):
 
-    def __init__(self, bus, journal_root, scheduler, task_failure_investigator, deferred_worker):
+    def __init__(self, bus, journal_root, scheduler, task_failure_investigator, deferred_worker, worker_pool):
         plugins.SimplePlugin.__init__(self, bus)
         self.journal_root = journal_root
         
         self.scheduler = scheduler
         self.task_failure_investigator = task_failure_investigator
         self.deferred_worker = deferred_worker
+        self.worker_pool = worker_pool
     
         # Mapping from job ID to job object.
         self.jobs = {}
@@ -441,51 +490,54 @@ class JobPool(plugins.SimplePlugin):
         return str(uuid.uuid1())
     
     def add_job(self, job, sync_journal=False):
-        with self._lock:
-            self.jobs[job.id] = job
+        self.jobs[job.id] = job
         
         # We will use this both for new jobs and on recovery.
         if job.root_task is not None:
             job.task_graph.spawn(job.root_task)
     
     def notify_worker_added(self, worker):
-        pass
-    
+        for job in self.jobs.values():
+            job.notify_worker_added(worker)
+            
     def notify_worker_failed(self, worker):
-        pass
-    
+        for job in self.jobs.values():
+            job.notify_worker_failed(worker)
+                
     def add_failed_job(self, job_id):
         job = Job(job_id, None, None, JOB_FAILED, self, self.scheduler.scheduler_queue)
         self.jobs[job_id] = job
     
     def create_job_for_task(self, task_descriptor, job_id=None):
         
-        if job_id is None:
-            job_id = self.allocate_job_id()
-        task_id = 'root:%s' % (job_id, )
-
-        task_descriptor['task_id'] = task_id
-
-        # TODO: Here is where we will set up the job journal, etc.
-        job_dir = self.make_job_directory(job_id)
+        with self._lock:
         
-        try:
-            expected_outputs = task_descriptor['expected_outputs']
-        except KeyError:
-            expected_outputs = ['%s:job_output' % job_id]
-            task_descriptor['expected_outputs'] = expected_outputs
+            if job_id is None:
+                job_id = self.allocate_job_id()
+            task_id = 'root:%s' % (job_id, )
+    
+            task_descriptor['task_id'] = task_id
+    
+            # TODO: Here is where we will set up the job journal, etc.
+            job_dir = self.make_job_directory(job_id)
             
-        task = build_taskpool_task_from_descriptor(task_descriptor, None)
-        job = Job(job_id, task, job_dir, JOB_CREATED, self, self.scheduler.scheduler_queue)
-        task.job = job
-        
-        print 'About to add job'
-        
-        self.add_job(job)
-        
-        ciel.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
-
-        return job
+            try:
+                expected_outputs = task_descriptor['expected_outputs']
+            except KeyError:
+                expected_outputs = ['%s:job_output' % job_id]
+                task_descriptor['expected_outputs'] = expected_outputs
+                
+            task = build_taskpool_task_from_descriptor(task_descriptor, None)
+            job = Job(job_id, task, job_dir, JOB_CREATED, self, self.scheduler.scheduler_queue)
+            task.job = job
+            
+            print 'About to add job'
+            
+            self.add_job(job)
+            
+            ciel.log('Added job: %s' % job.id, 'JOB_POOL', logging.INFO)
+    
+            return job
 
     def make_job_directory(self, job_id):
         if self.journal_root is not None:

@@ -50,7 +50,7 @@ def master_main(options):
 
     task_failure_investigator = TaskFailureInvestigator(worker_pool, deferred_worker)
     
-    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator, deferred_worker)
+    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator, deferred_worker, worker_pool)
     job_pool.subscribe()
     
     worker_pool.job_pool = job_pool

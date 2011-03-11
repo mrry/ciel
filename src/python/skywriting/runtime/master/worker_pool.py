@@ -56,21 +56,6 @@ class Worker:
         self.last_ping = datetime.datetime.now()
         self.failed = False
         self.worker_pool = worker_pool
-        self.assigned_tasks = set()
-        
-    def add_assigned_task(self, task):
-        if self.failed:
-            raise WorkerFailedException(self)
-        self.assigned_tasks.add(task)
-        
-    def remove_assigned_task(self, task):
-        self.assigned_tasks.remove(task)
-        
-    def get_assigned_tasks(self):
-        return self.assigned_tasks.copy()
-
-    def load(self):
-        return len(self.assigned_tasks)
 
     def idle(self):
         pass
@@ -102,19 +87,14 @@ class WorkerPool:
         self.max_concurrent_waiters = 5
         self.current_waiters = 0
         self.is_stopping = False
-        self._classes_lock = threading.Lock()
         self.scheduling_class_capacities = {}
         self.scheduling_class_total_capacities = {}
 
     def subscribe(self):
-        self.bus.subscribe('worker_failed', self.worker_failed)
-        self.bus.subscribe('worker_ping', self.worker_ping)
         self.bus.subscribe('start', self.start, 75)
         self.bus.subscribe('stop', self.server_stopping, 10) 
         
     def unsubscribe(self):
-        self.bus.unsubscribe('worker_failed', self.worker_failed)
-        self.bus.unsubscribe('worker_ping', self.worker_ping)
         self.bus.unsubscribe('start', self.start, 75)
         self.bus.unsubscribe('stop', self.server_stopping) 
 
@@ -147,7 +127,6 @@ class WorkerPool:
             self.event_count += 1
             self.event_condvar.notify_all()
             
-        with self._classes_lock:
             for scheduling_class, capacity in worker.scheduling_classes.items():
                 try:
                     capacities = self.scheduling_class_capacities[scheduling_class]
@@ -158,15 +137,25 @@ class WorkerPool:
                     current_total = 0
                 capacities.append((worker, capacity))
                 self.scheduling_class_total_capacities[scheduling_class] = current_total + capacity
-            
-        try:
-            has_blocks = worker_descriptor['has_blocks']
-        except:
-            has_blocks = False
-            
-        if has_blocks:
-            ciel.log.error('%s has blocks, so will fetch' % str(worker), 'WORKER_POOL', logging.INFO)
-            self.bus.publish('fetch_block_list', worker)
+
+            self.job_pool.notify_worker_added(worker)
+            return id
+
+    def notify_job_about_current_workers(self, job):
+        """Nasty function included to avoid the race between job creation and worker creation."""
+        with self._lock:
+            for worker in self.workers.values():
+                job.notify_worker_added(worker)
+
+# XXX: This is currently disabled because we don't have a big central list of references.
+#        try:
+#            has_blocks = worker_descriptor['has_blocks']
+#        except:
+#            has_blocks = False
+#            
+#        if has_blocks:
+#            ciel.log.error('%s has blocks, so will fetch' % str(worker), 'WORKER_POOL', logging.INFO)
+#            self.bus.publish('fetch_block_list', worker)
             
         self.bus.publish('schedule')
         return id
@@ -182,14 +171,12 @@ class WorkerPool:
         with self._lock:
             return self.workers[id]
         
-    def get_idle_workers(self):
+    def get_all_workers(self):
         with self._lock:
-            worker_list = map(lambda x: self.workers[x], self.idle_set)
-        return worker_list
+            return self.workers.values()
     
     def execute_task_on_worker(self, worker, task):
         try:
-            worker.add_assigned_task(task)
             message = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
             post_string("http://%s/control/task/" % (worker.netloc), message)
         except:
@@ -197,7 +184,6 @@ class WorkerPool:
             
     def task_completed_on_worker(self, task, done_worker):
         for worker in task.get_workers():
-            worker.remove_assigned_task(task)
             if worker is not done_worker:
                 self.abort_task_on_worker(task, worker)
         
@@ -216,13 +202,15 @@ class WorkerPool:
             del self.netlocs[worker.netloc]
             del self.workers[worker.id]
 
-        with self._classes_lock:
             for scheduling_class, capacity in worker.scheduling_classes.items():
                 self.scheduling_class_capacities[scheduling_class].remove((worker, capacity))
                 self.scheduling_class_total_capacities[scheduling_class] -= capacity
                 if self.scheduling_class_total_capacities[scheduling_class] == 0:
                     del self.scheduling_class_capacities[scheduling_class]
                     del self.scheduling_class_total_capacities[scheduling_class]
+
+        if self.job_pool is not None:
+            self.job_pool.notify_worker_failed(worker)
 
         for failed_task in failed_tasks:
             failed_task.job.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
@@ -232,10 +220,6 @@ class WorkerPool:
             self.event_count += 1
             self.event_condvar.notify_all()
         worker.last_ping = datetime.datetime.now()
-        
-    def get_all_workers(self):
-        with self._lock:
-            return self.workers.values()
 
     def server_stopping(self):
         with self._lock:
@@ -249,7 +233,7 @@ class WorkerPool:
             id = simplejson.loads(content)
             assert id == worker.id
         except:
-            self.bus.publish('worker_failed', worker)
+            self.worker_failed(worker)
 
     def get_random_worker(self):
         with self._lock:
@@ -257,7 +241,7 @@ class WorkerPool:
         
     def get_random_worker_with_capacity_weight(self, scheduling_class):
         
-        with self._classes_lock:
+        with self._lock:
             try:
                 candidates = self.scheduling_class_capacities[scheduling_class]
                 total_capacity = self.scheduling_class_total_capacities[scheduling_class]
