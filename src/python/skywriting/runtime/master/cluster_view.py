@@ -21,8 +21,8 @@ from shared.references import SWDataValue
 def table_row(key, *args):
     return '<tr><td><b>%s</b></td>' % key + ''.join(['<td>%s</td>' % str(x) for x in args]) + '</tr>'
         
-def span_row(heading):
-    return '<tr><td colspan="2" bgcolor="#cccccc" align="center">%s</td></tr>' % heading
+def span_row(heading, cols=2):
+    return '<tr><td colspan="%d" bgcolor="#cccccc" align="center">%s</td></tr>' % (cols, heading)
         
 def job_link(job):
     return '<a href="/control/browse/job/%s">%s</a>' % (job.id, job.id)
@@ -81,6 +81,10 @@ class JobBrowserRoot:
                 job_string += table_row('Tasks ' + name, job.task_state_counts[state])
             except KeyError:
                 job_string += table_row('Tasks ' + name, 0)
+        job_string += span_row('Task type/duration', 5)
+        job_string += table_row('*', str(job.all_tasks.get()), str(job.all_tasks.min), str(job.all_tasks.max), str(job.all_tasks.count))
+        for type, avg in job.all_tasks_by_type.items():
+            job_string += table_row(type, str(avg.get()), str(avg.min), str(avg.max), str(avg.count))
         job_string += '</table></body></html>'
         return job_string
 
