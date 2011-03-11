@@ -36,7 +36,7 @@ class ControlRoot:
     def __init__(self, worker_pool, block_store, job_pool, backup_sender, monitor):
         self.worker = WorkersRoot(worker_pool, backup_sender, monitor)
         self.job = JobRoot(job_pool, backup_sender, monitor)
-        self.task = MasterTaskRoot(job_pool, backup_sender)
+        self.task = MasterTaskRoot(job_pool, worker_pool, backup_sender)
         self.data = DataRoot(block_store, backup_sender)
         self.gethostname = HostnameRoot()
         self.shutdown = ShutdownRoot(worker_pool)
@@ -214,8 +214,9 @@ class JobRoot:
         
 class MasterTaskRoot:
     
-    def __init__(self, job_pool, backup_sender):
+    def __init__(self, job_pool, worker_pool, backup_sender):
         self.job_pool = job_pool
+        self.worker_pool = worker_pool
         self.backup_sender = backup_sender
        
     @cherrypy.expose 
@@ -247,8 +248,10 @@ class MasterTaskRoot:
 
         if action == 'report':
             # Multi-spawn-and-commit
-            report = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
-            job.report_tasks(report, task)
+            report_payload = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
+            worker = self.worker_pool.get_worker_by_id(report_payload['worker'])
+            report = report_payload['report']
+            job.report_tasks(report, task, worker)
             return
 
         elif action == 'failed':

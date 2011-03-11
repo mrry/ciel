@@ -51,7 +51,7 @@ def master_main(options):
 
     task_failure_investigator = TaskFailureInvestigator(worker_pool, deferred_worker)
     
-    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator)
+    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator, deferred_worker)
     job_pool.subscribe()
 
     backup_sender = BackupSender(cherrypy.engine)

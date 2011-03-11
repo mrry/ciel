@@ -37,7 +37,7 @@ for (name, number) in TASK_STATES.items():
 
 class TaskPoolTask:
     
-    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, task_private=None, state=TASK_CREATED, job=None, taskset=None, worker_private=None, workers=[], scheduling_class=None):
+    def __init__(self, task_id, parent_task, handler, inputs, dependencies, expected_outputs, task_private=None, state=TASK_CREATED, job=None, taskset=None, worker_private=None, workers=[], scheduling_class=None, type=None):
         self.task_id = task_id
         
         # Task creation graph.
@@ -66,6 +66,8 @@ class TaskPoolTask:
         self.taskset = taskset
         
         self.worker_private = worker_private
+        
+        self.type = type
         
         self.state = None
         self.set_state(state)
@@ -113,6 +115,14 @@ class TaskPoolTask:
         
         for timestamp, event in ordered_events:
             self.record_event(event, datetime.datetime.fromtimestamp(timestamp))
+    
+    def get_type(self):
+        if self.type is None:
+            # Implicit task type assigned from the executor name, the number of inputs and the number of outputs.
+            # FIXME: Obviously, we could do better.
+            return '%s:%d:%d' % (self.handler, len(self.inputs), len(self.expected_outputs))
+        else:
+            return self.type
     
     def get_profiling(self):
         try:
@@ -273,23 +283,28 @@ def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None, tasks
 
     try:
         worker_private = task_descriptor['worker_private']
-    except:
+    except KeyError:
         worker_private = {}
 
     try:
         workers = task_descriptor['workers']
-    except:
+    except KeyError:
         workers = []
 
     try:
         scheduling_class = task_descriptor['scheduling_class']
-    except:
+    except KeyError:
         if parent_task is not None:
             # With no other information, scheduling class is inherited from the parent.
             scheduling_class = parent_task.scheduling_class
         else:
             scheduling_class = None
     
+    try:
+        type = task_descriptor['scheduling_type']
+    except KeyError:
+        type = None
+    
     state = TASK_CREATED
     
-    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, task_private, state, job, taskset, worker_private, workers, scheduling_class)
+    return TaskPoolTask(task_id, parent_task, handler, inputs, dependencies, expected_outputs, task_private, state, job, taskset, worker_private, workers, scheduling_class, type)
