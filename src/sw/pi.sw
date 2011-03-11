@@ -1,6 +1,6 @@
 
-num_mappers = 99;
-num_samples = 1;
+num_mappers = int(env["NUM_MAPPERS"]);
+num_samples = int(env["NUM_SAMPLES"]);
 jar_lib = [package("pi-jar")];
 
 map_outputs = [];

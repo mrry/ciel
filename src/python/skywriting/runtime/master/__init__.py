@@ -18,7 +18,6 @@ from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 from skywriting.runtime.master.hot_standby import BackupSender, \
     MasterRecoveryMonitor
 from skywriting.runtime.master.job_pool import JobPool
-from skywriting.runtime.master.lazy_scheduler import LazyScheduler
 from skywriting.runtime.master.master_view import MasterRoot
 from skywriting.runtime.master.recovery import RecoveryManager, \
     TaskFailureInvestigator
@@ -43,7 +42,7 @@ def master_main(options):
     deferred_worker = DeferredWorkPlugin(ciel.engine)
     deferred_worker.subscribe()
 
-    worker_pool = WorkerPool(ciel.engine, deferred_worker)
+    worker_pool = WorkerPool(ciel.engine, deferred_worker, None)
     worker_pool.subscribe()
 
     scheduler = PushyScheduler(ciel.engine, worker_pool)
@@ -51,8 +50,10 @@ def master_main(options):
 
     task_failure_investigator = TaskFailureInvestigator(worker_pool, deferred_worker)
     
-    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator)
+    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator, deferred_worker, worker_pool)
     job_pool.subscribe()
+    
+    worker_pool.job_pool = job_pool
 
     backup_sender = BackupSender(cherrypy.engine)
     backup_sender.subscribe()

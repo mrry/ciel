@@ -185,14 +185,17 @@ class TaskExecutionRecord:
             self.failure_bindings = mie.bindings
             self.failure_details = ""
             self.failure_reason = "MISSING_INPUT"
+            self.finish_time = datetime.datetime.now()
             raise
         except AbortedException:
+            self.finish_time = datetime.datetime.now()
             raise
         except:
             ciel.log.error("Error in task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.ERROR, True)
             self.failure_bindings = dict()
             self.failure_details = ""
             self.failure_reason = "RUNTIME_EXCEPTION"
+            self.finish_time = datetime.datetime.now()
             raise
 
     def cleanup(self):

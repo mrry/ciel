@@ -758,7 +758,20 @@ class BlockStore(plugins.SimplePlugin):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         with self._lock:
             del self.streaming_producers[id]
-            os.link(self.streaming_filename(id), self.filename(id))
+            try:
+                os.link(self.streaming_filename(id), self.filename(id))
+            except OSError as e:
+                if e.errno == 17: # File exists
+                    size_stream = os.path.getsize(self.streaming_filename(id))
+                    size_conc = os.path.getsize(self.filename(id))
+                    if size_stream == size_conc:
+                        ciel.log('commit_stream overwrote an existing output (%s) with equal size (%d): ignoring' % (id, size_conc), 'BLOCKSTORE', logging.WARNING)
+                    else:
+                        ciel.log('commit_stream tried to overwrite an existing output (%s) with a different size (%d vs. %s): ignoring' % (id, size_stream, size_conc), 'BLOCKSTORE', logging.ERROR)
+                        raise
+                else:
+                    ciel.log('Unexpected error when committing stream for %s (size: %d vs. %s): ignoring' % (id, size_stream, size_conc), 'BLOCKSTORE', logging.ERROR)
+                    raise
 
     def rollback_file(self, id):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
