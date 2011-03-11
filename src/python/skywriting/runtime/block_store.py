@@ -590,7 +590,7 @@ class BlockStore(plugins.SimplePlugin):
         def progress(self, bytes):
             self.current_size = bytes
             if self.last_notify is None or self.current_size - self.last_notify > self.chunk_size:
-                data = simplejson.dumps({"bytes": new_size, "done": False})
+                data = simplejson.dumps({"bytes": bytes, "done": False})
                 self.post(data)
                 self.last_notify = self.current_size
 
@@ -772,7 +772,7 @@ class BlockStore(plugins.SimplePlugin):
                     self.remote_stream_subscribers[(id, otherend_netloc)].set_chunk_size(chunk_size)
                     ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
                 except KeyError:
-                    new_subscriber = BlockStore.RemoteOutputSubscriber(otherend_netloc, chunk_size)
+                    new_subscriber = BlockStore.RemoteOutputSubscriber(producer, otherend_netloc, chunk_size)
                     producer.subscribe(new_subscriber)
                     ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
             except KeyError:
