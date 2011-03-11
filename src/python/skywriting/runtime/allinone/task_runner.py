@@ -41,8 +41,6 @@ class AllInOneJobOutput:
    
     def is_queued_streaming(self):
         return False
-    def is_assigned_streaming(self):
-        return False
     def is_blocked(self):
         return True
    

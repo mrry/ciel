@@ -25,8 +25,6 @@ class LocalJobOutput:
         self.taskset = taskset
     def is_queued_streaming(self):
         return False
-    def is_assigned_streaming(self):
-        return False
     def is_blocked(self):
         return True
     def is_complete(self):

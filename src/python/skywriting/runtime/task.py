@@ -18,7 +18,6 @@ TASK_SELECTING = 1
 TASK_RUNNABLE = 2
 TASK_QUEUED_STREAMING = 3
 TASK_QUEUED = 4
-TASK_ASSIGNED_STREAMING = 5
 TASK_ASSIGNED = 6
 TASK_COMMITTED = 7
 TASK_FAILED = 8
@@ -30,7 +29,6 @@ TASK_STATES = {'CREATED': TASK_CREATED,
                'RUNNABLE': TASK_RUNNABLE,
                'QUEUED_STREAMING': TASK_QUEUED_STREAMING,
                'QUEUED': TASK_QUEUED,
-               'ASSIGNED_STREAMING': TASK_ASSIGNED_STREAMING,
                'ASSIGNED': TASK_ASSIGNED,
                'COMMITTED': TASK_COMMITTED,
                'FAILED': TASK_FAILED,
@@ -116,9 +114,6 @@ class TaskPoolTask:
     def is_blocked(self):
         return self.state in (TASK_BLOCKING, TASK_SELECTING)
     
-    def is_assigned_streaming(self):
-        return self.state == TASK_ASSIGNED_STREAMING
-
     def is_queued_streaming(self):
         return self.state == TASK_QUEUED_STREAMING
         
@@ -167,9 +162,7 @@ class TaskPoolTask:
             self.unfinished_input_streams.remove(global_id)
             task_pool.unsubscribe_task_from_ref(self, ref)
             if len(self.unfinished_input_streams) == 0:
-                if self.state == TASK_ASSIGNED_STREAMING:
-                    self.set_state(TASK_ASSIGNED)
-                elif self.state == TASK_QUEUED_STREAMING:
+                if self.state == TASK_QUEUED_STREAMING:
                     self.set_state(TASK_QUEUED)
         else:
             if self.state == TASK_BLOCKING:
@@ -192,9 +185,7 @@ class TaskPoolTask:
             self.unfinished_input_streams.remove(global_id)
             ref_table_entry.remove_consumer(self)
             if len(self.unfinished_input_streams) == 0:
-                if self.state == TASK_ASSIGNED_STREAMING:
-                    self.set_state(TASK_ASSIGNED)
-                elif self.state == TASK_QUEUED_STREAMING:
+                if self.state == TASK_QUEUED_STREAMING:
                     self.set_state(TASK_QUEUED)
         else:
             if self.state == TASK_BLOCKING:
@@ -213,10 +204,7 @@ class TaskPoolTask:
     # Warning: called under worker_pool._lock
     def set_assigned_to_worker(self, worker):
         self.worker = worker
-        if len(self.unfinished_input_streams) > 0:
-            self.set_state(TASK_ASSIGNED_STREAMING)
-        else:
-            self.set_state(TASK_ASSIGNED)
+        self.set_state(TASK_ASSIGNED)
         #self.state = TASK_ASSIGNED
         #self.record_event("ASSIGNED")
         #self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
