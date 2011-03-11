@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from threading import Lock
+from threading import RLock, Lock
 from skywriting.runtime.exceptions import \
     MissingInputException, RuntimeSkywritingError
 import random
@@ -484,7 +484,7 @@ class BlockStore(plugins.SimplePlugin):
 
     def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False):
         plugins.SimplePlugin.__init__(self, bus)
-        self._lock = Lock()
+        self._lock = RLock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
         self.object_cache = {}
@@ -501,6 +501,10 @@ class BlockStore(plugins.SimplePlugin):
         #       committed to the block store.)
         # They map to the executor which is producing them.
         self.streaming_producers = dict()
+
+        # Remote endpoints that are receiving adverts from our streaming producers.
+        # Indexed by (refid, otherend_netloc)
+        self.remote_stream_subscribers = dict()
 
         # The other side of the coin: things we're streaming *in*
         self.incoming_streams = dict()
@@ -562,11 +566,40 @@ class BlockStore(plugins.SimplePlugin):
         else:
             return self.filename(ref.id)
         
-    class FileOutputSubscriber:
+    class RemoteOutputSubscriber:
         
-        def __init__(self, netloc, chunk_size):
+        def __init__(self, file_output, netloc, chunk_size):
+            self.file_output = file_output
             self.netloc = netloc
             self.chunk_size = chunk_size
+            self.current_size = None
+            self.last_notify = None
+
+        def set_chunk_size(self, chunk_size):
+            self.chunk_size = chunk_size
+            if self.current_size is not None:
+                self.post(simplejson.dumps({"bytes": self.current_size, "done": False}))
+            self.file_output.chunk_size_changed(self)
+
+        def unsubscribe(self):
+            self.file_output.unsubscribe(self)
+
+        def post(self, message):
+            post_string_noreturn("http://%s/control/streamstat/%s/advert" % (self.netloc, self.file_output.refid), message)
+
+        def progress(self, bytes):
+            self.current_size = bytes
+            if self.last_notify is None or self.current_size - self.last_notify > self.chunk_size:
+                data = simplejson.dumps({"bytes": bytes, "done": False})
+                self.post(data)
+                self.last_notify = self.current_size
+
+        def result(self, success):
+            if success:
+                self.post(simplejson.dumps({"bytes": self.current_size, "done": True}))
+            else:
+                self.post(simplejson.dumps({"failed": True}))
+
         
     class FileOutputContext:
 
@@ -577,9 +610,7 @@ class BlockStore(plugins.SimplePlugin):
             self.file_watch = None
             self.subscriptions = []
             self.current_size = None
-            self.last_notify = None
             self.closed = False
-            self.chunk_size = None
 
         def get_filename(self):
             return self.block_store.streaming_filename(self.refid)
@@ -587,19 +618,14 @@ class BlockStore(plugins.SimplePlugin):
         def get_stream_ref(self):
             return SW2_StreamReference(self.refid, [self.block_store.netloc])
 
-        def post_all_netlocs(self, message):
-            # FIXME: All subscribed endpoints currently get adverts as often as the one with the smallest chunk size.
-            for sub in self.subscriptions:
-                self.block_store.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (sub.netloc, self.refid), message)
-
         def rollback(self):
             if not self.closed:
                 self.closed = True
                 self.block_store.rollback_file(self.refid)
                 if self.file_watch is not None:
                     self.file_watch.cancel()
-                data = simplejson.dumps({"failed": True})
-                self.post_all_netlocs(data)
+                for subscriber in self.subscriptions:
+                    subscriber.result(False)
 
         def close(self):
             if not self.closed:
@@ -609,8 +635,9 @@ class BlockStore(plugins.SimplePlugin):
                 if self.file_watch is not None:
                     self.file_watch.cancel()
                 self.current_size = os.stat(self.block_store.filename(self.refid)).st_size
-                data = simplejson.dumps({"bytes": self.current_size, "done": True})
-                self.post_all_netlocs(data)
+                for subscriber in self.subscriptions:
+                    subscriber.progress(self.current_size)
+                    subscriber.result(True)
 
         def get_completed_ref(self):
             if not self.closed:
@@ -624,49 +651,41 @@ class BlockStore(plugins.SimplePlugin):
 
         def update_chunk_size(self):
             self.subscriptions.sort(key=lambda x: x.chunk_size)
-            self.chunk_size = self.subscriptions[0].chunk_size
-            self.file_watch.set_chunk_size(self.chunk_size)
+            self.file_watch.set_chunk_size(self.subscriptions[0].chunk_size)
 
-        def subscribe(self, otherend_netloc, chunk_size):
+        def subscribe(self, new_subscriber):
 
-            found = False
             should_start_watch = False
-            for subscriber in self.subscriptions:
-                if subscriber.netloc == otherend_netloc:
-                    subscriber.chunk_size = chunk_size
-                    ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, self.refid, chunk_size), "BLOCKSTORE", logging.INFO)
-                    found = True
-                    break
-            if not found:
-                ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, self.refid, chunk_size), "BLOCKSTORE", logging.INFO)
-                new_subscriber = BlockStore.FileOutputSubscriber(otherend_netloc, chunk_size)
-                self.subscriptions.append(new_subscriber)
-                if self.file_watch is None:
-                    ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.INFO)
-                    self.file_watch = self.subscribe_callback(self)
-                    should_start_watch = True
+            self.subscriptions.append(new_subscriber)
+            if self.current_size is not None:
+                new_subscriber.progress(self.current_size)
+            if self.file_watch is None:
+                ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.INFO)
+                self.file_watch = self.subscribe_callback(self)
+                should_start_watch = True
             self.update_chunk_size()
             if should_start_watch:
                 self.file_watch.start()
 
-        def unsubscribe(self, otherend_netloc):
-            for x in self.subscriptions:
-                if x.netloc == otherend_netloc:
-                    self.subscriptions.remove(x)
-                    break
+        def unsubscribe(self, subscriber):
+            try:
+                self.subscriptions.remove(subscriber)
+            except ValueError:
+                ciel.log("Couldn't unsubscribe %s from output %s: not a subscriber" % (subscriber, self.refid), "BLOCKSTORE", logging.ERROR)
             if len(self.subscriptions) == 0 and self.file_watch is not None:
-                ciel.log("Last remote watcher unsubscribed from %s; cancelling watch" % self.refid, "BLOCKSTORE", logging.INFO)
+                ciel.log("No more subscribers for %s; cancelling watch" % self.refid, "BLOCKSTORE", logging.INFO)
                 self.file_watch.cancel()
                 self.file_watch = None
             else:
                 self.update_chunk_size()
 
+        def chunk_size_changed(self, subscriber):
+            self.update_chunk_size()
+
         def size_update(self, new_size):
             self.current_size = new_size
-            if self.last_notify is None or self.current_size - self.last_notify > self.chunk_size:
-                data = simplejson.dumps({"bytes": new_size, "done": False})
-                self.post_all_netlocs(data)
-                self.last_notify = self.current_size
+            for subscriber in self.subscriptions:
+                subscriber.progress(new_size)
 
         def __enter__(self):
             return self
@@ -761,7 +780,14 @@ class BlockStore(plugins.SimplePlugin):
         post = None
         with self._lock:
             try:
-                self.streaming_producers[id].subscribe(otherend_netloc, chunk_size)
+                producer = self.streaming_producers[id]
+                try:
+                    self.remote_stream_subscribers[(id, otherend_netloc)].set_chunk_size(chunk_size)
+                    ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
+                except KeyError:
+                    new_subscriber = BlockStore.RemoteOutputSubscriber(producer, otherend_netloc, chunk_size)
+                    producer.subscribe(new_subscriber)
+                    ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
             except KeyError:
                 try:
                     st = os.stat(self.filename(id))
@@ -774,7 +800,7 @@ class BlockStore(plugins.SimplePlugin):
     def unsubscribe_from_stream(self, otherend_netloc, id):
         with self._lock:
             try:
-                self.streaming_producers[id].unsubscribe(otherend_netloc)
+                self.remote_stream_subscribers[(id, otherend_netloc)].cancel()
                 ciel.log("%s unsubscribed from %s" % (otherend_netloc, id), "BLOCKSTORE", logging.INFO)
             except KeyError:
                 ciel.log("Ignored unsubscribe request for unknown block %s" % id, "BLOCKSTORE", logging.WARNING)
@@ -834,7 +860,7 @@ class BlockStore(plugins.SimplePlugin):
         def get_completed_ref(self, is_sweetheart):
             return None
 
-        def remove_listener(self, l):
+        def unsubscribe(self, l):
             pass
 
     class FetchListener:
@@ -870,7 +896,7 @@ class BlockStore(plugins.SimplePlugin):
                 self.listeners.sort(key=lambda x: x.chunk_size)
                 self.fetch_context.set_chunk_size(self.listeners[0].chunk_size)
 
-        def _remove_listener(self, fetch_client):
+        def _unsubscribe(self, fetch_client):
             if self.completed:
                 ciel.log("Removing fetch client %s: transfer had already completed" % fetch_client, "CURL_FETCH", logging.WARNING)
                 return
@@ -881,9 +907,9 @@ class BlockStore(plugins.SimplePlugin):
                 ciel.log("Removing fetch client %s: no clients remain, cancelling transfer" % fetch_client, "CURL_FETCH", logging.INFO)
                 self.fetch_context.cancel()
 
-        def remove_listener(self, fetch_client):
+        def unsubscribe(self, fetch_client):
             # Asynchronous out-of-thread callback: might come from the cURL thread or any other.
-            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._remove_listener(fetch_client))
+            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._unsubscribe(fetch_client))
 
         def add_listener(self, fetch_client):
             self.listeners.append(fetch_client)
@@ -933,7 +959,7 @@ class BlockStore(plugins.SimplePlugin):
         if self.is_ref_local(ref):
             ciel.log("Ref %s became local during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
             dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
-            fetch_client.set_fetch_listener(dummy_listener)
+            fetch_client.set_producer(dummy_listener)
             fetch_client.result_callback(True)
         else:
             # No locking from now on, as the following structures are only touched by the cURL thread.
@@ -942,7 +968,7 @@ class BlockStore(plugins.SimplePlugin):
                 self._start_fetch_ref(ref)
             else:
                 ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
-            fetch_client.set_fetch_listener(self.incoming_fetches[ref.id])
+            fetch_client.set_producer(self.incoming_fetches[ref.id])
             self.incoming_fetches[ref.id].add_listener(fetch_client)
 
     class FetchProxy:
@@ -954,7 +980,7 @@ class BlockStore(plugins.SimplePlugin):
             self.progress_callback = progress_callback
             self.chunk_size = chunk_size
             self.ref = ref
-            self.fetch_listener = None
+            self.producer = None
 
         def result(self, success):
             self.result_callback(success)
@@ -966,33 +992,42 @@ class BlockStore(plugins.SimplePlugin):
             if self.progress_callback is not None:
                 self.progress_callback(bytes)
 
-        def set_fetch_listener(self, listener):
-            self.fetch_listener = listener
+        def set_producer(self, producer, supply_refs=True):
+            self.supply_refs = supply_refs
+            self.producer = producer
             self.ready_event.set()
             
         def get_filename(self):
             self.ready_event.wait()
-            return self.fetch_listener.get_filename()
+            return self.producer.get_filename()
 
         def get_completed_ref(self, is_sweetheart):
             self.ready_event.wait()
-            return self.fetch_listener.get_completed_ref(is_sweetheart)
+            if self.supply_refs:
+                return self.producer.get_completed_ref(is_sweetheart)
+            else:
+                return None
 
         def cancel(self):
             self.ready_event.wait()
-            self.fetch_listener.remove_listener(self)
+            self.producer.unsubscribe(self)
 
     # Called from arbitrary thread
     def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None, chunk_size=67108864):
 
         new_client = BlockStore.FetchProxy(ref, result_callback, reset_callback, progress_callback, chunk_size)
-        if self.is_ref_local(ref):
-            ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
-            dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
-            new_client.set_fetch_listener(dummy_listener)
-            result_callback(True)
-        else:
-            self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_client))
+        with self._lock:
+            if self.is_ref_local(ref):
+                ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
+                dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
+                new_client.set_producer(dummy_listener)
+                result_callback(True)
+            elif isinstance(ref, SW2_StreamReference) and self.netloc in ref.location_hints and ref.id in self.streaming_producers:
+                ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
+                self.streaming_producers[ref.id].subscribe(new_client)
+                new_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
+            else:
+                self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_client))
         return new_client
 
     class SynchronousTransfer:
@@ -1139,11 +1174,13 @@ class BlockStore(plugins.SimplePlugin):
 
     class BufferTransferContext:
         
-        def __init__(self, method, url, postdata, fetch_thread):
+        def __init__(self, method, url, postdata, fetch_thread, result_callback=None):
 
             self.post_buffer = StringIO(postdata)
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
+            self.result_callback = result_callback
+            self.url = url
             self.curl_ctx = pycURLBufferContext(method, self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
 
         def start(self):
@@ -1165,16 +1202,18 @@ class BlockStore(plugins.SimplePlugin):
             self.post_buffer.close()
             self.response_buffer.close()
             self.completed_event.set()
+            if self.result_callback is not None:
+                self.result_callback(success, self.url)
 
     # This is only a BlockStore method because it uses the fetch_thread.
     # Called from cURL thread
-    def _post_string_noreturn(self, url, postdata):
-        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread)
+    def _post_string_noreturn(self, url, postdata, result_callback=None):
+        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread, result_callback)
         ctx.start()
         return
 
-    def post_string_noreturn(self, url, postdata):
-        self.fetch_thread.do_from_curl_thread(lambda: self._post_string_noreturn(url, postdata))
+    def post_string_noreturn(self, url, postdata, result_callback=None):
+        self.fetch_thread.do_from_curl_thread(lambda: self._post_string_noreturn(url, postdata, result_callback))
 
     # Called from cURL thread
     def _post_string(self, url, postdata):
@@ -1267,6 +1306,6 @@ def get_string(url):
 def post_string(url, content):
     return singleton_blockstore.post_string(url, content)
 
-def post_string_noreturn(url, content):
-    singleton_blockstore.post_string_noreturn(url, content)
+def post_string_noreturn(url, content, result_callback=None):
+    singleton_blockstore.post_string_noreturn(url, content, result_callback=None)
     
