@@ -125,14 +125,14 @@ class TaskPoolTask:
         except AttributeError:
             return {}
 
-    def assign_netloc(self, netloc):
+    def add_worker(self, netloc):
         self.workers.add(netloc)
 
-    def delete_netloc(self, netloc):
+    def remove_worker(self, netloc):
         self.workers.remove(netloc)
 
-    def get_netlocs(self):
-        """Returns a list of network locations representing the workers on which this task is running."""
+    def get_workers(self):
+        """Returns a list of the workers to which this task is assigned."""
         return list(self.workers)
 
     def block_on(self, global_id, local_id):

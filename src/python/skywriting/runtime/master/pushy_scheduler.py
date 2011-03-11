@@ -40,7 +40,5 @@ class PushyScheduler(AsynchronousExecutePlugin):
                 break
             
             task.job.assign_scheduling_class_to_task(task)
-            workers = task.job.assign_task_to_workers(task, self.worker_pool)
-            
-            for worker in workers:
-                self.worker_pool.execute_task_on_worker(worker, task)
+            worker = task.job.assign_task_to_worker(task, self.worker_pool)
+            self.worker_pool.execute_task_on_worker(worker, task)

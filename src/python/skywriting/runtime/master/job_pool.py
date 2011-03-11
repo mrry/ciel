@@ -86,21 +86,20 @@ class Job:
         self.all_tasks = RunningAverage()
         self.all_tasks_by_type = {}
         
-    def assign_task_to_workers(self, task, worker_pool):
+    def assign_task_to_worker(self, task, worker_pool):
         if task.has_constrained_location():
             fixed_netloc = task.get_constrained_location()
-            task.assign_netloc(fixed_netloc)
-            return [self.worker_pool.get_worker_at_netloc(fixed_netloc)]
+            worker = self.worker_pool.get_worker_at_netloc(fixed_netloc)
         elif task.state in (TASK_QUEUED_STREAMING, TASK_QUEUED):
-            workers = self.scheduling_policy.select_workers_for_task(task, worker_pool)
-            for worker in workers:
-                task.assign_netloc(worker.netloc)
-            return workers
+            worker = self.scheduling_policy.select_worker_for_task(task, worker_pool)
         else:
             ciel.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
                                "SCHEDULER", logging.ERROR)
-            return []
-
+            raise
+        task.add_worker(worker)
+        self.workers[worker].add_task(task)
+        return worker
+        
     def assign_scheduling_class_to_task(self, task):
         if task.handler == 'swi':
             task.scheduling_class = 'cpu'
@@ -123,7 +122,7 @@ class Job:
         self.state = state
         evt_time = self.history[-1][0]
         ciel.log('%s %s @ %f' % (self.id, JOB_STATE_NAMES[self.state], time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'JOB', logging.INFO)
-         
+
     def failed(self):
         self.set_state(JOB_FAILED)
         self.stop_journalling()
@@ -149,7 +148,7 @@ class Job:
         for output in self.root_task.expected_outputs:
             self.task_graph.subscribe(output, mjo)
         self.task_graph.reduce_graph_for_references(self.root_task.expected_outputs)
-        ciel.engine.publish('schedule') 
+        ciel.engine.publish('schedule')
 
     def cancelled(self):
         self.set_state(JOB_CANCELLED)
@@ -217,6 +216,14 @@ class Job:
 
         tx = TaskGraphUpdate()
         
+        root_task = self.task_graph.get_task(report[0][0])
+        for assigned_worker in root_task.get_workers():
+            if assigned_worker is worker:
+                self.workers[worker].remove_task(root_task)
+            else:
+                # XXX: Need to abort the task running on other workers.
+                pass 
+        
         for (parent_id, success, payload) in report:
             parent_task = self.task_graph.get_task(parent_id)
             if success:
@@ -264,8 +271,8 @@ class Job:
             ciel.log('Error recording task statistics for task: %s' % task.task_id, 'JOB', logging.WARNING)
 
             
-    def guess_task_performance(self, task, worker):
-        pass
+    def guess_task_performance_on_worker(self, task, worker):
+        return self.workers[worker].load()
                 
     def investigate_task_failure(self, task, payload):
         self.job_pool.task_failure_investigator.investigate_task_failure(task, payload)
@@ -281,6 +288,11 @@ class Job:
     def notify_worker_failed(self, worker):
         try:
             worker_state = self.workers[worker]
+            ciel.log('Reassigning tasks from failed worker %s for job %s' % (worker.id, self.id), 'JOB', logging.WARNING)
+            for failed_task in worker_state.assigned_tasks:
+                failed_task.remove_worker(worker)
+                self.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
+            del self.workers[worker]
         except KeyError:
             pass
 
@@ -296,7 +308,11 @@ class JobWorkerState:
         self.assigned_tasks.add(task)
         
     def remove_task(self, task):
-        self.assigned_tasks.remove(task)
+        try:
+            self.assigned_tasks.remove(task)
+        except KeyError:
+            # XXX: This is happening twice, once on receiving the report and again on the failure.
+            pass
         
     def load(self):
         return len(self.assigned_tasks)
@@ -426,7 +442,7 @@ class JobTaskGraph(DynamicTaskGraph):
 
     def handle_missing_input(self, task):
         task.set_state(TASK_FAILED)
-                
+
         # Assume that all of the dependencies are unavailable.
         task.convert_dependencies_to_futures()
         
@@ -435,7 +451,6 @@ class JobTaskGraph(DynamicTaskGraph):
         # N.B. We should already have published the necessary tombstone refs
         #      for the failed inputs.
         self.reduce_graph_for_tasks([task])
-
 
 class JobPool(plugins.SimplePlugin):
 

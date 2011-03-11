@@ -199,7 +199,6 @@ class WorkerPool:
     def worker_failed(self, worker):
         ciel.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING, True)
         with self._lock:
-            failed_tasks = worker.get_assigned_tasks()
             worker.failed = True
             del self.netlocs[worker.netloc]
             del self.workers[worker.id]
@@ -214,9 +213,6 @@ class WorkerPool:
         if self.job_pool is not None:
             self.job_pool.notify_worker_failed(worker)
 
-        for failed_task in failed_tasks:
-            failed_task.job.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
-        
     def worker_ping(self, worker):
         with self._lock:
             self.event_count += 1
