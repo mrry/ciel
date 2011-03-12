@@ -688,6 +688,11 @@ class BlockStore(plugins.SimplePlugin):
 
         def subscribe(self, new_subscriber):
 
+            with self.block_store._lock:
+                if self.pipe_attached:
+                    raise Exception("Tried to subscribe to output %s, but it's being piped. Piped outputs should not have fan-out > 1" % self.refid)
+                self.started = True
+                self.pipe_cond.notify_all()
             should_start_watch = False
             self.subscriptions.append(new_subscriber)
             if self.current_size is not None:
@@ -732,6 +737,56 @@ class BlockStore(plugins.SimplePlugin):
                     self.rollback()
             return False
 
+    class FakeFetchClient:
+        
+        def __init__(self):
+            self.completed_event = threading.Event()
+            self.chunk_size = None
+
+        def progress(self, bytes):
+            pass
+
+        def result(self, success):
+            self.completed_event.set()
+
+        def reset(self):
+            pass
+
+        def wait(self):
+            self.completed_event.set()
+
+    def _await_fetch(self, id):
+        if id in self.incoming_fetches:
+            fetch = self.incoming_fetches[id]
+            client = BlockStore.FakeFetchClient()
+            fetch.add_listener(client)
+            client.wait()
+            
+    def await_fetch(self, id):
+        self.fetch_thread.do_from_curl_thread_sync(lambda: self._await_fetch(id))
+
+    def register_local_output(self, id, new_producer):
+        while True:
+            with self._lock:
+                if id in self.incoming_fetches:
+                    should_wait = True
+                    ciel.log("Output %s clashes with incoming fetch of the same block. Waiting for the fetch to complete..." % id, "BLOCKSTORE", logging.WARNING)
+                else:
+                    should_wait = False
+            if should_wait:
+                self.await_fetch(id)
+            with self._lock:
+                # Re-check under the lock
+                if id in self.incoming_fetches:
+                    continue
+                if os.path.exists(self.filename(id)):
+                    ciel.log("Block %s already existed! Overwriting..." % id, "BLOCKSTORE", logging.WARNING)
+                    os.remove(self.filename(id))
+                self.streaming_producers[id] = new_producer
+                dot_filename = self.streaming_filename(id)
+                open(dot_filename, 'wb').close()
+                return
+
     def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
         '''
         Creates a file-in-progress in the block store directory.
@@ -740,19 +795,11 @@ class BlockStore(plugins.SimplePlugin):
             subscribe_callback = self.create_file_watch
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, may_pipe)
-        with self._lock:
-            if os.path.exists(self.filename(id)):
-                ciel.log("Block %s already existed! Overwriting..." % id, "BLOCKSTORE", logging.WARNING)
-                os.remove(self.filename(id))
-            self.streaming_producers[id] = new_ctx
-            dot_filename = self.streaming_filename(id)
-            open(dot_filename, 'wb').close()
+        self.register_local_output(id, new_ctx)
         return new_ctx
 
     def create_file_watch(self, output_ctx):
         return self.file_watcher_thread.create_watch(output_ctx)
-
-
 
     def commit_stream(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
@@ -927,9 +974,10 @@ class BlockStore(plugins.SimplePlugin):
                 l.reset()
 
         def update_chunk_size(self):
-            if len(self.listeners) != 0:
-                self.listeners.sort(key=lambda x: x.chunk_size)
-                self.fetch_context.set_chunk_size(self.listeners[0].chunk_size)
+            interested_listeners = filter(lambda x: x.chunk_size is not None, self.listeners)
+            if len(interested_listeners) != 0:
+                interested_listeners.sort(key=lambda x: x.chunk_size)
+                self.fetch_context.set_chunk_size(interested_listeners[0].chunk_size)
 
         def _unsubscribe(self, fetch_client):
             if self.completed:
@@ -983,21 +1031,43 @@ class BlockStore(plugins.SimplePlugin):
 
     # Called from cURL thread
     def fetch_completed(self, ref, success):
-        if success:
-            with self._lock:
+        with self._lock:
+            if success:
                 os.link(self.streaming_filename(ref.id), self.filename(ref.id))
-        del self.incoming_fetches[ref.id]
+            del self.incoming_fetches[ref.id]
+
+    def try_local_fetch(self, ref, fetch_client):
+
+        with self._lock:
+            if ref.id in self.streaming_producers:
+                ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
+                producer = self.streaming_producers[ref.id]
+                pipe_name = producer.try_get_pipe()
+                if pipe_name is not None:
+                    ciel.log("Ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
+                    dummy_listener = BlockStore.DummyFetchListener(pipe_name)
+                    fetch_client.set_producer(dummy_listener)
+                    fetch_client.result_callback(True)
+                else:
+                    producer.subscribe(fetch_client)
+                    fetch_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
+                return True                
+            elif self.is_ref_local(ref):
+                ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
+                dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
+                fetch_client.set_producer(dummy_listener)
+                fetch_client.result_callback(True)
+                return True
+            else:
+                return False
 
     # Called from cURL thread
     def _fetch_ref_async(self, ref, fetch_client):
-        
-        if self.is_ref_local(ref):
-            ciel.log("Ref %s became local during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
-            dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
-            fetch_client.set_producer(dummy_listener)
-            fetch_client.result_callback(True)
-        else:
-            # No locking from now on, as the following structures are only touched by the cURL thread.
+
+        with self._lock:
+            if self.try_local_fetch(ref, fetch_client):
+                ciel.log("Ref %s became locally available during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
+                return
             if ref.id not in self.incoming_fetches:
                 ciel.log("Starting new fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
                 self._start_fetch_ref(ref)
@@ -1052,24 +1122,7 @@ class BlockStore(plugins.SimplePlugin):
 
         new_client = BlockStore.FetchProxy(ref, result_callback, reset_callback, progress_callback, chunk_size)
         with self._lock:
-            if self.is_ref_local(ref):
-                ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
-                dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
-                new_client.set_producer(dummy_listener)
-                result_callback(True)
-            elif isinstance(ref, SW2_StreamReference) and self.netloc in ref.location_hints and ref.id in self.streaming_producers:
-                ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
-                producer = self.streaming_producers[ref.id]
-                pipe_name = producer.try_get_pipe()
-                if pipe_name is not None:
-                    ciel.log("Ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
-                    dummy_listener = BlockStore.DummyFetchListener(pipe_name)
-                    new_client.set_producer(dummy_listener)
-                    result_callback(True)
-                else:
-                    producer.subscribe(new_client)
-                    new_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
-            else:
+            if not self.try_local_fetch(ref, new_client):
                 self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_client))
         return new_client
 
