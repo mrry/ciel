@@ -45,7 +45,7 @@ from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SW2_StreamReference,\
     SW2_TombstoneReference, SW2_FetchReference, SW2_FixedReference,\
-    SW2_SweetheartReference
+    SW2_SweetheartReference, SW2_CompletedReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 import hashlib
 import contextlib
@@ -441,9 +441,9 @@ class StreamTransferContext:
         self.block_store.remove_incoming_stream(self.ref.id)
         self.callbacks.result(success)
 
-    def subscribe_result(self, success):
+    def subscribe_result(self, success, _):
         if not success:
-            ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." % self.refid, "CURL_FETCH", logging.INFO)
+            ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." % self.ref.id, "CURL_FETCH", logging.INFO)
             self.remote_failed = True
             if self.current_data_fetch is None:
                 self.complete(False)
@@ -618,16 +618,21 @@ class BlockStore(plugins.SimplePlugin):
             if self.may_pipe:
                 self.fifo_name = tempfile.mktemp()
                 os.mkfifo(self.fifo_name)
+                self.pipe_deadline = datetime.now() + timedelta(seconds=5)
             self.started = False
             self.pipe_attached = False
             self.pipe_cond = threading.Condition(self.block_store._lock)
 
         def get_filename(self):
             if self.may_pipe:
-                ciel.log("Producer for %s: waiting for pipe pickup" % self.refid)
                 with self.block_store._lock:
                     if not self.pipe_attached:
-                        self.pipe_cond.wait(5)
+                        now = datetime.now()
+                        if now < self.pipe_deadline:
+                            wait_time = self.pipe_deadline - now
+                            wait_secs = float(wait_time.seconds) + (float(wait_time.microseconds) / 10**6)
+                            ciel.log("Producer for %s: waiting for pipe pickup" % self.refid)
+                            self.pipe_cond.wait(wait_secs)
                     self.started = True
                     if self.pipe_attached:
                         ciel.log("Producer for %s: using pipe" % self.refid)

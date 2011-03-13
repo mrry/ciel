@@ -267,10 +267,10 @@ class SW2_CompletedReference(SWRealReference):
         return False
 
     def as_tuple(self):
-        return ('complete2', str(self.id))
+        return ('completed2', str(self.id))
 
     def __str__(self):
-        return '<CompleteRef: %s...>' % self.id[:10]
+        return '<CompletedRef: %s...>' % self.id[:10]
 
     def __repr__(self):
         return "SW2_CompletedReference(%s)" % repr(self.id)
@@ -352,6 +352,8 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_TombstoneReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 'fetch2':
         return SW2_FetchReference(reference_tuple[1], reference_tuple[2])
+    elif ref_type == "completed2":
+        return SW2_CompletedReference(reference_tuple[1])
     else:
         raise KeyError(ref_type)
 

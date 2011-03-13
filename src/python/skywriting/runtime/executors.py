@@ -1671,6 +1671,10 @@ class ProcessRunningExecutor(SimpleExecutor):
         except KeyError:
             self.stream_output = False
         try:
+            self.pipe_output = self.args['pipe_output']
+        except KeyError:
+            self.pipe_output = False
+        try:
             self.eager_fetch = self.args['eager_fetch']
         except KeyError:
             self.eager_fetch = False
@@ -1693,15 +1697,15 @@ class ProcessRunningExecutor(SimpleExecutor):
 
             file_inputs = [push_thread.get_filename() for push_thread in push_threads]
         
-            with list_with([self.block_store.make_local_output(id) for id in self.output_ids]) as out_file_contexts:
+            with list_with([self.block_store.make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
 
-                file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
-        
                 if self.stream_output:
            
                     stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
                     self.task_record.prepublish_refs(stream_refs)
 
+                file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
+        
                 self.proc = self.start_process(file_inputs, file_outputs)
                 add_running_child(self.proc)
 
