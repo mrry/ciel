@@ -49,7 +49,9 @@ class TwoRandomChoiceSchedulingPolicy(SchedulingPolicy):
     def select_worker_for_task(self, task, worker_pool):
         worker1 = worker_pool.get_random_worker()
         worker2 = worker_pool.get_random_worker()
-        if task.job.guess_task_cost_on_worker(task, worker1) < task.job.guess_task_cost_on_worker(task, worker2):
+        cost1 = task.job.guess_task_cost_on_worker(task, worker1)
+        cost2 = task.job.guess_task_cost_on_worker(task, worker2)
+        if cost1 < cost2:
             return (worker1, [])
         else:
             return (worker2, [])

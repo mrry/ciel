@@ -203,7 +203,7 @@ class WorkerPool:
         
     def abort_task_on_worker(self, task, worker):
         try:
-            ciel.log("Aborting task %d on worker %s" % (task.task_id, worker), "WORKER_POOL", logging.WARNING)
+            ciel.log("Aborting task %s on worker %s" % (task.task_id, worker), "WORKER_POOL", logging.WARNING)
             post_string_noreturn('http://%s/control/abort/%s/%s' % (worker.netloc, task.job.id, task.task_id), "", result_callback=self.worker_post_result_callback)
         except:
             self.worker_failed(worker)

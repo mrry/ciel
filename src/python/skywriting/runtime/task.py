@@ -125,11 +125,11 @@ class TaskPoolTask:
         except AttributeError:
             return {}
 
-    def add_worker(self, netloc):
-        self.workers.add(netloc)
+    def add_worker(self, worker):
+        self.workers.add(worker)
 
-    def remove_worker(self, netloc):
-        self.workers.remove(netloc)
+    def remove_worker(self, worker):
+        self.workers.remove(worker)
 
     def get_workers(self):
         """Returns a list of the workers to which this task is assigned."""
