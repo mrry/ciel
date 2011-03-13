@@ -441,13 +441,20 @@ class StreamTransferContext:
         self.block_store.remove_incoming_stream(self.ref.id)
         self.callbacks.result(success)
 
+    def subscribe_result(self, success):
+        if not success:
+            ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." % self.refid, "CURL_FETCH", logging.INFO)
+            self.remote_failed = True
+            if self.current_data_fetch is None:
+                self.complete(False)
+
     def set_chunk_size(self, new_chunk_size):
         # This is always called at least once per transfer, and so causes the initial advertisment subscription.
         if new_chunk_size != self.current_chunk_size:
             ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, new_chunk_size), "CURL_FETCH", logging.INFO)
             self.current_chunk_size = new_chunk_size
             post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": new_chunk_size})
-            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data)
+            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
 
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
