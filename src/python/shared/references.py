@@ -217,7 +217,7 @@ class SW2_StreamReference(SWRealReference):
         
     def __repr__(self):
         return 'SW2_StreamReference(%s, %s)' % (repr(self.id), repr(self.location_hints))
-                
+
 class SW2_TombstoneReference(SWRealReference):
     
     def __init__(self, id, netlocs=None):
@@ -249,6 +249,23 @@ class SW2_TombstoneReference(SWRealReference):
 
     def __repr__(self):
         return 'SW2_TombstoneReference(%s, %s)' % (repr(self.id), repr(self.netlocs))
+
+class SW2_CompletedReference(SWRealReference):
+    
+    def __init__(self, id):
+        self.id = id
+
+    def is_consumable(self):
+        return False
+
+    def as_tuple(self):
+        return ('complete2', str(self.id))
+
+    def __str__(self):
+        return '<CompleteRef: %s...>' % self.id[:10]
+
+    def __repr__(self):
+        return "SW2_CompletedReference(%s)" % repr(self.id)
 
 class SW2_FetchReference(SWRealReference):
     
