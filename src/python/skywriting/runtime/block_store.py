@@ -698,7 +698,7 @@ class BlockStore(plugins.SimplePlugin):
 
             with self.block_store._lock:
                 if self.pipe_attached:
-                    raise Exception("Tried to subscribe to output %s, but it's being piped. Piped outputs should not have fan-out > 1" % self.refid)
+                    raise Exception("Tried to subscribe to output %s, but it's being locally piped. Piped outputs should not have fan-out > 1" % self.refid)
                 self.started = True
                 self.pipe_cond.notify_all()
             should_start_watch = False
@@ -761,17 +761,18 @@ class BlockStore(plugins.SimplePlugin):
             pass
 
         def wait(self):
-            self.completed_event.set()
+            self.completed_event.wait()
 
     def _await_fetch(self, id):
         if id in self.incoming_fetches:
             fetch = self.incoming_fetches[id]
             client = BlockStore.FakeFetchClient()
             fetch.add_listener(client)
-            client.wait()
+            return client
             
     def await_fetch(self, id):
-        self.fetch_thread.do_from_curl_thread_sync(lambda: self._await_fetch(id))
+        fake_client = self.fetch_thread.do_from_curl_thread_sync(lambda: self._await_fetch(id))
+        fake_client.wait()
 
     def register_local_output(self, id, new_producer):
         while True:
@@ -884,6 +885,9 @@ class BlockStore(plugins.SimplePlugin):
                     post = simplejson.dumps({"bytes": st.st_size, "done": True})
                 except OSError:
                     post = simplejson.dumps({"absent": True})
+            except Exception as e:
+                ciel.log("Subscription to %s failed with exception %s; reporting absent" % (id, e), "BLOCKSTORE", logging.WARNING)
+                post = simplejson.dumps({"absent": True})
         if post is not None:
             self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
 
