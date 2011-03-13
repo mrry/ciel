@@ -150,26 +150,22 @@ class pycURLFetchContext(pycURLContext):
 
 class pycURLBufferContext(pycURLContext):
 
-    def __init__(self, method, in_fp, in_length, out_fp, url, multi, result_callback):
+    def __init__(self, method, in_str, out_fp, url, multi, result_callback):
         
         pycURLContext.__init__(self, url, multi, result_callback)
 
-        self.read_fp = in_fp
         self.write_fp = out_fp
 
         self.curl_ctx.setopt(pycurl.WRITEFUNCTION, self.write)
         if method == "POST":
-            self.curl_ctx.setopt(pycurl.READFUNCTION, self.read)
             self.curl_ctx.setopt(pycurl.POST, True)
-            self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
+            self.curl_ctx.setopt(pycurl.POSTFIELDS, in_str)
+            self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, len(in_str))
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream", "Expect:"])
 
     def write(self, data):
         self.write_fp.write(data)
         return len(data)
-
-    def read(self, chars):
-        return self.read_fp.read(chars)
 
 class SelectableEventQueue:
 
@@ -1272,12 +1268,11 @@ class BlockStore(plugins.SimplePlugin):
         
         def __init__(self, method, url, postdata, fetch_thread, result_callback=None):
 
-            self.post_buffer = StringIO(postdata)
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
             self.result_callback = result_callback
             self.url = url
-            self.curl_ctx = pycURLBufferContext(method, self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
+            self.curl_ctx = pycURLBufferContext(method, postdata, self.response_buffer, url, fetch_thread, self.result)
 
         def start(self):
 
@@ -1295,7 +1290,6 @@ class BlockStore(plugins.SimplePlugin):
             
             self.response_string = self.response_buffer.getvalue()
             self.success = success
-            self.post_buffer.close()
             self.response_buffer.close()
             self.completed_event.set()
             if self.result_callback is not None:
