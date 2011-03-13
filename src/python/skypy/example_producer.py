@@ -8,7 +8,7 @@ def stream_producer(chunk_size, chunks_to_produce):
 
     bytes_written = 0
 
-    with skypy.open_output(skypy.extra_outputs[0]) as file_out:
+    with skypy.open_output(skypy.extra_outputs[0], may_pipe=True) as file_out:
         while bytes_written < (chunk_size * chunks_to_produce):
             file_out.write("Have some bytes!")
             bytes_written += 16

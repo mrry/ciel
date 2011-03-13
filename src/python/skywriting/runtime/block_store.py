@@ -631,14 +631,14 @@ class BlockStore(plugins.SimplePlugin):
                         if now < self.pipe_deadline:
                             wait_time = self.pipe_deadline - now
                             wait_secs = float(wait_time.seconds) + (float(wait_time.microseconds) / 10**6)
-                            ciel.log("Producer for %s: waiting for pipe pickup" % self.refid)
+                            ciel.log("Producer for %s: waiting for pipe pickup" % self.refid, "BLOCKPIPE", logging.INFO)
                             self.pipe_cond.wait(wait_secs)
                     self.started = True
                     if self.pipe_attached:
-                        ciel.log("Producer for %s: using pipe" % self.refid)
+                        ciel.log("Producer for %s: using pipe" % self.refid, "BLOCKPIPE", logging.INFO)
                         return self.fifo_name
                     else:
-                        ciel.log("Producer for %s: no consumer picked up, using conventional stream-file" % self.refid)
+                        ciel.log("Producer for %s: no consumer picked up, using conventional stream-file" % self.refid, "BLOCKPIPE", logging.INFO)
             return self.block_store.streaming_filename(self.refid)
 
         def get_stream_ref(self):
@@ -687,9 +687,9 @@ class BlockStore(plugins.SimplePlugin):
             else:
                 with self.block_store._lock:
                     if self.started:
-                        ciel.log("Consumer for %s: production already started, not using pipe" % self.refid)
+                        ciel.log("Consumer for %s: production already started, not using pipe" % self.refid, "BLOCKPIPE", logging.INFO)
                         return None
-                    ciel.log("Consumer for %s: attached to pipe" % self.refid)
+                    ciel.log("Consumer for %s: attached to pipe" % self.refid, "BLOCKPIPE", logging.INFO)
                     self.pipe_attached = True
                     self.pipe_cond.notify_all()
                     return self.fifo_name
