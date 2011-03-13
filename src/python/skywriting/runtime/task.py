@@ -126,6 +126,7 @@ class TaskPoolTask:
             return {}
 
     def add_worker(self, worker):
+        self.set_state(TASK_ASSIGNED)
         self.workers.add(worker)
 
     def remove_worker(self, worker):
@@ -187,14 +188,6 @@ class TaskPoolTask:
                 if len(self._blocking_dict) == 0:
                     self.set_state(TASK_RUNNABLE)
         
-    # Warning: called under worker_pool._lock
-    def set_assigned_to_worker(self, worker):
-        self.worker = worker
-        self.set_state(TASK_ASSIGNED)
-        #self.state = TASK_ASSIGNED
-        #self.record_event("ASSIGNED")
-        #self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
-
     def convert_dependencies_to_futures(self):
         new_deps = {}
         for local_id, ref in self.dependencies.items(): 
