@@ -787,7 +787,7 @@ class BlockStore(plugins.SimplePlugin):
         def get_completed_ref(self):
             if not self.closed:
                 raise Exception("FileOutputContext for ref %s must be closed before it is realised as a concrete reference" % self.refid)
-            if self.pipe_attached:
+            if self.may_pipe and self.pipe_attached:
                 return SW2_CompletedReference(self.refid)
             completed_file = self.block_store.filename(self.refid)
             if self.current_size < 1024:
@@ -871,15 +871,14 @@ class BlockStore(plugins.SimplePlugin):
             open(dot_filename, 'wb').close()
             return
 
-    def make_local_output(self, id, subscribe_callback=None, may_pipe=False, may_socket=False):
+    def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
         '''
         Creates a file-in-progress in the block store directory.
         '''
         if subscribe_callback is None:
             subscribe_callback = self.create_file_watch
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-        may_socket = may_socket and self.aux_listen_port is not None
-        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, may_pipe, may_socket)
+        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, may_pipe)
         self.register_local_output(id, new_ctx)
         return new_ctx
 

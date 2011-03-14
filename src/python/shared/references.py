@@ -229,7 +229,7 @@ class SW2_StreamReference(SWRealReference):
 class SW2_SocketStreamReference(SW2_StreamReference):
 
     def __init__(self, id, location_hint, socket_port):
-        SW2_StreamReference.__init__(id, [location_hint])
+        SW2_StreamReference.__init__(self, id, [location_hint])
         self.socket_port = socket_port
         self.socket_netloc = location_hint
 
