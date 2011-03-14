@@ -45,13 +45,14 @@ from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SW2_StreamReference,\
     SW2_TombstoneReference, SW2_FetchReference, SW2_FixedReference,\
-    SW2_SweetheartReference, SW2_CompletedReference
+    SW2_SweetheartReference, SW2_CompletedReference, SW2_SocketStreamReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 import hashlib
 import contextlib
 from skywriting.lang.parser import CloudScriptParser
 import skywriting
 import ciel
+import socket
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -269,8 +270,9 @@ class pycURLThread:
 
     def set_aux_listen_port(self, port, new_connection_callback):
         if port is not None:
+            ciel.log("Listening for auxiliary connections on port %d" % port, "TCP_FETCH", logging.INFO)
             aux_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            aux_listen_socket.bind("0.0.0.0", port)
+            aux_listen_socket.bind(("0.0.0.0", port))
             aux_listen_socket.listen(5)
             aux_listen_socket.setblocking(False)
             self.do_from_curl_thread(lambda: self._set_aux_listen_socket(aux_listen_socket, new_connection_callback))
