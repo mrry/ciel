@@ -835,53 +835,12 @@ class BlockStore(plugins.SimplePlugin):
                     self.rollback()
             return False
 
-    class FakeFetchClient:
-        
-        def __init__(self):
-            self.completed_event = threading.Event()
-            self.chunk_size = None
-
-        def progress(self, bytes):
-            pass
-
-        def result(self, success):
-            self.completed_event.set()
-
-        def reset(self):
-            pass
-
-        def wait(self):
-            self.completed_event.wait()
-
-    def _await_fetch(self, id):
-        if id in self.incoming_fetches:
-            fetch = self.incoming_fetches[id]
-            client = BlockStore.FakeFetchClient()
-            fetch.add_listener(client)
-            return client
-            
-    def await_fetch(self, id):
-        fake_client = self.fetch_thread.do_from_curl_thread_sync(lambda: self._await_fetch(id))
-        fake_client.wait()
-
     def register_local_output(self, id, new_producer):
-        while True:
-            with self._lock:
-                if id in self.incoming_fetches:
-                    should_wait = True
-                    ciel.log("Output %s clashes with incoming fetch of the same block. Waiting for the fetch to complete..." % id, "BLOCKSTORE", logging.WARNING)
-                else:
-                    should_wait = False
-            if should_wait:
-                self.await_fetch(id)
-            with self._lock:
-                # Re-check under the lock
-                if id in self.incoming_fetches:
-                    continue
-                self.streaming_producers[id] = new_producer
-                dot_filename = self.producer_filename(id)
-                open(dot_filename, 'wb').close()
-                return
+        with self._lock:
+            self.streaming_producers[id] = new_producer
+            dot_filename = self.producer_filename(id)
+            open(dot_filename, 'wb').close()
+            return
 
     def make_local_output(self, id, subscribe_callback=None, may_pipe=False, may_socket=False):
         '''
