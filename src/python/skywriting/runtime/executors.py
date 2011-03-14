@@ -512,7 +512,7 @@ class SkyPyExecutor(BaseExecutor):
 
         pypy_args = ["pypy", self.skypybase + "/stub.py"]
             
-        self.pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        self.pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE, close_fds=True)
 
         # Handle used for aborting the process.
         self.proc = self.pypy_process

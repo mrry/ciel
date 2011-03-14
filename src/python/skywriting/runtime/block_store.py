@@ -535,7 +535,7 @@ class StreamTransferContext:
             ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
             fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
             os.mkfifo(fifo_name)
-            subprocess.Popen(["cat > %s" % fifo_name], shell=True, stdin=socket.fileno())
+            subprocess.Popen(["cat > %s" % fifo_name], shell=True, stdin=socket.fileno(), close_fds=True)
             socket.close()
             self.callbacks.result(True)
             self.set_filename(fifo_name)
@@ -946,7 +946,7 @@ class BlockStore(plugins.SimplePlugin):
                 else:
                     new_sock.sendall("GO\n")
                     ciel.log("Auxiliary TCP connection for output %s attached; starting 'cat'" % output_id, "TCP_FETCH", logging.INFO)
-                    subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=new_sock.fileno())
+                    subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=new_sock.fileno(), close_fds=True)
                     new_sock.close()
         except Exception as e:
             ciel.log("Error handling auxiliary TCP connection: %s" % repr(e), "TCP_FETCH", logging.ERROR)
