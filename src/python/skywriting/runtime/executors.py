@@ -1698,8 +1698,6 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         with push_ctx:
 
-            file_inputs = [push_thread.get_filename() for push_thread in push_threads]
-        
             with list_with([self.block_store.make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
 
                 if self.stream_output:
@@ -1707,6 +1705,9 @@ class ProcessRunningExecutor(SimpleExecutor):
                     stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
                     self.task_record.prepublish_refs(stream_refs)
 
+                # We do these last, as these are the calls which can lead to stalls whilst we await a stream's beginning or end.
+                file_inputs = [push_thread.get_filename() for push_thread in push_threads]
+      
                 file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
         
                 self.proc = self.start_process(file_inputs, file_outputs)

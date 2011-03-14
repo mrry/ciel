@@ -273,6 +273,7 @@ class pycURLThread:
         if port is not None:
             ciel.log("Listening for auxiliary connections on port %d" % port, "TCP_FETCH", logging.INFO)
             aux_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            aux_listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             aux_listen_socket.bind(("0.0.0.0", port))
             aux_listen_socket.listen(5)
             aux_listen_socket.setblocking(False)
@@ -933,21 +934,22 @@ class BlockStore(plugins.SimplePlugin):
                 try:
                     producer = self.streaming_producers[output_id]
                 except KeyError:
-                    ciel.log("Got auxiliary TCP connection for bad output %s" % output_id, "BLOCKSOCKET", logging.WARNING)
+                    ciel.log("Got auxiliary TCP connection for bad output %s" % output_id, "TCP_FETCH", logging.WARNING)
                     new_sock.sendall("FAIL\n")
                     new_sock.close()
+                    return
                 fifo_name = producer.try_get_pipe()
                 if fifo_name is None:
-                    ciel.log("Auxiliary TCP connection for output %s rejected: couldn't get FIFO" % output_id, "BLOCKSOCKET", logging.WARNING)
+                    ciel.log("Auxiliary TCP connection for output %s rejected: couldn't get FIFO" % output_id, "TCP_FETCH", logging.WARNING)
                     new_sock.sendall("FAIL\n")
                     new_sock.close()
                 else:
                     new_sock.sendall("GO\n")
-                    ciel.log("Auxiliary TCP connection for output %s attached; starting 'cat'" % output_id, "BLOCKSOCKET", logging.INFO)
+                    ciel.log("Auxiliary TCP connection for output %s attached; starting 'cat'" % output_id, "TCP_FETCH", logging.INFO)
                     subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=new_sock.fileno())
                     new_sock.close()
         except Exception as e:
-            ciel.log("Error handling auxiliary TCP connection: %s" % repr(e), "BLOCKSOCKET", logging.ERROR)
+            ciel.log("Error handling auxiliary TCP connection: %s" % repr(e), "TCP_FETCH", logging.ERROR)
             try:
                 new_sock.close()
             except:
@@ -1465,10 +1467,14 @@ class BlockStore(plugins.SimplePlugin):
         ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
         try:
             for block_name in os.listdir(self.base_dir):
-                if block_name.startswith('.'):
-                    if not os.path.exists(os.path.join(self.base_dir, block_name[1:])):
+                if block_name.startswith('.fetch:'):
+                    if not os.path.exists(os.path.join(self.base_dir, block_name[7:])):
                         ciel.log("Deleting incomplete block %s" % block_name, "BLOCKSTORE", logging.WARNING)
                         os.remove(os.path.join(self.base_dir, block_name))
+                elif block_name.startswith('.producer:'):
+                    if not os.path.exists(os.path.join(self.base_dir, block_name[10:])):
+                        ciel.log("Deleting incomplete block %s" % block_name, "BLOCKSTORE", logging.WARNING)
+                        os.remove(os.path.join(self.base_dir, block_name))                        
         except OSError as e:
             ciel.log("Couldn't enumerate existing blocks: %s" % e, "BLOCKSTORE", logging.WARNING)
 
