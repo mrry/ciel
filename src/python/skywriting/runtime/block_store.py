@@ -273,7 +273,7 @@ class pycURLThread:
             aux_listen_socket.bind("0.0.0.0", port)
             aux_listen_socket.listen(5)
             aux_listen_socket.setblocking(False)
-        self.do_from_curl_thread(lambda: self._set_aux_listen_socket(aux_listen_socket, new_connection_callback))
+            self.do_from_curl_thread(lambda: self._set_aux_listen_socket(aux_listen_socket, new_connection_callback))
 
     def _stop_thread(self):
         self.dying = True
@@ -338,9 +338,10 @@ class pycURLThread:
             if self.aux_listen_socket is not None:
                 read_fds.append(self.aux_listen_socket.fileno())
             active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds)
-            if self.aux_listen_socket.fileno() in active_read:
-                (new_sock, _) = self.aux_listen_socket.accept()
-                self.aux_listen_callback(new_sock)
+            if self.aux_listen_socket is not None:
+                if self.aux_listen_socket.fileno() in active_read:
+                    (new_sock, _) = self.aux_listen_socket.accept()
+                    self.aux_listen_callback(new_sock)
 
 class SocketAttempt:
 
@@ -370,7 +371,7 @@ class SocketAttempt:
             ciel.log("Connecting %s:%s" % (otherend_hostname, otherend_port), "TCP_FETCH", logging.INFO)
             self.sock.connect(otherend_hostname, otherend_port)
             self.sock.sendall("%s\n" % self.refid)
-            ciel.log("%s:%s connected: requesting %s" % (otherend_hostname, otherend_port, self.refid) "TCP_FETCH", logging.INFO)
+            ciel.log("%s:%s connected: requesting %s" % (otherend_hostname, otherend_port, self.refid), "TCP_FETCH", logging.INFO)
             with self.sock.makefile("r") as fp:
                 response = fp.readline().strip()
             with self.lock:
@@ -728,7 +729,7 @@ class BlockStore(plugins.SimplePlugin):
             self.current_size = None
             self.closed = False
             self.may_pipe = may_pipe
-            if self.may_pipe
+            if self.may_pipe:
                 self.fifo_name = tempfile.mktemp()
                 os.mkfifo(self.fifo_name)
                 self.pipe_deadline = datetime.now() + timedelta(seconds=5)
@@ -893,9 +894,9 @@ class BlockStore(plugins.SimplePlugin):
                 size_new = os.path.getsize(new_name)
                 if size_stream == size_conc:
                     ciel.log('Produced/retrieved %s matching existing file (size %d): ignoring' % (new_name, size_new), 'BLOCKSTORE', logging.WARNING)
-                    else:
-                        ciel.log('Produced/retrieved %s with size not matching existing block (old: %d, new %d)' % (new_name, old_size, new_size) 'BLOCKSTORE', logging.ERROR)
-                        raise
+                else:
+                    ciel.log('Produced/retrieved %s with size not matching existing block (old: %d, new %d)' % (new_name, old_size, new_size), 'BLOCKSTORE', logging.ERROR)
+                    raise
             else:
                 raise
 
@@ -1120,10 +1121,13 @@ class BlockStore(plugins.SimplePlugin):
             return self.fetch_context.get_filename()
 
         def get_completed_ref(self, is_sweetheart):
-            if is_sweetheart:
-                return SW2_SweetheartReference(self.ref.id, self.last_progress, self.block_store.netloc, [self.block_store.netloc])
+            if not self.fetch_context.wrote_file():
+                return SW2_CompletedReference(self.ref.id)
             else:
-                return SW2_ConcreteReference(self.ref.id, self.last_progress, [self.block_store.netloc])
+                if is_sweetheart:
+                    return SW2_SweetheartReference(self.ref.id, self.last_progress, self.block_store.netloc, [self.block_store.netloc])
+                else:
+                    return SW2_ConcreteReference(self.ref.id, self.last_progress, [self.block_store.netloc])
 
         def get_stream_ref(self):
             raise Exception("Stream-refs from fetches don't work right now")
