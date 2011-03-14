@@ -370,10 +370,10 @@ class SocketAttempt:
     def thread_main(self):
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ciel.log("Connecting %s:%s" % (otherend_hostname, otherend_port), "TCP_FETCH", logging.INFO)
-            self.sock.connect(otherend_hostname, otherend_port)
+            ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.otherend_port), "TCP_FETCH", logging.INFO)
+            self.sock.connect(self.otherend_hostname, self.otherend_port)
             self.sock.sendall("%s\n" % self.refid)
-            ciel.log("%s:%s connected: requesting %s" % (otherend_hostname, otherend_port, self.refid), "TCP_FETCH", logging.INFO)
+            ciel.log("%s:%s connected: requesting %s" % (self.otherend_hostname, self.otherend_port, self.refid), "TCP_FETCH", logging.INFO)
             with self.sock.makefile("r") as fp:
                 response = fp.readline().strip()
             with self.lock:
@@ -381,11 +381,11 @@ class SocketAttempt:
                 if response.find("GO") != -1:
                     self.result_callback(True, self.sock)
                 else:
-                    ciel.log("%s:%s request for %s failed: other end said '%s'" % (otherend_hostname, otherend_port, self.refid, response), "TCP_FETCH", logging.WARNING)
+                    ciel.log("%s:%s request for %s failed: other end said '%s'" % (self.otherend_hostname, self.otherend_port, self.refid, response), "TCP_FETCH", logging.WARNING)
                     self.sock.close()
                     self.result_callback(False, None)
         except Exception as e:
-            ciel.log("SocketAttempt for ref %s failed due to %s" % (self.refid, repr(e)))
+            ciel.log("SocketAttempt for ref %s failed due to %s" % (self.refid, repr(e)), "TCP_FETCH", logging.ERROR)
             self.result_callback(False, None)
 
 class FileTransferContext:
@@ -477,7 +477,7 @@ class StreamTransferContext:
             self.block_store.add_incoming_stream(self.ref.id, self)
         else:
             otherend_hostname = self.ref.socket_netloc.split(":")[0]
-            ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port))
+            ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
             self.socket_attempt = SocketAttempt(self.ref.id, otherend_hostname, self.ref.socket_port, self.socket_attempt_completed)
             self.socket_attempt.start()
 
@@ -562,7 +562,7 @@ class StreamTransferContext:
 
     def get_filename(self):
         self.filename_event.wait()
-        return self.true_filename()
+        return self.true_filename
 
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)

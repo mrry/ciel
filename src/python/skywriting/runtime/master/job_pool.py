@@ -149,7 +149,7 @@ class Job:
                     elif task.state not in (TASK_QUEUED, TASK_QUEUED_STREAMING):
                         continue
                     task.add_worker(worker)
-                    wstate.assign_task(task)
+                    self.workers[worker].assign_task(task)
                     self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                     num_global_assigned += 1
         
