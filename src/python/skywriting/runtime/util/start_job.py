@@ -90,15 +90,17 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
 
     return skywriting.runtime.executors.build_init_descriptor(start_handler, resolved_args, package_ref, master_uri, ref_of_string)
 
-def submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri, args):
+def submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args):
     
     task_descriptor = task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri, args)
 
     print "Submitting descriptor:"
     sw_pprint(task_descriptor, indent=2)
 
+    payload = {"root_task" : task_descriptor, "job_options" : job_options}
+
     master_task_submit_uri = urlparse.urljoin(master_uri, "control/job/")
-    (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(task_descriptor, cls=SWReferenceJSONEncoder))
+    (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(payload, cls=SWReferenceJSONEncoder))
     return simplejson.loads(content)
 
 def await_job(jobid, master_uri):
@@ -128,12 +130,17 @@ def main():
     start_dict = job_dict["start"]
     start_handler = start_dict["handler"]
     start_args = start_dict["args"]
+    try:
+        job_options = job_dict["options"]
+    except KeyError:
+        job_options = {}
+    
 
     (package_path, _) = os.path.split(args[0])
 
     print "BEFORE_SUBMIT", now_as_timestamp()
 
-    new_job = submit_job_with_package(package_dict, start_handler, start_args, package_path, master_uri, args[1:])
+    new_job = submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args[1:])
 
     print "SUBMITTED", now_as_timestamp()
     

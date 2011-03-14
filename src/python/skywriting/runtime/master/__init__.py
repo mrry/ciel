@@ -35,7 +35,6 @@ import subprocess
 import tempfile
 import urllib
 import urllib2
-from skywriting.runtime.master.pushy_scheduler import PushyScheduler
 
 def master_main(options):
 
@@ -45,12 +44,9 @@ def master_main(options):
     worker_pool = WorkerPool(ciel.engine, deferred_worker, None)
     worker_pool.subscribe()
 
-    scheduler = PushyScheduler(ciel.engine, worker_pool)
-    scheduler.subscribe()
-
     task_failure_investigator = TaskFailureInvestigator(worker_pool, deferred_worker)
     
-    job_pool = JobPool(ciel.engine, options.journaldir, scheduler, task_failure_investigator, deferred_worker, worker_pool)
+    job_pool = JobPool(ciel.engine, options.journaldir, None, task_failure_investigator, deferred_worker, worker_pool)
     job_pool.subscribe()
     
     worker_pool.job_pool = job_pool
@@ -64,7 +60,7 @@ def master_main(options):
         local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
     master_netloc = '%s:%d' % (local_hostname, local_port)
-    print 'Local port is', local_port
+    ciel.log('Local port is %d' % local_port, 'STARTUP', logging.INFO)
     
     if options.blockstore is None:
         static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))

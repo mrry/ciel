@@ -189,8 +189,6 @@ class DynamicTaskGraph:
                 except KeyError:
                     ref_table_entry = ReferenceTableEntry(ref, None)
                     self.references[ref.id] = ref_table_entry
-                except Exception, e:
-                    print e
 
                 if ref_table_entry.ref.is_consumable():
                     conc_ref = ref_table_entry.ref

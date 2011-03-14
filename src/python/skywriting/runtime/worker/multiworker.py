@@ -385,15 +385,18 @@ class WorkerThreadPool:
     def handle_task(self, task):
         next_td = task.as_descriptor()
         next_td["inputs"] = [task.taskset.retrieve_ref(ref) for ref in next_td["dependencies"]]
-        task_record = task.taskset.build_task_record(next_td)
-        task_record.task_set.job.task_started()
         try:
-            task_record.run()
-        except:
-            ciel.log.error('Error during executor task execution', 'MWPOOL', logging.ERROR, True)
-        execution_time = task_record.finish_time - task_record.start_time
-        execution_secs = execution_time.seconds + execution_time.microseconds / 1000000.0
-        task_record.task_set.job.task_finished(task, execution_secs)
-        if task_record.success:
-            task.taskset.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
+            task_record = task.taskset.build_task_record(next_td)
+            task_record.task_set.job.task_started()
+            try:
+                task_record.run()
+            except:
+                ciel.log.error('Error during executor task execution', 'MWPOOL', logging.ERROR, True)
+            execution_time = task_record.finish_time - task_record.start_time
+            execution_secs = execution_time.seconds + execution_time.microseconds / 1000000.0
+            task_record.task_set.job.task_finished(task, execution_secs)
+            if task_record.success:
+                task.taskset.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
+        except AbortedException:
+            ciel.log('Task %s was aborted, skipping' % task.task_id, 'MWPOOL', logging.INFO)
         task.taskset.dec_runnable_count()

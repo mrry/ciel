@@ -125,14 +125,15 @@ class TaskPoolTask:
         except AttributeError:
             return {}
 
-    def assign_netloc(self, netloc):
-        self.workers.add(netloc)
+    def add_worker(self, worker):
+        self.set_state(TASK_ASSIGNED)
+        self.workers.add(worker)
 
-    def delete_netloc(self, netloc):
-        self.workers.remove(netloc)
+    def remove_worker(self, worker):
+        self.workers.remove(worker)
 
-    def get_netlocs(self):
-        """Returns a list of network locations representing the workers on which this task is running."""
+    def get_workers(self):
+        """Returns a list of the workers to which this task is assigned."""
         return list(self.workers)
 
     def block_on(self, global_id, local_id):
@@ -187,14 +188,6 @@ class TaskPoolTask:
                 if len(self._blocking_dict) == 0:
                     self.set_state(TASK_RUNNABLE)
         
-    # Warning: called under worker_pool._lock
-    def set_assigned_to_worker(self, worker):
-        self.worker = worker
-        self.set_state(TASK_ASSIGNED)
-        #self.state = TASK_ASSIGNED
-        #self.record_event("ASSIGNED")
-        #self.task_pool.notify_task_assigned_to_worker_id(self, worker_id)
-
     def convert_dependencies_to_futures(self):
         new_deps = {}
         for local_id, ref in self.dependencies.items(): 
@@ -231,6 +224,8 @@ class TaskPoolTask:
             descriptor['task_private'] = self.task_private
         if self.scheduling_class is not None:
             descriptor['scheduling_class'] = self.scheduling_class
+        if self.type is not None:
+            descriptor['scheduling_type'] = self.type
         
         return descriptor        
 

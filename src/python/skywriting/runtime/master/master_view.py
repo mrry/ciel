@@ -145,11 +145,17 @@ class JobRoot:
         if cherrypy.request.method == 'POST':
             # 1. Read task descriptor from request.
             request_body = cherrypy.request.body.read()
-            task_descriptor = simplejson.loads(request_body, 
+            payload = simplejson.loads(request_body, 
                                                object_hook=json_decode_object_hook)
 
+            task_descriptor = payload['root_task']
+            try:
+                job_options = payload['job_options']
+            except KeyError:
+                job_options = {}
+
             # 2. Add to job pool (synchronously).
-            job = self.job_pool.create_job_for_task(task_descriptor)
+            job = self.job_pool.create_job_for_task(task_descriptor, job_options)
             
             # 2bis. Send to backup master.
             self.backup_sender.add_job(job.id, request_body)
@@ -262,7 +268,6 @@ class MasterTaskRoot:
         elif action == 'publish':
             request_body = cherrypy.request.body.read()
             refs = simplejson.loads(request_body, object_hook=json_decode_object_hook)
-            print refs
             
             tx = TaskGraphUpdate()
             for ref in refs:

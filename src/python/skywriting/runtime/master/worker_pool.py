@@ -62,6 +62,18 @@ class Worker:
     def idle(self):
         pass
 
+    def get_effective_scheduling_class(self, scheduling_class):
+        if scheduling_class in self.scheduling_classes:
+            return scheduling_class
+        else:
+            return '*'
+
+    def get_effective_scheduling_class_capacity(self, scheduling_class):
+        try:
+            return self.scheduling_classes[scheduling_class]
+        except KeyError:
+            return self.scheduling_classes['*']
+
     def __repr__(self):
         return 'Worker(%s)' % self.id
 
@@ -191,7 +203,7 @@ class WorkerPool:
         
     def abort_task_on_worker(self, task, worker):
         try:
-            ciel.log("Aborting task %d on worker %s" % (task.task_id, worker), "WORKER_POOL", logging.WARNING)
+            ciel.log("Aborting task %s on worker %s" % (task.task_id, worker), "WORKER_POOL", logging.WARNING)
             post_string_noreturn('http://%s/control/abort/%s/%s' % (worker.netloc, task.job.id, task.task_id), "", result_callback=self.worker_post_result_callback)
         except:
             self.worker_failed(worker)
@@ -199,7 +211,6 @@ class WorkerPool:
     def worker_failed(self, worker):
         ciel.log.error('Worker failed: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING, True)
         with self._lock:
-            failed_tasks = worker.get_assigned_tasks()
             worker.failed = True
             del self.netlocs[worker.netloc]
             del self.workers[worker.id]
@@ -214,9 +225,6 @@ class WorkerPool:
         if self.job_pool is not None:
             self.job_pool.notify_worker_failed(worker)
 
-        for failed_task in failed_tasks:
-            failed_task.job.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
-        
     def worker_ping(self, worker):
         with self._lock:
             self.event_count += 1

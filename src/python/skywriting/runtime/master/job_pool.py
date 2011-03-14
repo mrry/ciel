@@ -28,7 +28,10 @@ import time
 import uuid
 from skywriting.runtime.task_graph import DynamicTaskGraph, TaskGraphUpdate
 from shared.references import SWErrorReference
-from skywriting.runtime.master.scheduling_policy import LocalitySchedulingPolicy
+from skywriting.runtime.master.scheduling_policy import LocalitySchedulingPolicy,\
+    get_scheduling_policy
+import collections
+import sys
 
 JOB_CREATED = -1
 JOB_ACTIVE = 0
@@ -54,7 +57,7 @@ RECORD_HEADER_STRUCT = struct.Struct('!cI')
 
 class Job:
     
-    def __init__(self, id, root_task, job_dir, state, job_pool, scheduler_queue):
+    def __init__(self, id, root_task, job_dir, state, job_pool, job_options):
         self.id = id
         self.root_task = root_task
         self.job_dir = job_dir
@@ -65,45 +68,98 @@ class Job:
         
         self.state = state
         
+        self.runnable_queue = Queue.Queue()
+        
+        self.global_queue = {}
+        
         self.result_ref = None
 
         self.task_journal_fp = None
 
-        self.scheduling_policy = LocalitySchedulingPolicy()
-        
-        self.task_graph = JobTaskGraph(self, scheduler_queue)
-        
-        self.workers = {}
-        self.job_pool.worker_pool.notify_job_about_current_workers(self)
-        
+        self.job_options = job_options
+
+        self._lock = Lock()
+        self._condition = Condition(self._lock)
+
         # Counters for each task state.
         self.task_state_counts = {}
         for state in TASK_STATES.values():
             self.task_state_counts[state] = 0
-        self._lock = Lock()
-        self._condition = Condition(self._lock)
-        
+
         self.all_tasks = RunningAverage()
         self.all_tasks_by_type = {}
+
+        try:
+            self.scheduling_policy = get_scheduling_policy(self.job_options['scheduler'])
+        except KeyError:
+            self.scheduling_policy = LocalitySchedulingPolicy()
         
-    def assign_task_to_workers(self, task, worker_pool):
+        self.task_graph = JobTaskGraph(self, self.runnable_queue)
+        
+        self.workers = {}
+        self.job_pool.worker_pool.notify_job_about_current_workers(self)
+        
+    def schedule(self):
+        self.job_pool.deferred_worker.do_deferred(lambda: self._schedule())
+        
+    def _schedule(self):
+        
+        ciel.log('Beginning to schedule job %s' % self.id, 'JOB', logging.INFO)
+        
+        with self._lock:
+            
+            # 1. Assign runnable tasks to worker queues.
+            while True:
+                try:
+                    task = self.runnable_queue.get_nowait()
+                    self.assign_scheduling_class_to_task(task)
+                    worker = self.select_worker_for_task(task)
+                    self.workers[worker].queue_task(task)
+                except Queue.Empty:
+                    break
+            
+            # 2. For each worker, check if we need to assign any tasks.
+            total_assigned = 0
+            undersubscribed_worker_class = []
+            for worker, wstate in self.workers.items():
+                for scheduling_class, capacity in worker.scheduling_classes.items():
+                    num_assigned = wstate.tasks_assigned_in_class(scheduling_class)
+                    while num_assigned < capacity:
+                        task = wstate.pop_task_from_queue(scheduling_class)
+                        if task is None:
+                            break
+                        task.add_worker(worker)
+                        wstate.assign_task(task)
+                        self.job_pool.worker_pool.execute_task_on_worker(worker, task)
+                        num_assigned += 1
+                        total_assigned += 1
+                    if num_assigned < capacity:
+                        undersubscribed_worker_class.append((worker, scheduling_class))
+        
+        ciel.log('Finished scheduling job %s. Task assigned = %d' % (self.id, total_assigned), 'JOB', logging.INFO)
+        
+        
+    def select_worker_for_task(self, task):
         if task.has_constrained_location():
             fixed_netloc = task.get_constrained_location()
-            task.assign_netloc(fixed_netloc)
-            return [self.worker_pool.get_worker_at_netloc(fixed_netloc)]
+            worker = self.job_pool.worker_pool.get_worker_at_netloc(fixed_netloc)
         elif task.state in (TASK_QUEUED_STREAMING, TASK_QUEUED):
-            workers = self.scheduling_policy.select_workers_for_task(task, worker_pool)
-            for worker in workers:
-                task.assign_netloc(worker.netloc)
-            return workers
+            worker, _ = self.scheduling_policy.select_worker_for_task(task, self.job_pool.worker_pool)
         else:
             ciel.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
                                "SCHEDULER", logging.ERROR)
-            return []
-
+            raise
+        return worker
+        
     def assign_scheduling_class_to_task(self, task):
         if task.handler == 'swi':
             task.scheduling_class = 'cpu'
+        elif task.handler == 'init':
+            task.scheduling_class = 'cpu'
+        elif task.handler == 'sync':
+            task.scheduling_class = 'cpu'
+        elif task.handler == 'grab':
+            task.scheduling_class = 'disk'
         elif task.handler == 'java':
             task.scheduling_class = 'disk'
         else:
@@ -117,21 +173,21 @@ class Job:
         self.state = state
         evt_time = self.history[-1][0]
         ciel.log('%s %s @ %f' % (self.id, JOB_STATE_NAMES[self.state], time.mktime(evt_time.timetuple()) + evt_time.microsecond / 1e6), 'JOB', logging.INFO)
-         
+
     def failed(self):
+        # Done under self._lock (via _report_tasks()).
         self.set_state(JOB_FAILED)
         self.stop_journalling()
-        with self._lock:
-            self._condition.notify_all()
+        self._condition.notify_all()
 
     def enqueued(self):
         self.set_state(JOB_QUEUED)
 
     def completed(self, result_ref):
+        # Done under self._lock (via _report_tasks()).
         self.set_state(JOB_COMPLETED)
         self.result_ref = result_ref
-        with self._lock:
-            self._condition.notify_all()
+        self._condition.notify_all()
         self.stop_journalling()
         self.job_pool.job_completed(self)
 
@@ -143,17 +199,17 @@ class Job:
         for output in self.root_task.expected_outputs:
             self.task_graph.subscribe(output, mjo)
         self.task_graph.reduce_graph_for_references(self.root_task.expected_outputs)
-        ciel.engine.publish('schedule') 
+        self.schedule()
 
     def cancelled(self):
         self.set_state(JOB_CANCELLED)
         self.stop_journalling()
 
     def stop_journalling(self):
-        with self._lock:
-            if self.task_journal_fp is not None:
-                self.task_journal_fp.close()
-            self.task_journal_fp = None
+        # Done under self._lock (via _report_tasks()).        
+        if self.task_journal_fp is not None:
+            self.task_journal_fp.close()
+        self.task_journal_fp = None
                 
         if self.job_dir is not None:
             with open(os.path.join(self.job_dir, 'result'), 'w') as result_file:
@@ -166,30 +222,50 @@ class Job:
                 os.fsync(self.task_journal_fp.fileno())
 
     def add_reference(self, id, ref, should_sync=False):
-        with self._lock:
-            if self.task_journal_fp is not None:
-                ref_details = simplejson.dumps({'id': id, 'ref': ref}, cls=SWReferenceJSONEncoder)
-                self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('R', len(ref_details)))
-                self.task_journal_fp.write(ref_details)
-                if should_sync:
-                    self.task_journal_fp.flush()
-                    os.fsync(self.task_journal_fp.fileno())
+        # Called under self._lock (from _report_tasks()).
+        if self.task_journal_fp is not None:
+            ref_details = simplejson.dumps({'id': id, 'ref': ref}, cls=SWReferenceJSONEncoder)
+            self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('R', len(ref_details)))
+            self.task_journal_fp.write(ref_details)
+            if should_sync:
+                self.task_journal_fp.flush()
+                os.fsync(self.task_journal_fp.fileno())
 
     def add_task(self, task, should_sync=False):
-        with self._lock:
-            self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
-            if self.task_journal_fp is not None:
-                task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
-                self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('T', len(task_details)))
-                self.task_journal_fp.write(task_details)
-                if should_sync:
-                    self.task_journal_fp.flush()
-                    os.fsync(self.task_journal_fp.fileno())
+        # Called under self._lock (from _report_tasks()).
+        self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
+        if self.task_journal_fp is not None:
+            task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
+            self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('T', len(task_details)))
+            self.task_journal_fp.write(task_details)
+            if should_sync:
+                self.task_journal_fp.flush()
+                os.fsync(self.task_journal_fp.fileno())
 
+#    def steal_task(self, worker, scheduling_class):
+#        ciel.log('In steal_task(%s, %s)' % (worker.id, scheduling_class), 'LOG', logging.INFO)
+#        # Stealing policy: prefer task with fewest replicas, then lowest cost on this worker.
+#        best_candidate = (sys.maxint, 0, None)
+#        for victim in self.workers.values():
+#            if victim.worker == worker:
+#                continue
+#            task = victim.get_last_task_in_class(scheduling_class)
+#            if task is None:
+#                continue
+#            num_workers = len(task.get_workers())
+#            cost = self.guess_task_cost_on_worker(task, worker)
+#            best_candidate = min(best_candidate, (num_workers, cost, task))
+#        
+#        task = best_candidate[2]
+#        if task is not None:
+#            task.add_worker(worker)
+#            self.workers[worker].add_task(task)
+#            self.job_pool.worker_pool.execute_task_on_worker(worker, task)
+            
     def record_state_change(self, prev_state, next_state):
-        with self._lock:
-            self.task_state_counts[prev_state] = self.task_state_counts[prev_state] - 1
-            self.task_state_counts[next_state] = self.task_state_counts[next_state] + 1
+        # Done under self._lock (from _report_tasks()).
+        self.task_state_counts[prev_state] = self.task_state_counts[prev_state] - 1
+        self.task_state_counts[next_state] = self.task_state_counts[next_state] + 1
 
     def as_descriptor(self):
         counts = {}
@@ -198,7 +274,8 @@ class Job:
                'state': JOB_STATE_NAMES[self.state], 
                'root_task': self.root_task.task_id if self.root_task is not None else None,
                'expected_outputs': self.root_task.expected_outputs if self.root_task is not None else None,
-               'result_ref': self.result_ref}
+               'result_ref': self.result_ref,
+               'job_options' : self.job_options}
         with self._lock:
             for (name, state_index) in TASK_STATES.items():
                 counts[name] = self.task_state_counts[state_index]
@@ -208,37 +285,49 @@ class Job:
         self.job_pool.deferred_worker.do_deferred(lambda: self._report_tasks(report, toplevel_task, worker))
 
     def _report_tasks(self, report, toplevel_task, worker):
-
-        tx = TaskGraphUpdate()
-        
-        for (parent_id, success, payload) in report:
-            parent_task = self.task_graph.get_task(parent_id)
-            if success:
-                (spawned, published, profiling) = payload
-                parent_task.set_profiling(profiling)
-                parent_task.set_state(TASK_COMMITTED)
-                self.record_task_stats(parent_task, worker)
-                
-                for child in spawned:
-                    child_task = build_taskpool_task_from_descriptor(child, parent_task)
-                    tx.spawn(child_task)
-                    parent_task.children.append(child_task)
-                
-                for ref in published:
-                    tx.publish(ref, parent_task)
+        with self._lock:
+    
+            tx = TaskGraphUpdate()
             
-            else:
-                # Only one failed task per-report, at the moment.
-                self.investigate_task_failure(parent_task, payload)
-                ciel.engine.publish('schedule')
-                return
+            root_task = self.task_graph.get_task(report[0][0])
+            for assigned_worker in root_task.get_workers():
+                if assigned_worker is worker:
+                    self.workers[worker].deassign_task(root_task)
+                else:
+                    self.workers[assigned_worker].deassign_task(root_task)
+                    assigned_worker.worker_pool.abort_task_on_worker(root_task, assigned_worker)
+                    
+                    # XXX: Need to abort the task running on other workers.
+                    pass
+            
+            for (parent_id, success, payload) in report:
                 
-        tx.commit(self.task_graph)
-        self.task_graph.reduce_graph_for_references(toplevel_task.expected_outputs)
-        
+                parent_task = self.task_graph.get_task(parent_id)
+                
+                if success:
+                    (spawned, published, profiling) = payload
+                    parent_task.set_profiling(profiling)
+                    parent_task.set_state(TASK_COMMITTED)
+                    self.record_task_stats(parent_task, worker)
+                    for child in spawned:
+                        child_task = build_taskpool_task_from_descriptor(child, parent_task)
+                        tx.spawn(child_task)
+                        parent_task.children.append(child_task)
+                    
+                    for ref in published:
+                        tx.publish(ref, parent_task)
+                
+                else:
+                    # Only one failed task per-report, at the moment.
+                    self.investigate_task_failure(parent_task, payload)
+                    self.schedule()
+                    return
+                    
+            tx.commit(self.task_graph)
+            self.task_graph.reduce_graph_for_references(toplevel_task.expected_outputs)
+            
         # XXX: Need to remove assigned task from worker(s).
-        
-        ciel.engine.publish('schedule')
+        self.schedule()
 
     def record_task_stats(self, task, worker):
         try:
@@ -257,43 +346,122 @@ class Job:
         except:
             ciel.log('Error recording task statistics for task: %s' % task.task_id, 'JOB', logging.WARNING)
 
-            
-    def guess_task_performance(self, task, worker):
-        pass
+    def guess_task_cost_on_worker(self, task, worker):
+        return self.workers[worker].load(task.scheduling_class, True)
                 
     def investigate_task_failure(self, task, payload):
         self.job_pool.task_failure_investigator.investigate_task_failure(task, payload)
         
     def notify_worker_added(self, worker):
-        try:
-            _ = self.workers[worker]
-            return
-        except KeyError:
-            worker_state = JobWorkerState(worker)
-            self.workers[worker] = worker_state
+        with self._lock:
+            try:
+                _ = self.workers[worker] 
+                return
+            except KeyError:
+                ciel.log('Job %s notified that worker being added' % self.id, 'JOB', logging.INFO)
+                worker_state = JobWorkerState(worker)
+                self.workers[worker] = worker_state
+        self.schedule()
     
     def notify_worker_failed(self, worker):
-        try:
-            worker_state = self.workers[worker]
-        except KeyError:
-            pass
+        with self._lock:
+            try:
+                worker_state = self.workers[worker]
+                del self.workers[worker]
+                ciel.log('Reassigning tasks from failed worker %s for job %s' % (worker.id, self.id), 'JOB', logging.WARNING)
+                for assigned in worker_state.assigned_tasks.values():
+                    for failed_task in assigned:
+                        failed_task.remove_worker(worker)
+                        self.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
+                for scheduling_class in worker_state.queues:
+                    while True:
+                        queued_task = worker_state.pop_task_from_queue(scheduling_class)
+                        if queued_task is None:
+                            break
+                        self.runnable_queue.put(queued_task)
+                        #self.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
+                        #self.runnable_queue.put(queued_task)
+                self.schedule()
+            except KeyError:
+                ciel.log('Weird keyerror coming out of notify_worker_failed', 'JOB', logging.WARNING, True)
+                pass
 
 class JobWorkerState:
     
     def __init__(self, worker):
         self.worker = worker
-        self.assigned_tasks = set()
+        self.assigned_tasks = {}
+        self.queues = {}
         self.running_average = RunningAverage()
         self.running_average_by_type = {}
         
-    def add_task(self, task):
-        self.assigned_tasks.add(task)
+#    def get_last_task_in_class(self, scheduling_class):
+#        ciel.log('In get_last_task_in_class(%s, %s)' % (self.worker.id, scheduling_class), 'JWS', logging.INFO)
+#        eff_class = self.worker.get_effective_scheduling_class(scheduling_class)
+#        try:
+#            ciel.log('Returning task: %s' % (repr(self.assigned_tasks[eff_class][-1])), 'JWS', logging.INFO)
+#            return self.assigned_tasks[eff_class][-1]
+#        except:
+#            # IndexError or KeyError is valid here.
+#            return None
         
-    def remove_task(self, task):
-        self.assigned_tasks.remove(task)
+    def tasks_assigned_in_class(self, scheduling_class):
+        eff_class = self.worker.get_effective_scheduling_class(scheduling_class)
+        try:
+            return len(self.assigned_tasks[eff_class])
+        except KeyError:
+            return 0
         
-    def load(self):
-        return len(self.assigned_tasks)
+    def pop_task_from_queue(self, scheduling_class):
+        eff_class = self.worker.get_effective_scheduling_class(scheduling_class)
+        try:
+            task = self.queues[eff_class].popleft()
+            return task
+        except KeyError:
+            return None
+        except IndexError:
+            return None
+        
+    def queue_task(self, task):
+        eff_class = self.worker.get_effective_scheduling_class(task.scheduling_class)
+        try:
+            self.queues[eff_class].append(task)
+        except KeyError:
+            class_queue = collections.deque()
+            self.queues[eff_class] = class_queue
+            class_queue.append(task)
+        
+    def assign_task(self, task):
+        eff_class = self.worker.get_effective_scheduling_class(task.scheduling_class)
+        try:
+            self.assigned_tasks[eff_class].append(task)
+        except KeyError:
+            class_queue = collections.deque()
+            self.assigned_tasks[eff_class] = class_queue
+            class_queue.append(task)
+        
+    def deassign_task(self, task):
+        try:
+            eff_class = self.worker.get_effective_scheduling_class(task.scheduling_class)
+            self.assigned_tasks[eff_class].remove(task)
+        except KeyError:
+            # XXX: This is happening twice, once on receiving the report and again on the failure.
+            pass
+        
+    def load(self, scheduling_class, normalized=False):
+        eff_class = self.worker.get_effective_scheduling_class(scheduling_class)
+        norm = float(self.worker.get_effective_scheduling_class_capacity(eff_class)) if normalized else 1.0
+        ret = 0.0
+        try:
+            ret += len(self.queues[eff_class]) / norm
+            ret += len(self.assigned_tasks[eff_class]) / norm
+            return ret
+        except KeyError:
+            pass
+        except:
+            ciel.log('Weird exception in jws.load()', 'JWS', logging.ERROR, True)
+        return ret
+
     
     def record_task_stats(self, task):
         try:
@@ -335,7 +503,10 @@ class RunningAverage:
         self.min = min(self.min, observation)
         
     def get(self):
-        return self.total / self.count
+        if self.count > 0:
+            return self.total / self.count
+        else:
+            return float('+NaN')
 
 class MasterJobOutput:
     
@@ -379,7 +550,6 @@ class JobTaskGraph(DynamicTaskGraph):
     def task_failed(self, task, bindings, reason, details=None):
 
         ciel.log.error('Task failed because %s' % (reason, ), 'TASKPOOL', logging.WARNING)
-        worker = None
         should_notify_outputs = False
 
         task.record_event(reason)
@@ -416,11 +586,11 @@ class JobTaskGraph(DynamicTaskGraph):
                 ciel.log('Publishing error reference for %s (because %s)' % (output, reason), 'TASKFAIL', logging.ERROR)
                 self.publish(SWErrorReference(output, reason, details), task)
                 
-        ciel.engine.publish('schedule')
+        self.job.schedule()
 
     def handle_missing_input(self, task):
         task.set_state(TASK_FAILED)
-                
+
         # Assume that all of the dependencies are unavailable.
         task.convert_dependencies_to_futures()
         
@@ -429,7 +599,6 @@ class JobTaskGraph(DynamicTaskGraph):
         # N.B. We should already have published the necessary tombstone refs
         #      for the failed inputs.
         self.reduce_graph_for_tasks([task])
-
 
 class JobPool(plugins.SimplePlugin):
 
@@ -496,17 +665,20 @@ class JobPool(plugins.SimplePlugin):
     
     def notify_worker_added(self, worker):
         for job in self.jobs.values():
-            job.notify_worker_added(worker)
+            if job.state == JOB_ACTIVE:
+                job.notify_worker_added(worker)
             
     def notify_worker_failed(self, worker):
         for job in self.jobs.values():
-            job.notify_worker_failed(worker)
+            if job.state == JOB_ACTIVE:
+                job.notify_worker_failed(worker)
                 
     def add_failed_job(self, job_id):
-        job = Job(job_id, None, None, JOB_FAILED, self, self.scheduler.scheduler_queue)
+        # XXX: We lose job options... should probably persist these in the journal.
+        job = Job(job_id, None, None, JOB_FAILED, self, {})
         self.jobs[job_id] = job
     
-    def create_job_for_task(self, task_descriptor, job_id=None):
+    def create_job_for_task(self, task_descriptor, job_options, job_id=None):
         
         with self._lock:
         
@@ -526,10 +698,8 @@ class JobPool(plugins.SimplePlugin):
                 task_descriptor['expected_outputs'] = expected_outputs
                 
             task = build_taskpool_task_from_descriptor(task_descriptor, None)
-            job = Job(job_id, task, job_dir, JOB_CREATED, self, self.scheduler.scheduler_queue)
+            job = Job(job_id, task, job_dir, JOB_CREATED, self, job_options)
             task.job = job
-            
-            print 'About to add job'
             
             self.add_job(job)
             
