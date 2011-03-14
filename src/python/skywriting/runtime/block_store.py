@@ -450,6 +450,8 @@ class StreamTransferContext:
         self.worker_netloc = parsed_url.netloc
         self.ref = ref
         self.save_filename = block_store.fetch_filename(ref.id)
+        open(self.save_filename, "w").close()
+        # Create zero-length file so that HTTP fetches return a non-404 code
         self.callbacks = callbacks
         self.current_data_fetch = None
         self.previous_fetches_bytes_downloaded = 0
@@ -526,7 +528,7 @@ class StreamTransferContext:
             ciel.log("Stream-fetch %s: TCP transfer failed; falling back to HTTP" % self.ref.id, "CURL_FETCH", logging.INFO)
             self.initial_socket_attempt = False
             self.start()
-            self.set_chunk_size(self.current_chunk_size)
+            self.subscribe_remote_output(self.current_chunk_size)
         else:
             ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
             fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
@@ -548,12 +550,15 @@ class StreamTransferContext:
             if self.current_data_fetch is None:
                 self.complete(False)
 
+    def subscribe_remote_output(self, chunk_size):
+        ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, chunk_size), "CURL_FETCH", logging.INFO)
+        post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": chunk_size})
+        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
+
     def set_chunk_size(self, new_chunk_size):
-        # This is always called at least once per transfer, and so causes the initial advertisment subscription.
+        # This causes initial advertisment subscription in the non-TCP case
         if new_chunk_size != self.current_chunk_size and not self.initial_socket_attempt:
-            ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, new_chunk_size), "CURL_FETCH", logging.INFO)
-            post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": new_chunk_size})
-            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
+            self.subscribe_remote_output(new_chunk_size)
         self.current_chunk_size = new_chunk_size
 
     def set_filename(self, filename):
@@ -893,10 +898,10 @@ class BlockStore(plugins.SimplePlugin):
             if e.errno == 17: # File exists
                 size_old = os.path.getsize(old_name)
                 size_new = os.path.getsize(new_name)
-                if size_stream == size_conc:
+                if size_old == size_new:
                     ciel.log('Produced/retrieved %s matching existing file (size %d): ignoring' % (new_name, size_new), 'BLOCKSTORE', logging.WARNING)
                 else:
-                    ciel.log('Produced/retrieved %s with size not matching existing block (old: %d, new %d)' % (new_name, old_size, new_size), 'BLOCKSTORE', logging.ERROR)
+                    ciel.log('Produced/retrieved %s with size not matching existing block (old: %d, new %d)' % (new_name, size_old, size_new), 'BLOCKSTORE', logging.ERROR)
                     raise
             else:
                 raise
@@ -1327,7 +1332,7 @@ class BlockStore(plugins.SimplePlugin):
         if isinstance(ref, SW2_ConcreteReference):
             return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SW2_StreamReference):
-            return ["http://%s/data/.%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+            return ["http://%s/data/.producer:%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
         elif isinstance(ref, SW2_FixedReference):
             assert ref.fixed_netloc == self.netloc
             return ["http://%s/data/%s" % (self.netloc, ref.id)]
