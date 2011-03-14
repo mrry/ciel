@@ -383,7 +383,7 @@ class StreamTransferContext:
         parsed_url = urlparse.urlparse(self.url)
         self.worker_netloc = parsed_url.netloc
         self.ref = ref
-        self.save_filename = block_store.streaming_filename(ref.id)
+        self.save_filename = block_store.fetch_filename(ref.id)
         self.fp = open(self.save_filename, "w")
         self.callbacks = callbacks
         self.current_data_fetch = None
@@ -554,8 +554,11 @@ class BlockStore(plugins.SimplePlugin):
     def pin_filename(self, id): 
         return os.path.join(self.base_dir, PIN_PREFIX + id)
     
-    def streaming_filename(self, id):
-        return os.path.join(self.base_dir, '.%s' % id)
+    def fetch_filename(self, id):
+        return os.path.join(self.base_dir, '.fetch:%s' % id)
+    
+    def producer_filename(self, id):
+        return os.path.join(self.base_dir, '.producer:%s' % id)
     
     def filename(self, id):
         return os.path.join(self.base_dir, str(id))
@@ -631,7 +634,7 @@ class BlockStore(plugins.SimplePlugin):
                         return self.fifo_name
                     else:
                         ciel.log("Producer for %s: no consumer picked up, using conventional stream-file" % self.refid)
-            return self.block_store.streaming_filename(self.refid)
+            return self.block_store.producer_filename(self.refid)
 
         def get_stream_ref(self):
             return SW2_StreamReference(self.refid, [self.block_store.netloc])
@@ -779,11 +782,8 @@ class BlockStore(plugins.SimplePlugin):
                 # Re-check under the lock
                 if id in self.incoming_fetches:
                     continue
-                if os.path.exists(self.filename(id)):
-                    ciel.log("Block %s already existed! Overwriting..." % id, "BLOCKSTORE", logging.WARNING)
-                    os.remove(self.filename(id))
                 self.streaming_producers[id] = new_producer
-                dot_filename = self.streaming_filename(id)
+                dot_filename = self.producer_filename(id)
                 open(dot_filename, 'wb').close()
                 return
 
@@ -801,24 +801,27 @@ class BlockStore(plugins.SimplePlugin):
     def create_file_watch(self, output_ctx):
         return self.file_watcher_thread.create_watch(output_ctx)
 
+    def commit_file(self, old_name, new_name):
+
+        try:
+            os.link(old_name, new_name)
+        except OSError as e:
+            if e.errno == 17: # File exists
+                size_old = os.path.getsize(old_name)
+                size_new = os.path.getsize(new_name)
+                if size_stream == size_conc:
+                    ciel.log('Produced/retrieved %s matching existing file (size %d): ignoring' % (new_name, size_new), 'BLOCKSTORE', logging.WARNING)
+                    else:
+                        ciel.log('Produced/retrieved %s with size not matching existing block (old: %d, new %d)' % (new_name, old_size, new_size) 'BLOCKSTORE', logging.ERROR)
+                        raise
+            else:
+                raise
+
     def commit_stream(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         with self._lock:
             del self.streaming_producers[id]
-            try:
-                os.link(self.streaming_filename(id), self.filename(id))
-            except OSError as e:
-                if e.errno == 17: # File exists
-                    size_stream = os.path.getsize(self.streaming_filename(id))
-                    size_conc = os.path.getsize(self.filename(id))
-                    if size_stream == size_conc:
-                        ciel.log('commit_stream overwrote an existing output (%s) with equal size (%d): ignoring' % (id, size_conc), 'BLOCKSTORE', logging.WARNING)
-                    else:
-                        ciel.log('commit_stream tried to overwrite an existing output (%s) with a different size (%d vs. %s): ignoring' % (id, size_stream, size_conc), 'BLOCKSTORE', logging.ERROR)
-                        raise
-                else:
-                    ciel.log('Unexpected error when committing stream for %s (size: %d vs. %s): ignoring' % (id, size_stream, size_conc), 'BLOCKSTORE', logging.ERROR)
-                    raise
+            self.commit_file(self.producer_filename(id), self.filename(id))
 
     def rollback_file(self, id):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
