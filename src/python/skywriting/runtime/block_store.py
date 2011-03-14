@@ -1135,11 +1135,11 @@ class BlockStore(plugins.SimplePlugin):
             return SW2_StreamReference(self.ref.id, [self.block_store.netloc])
 
     # Called from cURL thread
-    # After this method completes, the ref's streaming_filename must exist.
+    # After this method completes, the ref's fetch_filename must exist.
     def _start_fetch_ref(self, ref):
             
         urls = self.get_fetch_urls_for_ref(ref)
-        save_filename = self.streaming_filename(ref.id)
+        save_filename = self.fetch_filename(ref.id)
         new_listener = BlockStore.FetchListener(ref, self)
         if isinstance(ref, SW2_ConcreteReference):
             ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
@@ -1155,8 +1155,7 @@ class BlockStore(plugins.SimplePlugin):
     # Called from cURL thread
     def fetch_completed(self, ref, success):
         with self._lock:
-            if success:
-                os.link(self.streaming_filename(ref.id), self.filename(ref.id))
+            self.commit_file(self.fetch_filename(ref.id), self.filename(ref.id))
             del self.incoming_fetches[ref.id]
 
     def try_local_fetch(self, ref, fetch_client):

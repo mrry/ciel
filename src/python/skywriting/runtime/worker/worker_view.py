@@ -178,30 +178,14 @@ class DataRoot:
     def default(self, id):
         safe_id = id
         if cherrypy.request.method == 'GET':
-            is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-            if is_streaming:
-                cherrypy.response.headers['Pragma'] = 'streaming'
+            filename = self.block_store.filename(safe_id)
             try:
                 response_body = serve_file(filename)
                 return response_body
             except cherrypy.HTTPError as he:
-                # The streaming file might have been deleted between calls to maybe_streaming_filename
-                # and serve_file. Try again, because this time the non-streaming filename should be
-                # available.
                 if he.status == 404:
-                    if not is_streaming:
-                        raise
-                    cherrypy.response.headers.pop('Pragma', None)
-                    is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-                    try:
-                        serve_file(filename)
-                    except cherrypy.HTTPError as he:
-                        if he.status == 416:
-                            raise cherrypy.HTTPError(418)
-                        else:
-                            raise
-                elif he.status == 416:
-                    raise cherrypy.HTTPError(418)
+                    response_body = serve_file(self.block_store.producer_filename(safe_id))
+                    return response_body
                 else:
                     raise
                 
