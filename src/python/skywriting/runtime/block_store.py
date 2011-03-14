@@ -16,6 +16,7 @@ from threading import RLock, Lock
 from skywriting.runtime.exceptions import \
     MissingInputException, RuntimeSkywritingError
 import random
+import subprocess
 import urllib2
 import shutil
 import pickle
@@ -371,11 +372,12 @@ class SocketAttempt:
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.otherend_port), "TCP_FETCH", logging.INFO)
-            self.sock.connect(self.otherend_hostname, self.otherend_port)
+            self.sock.connect((self.otherend_hostname, self.otherend_port))
             self.sock.sendall("%s\n" % self.refid)
             ciel.log("%s:%s connected: requesting %s" % (self.otherend_hostname, self.otherend_port, self.refid), "TCP_FETCH", logging.INFO)
-            with self.sock.makefile("r") as fp:
-                response = fp.readline().strip()
+            fp = self.sock.makefile("r")
+            response = fp.readline().strip()
+            fp.close()
             with self.lock:
                 self.done = True
                 if response.find("GO") != -1:
@@ -533,7 +535,8 @@ class StreamTransferContext:
             ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
             fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
             os.mkfifo(fifo_name)
-            subprocess.Popen(["cat", ">", fifo_name], shell=True, stdin=socket.fileno())
+            subprocess.Popen(["cat > %s" % fifo_name], shell=True, stdin=socket.fileno())
+            socket.close()
             self.callbacks.result(True)
             self.set_filename(fifo_name)
 
@@ -941,7 +944,8 @@ class BlockStore(plugins.SimplePlugin):
                 else:
                     new_sock.sendall("GO\n")
                     ciel.log("Auxiliary TCP connection for output %s attached; starting 'cat'" % output_id, "BLOCKSOCKET", logging.INFO)
-                    subprocess.Popen(["cat", "<", fifo_name], shell=True, stdout=new_sock.fileno())
+                    subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=new_sock.fileno())
+                    new_sock.close()
         except Exception as e:
             ciel.log("Error handling auxiliary TCP connection: %s" % repr(e), "BLOCKSOCKET", logging.ERROR)
             try:
