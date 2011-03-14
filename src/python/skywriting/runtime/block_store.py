@@ -533,7 +533,7 @@ class StreamTransferContext:
             ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
             fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
             os.mkfifo(fifo_name)
-            subprocess.Popen(["cat", ">", fifo_name], shell=True, stdin=socket)
+            subprocess.Popen(["cat", ">", fifo_name], shell=True, stdin=socket.fileno())
             self.callbacks.result(True)
             self.set_filename(fifo_name)
 
@@ -754,12 +754,15 @@ class BlockStore(plugins.SimplePlugin):
                             wait_secs = float(wait_time.seconds) + (float(wait_time.microseconds) / 10**6)
                             ciel.log("Producer for %s: waiting for pipe pickup" % self.refid, "BLOCKPIPE", logging.INFO)
                             self.cond.wait(wait_secs)
-                    self.started = True
                     if self.pipe_attached:
                         ciel.log("Producer for %s: using pipe" % self.refid, "BLOCKPIPE", logging.INFO)
+                        self.started = True
                         return self.fifo_name
+                    elif self.started:
+                        ciel.log("Producer for %s: kicked by a regular-file subscription; using conventional stream-file" % self.refid, "BLOCKPIPE", logging.INFO)
                     else:
-                        ciel.log("Producer for %s: no consumer picked up, using conventional stream-file" % self.refid, "BLOCKPIPE", logging.INFO)
+                        self.started = True
+                        ciel.log("Producer for %s: timed out waiting for a consumer; using conventional stream-file" % self.refid, "BLOCKPIPE", logging.INFO)
             return self.block_store.producer_filename(self.refid)
 
         def get_stream_ref(self):
@@ -938,7 +941,7 @@ class BlockStore(plugins.SimplePlugin):
                 else:
                     new_sock.sendall("GO\n")
                     ciel.log("Auxiliary TCP connection for output %s attached; starting 'cat'" % output_id, "BLOCKSOCKET", logging.INFO)
-                    subprocess.Popen(["cat", "<", fifo_name], shell=True, stdout=new_sock)
+                    subprocess.Popen(["cat", "<", fifo_name], shell=True, stdout=new_sock.fileno())
         except Exception as e:
             ciel.log("Error handling auxiliary TCP connection: %s" % repr(e), "BLOCKSOCKET", logging.ERROR)
             try:
