@@ -350,20 +350,39 @@ class SocketAttempt:
         self.refid = refid
         self.result_callback = result_callback
         self.thread = threading.Thread(target=self.thread_main)
+        self.lock = threading.Lock()
+        self.done = False
 
     def start(self):
         self.thread.start()
 
+    def cancel(self):
+        with self.lock:
+            if self.done:
+                return
+            else:
+                self.sock.close()
+                self.done = True
+
     def thread_main(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(otherend_hostname, otherend_port)
-        sock.sendall("%s\n" % self.refid)
-        fp = sock.makefile("r")
-        response = fp.readline()
-        if response.find("GO") != -1:
-            self.result_callback(True, sock)
-        else:
-            sock.close()
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            ciel.log("Connecting %s:%s" % (otherend_hostname, otherend_port), "TCP_FETCH", logging.INFO)
+            self.sock.connect(otherend_hostname, otherend_port)
+            self.sock.sendall("%s\n" % self.refid)
+            ciel.log("%s:%s connected: requesting %s" % (otherend_hostname, otherend_port, self.refid) "TCP_FETCH", logging.INFO)
+            with self.sock.makefile("r") as fp:
+                response = fp.readline().strip()
+            with self.lock:
+                self.done = True
+                if response.find("GO") != -1:
+                    self.result_callback(True, self.sock)
+                else:
+                    ciel.log("%s:%s request for %s failed: other end said '%s'" % (otherend_hostname, otherend_port, self.refid, response), "TCP_FETCH", logging.WARNING)
+                    self.sock.close()
+                    self.result_callback(False, None)
+        except Exception as e:
+            ciel.log("SocketAttempt for ref %s failed due to %s" % (self.refid, repr(e)))
             self.result_callback(False, None)
 
 class FileTransferContext:
@@ -455,7 +474,9 @@ class StreamTransferContext:
             self.block_store.add_incoming_stream(self.ref.id, self)
         else:
             otherend_hostname = self.ref.socket_netloc.split(":")[0]
+            ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port))
             self.socket_attempt = SocketAttempt(self.ref.id, otherend_hostname, self.ref.socket_port, self.socket_attempt_completed)
+            self.socket_attempt.start()
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -499,10 +520,12 @@ class StreamTransferContext:
 
     def _socket_attempt_completed(self, success, socket):
         if not success:
+            ciel.log("Stream-fetch %s: TCP transfer failed; falling back to HTTP" % self.ref.id, "CURL_FETCH", logging.INFO)
             self.initial_socket_attempt = False
             self.start()
             self.set_chunk_size(self.current_chunk_size)
         else:
+            ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
             fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
             os.mkfifo(fifo_name)
             subprocess.Popen(["cat", ">", fifo_name], shell=True, stdin=socket)
@@ -541,10 +564,13 @@ class StreamTransferContext:
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.cancelled = True
-        post_data = simplejson.dumps({"netloc": self.block_store.netloc})
-        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
-        if self.current_data_fetch is not None:
-            self.current_data_fetch.cancel()
+        if not self.initial_socket_attempt:
+            post_data = simplejson.dumps({"netloc": self.block_store.netloc})
+            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
+            if self.current_data_fetch is not None:
+                self.current_data_fetch.cancel()
+        else:
+            self.socket_attempt.cancel()
         self.callbacks.result(False)
 
     def advertisment(self, bytes=None, done=None, absent=None, failed=None):
@@ -885,24 +911,33 @@ class BlockStore(plugins.SimplePlugin):
             del self.streaming_producers[id]
 
     def new_aux_connection(self, new_sock):
-        new_sock.setblocking(True)
-        sock_file = new_sock.makefile("r")
-        (output_id, remote_netloc) = sock_file.readline().strip().split(",")
-        sock_file.close()
-        with self._lock:
+        try:
+            new_sock.setblocking(True)
+            sock_file = new_sock.makefile("r")
+            output_id = sock_file.readline().strip()
+            sock_file.close()
+            with self._lock:
+                try:
+                    producer = self.streaming_producers[output_id]
+                except KeyError:
+                    ciel.log("Got auxiliary TCP connection for bad output %s" % output_id, "BLOCKSOCKET", logging.WARNING)
+                    new_sock.sendall("FAIL\n")
+                    new_sock.close()
+                fifo_name = producer.try_get_pipe()
+                if fifo_name is None:
+                    ciel.log("Auxiliary TCP connection for output %s rejected: couldn't get FIFO" % output_id, "BLOCKSOCKET", logging.WARNING)
+                    new_sock.sendall("FAIL\n")
+                    new_sock.close()
+                else:
+                    new_sock.sendall("GO\n")
+                    ciel.log("Auxiliary TCP connection for output %s attached; starting 'cat'" % output_id, "BLOCKSOCKET", logging.INFO)
+                    subprocess.Popen(["cat", "<", fifo_name], shell=True, stdout=new_sock)
+        except Exception as e:
+            ciel.log("Error handling auxiliary TCP connection: %s" % repr(e), "BLOCKSOCKET", logging.ERROR)
             try:
-                producer = self.streaming_producers[output_id]
-            except KeyError:
-                ciel.log("TCP connection from %s for %s doesn't match a local producer" % (remote_netloc, output_id), "BLOCKSTORE", logging.INFO)
-                new_sock.sendall("FAIL\n")
                 new_sock.close()
-            fifo_name = producer.try_get_pipe()
-            if fifo_name is None:
-                new_sock.sendall("FAIL\n")
-                new_sock.close()
-            else:
-                fifo_fp = open(fifo_name, "r")
-                subprocess.Popen(["cat"], stdin=fifo_fp, stdout=new_sock)
+            except:
+                pass
 
     def write_fixed_ref_string(self, string, fixed_ref):
         with open(self.filename_for_ref(fixed_ref), "w") as fp:
@@ -1091,10 +1126,10 @@ class BlockStore(plugins.SimplePlugin):
                 return SW2_ConcreteReference(self.ref.id, self.last_progress, [self.block_store.netloc])
 
         def get_stream_ref(self):
-            return SW2_StreamReference(self.ref.id, [self.block_store.netloc])
+            raise Exception("Stream-refs from fetches don't work right now")
+        #return SW2_StreamReference(self.ref.id, [self.block_store.netloc])
 
     # Called from cURL thread
-    # After this method completes, the ref's fetch_filename must exist.
     def _start_fetch_ref(self, ref):
             
         urls = self.get_fetch_urls_for_ref(ref)
