@@ -226,6 +226,22 @@ class SW2_StreamReference(SWRealReference):
     def __repr__(self):
         return 'SW2_StreamReference(%s, %s)' % (repr(self.id), repr(self.location_hints))
 
+class SW2_SocketStreamReference(SW2_StreamReference):
+
+    def __init__(self, id, location_hint, socket_port):
+        SW2_StreamReference.__init__(id, [location_hint])
+        self.socket_port = socket_port
+        self.socket_netloc = location_hint
+
+    def as_tuple(self):
+        return ('ss2', str(self.id), self.socket_netloc, self.socket_port)
+
+    def __str__(self):
+        return "<SocketStreamRef: %s..., at %s(:%s)>" % (self.id[:10], self.socket_netloc, self.socket_port)
+
+    def __repr__(self):
+        return 'SW2_SocketStreamReference(%s, %s, %s)' % (repr(self.id), repr(self.socket_netloc), repr(self.socket_port))
+
 class SW2_TombstoneReference(SWRealReference):
     
     def __init__(self, id, netlocs=None):
@@ -346,6 +362,8 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_SweetheartReference(reference_tuple[1], reference_tuple[2], reference_tuple[3], reference_tuple[4])
     elif ref_type == 's2':
         return SW2_StreamReference(reference_tuple[1], reference_tuple[2])
+    elif ref_type == 'ss2':
+        return SW2_SocketStreamReference(reference_tuple[1], reference_tuple[2], reference_tuple[3])
     elif ref_type == 'fx':
         return SW2_FixedReference(reference_tuple[1], reference_tuple[2])
     elif ref_type == 't2':
