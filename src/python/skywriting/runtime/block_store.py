@@ -45,7 +45,7 @@ from shared.references import SWRealReference,\
     build_reference_from_tuple, SW2_ConcreteReference, SWDataValue,\
     SWErrorReference, SW2_StreamReference,\
     SW2_TombstoneReference, SW2_FetchReference, SW2_FixedReference,\
-    SW2_SweetheartReference
+    SW2_SweetheartReference, SW2_CompletedReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
 import hashlib
 import contextlib
@@ -150,26 +150,22 @@ class pycURLFetchContext(pycURLContext):
 
 class pycURLBufferContext(pycURLContext):
 
-    def __init__(self, method, in_fp, in_length, out_fp, url, multi, result_callback):
+    def __init__(self, method, in_str, out_fp, url, multi, result_callback):
         
         pycURLContext.__init__(self, url, multi, result_callback)
 
-        self.read_fp = in_fp
         self.write_fp = out_fp
 
         self.curl_ctx.setopt(pycurl.WRITEFUNCTION, self.write)
         if method == "POST":
-            self.curl_ctx.setopt(pycurl.READFUNCTION, self.read)
             self.curl_ctx.setopt(pycurl.POST, True)
-            self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, in_length)
+            self.curl_ctx.setopt(pycurl.POSTFIELDS, in_str)
+            self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, len(in_str))
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream", "Expect:"])
 
     def write(self, data):
         self.write_fp.write(data)
         return len(data)
-
-    def read(self, chars):
-        return self.read_fp.read(chars)
 
 class SelectableEventQueue:
 
@@ -237,6 +233,7 @@ class pycURLThread:
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
         self.active_fetches = []
         self.event_queue = SelectableEventQueue()
+        self.aux_listen_socket = None
         self.dying = False
 
     def start(self):
@@ -265,6 +262,18 @@ class pycURLThread:
         self.event_queue.post_event(lambda: self.call_and_signal(callback, e, ret))
         e.wait()
         return ret.ret
+
+    def _set_aux_listen_socket(self, socket, cb):
+        self.aux_listen_socket = socket
+        self.aux_listen_callback = cb
+
+    def set_aux_listen_port(self, port, new_connection_callback):
+        if port is not None:
+            aux_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            aux_listen_socket.bind("0.0.0.0", port)
+            aux_listen_socket.listen(5)
+            aux_listen_socket.setblocking(False)
+        self.do_from_curl_thread(lambda: self._set_aux_listen_socket(aux_listen_socket, new_connection_callback))
 
     def _stop_thread(self):
         self.dying = True
@@ -326,7 +335,36 @@ class pycURLThread:
             read_fds.extend(ev_rfds)
             write_fds.extend(ev_wfds)
             exn_fds.extend(ev_exfds)
+            if self.aux_listen_socket is not None:
+                read_fds.append(self.aux_listen_socket.fileno())
             active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds)
+            if self.aux_listen_socket.fileno() in active_read:
+                (new_sock, _) = self.aux_listen_socket.accept()
+                self.aux_listen_callback(new_sock)
+
+class SocketAttempt:
+
+    def __init__(self, refid, otherend_hostname, otherend_port, result_callback):
+        self.otherend_hostname = otherend_hostname
+        self.otherend_port = otherend_port
+        self.refid = refid
+        self.result_callback = result_callback
+        self.thread = threading.Thread(target=self.thread_main)
+
+    def start(self):
+        self.thread.start()
+
+    def thread_main(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(otherend_hostname, otherend_port)
+        sock.sendall("%s\n" % self.refid)
+        fp = sock.makefile("r")
+        response = fp.readline()
+        if response.find("GO") != -1:
+            self.result_callback(True, sock)
+        else:
+            sock.close()
+            self.result_callback(False, None)
 
 class FileTransferContext:
 
@@ -368,6 +406,12 @@ class FileTransferContext:
         # Don't care: we always request the whole file.
         pass
 
+    def get_filename(self):
+        return self.save_filename
+
+    def wrote_file(self):
+        return True
+
     def cancel(self):
         ciel.log("Fetch %s: cancelling" % self.save_filename, "CURL_FETCH", logging.INFO)
         self.cancelled = True
@@ -384,7 +428,6 @@ class StreamTransferContext:
         self.worker_netloc = parsed_url.netloc
         self.ref = ref
         self.save_filename = block_store.fetch_filename(ref.id)
-        self.fp = open(self.save_filename, "w")
         self.callbacks = callbacks
         self.current_data_fetch = None
         self.previous_fetches_bytes_downloaded = 0
@@ -394,6 +437,9 @@ class StreamTransferContext:
         self.block_store = block_store
         self.cancelled = False
         self.current_chunk_size = None
+        self.filename_event = threading.Event()
+        if isinstance(ref, SW2_SocketStreamReference):
+            self.initial_socket_attempt = True
 
     def start_next_fetch(self):
         ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
@@ -402,8 +448,14 @@ class StreamTransferContext:
 
     def start(self):
         
-        self.start_next_fetch()
-        self.block_store.add_incoming_stream(self.ref.id, self)
+        if not self.initial_socket_attempt:
+            self.fp = open(self.save_filename, "w")
+            self.set_filename(self.save_filename)
+            self.start_next_fetch()
+            self.block_store.add_incoming_stream(self.ref.id, self)
+        else:
+            otherend_hostname = self.ref.socket_netloc.split(":")[0]
+            self.socket_attempt = SocketAttempt(self.ref.id, otherend_hostname, self.ref.socket_port, self.socket_attempt_completed)
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -445,13 +497,46 @@ class StreamTransferContext:
         self.block_store.remove_incoming_stream(self.ref.id)
         self.callbacks.result(success)
 
+    def _socket_attempt_completed(self, success, socket):
+        if not success:
+            self.initial_socket_attempt = False
+            self.start()
+            self.set_chunk_size(self.current_chunk_size)
+        else:
+            fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
+            os.mkfifo(fifo_name)
+            subprocess.Popen(["cat", ">", fifo_name], shell=True, stdin=socket)
+            self.callbacks.result(True)
+            self.set_filename(fifo_name)
+
+    def socket_attempt_completed(self, success, socket):
+        self.block_store.fetch_thread.do_from_curl_thread(lambda: self._socket_attempt_completed(success, socket))
+
+    def wrote_file(self):
+        return self.initial_socket_attempt
+
+    def subscribe_result(self, success, _):
+        if not success:
+            ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." % self.ref.id, "CURL_FETCH", logging.INFO)
+            self.remote_failed = True
+            if self.current_data_fetch is None:
+                self.complete(False)
+
     def set_chunk_size(self, new_chunk_size):
         # This is always called at least once per transfer, and so causes the initial advertisment subscription.
-        if new_chunk_size != self.current_chunk_size:
+        if new_chunk_size != self.current_chunk_size and not self.initial_socket_attempt:
             ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, new_chunk_size), "CURL_FETCH", logging.INFO)
-            self.current_chunk_size = new_chunk_size
             post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": new_chunk_size})
-            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data)
+            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
+        self.current_chunk_size = new_chunk_size
+
+    def set_filename(self, filename):
+        self.true_filename = filename
+        self.filename_event.set()
+
+    def get_filename(self):
+        self.filename_event.wait()
+        return self.true_filename()
 
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
@@ -482,7 +567,7 @@ class StreamTransferContext:
 
 class BlockStore(plugins.SimplePlugin):
 
-    def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False):
+    def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False, aux_listen_port=None):
         plugins.SimplePlugin.__init__(self, bus)
         self._lock = RLock()
         self.netloc = "%s:%s" % (hostname, port)
@@ -491,6 +576,7 @@ class BlockStore(plugins.SimplePlugin):
         self.bus = bus
         self.fetch_thread = pycURLThread()
         self.dataval_codec = codecs.lookup("string_escape")
+        self.aux_listen_port = aux_listen_port
     
         self.pin_set = set()
     
@@ -522,6 +608,7 @@ class BlockStore(plugins.SimplePlugin):
 
     def start(self):
         self.fetch_thread.start()
+        self.fetch_thread.set_aux_listen_port(self.aux_listen_port, self.new_aux_connection)
         self.file_watcher_thread = get_watcher_thread()
 
     def stop(self):
@@ -615,29 +702,37 @@ class BlockStore(plugins.SimplePlugin):
             self.current_size = None
             self.closed = False
             self.may_pipe = may_pipe
-            if self.may_pipe:
+            if self.may_pipe
                 self.fifo_name = tempfile.mktemp()
                 os.mkfifo(self.fifo_name)
-            self.started = False
-            self.pipe_attached = False
-            self.pipe_cond = threading.Condition(self.block_store._lock)
+                self.pipe_deadline = datetime.now() + timedelta(seconds=5)
+                self.started = False
+                self.pipe_attached = False
+                self.cond = threading.Condition(self.block_store._lock)
 
         def get_filename(self):
             if self.may_pipe:
-                ciel.log("Producer for %s: waiting for pipe pickup" % self.refid)
                 with self.block_store._lock:
                     if not self.pipe_attached:
-                        self.pipe_cond.wait(5)
+                        now = datetime.now()
+                        if now < self.pipe_deadline:
+                            wait_time = self.pipe_deadline - now
+                            wait_secs = float(wait_time.seconds) + (float(wait_time.microseconds) / 10**6)
+                            ciel.log("Producer for %s: waiting for pipe pickup" % self.refid, "BLOCKPIPE", logging.INFO)
+                            self.cond.wait(wait_secs)
                     self.started = True
                     if self.pipe_attached:
-                        ciel.log("Producer for %s: using pipe" % self.refid)
+                        ciel.log("Producer for %s: using pipe" % self.refid, "BLOCKPIPE", logging.INFO)
                         return self.fifo_name
                     else:
-                        ciel.log("Producer for %s: no consumer picked up, using conventional stream-file" % self.refid)
+                        ciel.log("Producer for %s: no consumer picked up, using conventional stream-file" % self.refid, "BLOCKPIPE", logging.INFO)
             return self.block_store.producer_filename(self.refid)
 
         def get_stream_ref(self):
-            return SW2_StreamReference(self.refid, [self.block_store.netloc])
+            if self.block_store.aux_listen_port is not None and self.may_pipe:
+                return SW2_SocketStreamReference(self.refid, self.block_store.netloc, self.block_store.aux_listen_port)
+            else:
+                return SW2_StreamReference(self.refid, [self.block_store.netloc])
 
         def rollback(self):
             if not self.closed:
@@ -682,20 +777,20 @@ class BlockStore(plugins.SimplePlugin):
             else:
                 with self.block_store._lock:
                     if self.started:
-                        ciel.log("Consumer for %s: production already started, not using pipe" % self.refid)
+                        ciel.log("Consumer for %s: production already started, not using pipe" % self.refid, "BLOCKPIPE", logging.INFO)
                         return None
-                    ciel.log("Consumer for %s: attached to pipe" % self.refid)
+                    ciel.log("Consumer for %s: attached to local pipe" % self.refid, "BLOCKPIPE", logging.INFO)
                     self.pipe_attached = True
-                    self.pipe_cond.notify_all()
+                    self.cond.notify_all()
                     return self.fifo_name
 
         def subscribe(self, new_subscriber):
 
             with self.block_store._lock:
                 if self.pipe_attached:
-                    raise Exception("Tried to subscribe to output %s, but it's being piped. Piped outputs should not have fan-out > 1" % self.refid)
+                    raise Exception("Tried to subscribe to output %s, but it's already being consumed through a pipe! Bug? Or duplicate consumer task?" % self.refid)
                 self.started = True
-                self.pipe_cond.notify_all()
+                self.cond.notify_all()
             should_start_watch = False
             self.subscriptions.append(new_subscriber)
             if self.current_size is not None:
@@ -756,17 +851,18 @@ class BlockStore(plugins.SimplePlugin):
             pass
 
         def wait(self):
-            self.completed_event.set()
+            self.completed_event.wait()
 
     def _await_fetch(self, id):
         if id in self.incoming_fetches:
             fetch = self.incoming_fetches[id]
             client = BlockStore.FakeFetchClient()
             fetch.add_listener(client)
-            client.wait()
+            return client
             
     def await_fetch(self, id):
-        self.fetch_thread.do_from_curl_thread_sync(lambda: self._await_fetch(id))
+        fake_client = self.fetch_thread.do_from_curl_thread_sync(lambda: self._await_fetch(id))
+        fake_client.wait()
 
     def register_local_output(self, id, new_producer):
         while True:
@@ -787,14 +883,15 @@ class BlockStore(plugins.SimplePlugin):
                 open(dot_filename, 'wb').close()
                 return
 
-    def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
+    def make_local_output(self, id, subscribe_callback=None, may_pipe=False, may_socket=False):
         '''
         Creates a file-in-progress in the block store directory.
         '''
         if subscribe_callback is None:
             subscribe_callback = self.create_file_watch
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, may_pipe)
+        may_socket = may_socket and self.aux_listen_port is not None
+        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, may_pipe, may_socket)
         self.register_local_output(id, new_ctx)
         return new_ctx
 
@@ -827,6 +924,26 @@ class BlockStore(plugins.SimplePlugin):
         ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
         with self._lock:
             del self.streaming_producers[id]
+
+    def new_aux_connection(self, new_sock):
+        new_sock.setblocking(True)
+        sock_file = new_sock.makefile("r")
+        (output_id, remote_netloc) = sock_file.readline().strip().split(",")
+        sock_file.close()
+        with self._lock:
+            try:
+                producer = self.streaming_producers[output_id]
+            except KeyError:
+                ciel.log("TCP connection from %s for %s doesn't match a local producer" % (remote_netloc, output_id), "BLOCKSTORE", logging.INFO)
+                new_sock.sendall("FAIL\n")
+                new_sock.close()
+            fifo_name = producer.try_get_pipe()
+            if fifo_name is None:
+                new_sock.sendall("FAIL\n")
+                new_sock.close()
+            else:
+                fifo_fp = open(fifo_name, "r")
+                subprocess.Popen(["cat"], stdin=fifo_fp, stdout=new_sock)
 
     def write_fixed_ref_string(self, string, fixed_ref):
         with open(self.filename_for_ref(fixed_ref), "w") as fp:
@@ -879,6 +996,9 @@ class BlockStore(plugins.SimplePlugin):
                     post = simplejson.dumps({"bytes": st.st_size, "done": True})
                 except OSError:
                     post = simplejson.dumps({"absent": True})
+            except Exception as e:
+                ciel.log("Subscription to %s failed with exception %s; reporting absent" % (id, e), "BLOCKSTORE", logging.WARNING)
+                post = simplejson.dumps({"absent": True})
         if post is not None:
             self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
 
@@ -968,7 +1088,7 @@ class BlockStore(plugins.SimplePlugin):
 
         def result(self, success):
             self.completed = True
-            self.block_store.fetch_completed(self.ref, success)
+            self.block_store.fetch_completed(self.ref, success and self.fetch_context.wrote_file())
             for l in self.listeners:
                 l.result(success)
 
@@ -1003,7 +1123,7 @@ class BlockStore(plugins.SimplePlugin):
             self.update_chunk_size()
 
         def get_filename(self):
-            return self.block_store.streaming_filename(self.ref.id)
+            return self.fetch_context.get_filename()
 
         def get_completed_ref(self, is_sweetheart):
             if is_sweetheart:
@@ -1275,12 +1395,11 @@ class BlockStore(plugins.SimplePlugin):
         
         def __init__(self, method, url, postdata, fetch_thread, result_callback=None):
 
-            self.post_buffer = StringIO(postdata)
             self.response_buffer = StringIO()
             self.completed_event = threading.Event()
             self.result_callback = result_callback
             self.url = url
-            self.curl_ctx = pycURLBufferContext(method, self.post_buffer, len(postdata), self.response_buffer, url, fetch_thread, self.result)
+            self.curl_ctx = pycURLBufferContext(method, postdata, self.response_buffer, url, fetch_thread, self.result)
 
         def start(self):
 
@@ -1298,7 +1417,6 @@ class BlockStore(plugins.SimplePlugin):
             
             self.response_string = self.response_buffer.getvalue()
             self.success = success
-            self.post_buffer.close()
             self.response_buffer.close()
             self.completed_event.set()
             if self.result_callback is not None:

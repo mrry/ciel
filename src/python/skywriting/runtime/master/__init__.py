@@ -58,7 +58,10 @@ def master_main(options):
     backup_sender = BackupSender(cherrypy.engine)
     backup_sender.subscribe()
 
-    local_hostname = socket.getfqdn()
+    if options.hostname is not None:
+        local_hostname = options.hostname
+    else:
+        local_hostname = socket.getfqdn()
     local_port = cherrypy.config.get('server.socket_port')
     master_netloc = '%s:%d' % (local_hostname, local_port)
     print 'Local port is', local_port
