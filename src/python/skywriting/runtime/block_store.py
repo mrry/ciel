@@ -464,8 +464,7 @@ class StreamTransferContext:
         self.cancelled = False
         self.current_chunk_size = None
         self.filename_event = threading.Event()
-        if isinstance(ref, SW2_SocketStreamReference):
-            self.initial_socket_attempt = True
+        self.initial_socket_attempt = isinstance(ref, SW2_SocketStreamReference)
 
     def start_next_fetch(self):
         ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
@@ -826,11 +825,12 @@ class BlockStore(plugins.SimplePlugin):
 
         def subscribe(self, new_subscriber):
 
-            with self.block_store._lock:
-                if self.pipe_attached:
-                    raise Exception("Tried to subscribe to output %s, but it's already being consumed through a pipe! Bug? Or duplicate consumer task?" % self.refid)
-                self.started = True
-                self.cond.notify_all()
+            if self.may_pipe:
+                with self.block_store._lock:
+                    if self.pipe_attached:
+                        raise Exception("Tried to subscribe to output %s, but it's already being consumed through a pipe! Bug? Or duplicate consumer task?" % self.refid)
+                    self.started = True
+                    self.cond.notify_all()
             should_start_watch = False
             self.subscriptions.append(new_subscriber)
             if self.current_size is not None:
