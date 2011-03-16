@@ -374,11 +374,8 @@ class SocketAttempt:
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.otherend_port), "TCP_FETCH", logging.INFO)
-            print self.otherend_hostname, self.otherend_port
             self.sock.connect((self.otherend_hostname, self.otherend_port))
-            print repr(self.chunk_size)
             self.sock.sendall("%s %d\n" % (self.refid, self.chunk_size))
-            print repr(self.chunk_size)
             ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.otherend_port, self.refid, self.chunk_size), "TCP_FETCH", logging.INFO)
             fp = self.sock.makefile("r")
             response = fp.readline().strip()
@@ -565,7 +562,6 @@ class StreamTransferContext:
         if self.initial_socket_attempt:
             otherend_hostname = self.ref.socket_netloc.split(":")[0]
             ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
-            print repr(self.current_chunk_size)
             self.socket_attempt = SocketAttempt(self.ref.id, otherend_hostname, self.ref.socket_port, self.current_chunk_size, self.socket_attempt_completed)
             self.socket_attempt.start()
 
@@ -975,7 +971,6 @@ class BlockStore(plugins.SimplePlugin):
                             buf = input_fp.read(4096)
                             self.sock_obj.sendall(buf)
                             self.bytes_copied += len(buf)
-                            print "***** Bytes copied:", self.bytes_copied
                             with self.lock:
                                 if self.bytes_copied == self.bytes_available and self.fetch_done:
                                     ciel.log("Socket-push for %s complete" % self.refid, "EXEC", logging.INFO)
