@@ -598,8 +598,13 @@ class StreamTransferContext:
                 self.complete(False)
         else:
             ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (self.ref.id, bytes, done), "CURL_FETCH", logging.INFO)
-            self.latest_advertisment = bytes
-            self.remote_done = done
+            if self.latest_advertisment < bytes:
+                self.latest_advertisment = bytes
+            else:
+                ciel.log("Stream-fetch %s: intriguing anomaly: advert for %d bytes; currently have %d. Probable reordering in the network" % (self.ref.id, bytes, self.latest_advertisment), "CURL_FETCH", logging.WARNING)
+            if self.remote_done and not done:
+                ciel.log("Stream-fetch %s: intriguing anomaly: advert said not-done, but we are. Probable reordering in the network" % self.ref.id, "CURL_FETCH", logging.WARNING)
+            self.remote_done = self.remote_done or done
             if self.current_data_fetch is None:
                 self.check_complete()
 

@@ -273,9 +273,9 @@ class MasterTaskRoot:
             for ref in refs:
                 tx.publish(ref, task)
             tx.commit(job.task_graph)
+            job.schedule()
 
             self.backup_sender.publish_refs(task_id, refs)
-            ciel.engine.publish('schedule')
             return
             
         elif action == 'abort':
