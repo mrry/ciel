@@ -10,7 +10,7 @@ function java(class_name, input_refs, argv, jar_refs, num_outputs, may_pipe) {
 	else {
 	   pipe_output = false;
 	}
-	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "stream_output": true, "pipe_output": pipe_output}, num_outputs);
+	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv, "stream_output": true, "single_consumer": may_pipe, "pipe_output": pipe_output}, num_outputs);
 }  
 
 // Numbers of blocks

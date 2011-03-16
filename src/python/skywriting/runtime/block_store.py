@@ -731,7 +731,10 @@ class BlockStore(plugins.SimplePlugin):
         
     class FileOutputContext:
 
-        def __init__(self, refid, block_store, subscribe_callback, may_pipe):
+        # may_pipe: Should wait for a direct connection, either via local pipe or direct remote socket
+        # single_consumer: (required for may-pipe): this output has one consumer. We'll allow a socket consumer.
+        #   XXX: This isn't the right place to do this; we're saving the output locally anyway. This is just to prevent multiple socket-fetches of the same thing.
+        def __init__(self, refid, block_store, subscribe_callback, single_consumer, may_pipe):
             self.refid = refid
             self.block_store = block_store
             self.subscribe_callback = subscribe_callback
@@ -739,7 +742,10 @@ class BlockStore(plugins.SimplePlugin):
             self.subscriptions = []
             self.current_size = None
             self.closed = False
+            self.single_consumer = single_consumer
             self.may_pipe = may_pipe
+            if self.may_pipe and not self.single_consumer:
+                raise Exception("invalid option combination: using pipes but not single-consumer")
             if self.may_pipe:
                 self.fifo_name = tempfile.mktemp()
                 os.mkfifo(self.fifo_name)
@@ -772,7 +778,7 @@ class BlockStore(plugins.SimplePlugin):
             return self.block_store.producer_filename(self.refid)
 
         def get_stream_ref(self):
-            if self.may_pipe and self.block_store.aux_listen_port is not None:
+            if self.single_consumer and self.block_store.aux_listen_port is not None:
                 return SW2_SocketStreamReference(self.refid, self.block_store.netloc, self.block_store.aux_listen_port)
             else:
                 return SW2_StreamReference(self.refid, location_hints=[self.block_store.netloc])
@@ -886,14 +892,14 @@ class BlockStore(plugins.SimplePlugin):
             open(dot_filename, 'wb').close()
             return
 
-    def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
+    def make_local_output(self, id, subscribe_callback=None, single_consumer=False, may_pipe=False):
         '''
         Creates a file-in-progress in the block store directory.
         '''
         if subscribe_callback is None:
             subscribe_callback = self.create_file_watch
         ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, may_pipe)
+        new_ctx = BlockStore.FileOutputContext(id, self, subscribe_callback, single_consumer, may_pipe)
         self.register_local_output(id, new_ctx)
         return new_ctx
 

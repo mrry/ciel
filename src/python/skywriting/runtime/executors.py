@@ -1678,6 +1678,10 @@ class ProcessRunningExecutor(SimpleExecutor):
         except KeyError:
             self.pipe_output = False
         try:
+            self.single_consumer = self.args['single_consumer']
+        except KeyError:
+            self.single_consumer = False
+        try:
             self.eager_fetch = self.args['eager_fetch']
         except KeyError:
             self.eager_fetch = False
@@ -1698,7 +1702,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         with push_ctx:
 
-            with list_with([self.block_store.make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
+            with list_with([self.block_store.make_local_output(id, may_pipe=self.pipe_output, single_consumer=self.single_consumer) for id in self.output_ids]) as out_file_contexts:
 
                 if self.stream_output:
            
