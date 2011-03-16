@@ -30,7 +30,8 @@ if options.version:
     sys.exit(0)
 
 print >>sys.stderr, "SkyPy: Awaiting task"
-entry_dict = pickle.load(sys.stdin)
+unbuffered_stdin = os.fdopen(0, "r", 0)
+entry_dict = pickle.load(unbuffered_stdin)
 
 skypy.main_coro = stackless.coroutine.getcurrent()
 user_script_namespace = imp.load_source("user_script_namespace", entry_dict["source_filename"])
@@ -56,7 +57,7 @@ skypy.persistent_state = resume_state.persistent_state
 skypy.extra_outputs = skypy.persistent_state.extra_outputs
 
 skypy.file_outputs = FileOutputRecords()
-skypy.message_helper = RpcHelper(sys.stdin, sys.stdout, skypy.file_outputs)
+skypy.message_helper = RpcHelper(unbuffered_stdin, sys.stdout, skypy.file_outputs)
 skypy.file_outputs.set_message_helper(skypy.message_helper)
 
 user_coro.switch()

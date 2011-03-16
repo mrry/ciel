@@ -122,7 +122,6 @@ class RequiredRefs():
 
 def spawn(spawn_callable, *pargs, **kwargs):
     
-    print >>sys.stderr, pargs
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
     save_obj = ResumeState(None, new_coro)
@@ -327,9 +326,9 @@ def get_fresh_output_name():
     runtime_response = message_helper.synchronous_request({"request": "create_fresh_output"})
     return runtime_response["name"]
 
-def open_output(id, may_pipe=False):
+def open_output(id, may_pipe=False, single_consumer=False):
     new_output = OutputFile(message_helper, file_outputs, id)
-    runtime_response = message_helper.synchronous_request({"request": "open_output", "id": id, "may_pipe": may_pipe})
+    runtime_response = message_helper.synchronous_request({"request": "open_output", "id": id, "may_pipe": may_pipe, "single_consumer": single_consumer})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 

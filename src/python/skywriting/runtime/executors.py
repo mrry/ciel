@@ -691,10 +691,10 @@ class SkyPyExecutor(BaseExecutor):
             ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "SKYPY", logging.INFO)
             return ret
 
-    def open_output(self, id, may_pipe=False):
+    def open_output(self, id, may_pipe=False, single_consumer=False):
         if id in self.ongoing_outputs:
             raise Exception("SkyPy tried to open output %s which was already open" % id)
-        new_output = self.block_store.make_local_output(id, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
+        new_output = self.block_store.make_local_output(id, subscribe_callback=self.subscribe_output, may_pipe=may_pipe, single_consumer=single_consumer)
         skypy_output = SkyPyOutput(new_output, self)
         self.ongoing_outputs[id] = skypy_output
         self.context_manager.add_context(skypy_output)
