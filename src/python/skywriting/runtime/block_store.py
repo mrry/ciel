@@ -349,11 +349,12 @@ class pycURLThread:
 
 class SocketAttempt:
 
-    def __init__(self, refid, otherend_hostname, otherend_port, result_callback):
+    def __init__(self, refid, otherend_hostname, otherend_port, chunk_size, result_callback):
         self.otherend_hostname = otherend_hostname
         self.otherend_port = otherend_port
         self.refid = refid
         self.result_callback = result_callback
+        self.chunk_size = chunk_size
         self.thread = threading.Thread(target=self.thread_main)
         self.lock = threading.Lock()
         self.done = False
@@ -374,8 +375,8 @@ class SocketAttempt:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.otherend_port), "TCP_FETCH", logging.INFO)
             self.sock.connect((self.otherend_hostname, self.otherend_port))
-            self.sock.sendall("%s\n" % self.refid)
-            ciel.log("%s:%s connected: requesting %s" % (self.otherend_hostname, self.otherend_port, self.refid), "TCP_FETCH", logging.INFO)
+            self.sock.sendall("%s %d\n" % (self.refid, self.chunk_size))
+            ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.otherend_port, self.refid, self.chunk_size), "TCP_FETCH", logging.INFO)
             fp = self.sock.makefile("r")
             response = fp.readline().strip()
             fp.close()
@@ -482,7 +483,7 @@ class StreamTransferContext:
         else:
             otherend_hostname = self.ref.socket_netloc.split(":")[0]
             ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
-            self.socket_attempt = SocketAttempt(self.ref.id, otherend_hostname, self.ref.socket_port, self.socket_attempt_completed)
+            self.socket_attempt = SocketAttempt(self.ref.id, otherend_hostname, self.ref.socket_port, self.current_chunk_size, self.socket_attempt_completed)
             self.socket_attempt.start()
 
     def progress(self, bytes_downloaded):
@@ -748,6 +749,8 @@ class BlockStore(plugins.SimplePlugin):
                 self.cond = threading.Condition(self.block_store._lock)
 
         def get_filename(self):
+            # XXX: Consumers actually call this function too! They call try_get_pipe / subscribe first though, so they never end up waiting like a producer.
+            # To fix after paper deadline.
             if self.may_pipe:
                 with self.block_store._lock:
                     if not self.pipe_attached:
@@ -769,10 +772,8 @@ class BlockStore(plugins.SimplePlugin):
             return self.block_store.producer_filename(self.refid)
 
         def get_stream_ref(self):
-            if self.block_store.aux_listen_port is not None and self.may_pipe:
-                return SW2_SocketStreamReference(self.refid, self.block_store.netloc, self.block_store.aux_listen_port)
-            else:
-                return SW2_StreamReference(self.refid, [self.block_store.netloc])
+            # Always return an SSR because now we can socket-via-pushthread.
+            return SW2_SocketStreamReference(self.refid, self.block_store.netloc, self.block_store.aux_listen_port)
 
         def rollback(self):
             if not self.closed:
@@ -924,11 +925,77 @@ class BlockStore(plugins.SimplePlugin):
         with self._lock:
             del self.streaming_producers[id]
 
+    # This is a lot like the AsyncPushThread in executors.py.
+    # TODO after paper rush is over: get the spaghettificiation of the streaming code under control
+
+    class SocketPusher:
+        
+        def __init__(self, refid, sock_obj, chunk_size):
+            self.refid = refid
+            self.sock_obj = sock_obj
+            self.bytes_available = 0
+            self.fetch_done = False
+            self.pause_threshold = None
+            self.chunk_size = chunk_size
+            self.lock = threading.Lock()
+            self.cond = threading.Condition(self.lock)
+            self.thread = None
+        
+        def result(self, success):
+            if not success:
+                raise Exception("No way to signal failure to TCP consumers yet!")
+            with self.lock:
+                self.fetch_done = True
+                self.cond.notify_all()
+
+        def progress(self, n_bytes):
+            with self.lock:
+                self.bytes_available = n_bytes
+                if self.pause_threshold is not None and self.bytes_available >= self.pause_threshold:
+                    self.cond.notify_all()
+
+        def set_filename(self, filename):
+            self.read_filename = filename
+
+        def start(self):
+            self.thread = threading.Thread(target=self.thread_main)
+
+        def thread_main(self):
+            try:
+                with open(self.read_filename, "r") as input_fp:
+                    while True:
+                        while True:
+                            buf = input_fp.read(4096)
+                            self.sock_obj.sendall(buf)
+                            self.bytes_copied += len(buf)
+                            with self.lock:
+                                if self.bytes_copied == self.bytes_available and self.fetch_done:
+                                    ciel.log("Socket-push for %s complete" % self.refid, "EXEC", logging.INFO)
+                                    self.sock_obj.close()
+                                    return
+                                if len(buf) < self.chunk_size:
+                                    # EOF, for now.
+                                    break
+                        with self.lock:
+                            self.pause_threshold = self.bytes_copied + self.chunk_size
+                            while self.bytes_available < self.pause_threshold and not self.fetch_done:
+                                self.cond.wait()
+                            self.pause_threshold = None
+
+            except Exception as e:
+                ciel.log("Socket-push-thread died with exception %s" % repr(e), "TCP_FETCH", logging.ERROR)
+                try:
+                    self.sock_obj.close()
+                except:
+                    pass
+                                        
     def new_aux_connection(self, new_sock):
         try:
             new_sock.setblocking(True)
             sock_file = new_sock.makefile("r")
-            output_id = sock_file.readline().strip()
+            bits = sock_file.readline().strip().split()
+            output_id = bits[0]
+            chunk_size = bits[1]
             sock_file.close()
             with self._lock:
                 try:
@@ -940,12 +1007,15 @@ class BlockStore(plugins.SimplePlugin):
                     return
                 fifo_name = producer.try_get_pipe()
                 if fifo_name is None:
-                    ciel.log("Auxiliary TCP connection for output %s rejected: couldn't get FIFO" % output_id, "TCP_FETCH", logging.WARNING)
-                    new_sock.sendall("FAIL\n")
-                    new_sock.close()
+                    sock_pusher = BlockStore.SocketPusher(output_id, new_sock, int(chunk_size))
+                    producer.subscribe(sock_pusher)
+                    sock_pusher.set_filename(producer.get_filename())
+                    new_sock.sendall("GO\n")
+                    sock_pusher.start()
+                    ciel.log("Auxiliary TCP connection for output %s (chunk %s) attached via push thread" % (output_id, chunk_size), "TCP_FETCH", logging.INFO)
                 else:
                     new_sock.sendall("GO\n")
-                    ciel.log("Auxiliary TCP connection for output %s attached; starting 'cat'" % output_id, "TCP_FETCH", logging.INFO)
+                    ciel.log("Auxiliary TCP connection for output %s (chunk %s) attached direct to process; starting 'cat'" % (output_id, chunk_size), "TCP_FETCH", logging.INFO)
                     subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=new_sock.fileno(), close_fds=True)
                     new_sock.close()
         except Exception as e:
