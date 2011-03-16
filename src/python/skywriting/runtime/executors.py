@@ -1711,9 +1711,9 @@ class ProcessRunningExecutor(SimpleExecutor):
 
                 # We do these last, as these are the calls which can lead to stalls whilst we await a stream's beginning or end.
                 file_inputs = [push_thread.get_filename() for push_thread in push_threads]
-      
+                
                 file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
-        
+                
                 self.proc = self.start_process(file_inputs, file_outputs)
                 add_running_child(self.proc)
 

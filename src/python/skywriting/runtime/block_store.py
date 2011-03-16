@@ -377,7 +377,7 @@ class SocketAttempt:
             self.sock.connect((self.otherend_hostname, self.otherend_port))
             self.sock.sendall("%s %d\n" % (self.refid, self.chunk_size))
             ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.otherend_port, self.refid, self.chunk_size), "TCP_FETCH", logging.INFO)
-            fp = self.sock.makefile("r")
+            fp = self.sock.makefile("r", bufsize=0)
             response = fp.readline().strip()
             fp.close()
             with self.lock:
@@ -979,7 +979,7 @@ class BlockStore(plugins.SimplePlugin):
                             self.bytes_copied += len(buf)
                             with self.lock:
                                 if self.bytes_copied == self.bytes_available and self.fetch_done:
-                                    ciel.log("Socket-push for %s complete" % self.refid, "EXEC", logging.INFO)
+                                    ciel.log("Socket-push for %s complete: wrote %d bytes" % (self.refid, self.bytes_copied), "EXEC", logging.INFO)
                                     self.sock_obj.close()
                                     return
                                 if len(buf) < self.chunk_size:
@@ -1001,7 +1001,7 @@ class BlockStore(plugins.SimplePlugin):
     def new_aux_connection(self, new_sock):
         try:
             new_sock.setblocking(True)
-            sock_file = new_sock.makefile("r")
+            sock_file = new_sock.makefile("r", bufsize=0)
             bits = sock_file.readline().strip().split()
             output_id = bits[0]
             chunk_size = bits[1]
