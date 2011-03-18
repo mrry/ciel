@@ -12,6 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
+import threading
 from threading import RLock, Lock
 from skywriting.runtime.exceptions import \
     MissingInputException, RuntimeSkywritingError
@@ -25,11 +26,7 @@ import uuid
 import struct
 import tempfile
 import logging
-import pycurl
-import select
-import fcntl
 import re
-import threading
 import codecs
 from datetime import datetime, timedelta
 import time
@@ -89,502 +86,7 @@ def sw_to_external_url(url):
     else:
         return url
 
-class pycURLContext:
-
-    def __init__(self, url, multi, result_callback):
-
-        self.multi = multi
-        self.result_callback = result_callback
-        self.url = url
-
-        self.curl_ctx = pycurl.Curl()
-        self.curl_ctx.setopt(pycurl.FOLLOWLOCATION, 1)
-        self.curl_ctx.setopt(pycurl.MAXREDIRS, 5)
-        self.curl_ctx.setopt(pycurl.CONNECTTIMEOUT, 30)
-        self.curl_ctx.setopt(pycurl.TIMEOUT, 300)
-        self.curl_ctx.setopt(pycurl.NOSIGNAL, 1)
-        self.curl_ctx.setopt(pycurl.URL, str(url))
-
-        self.curl_ctx.ctx = self
-
-    def start(self):
-        self.multi.add_fetch(self)
-
-    def success(self):
-        self.result_callback(True)
-        self.cleanup()
-
-    def failure(self, errno, errmsg):
-        ciel.log("Transfer failure: %s error %s / %s" % (self.url, errno, errmsg), "CURL", logging.WARNING)
-        self.result_callback(False)
-        self.cleanup()
-
-    def cancel(self):
-        self.multi.remove_fetch(self)
-
-    def cleanup(self):
-        self.curl_ctx.close()
-
-
-class pycURLFetchContext(pycURLContext):
-
-    def __init__(self, dest_fp, src_url, multi, result_callback, progress_callback=None, start_byte=None):
-
-        pycURLContext.__init__(self, src_url, multi, result_callback)
-
-        self.description = src_url
-        self.progress_callback = None
-
-        self.curl_ctx.setopt(pycurl.WRITEDATA, dest_fp)
-        if progress_callback is not None:
-            self.curl_ctx.setopt(pycurl.NOPROGRESS, False)
-            self.curl_ctx.setopt(pycurl.PROGRESSFUNCTION, self.progress)
-            self.progress_callback = progress_callback
-        if start_byte is not None and start_byte != 0:
-            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-" % start_byte])
-
-    def success(self):
-        self.progress_callback(self.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD))
-        pycURLContext.success(self)
-
-    def progress(self, toDownload, downloaded, toUpload, uploaded):
-        self.progress_callback(downloaded)
-
-class pycURLBufferContext(pycURLContext):
-
-    def __init__(self, method, in_str, out_fp, url, multi, result_callback):
-        
-        pycURLContext.__init__(self, url, multi, result_callback)
-
-        self.write_fp = out_fp
-
-        self.curl_ctx.setopt(pycurl.WRITEFUNCTION, self.write)
-        if method == "POST":
-            self.curl_ctx.setopt(pycurl.POST, True)
-            self.curl_ctx.setopt(pycurl.POSTFIELDS, in_str)
-            self.curl_ctx.setopt(pycurl.POSTFIELDSIZE, len(in_str))
-            self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Content-Type: application/octet-stream", "Expect:"])
-
-    def write(self, data):
-        self.write_fp.write(data)
-        return len(data)
-
-class SelectableEventQueue:
-
-    def set_fd_nonblocking(self, fd):
-        oldflags = fcntl.fcntl(fd, fcntl.F_GETFL)
-        newflags = oldflags | os.O_NONBLOCK
-        fcntl.fcntl(fd, fcntl.F_SETFL, newflags)
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.event_pipe_read, self.event_pipe_write = os.pipe()
-        self.set_fd_nonblocking(self.event_pipe_read)
-        self.set_fd_nonblocking(self.event_pipe_write)
-        self.event_queue = []
-
-    def drain_event_pipe(self):
-        try:
-            while(len(os.read(self.event_pipe_read, 1024)) >= 0):
-                pass
-        except OSError, e:
-            if e.errno == EAGAIN:
-                return
-            else:
-                raise
-
-    def notify_event(self):
-        try:
-            os.write(self.event_pipe_write, "X")
-        except OSError, e:
-            if e.errno == EAGAIN:
-                # Event pipe is full -- that's fine, the thread will wake next time it selects.
-                return
-            else:
-                raise
-
-    def post_event(self, ev):
-        with self._lock:
-            self.event_queue.append(ev)
-            self.notify_event()
-
-    def dispatch_events(self):
-        with self._lock:
-            ret = (len(self.event_queue) > 0)
-            to_run = self.event_queue
-            self.event_queue = []
-            self.drain_event_pipe()
-        for event in to_run:
-            event()
-        return ret
-
-    def get_select_fds(self):
-        return [self.event_pipe_read], [], []
-
-    # Called after all event-posting and dispatching is complete
-    def cleanup(self):
-        os.close(self.event_pipe_read)
-        os.close(self.event_pipe_write)
-
-class pycURLThread:
-
-    def __init__(self):
-        self.thread = None
-        self.curl_ctx = pycurl.CurlMulti()
-        self.curl_ctx.setopt(pycurl.M_PIPELINING, 0)
-        self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
-        self.active_fetches = []
-        self.event_queue = SelectableEventQueue()
-        self.aux_listen_socket = None
-        self.dying = False
-
-    def start(self):
-        self.thread = threading.Thread(target=self.pycurl_main_loop)
-        self.thread.start()
-
-    # Called from cURL thread
-    def add_fetch(self, new_context):
-        self.active_fetches.append(new_context)
-        self.curl_ctx.add_handle(new_context.curl_ctx)
-
-    def do_from_curl_thread(self, callback):
-        self.event_queue.post_event(callback)
-
-    def call_and_signal(self, callback, e, ret):
-        ret.ret = callback()
-        e.set()
-
-    class ReturnBucket:
-        def __init__(self):
-            self.ret = None
-
-    def do_from_curl_thread_sync(self, callback):
-        e = threading.Event()
-        ret = pycURLThread.ReturnBucket()
-        self.event_queue.post_event(lambda: self.call_and_signal(callback, e, ret))
-        e.wait()
-        return ret.ret
-
-    def _set_aux_listen_socket(self, socket, cb):
-        self.aux_listen_socket = socket
-        self.aux_listen_callback = cb
-
-    def set_aux_listen_port(self, port, new_connection_callback):
-        if port is not None:
-            ciel.log("Listening for auxiliary connections on port %d" % port, "TCP_FETCH", logging.INFO)
-            aux_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            aux_listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            aux_listen_socket.bind(("0.0.0.0", port))
-            aux_listen_socket.listen(5)
-            aux_listen_socket.setblocking(False)
-            self.do_from_curl_thread(lambda: self._set_aux_listen_socket(aux_listen_socket, new_connection_callback))
-
-    def _stop_thread(self):
-        self.dying = True
-    
-    def stop(self):
-        self.event_queue.post_event(self._stop_thread)
-
-    def remove_fetch(self, ctx):
-        self.curl_ctx.remove_handle(ctx.curl_ctx)
-        self.active_fetches.remove(ctx)
-
-    def pycurl_main_loop(self):
-        while True:
-            # Curl-perform and process events until there's nothing left to do
-            while True:
-                go_again = False
-                # Perform until cURL has nothing left to do
-                while True:
-                    ret, num_handles = self.curl_ctx.perform()
-                    if ret != pycurl.E_CALL_MULTI_PERFORM:
-                        break
-                # Fire callbacks on completed fetches
-                while True:
-                    num_q, ok_list, err_list = self.curl_ctx.info_read()
-                    if len(ok_list) > 0 or len(err_list) > 0:
-                        go_again = True
-                    for c in ok_list:
-                        self.curl_ctx.remove_handle(c)
-                        response_code = c.getinfo(pycurl.RESPONSE_CODE)
-#                        ciel.log.error("Curl success: %s -- %s" % (c.ctx.description, str(response_code)))
-                        if str(response_code).startswith("2"):
-                            c.ctx.success()
-                        else:
-                            ciel.log.error("Curl failure: HTTP %s" % str(response_code), "CURL_FETCH", logging.WARNING)
-                            c.ctx.failure(response_code, "")
-                        self.active_fetches.remove(c.ctx)
-                    for c, errno, errmsg in err_list:
-                        self.curl_ctx.remove_handle(c)
-                        ciel.log.error("Curl failure: %s, %s" % 
-                                           (str(errno), str(errmsg)), "CURL_FETCH", logging.WARNING)
-                        c.ctx.failure(errno, errmsg)
-                        self.active_fetches.remove(c.ctx)
-                    if num_q == 0:
-                        break
-                # Process events, both from out-of-thread and due to callbacks
-                if self.event_queue.dispatch_events():
-                    go_again = True
-                if self.dying:
-                    return
-                if not go_again:
-                    break
-            if self.dying:
-                return
-            # Alright, all work appears to be done for now. Gather reasons to wake up.
-            # Reason #1: cURL has work to do.
-            read_fds, write_fds, exn_fds = self.curl_ctx.fdset()
-            # Reason #2: out-of-thread events arrived.
-            ev_rfds, ev_wfds, ev_exfds = self.event_queue.get_select_fds()
-            read_fds.extend(ev_rfds)
-            write_fds.extend(ev_wfds)
-            exn_fds.extend(ev_exfds)
-            if self.aux_listen_socket is not None:
-                read_fds.append(self.aux_listen_socket.fileno())
-            active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds)
-            if self.aux_listen_socket is not None:
-                if self.aux_listen_socket.fileno() in active_read:
-                    (new_sock, _) = self.aux_listen_socket.accept()
-                    self.aux_listen_callback(new_sock)
-
-class FileTransferContext:
-
-    def __init__(self, urls, save_filename, multi, callbacks):
-        self.urls = urls
-        self.multi = multi
-        self.save_filename = save_filename
-        self.callbacks = callbacks
-        self.failures = 0
-        self.cancelled = False
-        self.curl_fetch = None
-
-    def start_next_attempt(self):
-        self.fp = open(self.save_filename, "w")
-        ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
-        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.multi, self.result, self.callbacks.progress)
-        self.curl_fetch.start()
-
-    def start(self):
-        self.start_next_attempt()
-
-    def result(self, success):
-        self.fp.close()
-        if success:
-            self.callbacks.result(True)
-        else:
-            self.failures += 1
-            if self.failures == len(self.urls):
-                ciel.log.error('Fetch %s: no more URLs to try.' % self.save_filename, 'BLOCKSTORE', logging.INFO)
-                self.callbacks.result(False)
-            else:
-                ciel.log.error("Fetch %s failed; trying next URL" % (self.urls[self.failures - 1]))
-                self.curl_fetch = None
-                self.callbacks.reset()
-                if not self.cancelled:
-                    self.start_next_attempt()
-
-    def set_chunk_size(self, new_chunk_size):
-        # Don't care: we always request the whole file.
-        pass
-
-    def get_filename(self):
-        return self.save_filename
-
-    def wrote_file(self):
-        return True
-
-    def cancel(self):
-        ciel.log("Fetch %s: cancelling" % self.save_filename, "CURL_FETCH", logging.INFO)
-        self.cancelled = True
-        if self.curl_fetch is not None:
-            self.curl_fetch.cancel()
-        self.fp.close()
-        self.callbacks.result(False)
-
-class StreamTransferContext:
-
-    def __init__(self, ref, block_store, callbacks):
-        self.url = block_store.get_fetch_urls_for_ref(ref)[0]
-        parsed_url = urlparse.urlparse(self.url)
-        self.worker_netloc = parsed_url.netloc
-        self.ref = ref
-        self.save_filename = block_store.fetch_filename(ref.id)
-        open(self.save_filename, "w").close()
-        self.callbacks = callbacks
-        self.current_data_fetch = None
-        self.previous_fetches_bytes_downloaded = 0
-        self.remote_done = False
-        self.remote_failed = False
-        self.latest_advertisment = 0
-        self.block_store = block_store
-        self.cancelled = False
-        self.current_chunk_size = None
-        self.filename_event = threading.Event()
-
-    def start_next_fetch(self):
-        ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
-        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.block_store.fetch_thread, self.result, self.progress, self.previous_fetches_bytes_downloaded)
-        self.current_data_fetch.start()
-
-    def start(self):
-        self.fp = open(self.save_filename, "w")
-        self.start_next_fetch()
-        self.block_store.add_incoming_stream(self.ref.id, self)
-
-    def progress(self, bytes_downloaded):
-        self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
-
-    def consider_next_fetch(self):
-        if self.remote_done or self.latest_advertisment - self.previous_fetches_bytes_downloaded > self.current_chunk_size:
-            self.start_next_fetch()
-        else:
-            ciel.log("Stream-fetch %s: paused (remote has %d, I have %d)" % 
-                     (self.ref.id, self.latest_advertisment, self.previous_fetches_bytes_downloaded), 
-                     "CURL_FETCH", logging.INFO)
-            self.current_data_fetch = None
-
-    def check_complete(self):
-        if self.remote_done and self.latest_advertisment == self.previous_fetches_bytes_downloaded:
-            ciel.log("Stream-fetch %s: complete" % self.ref.id, "CURL_FETCH", logging.INFO)
-            self.complete(True)
-        else:
-            self.consider_next_fetch()
-
-    def result(self, success):
-        # Current transfer finished.
-        if self.remote_failed:
-            ciel.log("Stream-fetch %s: transfer completed, but failure advertised in the meantime" % self.ref.id, "CURL_FETCH", logging.WARNING)
-            self.complete(False)
-            return
-        if not success:
-            ciel.log("Stream-fetch %s: transfer failed" % self.ref.id)
-            self.complete(False)
-        else:
-            this_fetch_bytes = self.current_data_fetch.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD)
-            ciel.log("Stream-fetch %s: transfer succeeded (got %d bytes)" % (self.ref.id, this_fetch_bytes),
-                     "CURL_FETCH", logging.INFO)
-            self.previous_fetches_bytes_downloaded += this_fetch_bytes
-            self.check_complete()
-
-    def complete(self, success):
-        self.fp.close()
-        self.block_store.remove_incoming_stream(self.ref.id)
-        self.callbacks.result(success)
-
-    def _socket_attempt_completed(self, success, socket):
-        if not success:
-            ciel.log("Stream-fetch %s: TCP transfer failed; falling back to HTTP" % self.ref.id, "CURL_FETCH", logging.INFO)
-            self.initial_socket_attempt = False
-            self.start()
-            self.subscribe_remote_output(self.current_chunk_size)
-        else:
-            ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
-
-            self.callbacks.result(True)
-            self.set_filename(fifo_name)
-
-    def socket_attempt_completed(self, success, socket):
-        self.block_store.fetch_thread.do_from_curl_thread(lambda: self._socket_attempt_completed(success, socket))
-
-    def subscribe_result(self, success, _):
-        if not success:
-            ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." % self.ref.id, "CURL_FETCH", logging.INFO)
-            self.remote_failed = True
-            if self.current_data_fetch is None:
-                self.complete(False)
-
-    def subscribe_remote_output(self, chunk_size):
-        ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, chunk_size), "CURL_FETCH", logging.INFO)
-        post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": chunk_size})
-        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
-
-    def set_chunk_size(self, new_chunk_size):
-        if new_chunk_size != self.current_chunk_size:
-            self.subscribe_remote_output(new_chunk_size)
-        self.current_chunk_size = new_chunk_size
-
-    def cancel(self):
-        ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
-        self.cancelled = True
-        post_data = simplejson.dumps({"netloc": self.block_store.netloc})
-        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
-        if self.current_data_fetch is not None:
-            self.current_data_fetch.cancel()
-        self.callbacks.result(False)
-
-    def advertisment(self, bytes=None, done=None, absent=None, failed=None):
-        if self.cancelled:
-            return
-        if absent is True or failed is True:
-            if absent is True:
-                ciel.log("Stream-fetch %s: advertisment subscription reported file absent" % self.ref.id, "CURL_FETCH", logging.WARNING)
-            else:
-                ciel.log("Stream-fetch %s: advertisment reported remote production failure" % self.ref.id, "CURL_FETCH", logging.WARNING)
-            self.remote_failed = True
-            if self.current_data_fetch is None:
-                self.complete(False)
-        else:
-            ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (self.ref.id, bytes, done), "CURL_FETCH", logging.INFO)
-            if self.latest_advertisment < bytes:
-                self.latest_advertisment = bytes
-            else:
-                ciel.log("Stream-fetch %s: intriguing anomaly: advert for %d bytes; currently have %d. Probable reordering in the network" % (self.ref.id, bytes, self.latest_advertisment), "CURL_FETCH", logging.WARNING)
-            if self.remote_done and not done:
-                ciel.log("Stream-fetch %s: intriguing anomaly: advert said not-done, but we are. Probable reordering in the network" % self.ref.id, "CURL_FETCH", logging.WARNING)
-            self.remote_done = self.remote_done or done
-            if self.current_data_fetch is None:
-                self.check_complete()
-
-class TcpTransferContext:
-    
-    def __init__(self, ref, chunk_size, fetch_ctx):
-        self.ref = ref
-        assert isinstance(ref, SW2_SocketStreamReference)
-        self.otherend_hostname = self.ref.socket_netloc.split(":")[0]
-        self.chunk_size = chunk_size
-        self.fetch_ctx = fetch_ctx
-        self.thread = threading.Thread(target=self.thread_main)
-        self.lock = threading.Lock()
-        self.done = False
-
-    def start(self):
-        ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
-        self.thread.start()
-
-    def thread_main(self):
-        try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
-            self.sock.connect((self.otherend_hostname, self.ref.socket_port))
-            self.sock.sendall("%s %d\n" % (self.ref.id, self.chunk_size))
-            ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.ref.socket_port, self.ref.id, self.chunk_size), "TCP_FETCH", logging.INFO)
-            fp = self.sock.makefile("r", bufsize=0)
-            response = fp.readline().strip()
-            fp.close()
-            with self.lock:
-                if response.find("GO") != -1:
-                    ciel.log("TCP-fetch %s: transfer started" % self.ref.id, "TCP_FETCH", logging.INFO)
-                    self.fetch_ctx.set_fd(socket.fileno(), True)
-                else:
-                    ciel.log("TCP-fetch %s: request failed: other end said '%s'" % (self.ref.id, response), "TCP_FETCH", logging.WARNING)
-                    self.sock.close()
-                    self.fetch_ctx.result(False)
-        except Exception as e:
-            ciel.log("TCP-fetch %s: failed due to exception %s" % (self.ref.id, repr(e)), "TCP_FETCH", logging.ERROR)
-            self.fetch_ctx.result(False)
-
-    def unsubscribe(self):
-        should_callback = False
-        with self.lock:
-            if self.done:
-                return
-            else:
-                self.done = True
-                self.sock.close()
-        if should_callback:
-            self.fetch_ctx.result(False)
-
-class BlockStore(plugins.SimplePlugin):
+class BlockStore:
 
     def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False, aux_listen_port=None):
         plugins.SimplePlugin.__init__(self, bus)
@@ -593,7 +95,6 @@ class BlockStore(plugins.SimplePlugin):
         self.base_dir = base_dir
         self.object_cache = {}
         self.bus = bus
-        self.fetch_thread = pycURLThread()
         self.dataval_codec = codecs.lookup("string_escape")
         self.aux_listen_port = aux_listen_port
     
@@ -626,16 +127,10 @@ class BlockStore(plugins.SimplePlugin):
         singleton_blockstore = self
 
     def start(self):
-        self.fetch_thread.start()
-        self.fetch_thread.set_aux_listen_port(self.aux_listen_port, self.new_aux_connection)
         self.file_watcher_thread = get_watcher_thread()
-
-    def stop(self):
-        self.fetch_thread.stop()
 
     def subscribe(self):
         self.bus.subscribe('start', self.start, 75)
-        self.bus.subscribe('stop', self.stop, 10)
 
     def decode_handle(self, file):
         return file
@@ -1103,7 +598,7 @@ class BlockStore(plugins.SimplePlugin):
             pass
 
     def receive_stream_advertisment(self, id, **args):
-        self.fetch_thread.do_from_curl_thread(lambda: self._receive_stream_advertisment(id, **args))
+        do_from_curl_thread(lambda: self._receive_stream_advertisment(id, **args))
         
     class GlobalHttpFetchInProgress:
         
@@ -1152,7 +647,7 @@ class BlockStore(plugins.SimplePlugin):
 
         def unsubscribe(self, fetch_client):
             # Asynchronous out-of-thread callback: might come from the cURL thread or any other.
-            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._unsubscribe(fetch_client))
+            do_from_curl_thread(lambda: self._unsubscribe(fetch_client))
 
         def add_listener(self, fetch_client):
             self.listeners.append(fetch_client)
@@ -1277,7 +772,7 @@ class BlockStore(plugins.SimplePlugin):
             save_filename = self.block_store.fetch_filename(self.ref.id)
             new_listener = BlockStore.GlobalHttpFetchInProgress(self.ref, self.block_store)
             new_listener.add_listener(self)
-            ctx = FileTransferContext(urls, save_filename, self.block_store.fetch_thread, new_listener)
+            ctx = FileTransferContext(urls, save_filename, new_listener)
             with self.block_store._lock:
                 self.block_store.incoming_fetches[self.ref.id] = new_listener
                 self.producer = new_listener
@@ -1295,7 +790,7 @@ class BlockStore(plugins.SimplePlugin):
                     self.set_filename(self.producer.get_filename(), False)
 
         def simple_http_fetch(self):
-            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._simple_http_fetch())
+            do_from_curl_thread(lambda: self._simple_http_fetch())
 
         def _start_stream_http_fetch(self):
             new_listener = BlockStore.GlobalHttpFetchInProgress(self.ref, self.block_store)
@@ -1318,7 +813,7 @@ class BlockStore(plugins.SimplePlugin):
                     self.set_filename(self.producer.get_filename(), False)
 
         def stream_http_fetch(self):
-            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._stream_http_fetch())
+            do_from_curl_thread(lambda: self._stream_http_fetch())
 
         def tcp_fetch(self):
             self.producer = TcpTransferContext(self.ref, self.chunk_size, self)
@@ -1525,66 +1020,6 @@ class BlockStore(plugins.SimplePlugin):
                     return url
             return random.choice(urls)
 
-    class BufferTransferContext:
-        
-        def __init__(self, method, url, postdata, fetch_thread, result_callback=None):
-
-            self.response_buffer = StringIO()
-            self.completed_event = threading.Event()
-            self.result_callback = result_callback
-            self.url = url
-            self.curl_ctx = pycURLBufferContext(method, postdata, self.response_buffer, url, fetch_thread, self.result)
-
-        def start(self):
-
-            self.curl_ctx.start()
-
-        def get_result(self):
-
-            self.completed_event.wait()
-            if self.success:
-                return self.response_string
-            else:
-                raise Exception("Curl-post failed. Possible error-document: %s" % self.response_string)
-
-        def result(self, success):
-            
-            self.response_string = self.response_buffer.getvalue()
-            self.success = success
-            self.response_buffer.close()
-            self.completed_event.set()
-            if self.result_callback is not None:
-                self.result_callback(success, self.url)
-
-    # This is only a BlockStore method because it uses the fetch_thread.
-    # Called from cURL thread
-    def _post_string_noreturn(self, url, postdata, result_callback=None):
-        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread, result_callback)
-        ctx.start()
-        return
-
-    def post_string_noreturn(self, url, postdata, result_callback=None):
-        self.fetch_thread.do_from_curl_thread(lambda: self._post_string_noreturn(url, postdata, result_callback))
-
-    # Called from cURL thread
-    def _post_string(self, url, postdata):
-        ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread)
-        ctx.start()
-        return ctx
-
-    def post_string(self, url, postdata):
-        ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._post_string(url, postdata))
-        return ctx.get_result()
-
-    def _get_string(self, url):
-        ctx = BlockStore.BufferTransferContext("GET", url, "", self.fetch_thread)
-        ctx.start()
-        return ctx
-
-    def get_string(self, url):
-        ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._get_string(url))
-        return ctx.get_result()
-
     def check_local_blocks(self):
         ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
         try:
@@ -1655,12 +1090,3 @@ class BlockStore(plugins.SimplePlugin):
     def is_empty(self):
         return self.ignore_blocks or len(os.listdir(self.base_dir)) == 0
 
-def get_string(url):
-    return singleton_blockstore.get_string(url)
-
-def post_string(url, content):
-    return singleton_blockstore.post_string(url, content)
-
-def post_string_noreturn(url, content, result_callback=None):
-    singleton_blockstore.post_string_noreturn(url, content, result_callback=None)
-    
