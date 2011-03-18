@@ -347,51 +347,6 @@ class pycURLThread:
                     (new_sock, _) = self.aux_listen_socket.accept()
                     self.aux_listen_callback(new_sock)
 
-class SocketAttempt:
-
-    def __init__(self, refid, otherend_hostname, otherend_port, chunk_size, result_callback):
-        self.otherend_hostname = otherend_hostname
-        self.otherend_port = otherend_port
-        self.refid = refid
-        self.result_callback = result_callback
-        self.chunk_size = chunk_size
-        self.thread = threading.Thread(target=self.thread_main)
-        self.lock = threading.Lock()
-        self.done = False
-
-    def start(self):
-        self.thread.start()
-
-    def cancel(self):
-        with self.lock:
-            if self.done:
-                return
-            else:
-                self.sock.close()
-                self.done = True
-
-    def thread_main(self):
-        try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.otherend_port), "TCP_FETCH", logging.INFO)
-            self.sock.connect((self.otherend_hostname, self.otherend_port))
-            self.sock.sendall("%s %d\n" % (self.refid, self.chunk_size))
-            ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.otherend_port, self.refid, self.chunk_size), "TCP_FETCH", logging.INFO)
-            fp = self.sock.makefile("r", bufsize=0)
-            response = fp.readline().strip()
-            fp.close()
-            with self.lock:
-                self.done = True
-                if response.find("GO") != -1:
-                    self.result_callback(True, self.sock)
-                else:
-                    ciel.log("%s:%s request for %s failed: other end said '%s'" % (self.otherend_hostname, self.otherend_port, self.refid, response), "TCP_FETCH", logging.WARNING)
-                    self.sock.close()
-                    self.result_callback(False, None)
-        except Exception as e:
-            ciel.log("SocketAttempt for ref %s failed due to %s" % (self.refid, repr(e)), "TCP_FETCH", logging.ERROR)
-            self.result_callback(False, None)
-
 class FileTransferContext:
 
     def __init__(self, urls, save_filename, multi, callbacks):
@@ -455,7 +410,6 @@ class StreamTransferContext:
         self.ref = ref
         self.save_filename = block_store.fetch_filename(ref.id)
         open(self.save_filename, "w").close()
-        # Create zero-length file so that HTTP fetches return a non-404 code
         self.callbacks = callbacks
         self.current_data_fetch = None
         self.previous_fetches_bytes_downloaded = 0
@@ -466,7 +420,6 @@ class StreamTransferContext:
         self.cancelled = False
         self.current_chunk_size = None
         self.filename_event = threading.Event()
-        self.initial_socket_attempt = isinstance(ref, SW2_SocketStreamReference)
 
     def start_next_fetch(self):
         ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
@@ -474,12 +427,9 @@ class StreamTransferContext:
         self.current_data_fetch.start()
 
     def start(self):
-        
-        if not self.initial_socket_attempt:
-            self.fp = open(self.save_filename, "w")
-            self.set_filename(self.save_filename)
-            self.start_next_fetch()
-            self.block_store.add_incoming_stream(self.ref.id, self)
+        self.fp = open(self.save_filename, "w")
+        self.start_next_fetch()
+        self.block_store.add_incoming_stream(self.ref.id, self)
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -529,18 +479,12 @@ class StreamTransferContext:
             self.subscribe_remote_output(self.current_chunk_size)
         else:
             ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
-            fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
-            os.mkfifo(fifo_name)
-            subprocess.Popen(["cat > %s" % fifo_name], shell=True, stdin=socket.fileno(), close_fds=True)
-            socket.close()
+
             self.callbacks.result(True)
             self.set_filename(fifo_name)
 
     def socket_attempt_completed(self, success, socket):
         self.block_store.fetch_thread.do_from_curl_thread(lambda: self._socket_attempt_completed(success, socket))
-
-    def wrote_file(self):
-        return self.initial_socket_attempt
 
     def subscribe_result(self, success, _):
         if not success:
@@ -555,34 +499,17 @@ class StreamTransferContext:
         self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
 
     def set_chunk_size(self, new_chunk_size):
-        # This causes initial advertisment subscription in the non-TCP case
-        if new_chunk_size != self.current_chunk_size and not self.initial_socket_attempt:
+        if new_chunk_size != self.current_chunk_size:
             self.subscribe_remote_output(new_chunk_size)
         self.current_chunk_size = new_chunk_size
-        if self.initial_socket_attempt:
-            otherend_hostname = self.ref.socket_netloc.split(":")[0]
-            ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
-            self.socket_attempt = SocketAttempt(self.ref.id, otherend_hostname, self.ref.socket_port, self.current_chunk_size, self.socket_attempt_completed)
-            self.socket_attempt.start()
-
-    def set_filename(self, filename):
-        self.true_filename = filename
-        self.filename_event.set()
-
-    def get_filename(self):
-        self.filename_event.wait()
-        return self.true_filename
 
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.cancelled = True
-        if not self.initial_socket_attempt:
-            post_data = simplejson.dumps({"netloc": self.block_store.netloc})
-            self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
-            if self.current_data_fetch is not None:
-                self.current_data_fetch.cancel()
-        else:
-            self.socket_attempt.cancel()
+        post_data = simplejson.dumps({"netloc": self.block_store.netloc})
+        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
+        if self.current_data_fetch is not None:
+            self.current_data_fetch.cancel()
         self.callbacks.result(False)
 
     def advertisment(self, bytes=None, done=None, absent=None, failed=None):
@@ -607,6 +534,55 @@ class StreamTransferContext:
             self.remote_done = self.remote_done or done
             if self.current_data_fetch is None:
                 self.check_complete()
+
+class TcpTransferContext:
+    
+    def __init__(self, ref, chunk_size, fetch_ctx):
+        self.ref = ref
+        assert isinstance(ref, SW2_SocketStreamReference)
+        self.otherend_hostname = self.ref.socket_netloc.split(":")[0]
+        self.chunk_size = chunk_size
+        self.fetch_ctx = fetch_ctx
+        self.thread = threading.Thread(target=self.thread_main)
+        self.lock = threading.Lock()
+        self.done = False
+
+    def start(self):
+        ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
+        self.thread.start()
+
+    def thread_main(self):
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
+            self.sock.connect((self.otherend_hostname, self.ref.socket_port))
+            self.sock.sendall("%s %d\n" % (self.ref.id, self.chunk_size))
+            ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.ref.socket_port, self.ref.id, self.chunk_size), "TCP_FETCH", logging.INFO)
+            fp = self.sock.makefile("r", bufsize=0)
+            response = fp.readline().strip()
+            fp.close()
+            with self.lock:
+                if response.find("GO") != -1:
+                    ciel.log("TCP-fetch %s: transfer started" % self.ref.id, "TCP_FETCH", logging.INFO)
+                    self.fetch_ctx.set_fd(socket.fileno(), True)
+                else:
+                    ciel.log("TCP-fetch %s: request failed: other end said '%s'" % (self.ref.id, response), "TCP_FETCH", logging.WARNING)
+                    self.sock.close()
+                    self.fetch_ctx.result(False)
+        except Exception as e:
+            ciel.log("TCP-fetch %s: failed due to exception %s" % (self.ref.id, repr(e)), "TCP_FETCH", logging.ERROR)
+            self.fetch_ctx.result(False)
+
+    def unsubscribe(self):
+        should_callback = False
+        with self.lock:
+            if self.done:
+                return
+            else:
+                self.done = True
+                self.sock.close()
+        if should_callback:
+            self.fetch_ctx.result(False)
 
 class BlockStore(plugins.SimplePlugin):
 
@@ -1129,40 +1105,7 @@ class BlockStore(plugins.SimplePlugin):
     def receive_stream_advertisment(self, id, **args):
         self.fetch_thread.do_from_curl_thread(lambda: self._receive_stream_advertisment(id, **args))
         
-    def is_ref_local(self, ref):
-        assert isinstance(ref, SWRealReference)
-
-        if isinstance(ref, SWErrorReference):
-            raise RuntimeSkywritingError()
-
-        if isinstance(ref, SW2_FixedReference):
-            assert ref.fixed_netloc == self.netloc
-            
-        with self._lock:
-            if os.path.exists(self.filename_for_ref(ref)):
-                return True
-            if isinstance(ref, SWDataValue):
-                with open(self.filename_for_ref(ref), 'w') as obj_file:
-                    obj_file.write(self.decode_datavalue(ref))
-                return True
-
-        return False
-
-    class DummyFetchListener:
-
-        def __init__(self, filename):
-            self.filename = filename
-
-        def get_filename(self):
-            return self.filename
-
-        def get_completed_ref(self, is_sweetheart):
-            return None
-
-        def unsubscribe(self, l):
-            pass
-
-    class FetchListener:
+    class GlobalHttpFetchInProgress:
         
         def __init__(self, ref, block_store):
             self.listeners = []
@@ -1233,81 +1176,165 @@ class BlockStore(plugins.SimplePlugin):
         #return SW2_StreamReference(self.ref.id, [self.block_store.netloc])
 
     # Called from cURL thread
-    def _start_fetch_ref(self, ref):
-            
-        urls = self.get_fetch_urls_for_ref(ref)
-        save_filename = self.fetch_filename(ref.id)
-        new_listener = BlockStore.FetchListener(ref, self)
-        if isinstance(ref, SW2_ConcreteReference):
-            ctx = FileTransferContext(urls, save_filename, self.fetch_thread, new_listener)
-        elif isinstance(ref, SW2_StreamReference):
-            ctx = StreamTransferContext(ref, self, new_listener)
-        else:
-            ciel.log('Cannot fetch reference type: %s' % repr(ref), 'BLOCKSTORE', logging.INFO)
-            raise Exception("Can't start-fetch reference %s: not a concrete or a stream" % ref)
-        new_listener.set_fetch_context(ctx)
-        self.incoming_fetches[ref.id] = new_listener
-        ctx.start()
-
-    # Called from cURL thread
     def fetch_completed(self, ref, success):
         with self._lock:
             self.commit_file(self.fetch_filename(ref.id), self.filename(ref.id))
             del self.incoming_fetches[ref.id]
 
-    def try_local_fetch(self, ref, fetch_client):
+    class FetchInProgress:
 
-        with self._lock:
-            if ref.id in self.streaming_producers:
-                ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
-                producer = self.streaming_producers[ref.id]
-                pipe_name = producer.try_get_pipe()
-                if pipe_name is not None:
-                    ciel.log("Ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
-                    dummy_listener = BlockStore.DummyFetchListener(pipe_name)
-                    fetch_client.set_producer(dummy_listener)
-                    fetch_client.result_callback(True)
-                else:
-                    producer.subscribe(fetch_client)
-                    fetch_client.set_producer(self.streaming_producers[ref.id], supply_refs=False)
-                return True                
-            elif self.is_ref_local(ref):
-                ciel.log("Ref %s already local; no fetch required" % ref, "BLOCKSTORE", logging.INFO)
-                dummy_listener = BlockStore.DummyFetchListener(self.filename_for_ref(ref))
-                fetch_client.set_producer(dummy_listener)
-                fetch_client.result_callback(True)
-                return True
-            else:
-                return False
-
-    # Called from cURL thread
-    def _fetch_ref_async(self, ref, fetch_client):
-
-        with self._lock:
-            if self.try_local_fetch(ref, fetch_client):
-                ciel.log("Ref %s became locally available during thread-switch" % ref, "BLOCKSTORE", logging.INFO)
-                return
-            if ref.id not in self.incoming_fetches:
-                ciel.log("Starting new fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
-                self._start_fetch_ref(ref)
-            else:
-                ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
-            fetch_client.set_producer(self.incoming_fetches[ref.id])
-            self.incoming_fetches[ref.id].add_listener(fetch_client)
-
-    class FetchProxy:
-
-        def __init__(self, ref, result_callback, reset_callback, progress_callback, chunk_size):
-            self.ready_event = threading.Event()
+        def __init__(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback, string_callback, progress_callback, chunk_size):
             self.result_callback = result_callback
             self.reset_callback = reset_callback
+            self.start_filename_callback = start_filename_callback
+            self.start_fd_callback = start_fd_callback
+            self.string_callback = string_callback
             self.progress_callback = progress_callback
             self.chunk_size = chunk_size
             self.ref = ref
+            self.block_store = block_store
             self.producer = None
+            self.started = False
+            self.done = False
+            self.cancelled = False
+            self.success = None
+            self.form_plan(self.ref)
 
-        def result(self, success):
-            self.result_callback(success)
+        def form_plan(self, ref):
+            self.current_plan = 0
+            self.plans = []
+            if isinstance(ref, SWDataValue):
+                self.plans.append(self.resolve_dataval)
+            else:
+                self.plans.append(self.use_local_file)
+                self.plans.append(self.attach_local_producer)
+                if isinstance(ref, SW2_ConcreteReference):
+                    self.plans.append(self.simple_http_fetch)
+                elif isinstance(ref, SW2_StreamReference):
+                    if isinstance(ref, SW2_SocketStreamReference):
+                        self.plans.append(self.tcp_fetch)
+                    self.plans.append(self.stream_http_fetch)
+
+        def start_fetch(self):
+            self.run_plans()
+
+        def run_plans(self):
+            while self.current_plan < len(self.plans):
+                try:
+                    self.plans[self.current_plan]()
+                except Exception as e:
+                    self.current_plan += 1
+
+        def run_next_plan(self):
+            self.current_plan += 1
+            self.run_plans()
+
+        def resolve_dataval(self):
+            decoded_dataval = self.block_store.decode_datavalue(ref)
+            if self.string_callback is not None:
+                self.string_callback(decoded_datavalue)
+            else:
+                filename = self.block_store.filename_for_ref(ref)
+                with self.block_store._lock:
+                    with open(filename, 'w') as obj_file:
+                        obj_file.write(decoded_dataval)
+                self.set_filename(filename, True)
+                self.result(True, None)
+
+        def use_local_file(self):
+            filename = self.block_store.filename_for_ref(ref)
+            if os.path.exists(filename):
+                self.set_filename(filename, True)
+                self.result(True, None)
+            else:
+                raise Exception("Plan use-local-file failed for %s: no such file %s" % (self.ref, filename), "BLOCKSTORE", logging.INFO)
+
+        def attach_local_producer(self):
+            with self.block_store._lock:
+                if ref.id in self.block_store.streaming_producers:
+                    ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
+                    self.producer = self.block_store.streaming_producers[ref.id]
+                    filename, is_pipe = self.producer.subscribe(self)
+                    if is_pipe:
+                        ciel.log("Fetch-ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
+                    else:
+                        ciel.log("Fetch-ref %s: following producer's file" % ref, "BLOCKSTORE", logging.INFO)
+                    self.set_filename(filename, is_pipe)
+                else:
+                    raise Exception("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
+
+        def _join_existing_http_fetch(self):
+            if self.ref.id in self.block_store.incoming_fetches:
+                ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
+                with self.block_store._lock:
+                    self.incoming_fetches[ref.id].add_listener(self)
+                    self.producer = self.incoming_fetches[ref.id]
+            else:
+                raise Exception("Plan join-existing-http-fetch failed: ref %s not in progress" % self.ref, "BLOCKSTORE", logging.INFO)
+            
+        def _start_simple_http_fetch(self):
+            urls = self.block_store.get_fetch_urls_for_ref(self.ref)
+            save_filename = self.block_store.fetch_filename(self.ref.id)
+            new_listener = BlockStore.GlobalHttpFetchInProgress(self.ref, self.block_store)
+            new_listener.add_listener(self)
+            ctx = FileTransferContext(urls, save_filename, self.block_store.fetch_thread, new_listener)
+            with self.block_store._lock:
+                self.block_store.incoming_fetches[self.ref.id] = new_listener
+                self.producer = new_listener
+            ctx.start()
+
+        def _simple_http_fetch(self):
+            with self.block_store._lock:
+                if self.cancelled:
+                    return
+                else:
+                    try:
+                        self._join_existing_http_fetch()
+                    except:
+                        self._start_simple_http_fetch()
+                    self.set_filename(self.producer.get_filename(), False)
+
+        def simple_http_fetch(self):
+            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._simple_http_fetch())
+
+        def _start_stream_http_fetch(self):
+            new_listener = BlockStore.GlobalHttpFetchInProgress(self.ref, self.block_store)
+            new_listener.add_listener(self)
+            ctx = StreamTransferContext(self.ref, self.block_store, new_listener)
+            with self.block_store._lock:
+                self.block_store.incoming_fetches[self.ref.id] = new_listener
+                self.producer = new_listener
+            ctx.start()
+
+        def _stream_http_fetch(self):
+            with self.block_store._lock:
+                if self.cancelled:
+                    return
+                else:
+                    try:
+                        self._join_existing_http_fetch()
+                    except:
+                        self._start_stream_http_fetch()
+                    self.set_filename(self.producer.get_filename(), False)
+
+        def stream_http_fetch(self):
+            self.block_store.fetch_thread.do_from_curl_thread(lambda: self._stream_http_fetch())
+
+        def tcp_fetch(self):
+            self.producer = TcpTransferContext(self.ref, self.chunk_size, self)
+            self.producer.start()
+                
+        ### Start callbacks from above
+        def result(self, success, result_ref=None):
+            with self.block_store._lock:
+                if not success:
+                    if not self.started:
+                        self.run_next_plan()
+                        return
+                self.producer = None
+                self.done = True
+                self.success = success
+            self.result_callback(success, result_ref)
 
         def reset(self):
             self.reset_callback()
@@ -1316,33 +1343,41 @@ class BlockStore(plugins.SimplePlugin):
             if self.progress_callback is not None:
                 self.progress_callback(bytes)
 
-        def set_producer(self, producer, supply_refs=True):
-            self.supply_refs = supply_refs
-            self.producer = producer
-            self.ready_event.set()
-            
-        def get_filename(self):
-            self.ready_event.wait()
-            return self.producer.get_filename()
-
-        def get_completed_ref(self, is_sweetheart):
-            self.ready_event.wait()
-            if self.supply_refs:
-                return self.producer.get_completed_ref(is_sweetheart)
+        def set_fd(self, fd, is_pipe):
+            # TODO: handle FDs that might point to regular files.
+            assert is_pipe
+            self.started = True
+            if self.start_fd_callback is not None:
+                self.start_fd_callback(fd, is_pipe)
             else:
-                return None
+                fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
+                os.mkfifo(fifo_name)
+                subprocess.Popen(["cat > %s" % fifo_name], shell=True, stdin=fd, close_fds=True)
+                os.close(fd)
+                self.start_filename_callback(fifo_name, True)
+
+        def set_filename(self, filename, is_pipe):
+            self.started = True
+            self.start_filename_callback(filename, is_pipe)
 
         def cancel(self):
-            self.ready_event.wait()
-            self.producer.unsubscribe(self)
+            with self.block_store._lock:
+                self.cancelled = True
+                producer = self.producer
+            producer.unsubscribe(self)
 
     # Called from arbitrary thread
-    def fetch_ref_async(self, ref, result_callback, reset_callback, progress_callback=None, chunk_size=67108864):
+    def fetch_ref_async(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback=None, string_callback=None, progress_callback=None, chunk_size=67108864):
 
-        new_client = BlockStore.FetchProxy(ref, result_callback, reset_callback, progress_callback, chunk_size)
-        with self._lock:
-            if not self.try_local_fetch(ref, new_client):
-                self.fetch_thread.do_from_curl_thread(lambda: self._fetch_ref_async(ref, new_client))
+        if isinstance(ref, SWErrorReference):
+            raise RuntimeSkywritingError()
+        if isinstance(ref, SW2_FixedReference):
+            assert ref.fixed_netloc == self.netloc
+
+        new_client = BlockStore.FetchInProgress(ref, block_store, result_callback, reset_callback, 
+                                                start_filename_callback, start_fd_callback, 
+                                                string_callback, progress_callback, chunk_size)
+        new_client.start_fetch()
         return new_client
 
     class SynchronousTransfer:
@@ -1358,6 +1393,9 @@ class BlockStore(plugins.SimplePlugin):
         def reset(self):
             pass
 
+        def start_filename(self, filename, is_pipe):
+            self.filename = filename
+
         def wait(self):
             self.finished_event.wait()
 
@@ -1367,7 +1405,7 @@ class BlockStore(plugins.SimplePlugin):
         for ref in refs:
             sync_transfer = BlockStore.SynchronousTransfer(ref)
             ciel.log("Synchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
-            transfer_ctx = self.fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset)
+            transfer_ctx = self.fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset, sync_transfer.start_filename)
             ctxs.append(sync_transfer)
             
         for ctx in ctxs:
@@ -1376,7 +1414,7 @@ class BlockStore(plugins.SimplePlugin):
         failed_transfers = filter(lambda x: not x.success, ctxs)
         if len(failed_transfers) > 0:
             raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
-        return [self.filename_for_ref(ref) for ref in refs]
+        return [x.filename for x in sync_transfers]
 
     def retrieve_filename_for_ref(self, ref):
 
