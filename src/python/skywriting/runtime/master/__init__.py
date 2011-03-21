@@ -24,6 +24,7 @@ from skywriting.runtime.master.recovery import RecoveryManager, \
 from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.task_executor import TaskExecutorPlugin
 from skywriting.runtime.block_store import post_string
+from skywriting.runtime.pycurl_thread import create_pycurl_thread
 import cherrypy
 import ciel
 import logging
@@ -37,6 +38,8 @@ import urllib
 import urllib2
 
 def master_main(options):
+
+    create_pycurl_thread()
 
     deferred_worker = DeferredWorkPlugin(ciel.engine)
     deferred_worker.subscribe()

@@ -1,4 +1,12 @@
 
+import ciel
+import logging
+import fcntl
+import pycurl
+import os
+import threading
+import select
+
 class pycURLContext:
 
     def __init__(self, url, multi, result_callback):
@@ -102,7 +110,7 @@ class pycURLThread:
         self.active_fetches = []
         self.event_queue = SelectableEventQueue()
         self.aux_listen_socket = None
-        self.thread = threading.Thread(target=self.pycurl_main_loop)
+        self.thread = threading.Thread(target=self.pycurl_main_loop, name="Ciel pycURL Thread")
         self.dying = False
 
     def subscribe(self, bus):
@@ -118,7 +126,10 @@ class pycURLThread:
         self.curl_ctx.add_handle(new_context.curl_ctx)
 
     def do_from_curl_thread(self, callback):
-        self.event_queue.post_event(callback)
+        if threading.current_thread().ident == self.thread.ident:
+            callback()
+        else:
+            self.event_queue.post_event(callback)
 
     def call_and_signal(self, callback, e, ret):
         ret.ret = callback()
@@ -129,11 +140,14 @@ class pycURLThread:
             self.ret = None
 
     def do_from_curl_thread_sync(self, callback):
-        e = threading.Event()
-        ret = pycURLThread.ReturnBucket()
-        self.event_queue.post_event(lambda: self.call_and_signal(callback, e, ret))
-        e.wait()
-        return ret.ret
+        if threading.current_thread().ident == self.thread.ident:
+            return callback()
+        else:
+            e = threading.Event()
+            ret = pycURLThread.ReturnBucket()
+            self.event_queue.post_event(lambda: self.call_and_signal(callback, e, ret))
+            e.wait()
+            return ret.ret
 
     def _set_aux_listen_socket(self, socket, cb):
         self.aux_listen_socket = socket

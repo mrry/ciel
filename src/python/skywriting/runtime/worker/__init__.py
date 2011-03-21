@@ -36,6 +36,7 @@ from datetime import datetime
 from skywriting.runtime.lighttpd import LighttpdAdapter
 from skywriting.runtime.worker.process_pool import ProcessPool
 from skywriting.runtime.worker.multiworker import MultiWorker
+from skywriting.runtime.pycurl_thread import create_pycurl_thread
 
 class WorkerState:
     pass
@@ -47,6 +48,9 @@ class Worker(plugins.SimplePlugin):
     
     def __init__(self, bus, port, options):
         plugins.SimplePlugin.__init__(self, bus)
+
+        create_pycurl_thread()
+        
         self.id = None
         self.port = port
         self.master_url = options.master
