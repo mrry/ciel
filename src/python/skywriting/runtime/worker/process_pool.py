@@ -23,7 +23,7 @@ from skywriting.runtime.references import SWReferenceJSONEncoder
 import pickle
 import fcntl
 import threading
-from skywriting.runtime.block_store import post_string
+from skywriting.runtime.pycurl_rpc import post_string
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""

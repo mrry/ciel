@@ -23,7 +23,7 @@ from skywriting.runtime.master.recovery import RecoveryManager, \
     TaskFailureInvestigator
 from skywriting.runtime.master.worker_pool import WorkerPool
 from skywriting.runtime.task_executor import TaskExecutorPlugin
-from skywriting.runtime.block_store import post_string
+from skywriting.runtime.pycurl_rpc import post_string
 from skywriting.runtime.pycurl_thread import create_pycurl_thread
 import cherrypy
 import ciel

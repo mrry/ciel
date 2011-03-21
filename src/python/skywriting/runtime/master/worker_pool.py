@@ -14,8 +14,8 @@
 from __future__ import with_statement
 from Queue import Queue
 from cherrypy.process import plugins
-from skywriting.runtime.block_store import SWReferenceJSONEncoder, get_string, \
-    post_string
+from skywriting.runtime.block_store import SWReferenceJSONEncoder
+from skywriting.runtime.pycurl_rpc import post_string_noreturn, post_string, get_string
 from skywriting.runtime.exceptions import WorkerFailedException
 import ciel
 import datetime
@@ -24,7 +24,6 @@ import random
 import simplejson
 import threading
 import uuid
-from skywriting.runtime.block_store import get_string, post_string_noreturn
 from urlparse import urlparse
 
 class FeatureQueues:

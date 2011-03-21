@@ -35,6 +35,7 @@ from errno import EAGAIN, EPIPE
 from cherrypy.process import plugins
 from shared.io_helpers import MaybeFile
 from skywriting.runtime.file_watcher import get_watcher_thread
+from skywriting.runtime.pycurl_rpc import post_string_noreturn
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -565,7 +566,7 @@ class BlockStore:
                 ciel.log("Subscription to %s failed with exception %s; reporting absent" % (id, e), "BLOCKSTORE", logging.WARNING)
                 post = simplejson.dumps({"absent": True})
         if post is not None:
-            self.post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
+            post_string_noreturn("http://%s/control/streamstat/%s/advert" % (otherend_netloc, id), post)
 
     def unsubscribe_from_stream(self, otherend_netloc, id):
         with self._lock:

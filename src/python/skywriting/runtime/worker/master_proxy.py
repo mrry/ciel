@@ -28,7 +28,7 @@ import random
 import cherrypy
 import socket
 import httplib2
-from skywriting.runtime.block_store import post_string, post_string_noreturn, get_string
+from skywriting.runtime.pycurl_rpc import post_string, post_string_noreturn, get_string
 from threading import Event
 
 import simplejson
