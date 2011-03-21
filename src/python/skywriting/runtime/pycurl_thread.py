@@ -7,6 +7,8 @@ import os
 import threading
 import select
 
+from skywriting.runtime.producer import new_aux_connection
+
 class pycURLContext:
 
     def __init__(self, url, result_callback):
@@ -232,10 +234,11 @@ class pycURLThread:
 
 singleton_pycurl_thread = None
 
-def create_pycurl_thread(bus):
+def create_pycurl_thread(bus, aux_port):
     global singleton_pycurl_thread
     singleton_pycurl_thread = pycURLThread()
     singleton_pycurl_thread.subscribe(bus)
+    singleton_pycurl_thread.set_aux_listen_port(aux_port, new_aux_connection)
 
 def do_from_curl_thread(x):
     singleton_pycurl_thread.do_from_curl_thread(x)

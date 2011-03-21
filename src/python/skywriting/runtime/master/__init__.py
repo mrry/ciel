@@ -39,7 +39,7 @@ import urllib2
 
 def master_main(options):
 
-    create_pycurl_thread()
+    create_pycurl_thread(ciel.engine)
 
     deferred_worker = DeferredWorkPlugin(ciel.engine)
     deferred_worker.subscribe()
