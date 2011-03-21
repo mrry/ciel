@@ -1,5 +1,7 @@
 
 from shared.references import SW2_SocketStreamReference
+from skywriting.runtime.remote_stat import subscribe_remote_output_nopost
+from skywriting.runtime.block_store import get_own_netloc
 import threading
 import ciel
 import logging
@@ -25,8 +27,9 @@ class TcpTransferContext:
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
+            subscribe_remote_output_nopost(self.ref.id, self)
             self.sock.connect((self.otherend_hostname, self.ref.socket_port))
-            self.sock.sendall("%s %d\n" % (self.ref.id, self.chunk_size))
+            self.sock.sendall("%s %s %d\n" % (self.ref.id, get_own_netloc(), self.chunk_size))
             ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.ref.socket_port, self.ref.id, self.chunk_size), "TCP_FETCH", logging.INFO)
             fp = self.sock.makefile("r", bufsize=0)
             response = fp.readline().strip()
@@ -54,3 +57,13 @@ class TcpTransferContext:
         if should_callback:
             self.fetch_ctx.result(False)
 
+    def advertisment(self, bytes=None, done=None, absent=None, failed=None):
+        if failed is True:
+            ciel.log("TCP-fetch %s: remote reported failure" % self.ref.id, "TCP_FETCH", logging.ERROR)
+            self.fetch_ctx.result(False)
+        elif done is True:
+            ciel.log("TCP-fetch %s: remote reported success (%d bytes)" % (self.ref.id, bytes), "TCP_FETCH", logging.INFO)
+            self.fetch_ctx.result(True)
+        else:
+            ciel.log("TCP-fetch %s: weird advertisment (%s, %s, %s, %s)" % (bytes, done, absent, failed), "TCP_FETCH", logging.ERROR)
+            self.fetch_ctx.result(False)
