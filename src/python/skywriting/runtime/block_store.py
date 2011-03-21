@@ -823,18 +823,6 @@ class BlockStore:
     def retrieve_object_for_ref(self, ref, decoder):
         
         return self.retrieve_objects_for_refs([(ref, decoder)])[0]
-
-    def get_fetch_urls_for_ref(self, ref):
-
-        if isinstance(ref, SW2_ConcreteReference):
-            return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
-        elif isinstance(ref, SW2_StreamReference):
-            return ["http://%s/data/.producer:%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
-        elif isinstance(ref, SW2_FixedReference):
-            assert ref.fixed_netloc == self.netloc
-            return ["http://%s/data/%s" % (self.netloc, ref.id)]
-        elif isinstance(ref, SW2_FetchReference):
-            return [ref.url]
                 
     def get_ref_for_url(self, url, version, task_id):
         """
