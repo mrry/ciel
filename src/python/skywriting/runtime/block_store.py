@@ -581,7 +581,7 @@ class BlockStore:
 
     class FetchInProgress:
 
-        def __init__(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback, string_callback, progress_callback, chunk_size):
+        def __init__(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback, string_callback, progress_callback, chunk_size, may_pipe, sole_consumer):
             self.result_callback = result_callback
             self.reset_callback = reset_callback
             self.start_filename_callback = start_filename_callback
@@ -589,6 +589,8 @@ class BlockStore:
             self.string_callback = string_callback
             self.progress_callback = progress_callback
             self.chunk_size = chunk_size
+            self.may_pipe = may_pipe
+            self.sole_consumer = sole_consumer
             self.ref = ref
             self.block_store = block_store
             self.producer = None
@@ -652,7 +654,7 @@ class BlockStore:
                 if ref.id in self.block_store.streaming_producers:
                     ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
                     self.producer = self.block_store.streaming_producers[ref.id]
-                    filename, is_pipe = self.producer.subscribe(self)
+                    filename, is_pipe = self.producer.subscribe(self, self.may_pipe)
                     if is_pipe:
                         ciel.log("Fetch-ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
                     else:
@@ -666,6 +668,8 @@ class BlockStore:
             self.producer.start()
 
         def tcp_fetch(self):
+            if (not self.may_pipe) or (not self.sole_consumer):
+                raise Exception("TCP-Fetch currently only capable of delivering a pipe")
             self.producer = TcpTransferContext(self.ref, self.chunk_size, self)
             self.producer.start()
                 
