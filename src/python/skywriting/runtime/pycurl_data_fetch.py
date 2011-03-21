@@ -3,6 +3,7 @@ from skywriting.runtime.pycurl_thread import pycURLContext
 from skywriting.runtime.pycurl_rpc import _post_string_noreturn
 from skywriting.runtime.block_store import get_fetch_urls_for_ref, fetch_filename, commit_fetch
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SweetheartReference
+import skywriting.runtime.remote_stat as remote_stat
 
 import pycurl
 import urlparse
@@ -164,7 +165,7 @@ class StreamTransferContext:
     def subscribe_remote_output(self, chunk_size):
         ciel.log("Stream-fetch %s: change notification chunk size to %d" 
                  % (self.ref.id, chunk_size), "CURL_FETCH", logging.INFO)
-        subscribe_remote_output(self.ref.id, self.worker_netloc, chunk_size, self)
+        remote_stat.subscribe_remote_output(self.ref.id, self.worker_netloc, chunk_size, self)
 
     def set_chunk_size(self, new_chunk_size):
         if new_chunk_size != self.current_chunk_size:
@@ -174,7 +175,7 @@ class StreamTransferContext:
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.cancelled = True
-        unsubscribe_remote_output(self.ref.id)
+        remote_stat.unsubscribe_remote_output(self.ref.id)
         if self.current_data_fetch is not None:
             self.current_data_fetch.cancel()
         self.callbacks.result(False)

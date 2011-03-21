@@ -12,18 +12,24 @@ remote_stat_subscriptions = dict()
 
 def subscribe_remote_output_nopost(refid, subscriber):
     with module_lock:
+        try:
+            if remote_stat_subscriptions[refid] != subscriber:
+                raise Exception("Remote-stat currently only supports one subscriber per remote output!")
+        except KeyError:
+            # Nobody is currently subscribed
+            pass
         remote_stat_subscriptions[refid] = subscriber
 
 def subscribe_remote_output(refid, remote_netloc, chunk_size, subscriber):
     subscribe_remote_output_nopost(refid, subscriber)
     post_data = simplejson.dumps({"netloc": get_own_netloc(), "chunk_size": chunk_size})
-    _post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (remote_netloc, refid), post_data, result_callback=subscribe_result)
+    post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (remote_netloc, refid), post_data, result_callback=subscribe_result)
 
 def unsubscribe_remote_output(refid):
     with module_lock:
         del remote_stat_subscriptions[refid]
     post_data = simplejson.dumps({"netloc": get_own_netloc()})
-    _post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" 
+    post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" 
                           % (self.worker_netloc, self.ref.id), post_data)
 
 def subscribe_result(success, url):
