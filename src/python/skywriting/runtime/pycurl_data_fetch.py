@@ -8,13 +8,7 @@ import pycurl
 import urlparse
 import ciel
 import logging
-import simplejson
 import threading
-
-### Module globals:
-
-# StreamTransferContexts currently in operation
-active_stream_transfers = dict()
 
 # pycURLFetches currently in operation
 active_http_transfers = dict()
@@ -158,17 +152,19 @@ class StreamTransferContext:
         del active_stream_transfers[self.ref.id]
         self.callbacks.result(success)
 
+    # Sneaky knowledge here: this call comes from the cURL thread.
     def subscribe_result(self, success, _):
         if not success:
-            ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." % self.ref.id, "CURL_FETCH", logging.INFO)
+            ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." 
+                     % self.ref.id, "CURL_FETCH", logging.INFO)
             self.remote_failed = True
             if self.current_data_fetch is None:
                 self.complete(False)
 
     def subscribe_remote_output(self, chunk_size):
-        ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, chunk_size), "CURL_FETCH", logging.INFO)
-        post_data = simplejson.dumps({"netloc": get_own_netloc(), "chunk_size": chunk_size})
-        _post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
+        ciel.log("Stream-fetch %s: change notification chunk size to %d" 
+                 % (self.ref.id, chunk_size), "CURL_FETCH", logging.INFO)
+        subscribe_remote_output(self.ref.id, self.worker_netloc, chunk_size, self)
 
     def set_chunk_size(self, new_chunk_size):
         if new_chunk_size != self.current_chunk_size:
@@ -178,13 +174,12 @@ class StreamTransferContext:
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.cancelled = True
-        post_data = simplejson.dumps({"netloc": get_own_netloc()})
-        _post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
+        unsubscribe_remote_output(self.ref.id)
         if self.current_data_fetch is not None:
             self.current_data_fetch.cancel()
         self.callbacks.result(False)
 
-    def advertisment(self, bytes=None, done=None, absent=None, failed=None):
+    def _advertisment(self, bytes=None, done=None, absent=None, failed=None):
         if self.cancelled:
             return
         if absent is True or failed is True:
@@ -206,6 +201,9 @@ class StreamTransferContext:
             self.remote_done = self.remote_done or done
             if self.current_data_fetch is None:
                 self.check_complete()
+
+    def advertisment(self, *pargs, **kwargs):
+        do_from_curl_thread(lambda: self._advertisment(*pargs, **kwargs))
 
 # Represents pycURL doing a fetch, with potentially many clients listening to the results.
 class pycURLFetchInProgress:
@@ -298,13 +296,3 @@ class HttpTransferContext:
     def unsubscribe(self):
         do_from_curl_thread(lambda: self._unsubscribe())
 
-# Called from cURL thread
-def _receive_stream_advertisment(self, id, **args):
-    try:
-        active_stream_transfers[id].advertisment(**args)
-    except KeyError:
-        ciel.log("Got advertisment for %s which is not an ongoing stream" % id, "BLOCKSTORE", logging.WARNING)
-        pass
-
-def receive_stream_advertisment(self, id, **args):
-    do_from_curl_thread(lambda: _receive_stream_advertisment(id, **args))
