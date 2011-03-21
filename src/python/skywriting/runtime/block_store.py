@@ -596,22 +596,22 @@ class BlockStore:
             self.done = False
             self.cancelled = False
             self.success = None
-            self.form_plan(self.ref)
+            self.form_plan()
 
-        def form_plan(self, ref):
+        def form_plan(self):
             self.current_plan = 0
             self.plans = []
-            if isinstance(ref, SWDataValue):
+            if isinstance(self.ref, SWDataValue):
                 self.plans.append(self.resolve_dataval)
             else:
                 self.plans.append(self.use_local_file)
                 self.plans.append(self.attach_local_producer)
-                if isinstance(ref, SW2_ConcreteReference):
-                    self.plans.append(self.simple_http_fetch)
-                elif isinstance(ref, SW2_StreamReference):
-                    if isinstance(ref, SW2_SocketStreamReference):
+                if isinstance(self.ref, SW2_ConcreteReference):
+                    self.plans.append(self.http_fetch)
+                elif isinstance(self.ref, SW2_StreamReference):
+                    if isinstance(self.ref, SW2_SocketStreamReference):
                         self.plans.append(self.tcp_fetch)
-                    self.plans.append(self.stream_http_fetch)
+                    self.plans.append(self.http_fetch)
 
         def start_fetch(self):
             self.run_plans()
@@ -711,8 +711,24 @@ class BlockStore:
                 producer = self.producer
             producer.unsubscribe(self)
 
-    # Called from arbitrary thread
-    def fetch_ref_async(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback=None, string_callback=None, progress_callback=None, chunk_size=67108864):
+    # After you call this, you'll get some callbacks:
+    # 1. A start_filename or start_fd to announce that the transfer has begun and you can use the given filename or FD.
+    # 1a. Or, if the data was very short, perhaps a string-callback which concludes the transfer.
+    # 2. A series of progress callbacks to update you on how many bytes have been written
+    # 3. Perhaps a reset callback, indicating the transfer has rewound to the beginning.
+    # 4. A result callback, stating whether the transfer was successful, 
+    #    and if so, perhaps giving a reference to a local copy.
+    # Only the final result, reset and start-filename callbacks are non-optional:
+    # * If you omit start_fd_callback and a provider gives an FD, it will be cat'd into a FIFO 
+    #   and the name of that FIFO supplied.
+    # * If you omit string_callback and a provider supplies a string, it will be written to a file
+    # * If you omit progress_callback, you won't get progress notifications until the transfer is complete.
+    # Parameters:
+    # * may_pipe: allows a producer to supply data via a channel that blocks the producer until the consumer
+    #             has read sufficient data, e.g. a pipe or socket. Must be False if you intend to wait for completion.
+    # * sole_consumer: If False, a copy of the file will be made to local disk as well as being supplied to the consumer.
+    #                  If True, the file might be directly supplied to the producer, likely dependent on may_pipe.
+    def fetch_ref_async(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback=None, string_callback=None, progress_callback=None, chunk_size=67108864, may_pipe=False, sole_consumer=False):
 
         if isinstance(ref, SWErrorReference):
             raise RuntimeSkywritingError()
@@ -721,7 +737,8 @@ class BlockStore:
 
         new_client = BlockStore.FetchInProgress(ref, block_store, result_callback, reset_callback, 
                                                 start_filename_callback, start_fd_callback, 
-                                                string_callback, progress_callback, chunk_size)
+                                                string_callback, progress_callback, chunk_size,
+                                                may_pipe, sole_consumer)
         new_client.start_fetch()
         return new_client
 
