@@ -9,9 +9,8 @@ import select
 
 class pycURLContext:
 
-    def __init__(self, url, multi, result_callback):
+    def __init__(self, url, result_callback):
 
-        self.multi = multi
         self.result_callback = result_callback
         self.url = url
 
@@ -26,7 +25,7 @@ class pycURLContext:
         self.curl_ctx.ctx = self
 
     def start(self):
-        self.multi.add_fetch(self)
+        add_fetch(self)
 
     def success(self):
         self.result_callback(True)
@@ -38,7 +37,7 @@ class pycURLContext:
         self.cleanup()
 
     def cancel(self):
-        self.multi.remove_fetch(self)
+        remove_fetch(self)
 
     def cleanup(self):
         self.curl_ctx.close()
@@ -243,3 +242,9 @@ def do_from_curl_thread(x):
 
 def do_from_curl_thread_sync(x):
     return singleton_pycurl_thread.do_from_curl_thread_sync(x)
+
+def add_fetch(x):
+    singleton_pycurl_thread.add_fetch(x)
+
+def remove_fetch(x):
+    singleton_pycurl_thread.remove_fetch(x)

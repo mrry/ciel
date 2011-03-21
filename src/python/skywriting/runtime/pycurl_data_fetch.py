@@ -1,15 +1,29 @@
 
 from skywriting.runtime.pycurl_thread import pycURLContext
+from skywriting.runtime.pycurl_rpc import _post_string_noreturn
+from skywriting.runtime.block_store import get_fetch_urls_for_ref, fetch_filename, commit_fetch
+from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SweetheartReference
+
 import pycurl
 import urlparse
 import ciel
 import logging
+import simplejson
+import threading
+
+### Module globals:
+
+# StreamTransferContexts currently in operation
+active_stream_transfers = dict()
+
+# pycURLFetches currently in operation
+active_http_transfers = dict()
 
 class pycURLFetchContext(pycURLContext):
 
-    def __init__(self, dest_fp, src_url, multi, result_callback, progress_callback=None, start_byte=None):
+    def __init__(self, dest_fp, src_url, result_callback, progress_callback=None, start_byte=None):
 
-        pycURLContext.__init__(self, src_url, multi, result_callback)
+        pycURLContext.__init__(self, src_url, result_callback)
 
         self.description = src_url
         self.progress_callback = None
@@ -31,9 +45,8 @@ class pycURLFetchContext(pycURLContext):
 
 class FileTransferContext:
 
-    def __init__(self, urls, save_filename, multi, callbacks):
+    def __init__(self, urls, save_filename, callbacks):
         self.urls = urls
-        self.multi = multi
         self.save_filename = save_filename
         self.callbacks = callbacks
         self.failures = 0
@@ -43,7 +56,7 @@ class FileTransferContext:
     def start_next_attempt(self):
         self.fp = open(self.save_filename, "w")
         ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
-        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.multi, self.result, self.callbacks.progress)
+        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.result, self.callbacks.progress)
         self.curl_fetch.start()
 
     def start(self):
@@ -69,12 +82,6 @@ class FileTransferContext:
         # Don't care: we always request the whole file.
         pass
 
-    def get_filename(self):
-        return self.save_filename
-
-    def wrote_file(self):
-        return True
-
     def cancel(self):
         ciel.log("Fetch %s: cancelling" % self.save_filename, "CURL_FETCH", logging.INFO)
         self.cancelled = True
@@ -85,12 +92,12 @@ class FileTransferContext:
 
 class StreamTransferContext:
 
-    def __init__(self, ref, block_store, callbacks):
-        self.url = block_store.get_fetch_urls_for_ref(ref)[0]
+    def __init__(self, ref, callbacks):
+        self.url = get_fetch_urls_for_ref(ref)[0]
         parsed_url = urlparse.urlparse(self.url)
         self.worker_netloc = parsed_url.netloc
         self.ref = ref
-        self.save_filename = block_store.fetch_filename(ref.id)
+        self.save_filename = fetch_filename(ref.id)
         open(self.save_filename, "w").close()
         self.callbacks = callbacks
         self.current_data_fetch = None
@@ -98,19 +105,18 @@ class StreamTransferContext:
         self.remote_done = False
         self.remote_failed = False
         self.latest_advertisment = 0
-        self.block_store = block_store
         self.cancelled = False
         self.current_chunk_size = None
 
     def start_next_fetch(self):
         ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
-        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.block_store.fetch_thread, self.result, self.progress, self.previous_fetches_bytes_downloaded)
+        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.result, self.progress, self.previous_fetches_bytes_downloaded)
         self.current_data_fetch.start()
 
     def start(self):
         self.fp = open(self.save_filename, "w")
         self.start_next_fetch()
-        self.block_store.add_incoming_stream(self.ref.id, self)
+        active_stream_transfers[self.ref.id] = self
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -149,23 +155,8 @@ class StreamTransferContext:
 
     def complete(self, success):
         self.fp.close()
-        self.block_store.remove_incoming_stream(self.ref.id)
+        del active_stream_transfers[self.ref.id]
         self.callbacks.result(success)
-
-    def _socket_attempt_completed(self, success, socket):
-        if not success:
-            ciel.log("Stream-fetch %s: TCP transfer failed; falling back to HTTP" % self.ref.id, "CURL_FETCH", logging.INFO)
-            self.initial_socket_attempt = False
-            self.start()
-            self.subscribe_remote_output(self.current_chunk_size)
-        else:
-            ciel.log("Stream-fetch %s: TCP transfer started" % self.ref.id, "CURL_FETCH", logging.INFO)
-
-            self.callbacks.result(True)
-            self.set_filename(fifo_name)
-
-    def socket_attempt_completed(self, success, socket):
-        self.block_store.fetch_thread.do_from_curl_thread(lambda: self._socket_attempt_completed(success, socket))
 
     def subscribe_result(self, success, _):
         if not success:
@@ -176,8 +167,8 @@ class StreamTransferContext:
 
     def subscribe_remote_output(self, chunk_size):
         ciel.log("Stream-fetch %s: change notification chunk size to %d" % (self.ref.id, chunk_size), "CURL_FETCH", logging.INFO)
-        post_data = simplejson.dumps({"netloc": self.block_store.netloc, "chunk_size": chunk_size})
-        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
+        post_data = simplejson.dumps({"netloc": get_own_netloc(), "chunk_size": chunk_size})
+        _post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (self.worker_netloc, self.ref.id), post_data, result_callback=self.subscribe_result)
 
     def set_chunk_size(self, new_chunk_size):
         if new_chunk_size != self.current_chunk_size:
@@ -187,8 +178,8 @@ class StreamTransferContext:
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.cancelled = True
-        post_data = simplejson.dumps({"netloc": self.block_store.netloc})
-        self.block_store._post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
+        post_data = simplejson.dumps({"netloc": get_own_netloc()})
+        _post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" % (self.worker_netloc, self.ref.id), post_data)
         if self.current_data_fetch is not None:
             self.current_data_fetch.cancel()
         self.callbacks.result(False)
@@ -216,14 +207,13 @@ class StreamTransferContext:
             if self.current_data_fetch is None:
                 self.check_complete()
 
-
-class GlobalHttpFetchInProgress:
+# Represents pycURL doing a fetch, with potentially many clients listening to the results.
+class pycURLFetchInProgress:
         
-    def __init__(self, ref, block_store):
+    def __init__(self, ref):
         self.listeners = []
         self.last_progress = 0
         self.ref = ref
-        self.block_store = block_store
         self.chunk_size = None
         self.completed = False
 
@@ -237,9 +227,14 @@ class GlobalHttpFetchInProgress:
 
     def result(self, success):
         self.completed = True
-        self.block_store.fetch_completed(self.ref, success and self.fetch_context.wrote_file())
+        del active_http_transfers[self.ref.id]
+        commit_fetch(self.ref)
+        if success:
+            ref = SW2_ConcreteReference(self.ref.id, self.last_progress, [get_own_netloc()])
+        else:
+            ref = None
         for l in self.listeners:
-            l.result(success)
+            l.result(success, ref)
 
     def reset(self):
         for l in self.listeners:
@@ -251,7 +246,7 @@ class GlobalHttpFetchInProgress:
             interested_listeners.sort(key=lambda x: x.chunk_size)
             self.fetch_context.set_chunk_size(interested_listeners[0].chunk_size)
 
-    def _unsubscribe(self, fetch_client):
+    def unsubscribe(self, fetch_client):
         if self.completed:
             ciel.log("Removing fetch client %s: transfer had already completed" % fetch_client, "CURL_FETCH", logging.WARNING)
             return
@@ -262,27 +257,54 @@ class GlobalHttpFetchInProgress:
             ciel.log("Removing fetch client %s: no clients remain, cancelling transfer" % fetch_client, "CURL_FETCH", logging.INFO)
             self.fetch_context.cancel()
 
-    def unsubscribe(self, fetch_client):
-        # Asynchronous out-of-thread callback: might come from the cURL thread or any other.
-        do_from_curl_thread(lambda: self._unsubscribe(fetch_client))
-
     def add_listener(self, fetch_client):
         self.listeners.append(fetch_client)
         fetch_client.progress(self.last_progress)
         self.update_chunk_size()
 
-    def get_filename(self):
-        return self.fetch_context.get_filename()
+# Represents a single client to an HTTP fetch. 
+# Also proxies calls so that everything from here on up is in the cURL thread.
+class HttpTransferContext:
+    
+    def __init__(self, ref, fetch_client):
+        self.ref = ref
+        self.fetch_client = fetch_client
+        self.fetch = None
 
-    def get_completed_ref(self, is_sweetheart):
-        if not self.fetch_context.wrote_file():
-            return SW2_CompletedReference(self.ref.id)
+    def start_http_fetch(self):
+        new_fetch = pycURLFetchInProgress(self.ref)
+        if isinstance(ref, SW2_ConcreteReference):
+            urls = get_fetch_urls_for_ref(self.ref)
+            save_filename = fetch_filename(self.ref)
+            new_ctx = FileTransferContext(urls, save_filename, new_fetch)
         else:
-            if is_sweetheart:
-                return SW2_SweetheartReference(self.ref.id, self.last_progress, self.block_store.netloc, [self.block_store.netloc])
-            else:
-                return SW2_ConcreteReference(self.ref.id, self.last_progress, [self.block_store.netloc])
+            new_ctx = StreamTransferContext(self.ref, new_fetch)
+        active_http_transfers[ref.id] = new_fetch
+        
+    def _start(self):
+        if self.ref.id in active_http_transfers:
+            ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
+        else:
+            self.start_http_fetch()
+        active_http_transfers[ref.id].add_listener(self.fetch_client)
+        self.fetch = active_http_fetches[ref.id]
 
-    def get_stream_ref(self):
-        raise Exception("Stream-refs from fetches don't work right now")
-        #return SW2_StreamReference(self.ref.id, [self.block_store.netloc])
+    def start(self):
+        do_from_curl_thread(lambda: self._start())
+
+    def _unsubscribe(self):
+        self.fetch.unsubscribe(self.fetch_client)
+
+    def unsubscribe(self):
+        do_from_curl_thread(lambda: self._unsubscribe())
+
+# Called from cURL thread
+def _receive_stream_advertisment(self, id, **args):
+    try:
+        active_stream_transfers[id].advertisment(**args)
+    except KeyError:
+        ciel.log("Got advertisment for %s which is not an ongoing stream" % id, "BLOCKSTORE", logging.WARNING)
+        pass
+
+def receive_stream_advertisment(self, id, **args):
+    do_from_curl_thread(lambda: _receive_stream_advertisment(id, **args))

@@ -113,13 +113,6 @@ class BlockStore:
         # Indexed by (refid, otherend_netloc)
         self.remote_stream_subscribers = dict()
 
-        # The other side of the coin: things we're streaming *in*
-        self.incoming_streams = dict()
-
-        # Things we're fetching. The streams dictionary above maps to StreamTransferContexts for advertisment delivery;
-        # this maps to FetchListeners for clients to attach and get progress notifications.
-        self.incoming_fetches = dict()
-
         self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
         self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
@@ -581,101 +574,10 @@ class BlockStore:
 
     def decode_datavalue(self, ref):
         return (self.dataval_codec.decode(ref.value))[0]
-
-    # Called from cURL thread
-    def add_incoming_stream(self, id, transfer_ctx):
-        self.incoming_streams[id] = transfer_ctx
-
-    # Called from cURL thread
-    def remove_incoming_stream(self, id):
-        del self.incoming_streams[id]
-
-    # Called from cURL thread
-    def _receive_stream_advertisment(self, id, **args):
-        try:
-            self.incoming_streams[id].advertisment(**args)
-        except KeyError:
-            ciel.log("Got advertisment for %s which is not an ongoing stream" % id, "BLOCKSTORE", logging.WARNING)
-            pass
-
-    def receive_stream_advertisment(self, id, **args):
-        do_from_curl_thread(lambda: self._receive_stream_advertisment(id, **args))
         
-    class GlobalHttpFetchInProgress:
-        
-        def __init__(self, ref, block_store):
-            self.listeners = []
-            self.last_progress = 0
-            self.ref = ref
-            self.block_store = block_store
-            self.chunk_size = None
-            self.completed = False
-
-        def set_fetch_context(self, fetch_context):
-            self.fetch_context = fetch_context
-
-        def progress(self, bytes):
-            for l in self.listeners:
-                l.progress(bytes)
-            self.last_progress = bytes
-
-        def result(self, success):
-            self.completed = True
-            self.block_store.fetch_completed(self.ref, success and self.fetch_context.wrote_file())
-            for l in self.listeners:
-                l.result(success)
-
-        def reset(self):
-            for l in self.listeners:
-                l.reset()
-
-        def update_chunk_size(self):
-            interested_listeners = filter(lambda x: x.chunk_size is not None, self.listeners)
-            if len(interested_listeners) != 0:
-                interested_listeners.sort(key=lambda x: x.chunk_size)
-                self.fetch_context.set_chunk_size(interested_listeners[0].chunk_size)
-
-        def _unsubscribe(self, fetch_client):
-            if self.completed:
-                ciel.log("Removing fetch client %s: transfer had already completed" % fetch_client, "CURL_FETCH", logging.WARNING)
-                return
-            self.listeners.remove(fetch_client)
-            self.update_chunk_size()
-            fetch_client.result(False)
-            if len(self.listeners) == 0:
-                ciel.log("Removing fetch client %s: no clients remain, cancelling transfer" % fetch_client, "CURL_FETCH", logging.INFO)
-                self.fetch_context.cancel()
-
-        def unsubscribe(self, fetch_client):
-            # Asynchronous out-of-thread callback: might come from the cURL thread or any other.
-            do_from_curl_thread(lambda: self._unsubscribe(fetch_client))
-
-        def add_listener(self, fetch_client):
-            self.listeners.append(fetch_client)
-            fetch_client.progress(self.last_progress)
-            self.update_chunk_size()
-
-        def get_filename(self):
-            return self.fetch_context.get_filename()
-
-        def get_completed_ref(self, is_sweetheart):
-            if not self.fetch_context.wrote_file():
-                return SW2_CompletedReference(self.ref.id)
-            else:
-                if is_sweetheart:
-                    return SW2_SweetheartReference(self.ref.id, self.last_progress, self.block_store.netloc, [self.block_store.netloc])
-                else:
-                    return SW2_ConcreteReference(self.ref.id, self.last_progress, [self.block_store.netloc])
-
-        def get_stream_ref(self):
-            raise Exception("Stream-refs from fetches don't work right now")
-        #return SW2_StreamReference(self.ref.id, [self.block_store.netloc])
-
     # Called from cURL thread
-    def fetch_completed(self, ref, success):
-        with self._lock:
-            self.commit_file(self.fetch_filename(ref.id), self.filename(ref.id))
-            del self.incoming_fetches[ref.id]
+    def commit_fetch(self, ref):
+        self.commit_file(self.fetch_filename(ref.id), self.filename(ref.id))
 
     class FetchInProgress:
 
@@ -759,62 +661,9 @@ class BlockStore:
                 else:
                     raise Exception("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
 
-        def _join_existing_http_fetch(self):
-            if self.ref.id in self.block_store.incoming_fetches:
-                ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
-                with self.block_store._lock:
-                    self.incoming_fetches[ref.id].add_listener(self)
-                    self.producer = self.incoming_fetches[ref.id]
-            else:
-                raise Exception("Plan join-existing-http-fetch failed: ref %s not in progress" % self.ref, "BLOCKSTORE", logging.INFO)
-            
-        def _start_simple_http_fetch(self):
-            urls = self.block_store.get_fetch_urls_for_ref(self.ref)
-            save_filename = self.block_store.fetch_filename(self.ref.id)
-            new_listener = BlockStore.GlobalHttpFetchInProgress(self.ref, self.block_store)
-            new_listener.add_listener(self)
-            ctx = FileTransferContext(urls, save_filename, new_listener)
-            with self.block_store._lock:
-                self.block_store.incoming_fetches[self.ref.id] = new_listener
-                self.producer = new_listener
-            ctx.start()
-
-        def _simple_http_fetch(self):
-            with self.block_store._lock:
-                if self.cancelled:
-                    return
-                else:
-                    try:
-                        self._join_existing_http_fetch()
-                    except:
-                        self._start_simple_http_fetch()
-                    self.set_filename(self.producer.get_filename(), False)
-
-        def simple_http_fetch(self):
-            do_from_curl_thread(lambda: self._simple_http_fetch())
-
-        def _start_stream_http_fetch(self):
-            new_listener = BlockStore.GlobalHttpFetchInProgress(self.ref, self.block_store)
-            new_listener.add_listener(self)
-            ctx = StreamTransferContext(self.ref, self.block_store, new_listener)
-            with self.block_store._lock:
-                self.block_store.incoming_fetches[self.ref.id] = new_listener
-                self.producer = new_listener
-            ctx.start()
-
-        def _stream_http_fetch(self):
-            with self.block_store._lock:
-                if self.cancelled:
-                    return
-                else:
-                    try:
-                        self._join_existing_http_fetch()
-                    except:
-                        self._start_stream_http_fetch()
-                    self.set_filename(self.producer.get_filename(), False)
-
-        def stream_http_fetch(self):
-            do_from_curl_thread(lambda: self._stream_http_fetch())
+        def http_fetch(self):
+            self.producer = HttpTransferContext(self.ref, self)
+            self.producer.start()
 
         def tcp_fetch(self):
             self.producer = TcpTransferContext(self.ref, self.chunk_size, self)
@@ -1091,3 +940,36 @@ class BlockStore:
     def is_empty(self):
         return self.ignore_blocks or len(os.listdir(self.base_dir)) == 0
 
+### Stateless functions
+
+def get_fetch_urls_for_ref(self, ref):
+
+    if isinstance(ref, SW2_ConcreteReference):
+        return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+    elif isinstance(ref, SW2_StreamReference):
+        return ["http://%s/data/.producer:%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]
+    elif isinstance(ref, SW2_FixedReference):
+        assert ref.fixed_netloc == get_own_netloc()
+        return ["http://%s/data/%s" % (ref.fixed_netloc, ref.id)]
+    elif isinstance(ref, SW2_FetchReference):
+        return [ref.url]
+
+### Proxies against the singleton blockstore
+
+def commit_fetch(ref):
+    singleton_blockstore.commit_fetch(ref)
+
+def get_own_netloc():
+    return singleton_blockstore.netloc
+
+def fetch_filename(id):
+    return singleton_blockstore.fetch_filename(id)
+    
+def producer_filename(id):
+    return singleton_blockstore.producer_filename(id)
+
+def filename(id):
+    return singleton_blockstore.filename(id)
+
+def filename_for_ref(ref):
+    return singleton_blockstore.filename_for_ref(ref)

@@ -24,6 +24,7 @@ Created on 8 Feb 2010
 from cherrypy.lib.static import serve_file
 from skywriting.runtime.block_store import json_decode_object_hook,\
     SWReferenceJSONEncoder
+from skywriting.runtime.pycurl_data_fetch import receive_stream_advertisment
 import sys
 import simplejson
 import cherrypy
@@ -74,7 +75,7 @@ class StreamStatRoot:
             elif op == "unsubscribe":
                 self.block_store.unsubscribe_from_stream(payload["netloc"], id)
             elif op == "advert":
-                self.block_store.receive_stream_advertisment(id, **payload)
+                receive_stream_advertisment(id, **payload)
             else:
                 raise cherrypy.HTTPError(404)
         else:
