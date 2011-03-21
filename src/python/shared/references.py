@@ -309,6 +309,14 @@ class SW2_FetchReference(SWRealReference):
     def __repr__(self):
         return 'SW2_FetchReference(%s, %s)' % (repr(self.id), repr(self.url))
 
+dataval_codec = codecs.lookup("string_escape")
+
+def encode_datavalue(str):
+    return (dataval_codec.encode(str))[0]
+
+def decode_datavalue(ref):
+    return (dataval_codec.decode(ref.value))[0]
+
 class SWDataValue(SWRealReference):
     """
     This is akin to a SW2_ConcreteReference which encapsulates its own data.
