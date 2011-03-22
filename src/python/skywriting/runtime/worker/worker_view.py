@@ -25,6 +25,7 @@ from cherrypy.lib.static import serve_file
 from skywriting.runtime.block_store import json_decode_object_hook,\
     SWReferenceJSONEncoder
 from skywriting.runtime.remote_stat import receive_stream_advertisment
+from skywriting.runtime.producer_stat import subscribe_output, unsubscribe_output
 import sys
 import simplejson
 import cherrypy
@@ -63,17 +64,14 @@ class ControlRoot:
 
 class StreamStatRoot:
 
-    def __init__(self, block_store):
-        self.block_store = block_store
-
     @cherrypy.expose
     def default(self, id, op):
         if cherrypy.request.method == "POST":
             payload = simplejson.loads(cherrypy.request.body.read())
             if op == "subscribe":
-                self.block_store.subscribe_to_stream(payload["netloc"], payload["chunk_size"], id)
+                subscribe_to_stream(payload["netloc"], payload["chunk_size"], id)
             elif op == "unsubscribe":
-                self.block_store.unsubscribe_from_stream(payload["netloc"], id)
+                unsubscribe_from_stream(payload["netloc"], id)
             elif op == "advert":
                 receive_stream_advertisment(id, **payload)
             else:

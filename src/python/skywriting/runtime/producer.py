@@ -3,7 +3,7 @@ import simplejson
 import tempfile
 import threading
 import os
-import skywriting.runtime.pycurl_thread as pct
+import skywriting.runtime.tcp_server as tcp
 import skywriting.runtime.file_watcher as fwt
 from skywriting.runtime.pycurl_thread import post_string_noreturn
 from skywriting.runtime.block_store import get_own_netloc, producer_filename, commit_file
@@ -13,8 +13,6 @@ from skywriting.runtime.block_store import get_own_netloc, producer_filename, co
 #       committed to the block store.)
 # They map to the executor which is producing them.
 streaming_producers = dict()
-
-module_lock = threading.Lock()
 
 class FileOutputContext:
 
@@ -27,6 +25,7 @@ class FileOutputContext:
         self.subscriptions = []
         self.current_size = None
         self.closed = False
+        self.succeeded = None
         self.fifo_name = None
         self.may_pipe = may_pipe
         self.can_use_fd = can_use_fd
@@ -62,17 +61,18 @@ class FileOutputContext:
         return producer_filename(self.refid)
 
     def get_stream_ref(self):
-        if pct.aux_listen_port is not None:
-            return SW2_SocketStreamReference(self.refid, get_own_netloc(), pct.aux_listen_port)
+        if tcp.tcp_server_active():
+            return SW2_SocketStreamReference(self.refid, get_own_netloc(), tcp.aux_listen_port)
         else:
             return SW2_StreamReference(self.refid, location_hints=[get_own_netloc()])
 
     def rollback(self):
         if not self.closed:
-            self.closed = True
             ciel.log("Rollback output %s" % id, 'BLOCKSTORE', logging.WARNING)
-            with module_lock:
-                del streaming_producers[self.refid]
+            del streaming_producers[self.refid]
+            with self.lock:
+                self.closed = True
+                self.succeeded = False
             if self.fifo_name is not None:
                 try:
                     # Dismiss anyone waiting on this pipe
@@ -91,12 +91,12 @@ class FileOutputContext:
 
     def close(self):
         if not self.closed:
-            self.closed = True
-            with self.module_lock:
-                del streaming_producers[self.refid]
+            del streaming_producers[self.refid]
+            with self.lock:
+                self.closed = True
+                self.succeeded = True
             if self.direct_write_filename is None and self.direct_write_fd is None:
                 bs.commit_producer(self.refid)
-            # At this point no subscribe() calls are in progress.
             if self.file_watch is not None:
                 self.file_watch.cancel()
             self.current_size = os.stat(self.block_store.filename(self.refid)).st_size
@@ -151,7 +151,6 @@ class FileOutputContext:
 
     def follow_file(self, new_subscriber):
         should_start_watch = False
-        self.subscriptions.append(new_subscriber)
         if self.current_size is not None:
             new_subscriber.progress(self.current_size)
         if self.file_watch is None:
@@ -165,17 +164,22 @@ class FileOutputContext:
     def subscribe(self, new_subscriber, try_direct=False, consumer_filename=None, consumer_fd=None):
 
         with self.lock:
-            self.cond.notify_all()
             if self.may_pipe:
                 if self.direct_write_filename is not None or self.direct_write_fd is not None:
                     raise Exception("Tried to subscribe to output %s, but it's already being consumed directly! Bug? Or duplicate consumer task?" % self.refid)
                 self.started = True
                 if try_direct:
                     if self.try_direct_attach_consumer(new_subscriber, consumer_filename, consumer_fd):
-                        return True
-                    # Else fall through
-            self.follow_file(new_subscriber)
-            return False
+                        ret = True
+                    else:
+                        self.follow_file(new_subscriber)
+                        ret = False
+                else:
+                    self.follow_file(new_subscriber)
+                    ret = False
+            self.subscriptions.append(new_subscriber)
+            self.cond.notify_all()
+            return ret
 
     def unsubscribe(self, subscriber):
         try:
@@ -217,9 +221,12 @@ def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
         subscribe_callback = fwt.create_watch
     ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
     new_ctx = FileOutputContext(id, self, subscribe_callback, may_pipe)
-    with module_lock:
-        streaming_producers[id] = new_producer
-        dot_filename = producer_filename(id)
-        open(dot_filename, 'wb').close()
+    streaming_producers[id] = new_producer
+    dot_filename = producer_filename(id)
+    open(dot_filename, 'wb').close()
     return new_ctx
 
+def get_producer_for_id(id):
+    return streaming_producers[id]
+
+        

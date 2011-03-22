@@ -132,3 +132,6 @@ def create_tcp_server(port):
     global aux_listen_port
     aux_listen_port = port
     pct.add_event_source(TcpServer(port))
+
+def tcp_server_active():
+    return aux_listen_port is not None
