@@ -89,3 +89,6 @@ def create_watcher_thread(bus, block_store):
 
 def get_watcher_thread():
     return singleton_watcher
+
+def create_watch(output):
+    singleton_watcher.create_watch(output)

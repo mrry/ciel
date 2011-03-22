@@ -58,12 +58,16 @@ class TcpTransferContext:
             self.fetch_ctx.result(False)
 
     def advertisment(self, bytes=None, done=None, absent=None, failed=None):
-        if failed is True:
-            ciel.log("TCP-fetch %s: remote reported failure" % self.ref.id, "TCP_FETCH", logging.ERROR)
-            self.fetch_ctx.result(False)
-        elif done is True:
-            ciel.log("TCP-fetch %s: remote reported success (%d bytes)" % (self.ref.id, bytes), "TCP_FETCH", logging.INFO)
-            self.fetch_ctx.result(True)
+        if not self.done:
+            self.done = True
+            if failed is True:
+                ciel.log("TCP-fetch %s: remote reported failure" % self.ref.id, "TCP_FETCH", logging.ERROR)
+                self.fetch_ctx.result(False)
+            elif done is True:
+                ciel.log("TCP-fetch %s: remote reported success (%d bytes)" % (self.ref.id, bytes), "TCP_FETCH", logging.INFO)
+                self.fetch_ctx.result(True)
+            else:
+                ciel.log("TCP-fetch %s: weird advertisment (%s, %s, %s, %s)" % (bytes, done, absent, failed), "TCP_FETCH", logging.ERROR)
+                self.fetch_ctx.result(False)
         else:
-            ciel.log("TCP-fetch %s: weird advertisment (%s, %s, %s, %s)" % (bytes, done, absent, failed), "TCP_FETCH", logging.ERROR)
-            self.fetch_ctx.result(False)
+            ciel.log("TCP-fetch %s: ignored advertisment as transfer is done" % self.ref.is, "TCP_FETCH", logging.WARNING)

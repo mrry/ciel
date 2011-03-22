@@ -233,9 +233,12 @@ class pycURLThread:
                     self.aux_listen_callback(new_sock)
 
 singleton_pycurl_thread = None
+aux_listen_port = None
 
 def create_pycurl_thread(bus, aux_port):
     global singleton_pycurl_thread
+    global aux_listen_port
+    aux_listen_port = aux_port
     singleton_pycurl_thread = pycURLThread()
     singleton_pycurl_thread.subscribe(bus)
     singleton_pycurl_thread.set_aux_listen_port(aux_port, new_aux_connection)

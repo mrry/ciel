@@ -168,16 +168,9 @@ class BlockStore:
             else:
                 raise
 
-    def commit_stream(self, id):
+    def commit_producer(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-        with self._lock:
-            del self.streaming_producers[id]
-            self.commit_file(self.producer_filename(id), self.filename(id))
-
-    def rollback_file(self, id):
-        ciel.log.error('Rolling back streamed file for output %s' % id, 'BLOCKSTORE', logging.WARNING)
-        with self._lock:
-            del self.streaming_producers[id]
+        self.commit_file(self.producer_filename(id), self.filename(id))
 
     def write_fixed_ref_string(self, string, fixed_ref):
         with open(self.filename_for_ref(fixed_ref), "w") as fp:
@@ -383,6 +376,9 @@ def get_fetch_urls_for_ref(self, ref):
 
 def commit_fetch(ref):
     singleton_blockstore.commit_fetch(ref)
+
+def commit_producer(id):
+    singleton_blockstore.commit_producer(id)
 
 def get_own_netloc():
     return singleton_blockstore.netloc
