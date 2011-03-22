@@ -132,10 +132,12 @@ class FileOutputContext:
                 if consumer_filename is not None:
                     ciel.log("Producer for %s: writing to consumer-supplied filename %s" % (self.refid, consumer_filename), "BLOCKPIPE", logging.INFO)
                     self.direct_write_filename = consumer_filename
+                    consumer.start_direct_write()
                     return True
                 elif consumer_fd is not None and self.can_use_fd:
                     ciel.log("Producer for %s: writing to consumer-supplied FD %s" % (self.refid, consumer_fd), "BLOCKPIPE", logging.INFO)
                     self.direct_write_fd = consumer_fd
+                    consumer.start_direct_write()
                     return True
                 else:
                     self.fifo_name = tempfile.mktemp(prefix="ciel-producer-fifo-")
@@ -143,6 +145,7 @@ class FileOutputContext:
                     self.direct_write_filename = self.fifo_name
                     if consumer_fd is not None:
                         ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.INFO)
+                        consumer.start_direct_write()
                         subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
                         return True
                     else:
