@@ -110,7 +110,7 @@ class pycURLThread:
         self.curl_ctx.setopt(pycurl.M_MAXCONNECTS, 20)
         self.active_fetches = []
         self.event_queue = SelectableEventQueue()
-        self.aux_listen_socket = None
+        self.event_sources = []
         self.thread = threading.Thread(target=self.pycurl_main_loop, name="Ciel pycURL Thread")
         self.dying = False
 
@@ -125,6 +125,10 @@ class pycURLThread:
     def add_fetch(self, new_context):
         self.active_fetches.append(new_context)
         self.curl_ctx.add_handle(new_context.curl_ctx)
+
+    # Called from cURL thread
+    def add_event_source(self, src):
+        self.event_sources.append(src)
 
     def do_from_curl_thread(self, callback):
         if threading.current_thread().ident == self.thread.ident:
@@ -149,20 +153,6 @@ class pycURLThread:
             self.event_queue.post_event(lambda: self.call_and_signal(callback, e, ret))
             e.wait()
             return ret.ret
-
-    def _set_aux_listen_socket(self, socket, cb):
-        self.aux_listen_socket = socket
-        self.aux_listen_callback = cb
-
-    def set_aux_listen_port(self, port, new_connection_callback):
-        if port is not None:
-            ciel.log("Listening for auxiliary connections on port %d" % port, "TCP_FETCH", logging.INFO)
-            aux_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            aux_listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            aux_listen_socket.bind(("0.0.0.0", port))
-            aux_listen_socket.listen(5)
-            aux_listen_socket.setblocking(False)
-            self.do_from_curl_thread(lambda: self._set_aux_listen_socket(aux_listen_socket, new_connection_callback))
 
     def _stop_thread(self):
         self.dying = True
@@ -221,27 +211,25 @@ class pycURLThread:
             read_fds, write_fds, exn_fds = self.curl_ctx.fdset()
             # Reason #2: out-of-thread events arrived.
             ev_rfds, ev_wfds, ev_exfds = self.event_queue.get_select_fds()
+            # Reason #3: an event source has an interesting event
+            for source in self.event_sources:
+                rfds, wfds, efds = source.get_select_fds()
+                ev_rfds.extend(rfds)
+                ev_wfds.extend(wfds)
+                ev_exfds.extend(efds)
             read_fds.extend(ev_rfds)
             write_fds.extend(ev_wfds)
             exn_fds.extend(ev_exfds)
-            if self.aux_listen_socket is not None:
-                read_fds.append(self.aux_listen_socket.fileno())
             active_read, active_write, active_exn = select.select(read_fds, write_fds, exn_fds)
-            if self.aux_listen_socket is not None:
-                if self.aux_listen_socket.fileno() in active_read:
-                    (new_sock, _) = self.aux_listen_socket.accept()
-                    self.aux_listen_callback(new_sock)
+            for source in self.event_sources:
+                source.notify_fds(active_read, active_write, active_exn)
 
 singleton_pycurl_thread = None
-aux_listen_port = None
 
-def create_pycurl_thread(bus, aux_port):
+def create_pycurl_thread(bus):
     global singleton_pycurl_thread
-    global aux_listen_port
-    aux_listen_port = aux_port
     singleton_pycurl_thread = pycURLThread()
     singleton_pycurl_thread.subscribe(bus)
-    singleton_pycurl_thread.set_aux_listen_port(aux_port, new_aux_connection)
 
 def do_from_curl_thread(x):
     singleton_pycurl_thread.do_from_curl_thread(x)
@@ -254,3 +242,6 @@ def add_fetch(x):
 
 def remove_fetch(x):
     singleton_pycurl_thread.remove_fetch(x)
+
+def add_event_source(src):
+    do_from_curl_thread(lambda: singleton_pycurl_thread.add_event_source(src))

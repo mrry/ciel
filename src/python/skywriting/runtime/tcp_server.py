@@ -1,4 +1,11 @@
 
+import skywriting.runtime.pycurl_thread as pct
+
+import threading
+import socket
+import os
+import ciel
+
 # This is a lot like the AsyncPushThread in executors.py.
 # TODO after paper rush is over: get the spaghettificiation of the streaming code under control
 
@@ -82,7 +89,7 @@ def new_aux_connection(self, new_sock):
                 return
             fifo_name = producer.try_get_pipe()
             if fifo_name is None:
-                sock_pusher = BlockStore.SocketPusher(output_id, new_sock, int(chunk_size))
+                sock_pusher = SocketPusher(output_id, new_sock, int(chunk_size))
                 producer.subscribe(sock_pusher)
                 sock_pusher.set_filename(producer.get_filename())
                 new_sock.sendall("GO\n")
@@ -99,3 +106,29 @@ def new_aux_connection(self, new_sock):
             new_sock.close()
         except:
             pass
+
+class TcpServer:
+
+    def __init__(self, port):
+        self.aux_port = port
+        ciel.log("Listening for auxiliary connections on port %d" % port, "TCP_FETCH", logging.INFO)
+        self.aux_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.aux_listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.aux_listen_socket.bind(("0.0.0.0", port))
+        self.aux_listen_socket.listen(5)
+        self.aux_listen_socket.setblocking(False)
+
+    def get_select_fds(self):
+        return [self.aux_listen_socket.fileno()], [], []
+
+    def notify_fds(self, read_fds, _, _):
+        if self.aux_listen_socket.fileno() in read_fds:
+            (new_sock, _) = self.aux_listen_socket.accept()
+            new_aux_connection(new_sock)
+
+aux_listen_port = None
+
+def create_tcp_server(port):
+    global aux_listen_port
+    aux_listen_port = port
+    pct.add_event_source(TcpServer(port))
