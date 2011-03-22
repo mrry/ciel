@@ -6,6 +6,7 @@ import threading
 from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
 from skywriting.runtime.block_store import filename_for_ref
+from skywriting.runtime.producer import get_producer_for_id
 
 class FetchInProgress:
 
@@ -70,7 +71,7 @@ class FetchInProgress:
             self.result(True, None)
 
     def use_local_file(self):
-        filename = filename_for_ref(ref)
+        filename = filename_for_ref(self.ref)
         if os.path.exists(filename):
             self.set_filename(filename, True)
             self.result(True, None)
@@ -78,18 +79,18 @@ class FetchInProgress:
             raise Exception("Plan use-local-file failed for %s: no such file %s" % (self.ref, filename), "BLOCKSTORE", logging.INFO)
 
     def attach_local_producer(self):
-        with self.lock:
-            if ref.id in self.block_store.streaming_producers:
-                ciel.log("Ref %s is being produced locally! Joining..." % ref, "BLOCKSTORE", logging.INFO)
-                self.producer = self.block_store.streaming_producers[ref.id]
-                filename, is_pipe = self.producer.subscribe(self, self.may_pipe)
-                if is_pipe:
-                    ciel.log("Fetch-ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
-                else:
-                    ciel.log("Fetch-ref %s: following producer's file" % ref, "BLOCKSTORE", logging.INFO)
-                self.set_filename(filename, is_pipe)
+        producer = get_producer_for_id(self.ref.id)
+        if producer is None:
+            raise Exception("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
+        else:
+            is_pipe = producer.subscribe(self, try_direct=True)
+            if is_pipe:
+                ciel.log("Fetch-ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
+                filename = producer.get_fifo_filename()
             else:
-                raise Exception("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
+                ciel.log("Fetch-ref %s: following local producer's file" % ref, "BLOCKSTORE", logging.INFO)
+                filename = producer_filename(self.ref.id)
+            self.set_filename(filename, is_pipe)
 
     def http_fetch(self):
         self.producer = HttpTransferContext(self.ref, self)
@@ -170,10 +171,10 @@ def fetch_ref_async(self, ref, result_callback, reset_callback, start_filename_c
     if isinstance(ref, SW2_FixedReference):
         assert ref.fixed_netloc == self.netloc
 
-    new_client = BlockStore.FetchInProgress(ref, result_callback, reset_callback, 
-                                            start_filename_callback, start_fd_callback, 
-                                            string_callback, progress_callback, chunk_size,
-                                            may_pipe, sole_consumer)
+    new_client = FetchInProgress(ref, result_callback, reset_callback, 
+                                 start_filename_callback, start_fd_callback, 
+                                 string_callback, progress_callback, chunk_size,
+                                 may_pipe, sole_consumer)
     new_client.start_fetch()
     return new_client
 

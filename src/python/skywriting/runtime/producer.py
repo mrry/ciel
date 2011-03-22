@@ -149,6 +149,9 @@ class FileOutputContext:
                         return self.direct_write_filename
                 self.cond.notify_all()
 
+    def get_fifo_filename(self):
+        return self.fifo_filename
+
     def follow_file(self, new_subscriber):
         should_start_watch = False
         if self.current_size is not None:
@@ -164,6 +167,11 @@ class FileOutputContext:
     def subscribe(self, new_subscriber, try_direct=False, consumer_filename=None, consumer_fd=None):
 
         with self.lock:
+            if self.closed:
+                if self.current_size is not None:
+                    new_subscriber.progress(self.current_size)
+                new_subscriber.result(self.succeeded)
+                return False
             if self.may_pipe:
                 if self.direct_write_filename is not None or self.direct_write_fd is not None:
                     raise Exception("Tried to subscribe to output %s, but it's already being consumed directly! Bug? Or duplicate consumer task?" % self.refid)
