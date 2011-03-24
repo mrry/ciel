@@ -94,15 +94,9 @@ class BlockStore:
         self._lock = RLock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
-        self.object_cache = {}
         self.bus = bus
-    
         self.pin_set = set()
-    
         self.ignore_blocks = ignore_blocks
-
-        self.encoders = {'noop': self.encode_noop, 'json': self.encode_json, 'pickle': self.encode_pickle}
-        self.decoders = {'noop': self.decode_noop, 'json': self.decode_json, 'pickle': self.decode_pickle, 'handle': self.decode_handle, 'script': self.decode_script}
 
         global singleton_blockstore
         assert singleton_blockstore is None
@@ -113,23 +107,6 @@ class BlockStore:
 
     def subscribe(self):
         self.bus.subscribe('start', self.start, 75)
-
-    def decode_handle(self, file):
-        return file
-    def decode_script(self, file):
-        return CloudScriptParser().parse(file.read())
-    def encode_noop(self, obj, file):
-        return file.write(obj)
-    def decode_noop(self, file):
-        return file.read()    
-    def encode_json(self, obj, file):
-        return simplejson.dump(obj, file, cls=SWReferenceJSONEncoder)
-    def decode_json(self, file):
-        return simplejson.load(file, object_hook=json_decode_object_hook)
-    def encode_pickle(self, obj, file):
-        return pickle.dump(obj, file)
-    def decode_pickle(self, file):
-        return pickle.load(file)
     
     def allocate_new_id(self):
         return str(uuid.uuid1())
@@ -172,105 +149,9 @@ class BlockStore:
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         self.commit_file(self.producer_filename(id), self.filename(id))
 
-    def write_fixed_ref_string(self, string, fixed_ref):
-        with open(self.filename_for_ref(fixed_ref), "w") as fp:
-            fp.write(string)
-
-    def ref_from_string(self, string, id):
-        output_ctx = self.make_local_output(id)
-        with open(output_ctx.get_filename(), "w") as fp:
-            fp.write(string)
-        output_ctx.close()
-        return output_ctx.get_completed_ref()
-
-    def cache_object(self, object, encoder, id):
-        self.object_cache[(id, encoder)] = object        
-
-    def ref_from_object(self, object, encoder, id):
-        """Encodes an object, returning either a DataValue or ConcreteReference as appropriate"""
-        self.cache_object(object, encoder, id)
-        buffer = StringIO()
-        self.encoders[encoder](object, buffer)
-        ret = self.ref_from_string(buffer.getvalue(), id)
-        buffer.close()
-        return ret
-
-    # Why not just rename to self.filename(id) and skip this nonsense? Because os.rename() can be non-atomic.
-    # When it renames between filesystems it does a full copy; therefore I copy/rename to a colocated dot-file,
-    # then complete the job by linking the proper name in output_ctx.close().
-    def ref_from_external_file(self, filename, id):
-        output_ctx = self.make_local_output(id)
-        with output_ctx:
-            shutil.move(filename, output_ctx.get_filename())
-        return output_ctx.get_completed_ref()
-
     # Called from cURL thread
     def commit_fetch(self, ref):
         self.commit_file(self.fetch_filename(ref.id), self.filename(ref.id))
-
-    def retrieve_objects_for_refs(self, ref_and_decoders):
-
-        solutions = dict()
-        unsolved_refs = []
-        for (ref, decoder) in ref_and_decoders:
-            try:
-                solutions[ref.id] = self.object_cache[(ref.id, decoder)]
-            except:
-                unsolved_refs.append(ref)
-
-        strings = self.retrieve_strings_for_refs(unsolved_refs)
-        str_of_ref = dict([(ref.id, string) for (string, ref) in zip(strings, unsolved_refs)])
-            
-        for (ref, decoder) in ref_and_decoders:
-            if ref.id not in solutions:
-                decoded = self.decoders[decoder](StringIO(str_of_ref[ref.id]))
-                self.object_cache[(ref.id, decoder)] = decoded
-                solutions[ref.id] = decoded
-            
-        return [solutions[ref.id] for (ref, decoder) in ref_and_decoders]
-
-    def retrieve_object_for_ref(self, ref, decoder):
-        
-        return self.retrieve_objects_for_refs([(ref, decoder)])[0]
-                
-    def get_ref_for_url(self, url, version, task_id):
-        """
-        Returns a SW2_ConcreteReference for the data stored at the given URL.
-        Currently, the version is ignored, but we imagine using this for e.g.
-        HTTP ETags, which would raise an error if the data changed.
-        """
-        
-        parsed_url = urlparse.urlparse(url)
-        if parsed_url.scheme == 'swbs':
-            # URL is in a Skywriting Block Store, so we can make a reference
-            # for it directly.
-            id = parsed_url.path[1:]
-            ref = SW2_ConcreteReference(id, None)
-            ref.add_location_hint(parsed_url.netloc)
-        else:
-            # URL is outside the cluster, so we have to fetch it. We use
-            # content-based addressing to name the fetched data.
-            hash = hashlib.sha1()
-            
-            # 1. Fetch URL to a file-like object.
-            with contextlib.closing(urllib2.urlopen(url)) as url_file:
-            
-                # 2. Hash its contents and write it to disk.
-                with tempfile.NamedTemporaryFile('wb', 4096, delete=False) as fetch_file:
-                    fetch_filename = fetch_file.name
-                    while True:
-                        chunk = url_file.read(4096)
-                        if not chunk:
-                            break
-                        hash.update(chunk)
-                        fetch_file.write(chunk)
-                
-            # 3. Store the fetched file in the block store, named by the
-            #    content hash.
-            id = 'urlfetch:%s' % hash.hexdigest()
-            ref = self.ref_from_external_file(fetch_filename, id)
-
-        return ref
         
     def choose_best_netloc(self, netlocs):
         for netloc in netlocs:
