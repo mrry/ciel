@@ -12,46 +12,19 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-import threading
-from threading import RLock, Lock
-from skywriting.runtime.exceptions import \
-    MissingInputException, RuntimeSkywritingError
 import random
-import subprocess
-import urllib2
-import shutil
-import pickle
 import os
 import uuid
 import struct
 import tempfile
 import logging
 import re
-import codecs
-from datetime import datetime, timedelta
-import time
-from cStringIO import StringIO
-from errno import EAGAIN, EPIPE
-from cherrypy.process import plugins
-from shared.io_helpers import MaybeFile
-from skywriting.runtime.file_watcher import get_watcher_thread
-from skywriting.runtime.pycurl_rpc import post_string_noreturn
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
-import simplejson
-from shared.references import SWRealReference,\
-    build_reference_from_tuple, SW2_ConcreteReference, SWDataValue, encode_datavalue,\
-    SWErrorReference, SW2_StreamReference,\
-    SW2_TombstoneReference, SW2_FetchReference, SW2_FixedReference,\
-    SW2_SweetheartReference, SW2_CompletedReference, SW2_SocketStreamReference
-from skywriting.runtime.references import SWReferenceJSONEncoder
-import hashlib
-import contextlib
-from skywriting.lang.parser import CloudScriptParser
-import skywriting
+from shared.references import SW2_ConcreteReference, SW2_StreamReference,\
+    SW2_FetchReference, SW2_FixedReference
 import ciel
-import socket
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -60,10 +33,6 @@ PIN_PREFIX = '.__pin__:'
 
 length_regex = re.compile("^Content-Length:\s*([0-9]+)")
 http_response_regex = re.compile("^HTTP/1.1 ([0-9]+)")
-
-class StreamRetry:
-    pass
-STREAM_RETRY = StreamRetry()
 
 singleton_blockstore = None
 
@@ -90,8 +59,6 @@ def sw_to_external_url(url):
 class BlockStore:
 
     def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False):
-        plugins.SimplePlugin.__init__(self, bus)
-        self._lock = RLock()
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
         self.bus = bus
@@ -102,12 +69,6 @@ class BlockStore:
         assert singleton_blockstore is None
         singleton_blockstore = self
 
-    def start(self):
-        self.file_watcher_thread = get_watcher_thread()
-
-    def subscribe(self):
-        self.bus.subscribe('start', self.start, 75)
-    
     def allocate_new_id(self):
         return str(uuid.uuid1())
     

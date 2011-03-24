@@ -75,8 +75,7 @@ def master_main(options):
     except:
         pass
 
-    block_store = BlockStore(ciel.engine, local_hostname, local_port, block_store_dir)
-    block_store.subscribe()
+    block_store = BlockStore(local_hostname, local_port, block_store_dir)
     block_store.build_pin_set()
     block_store.check_local_blocks()
 

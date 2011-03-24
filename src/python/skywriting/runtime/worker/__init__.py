@@ -72,8 +72,7 @@ class Worker(plugins.SimplePlugin):
             os.mkdir(block_store_dir)
         except:
             pass
-        self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
-        self.block_store.subscribe()
+        self.block_store = BlockStore(self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.build_pin_set()
         self.block_store.check_local_blocks()
         create_watcher_thread(bus, self.block_store)
