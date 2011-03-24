@@ -8,6 +8,9 @@ from skywriting.runtime.tcp_data_fetch import TcpTransferContext
 from skywriting.runtime.block_store import filename_for_ref
 from skywriting.runtime.producer import get_producer_for_id
 
+class PlanFailedError(Exception):
+    pass
+
 class FetchInProgress:
 
     def __init__(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback, string_callback, progress_callback, chunk_size, may_pipe, sole_consumer):
@@ -23,6 +26,7 @@ class FetchInProgress:
         self.sole_consumer = sole_consumer
         self.ref = ref
         self.producer = None
+        self.cat_process = None
         self.started = False
         self.done = False
         self.cancelled = False
@@ -51,7 +55,7 @@ class FetchInProgress:
         while self.current_plan < len(self.plans):
             try:
                 self.plans[self.current_plan]()
-            except Exception as e:
+            except PlanFailedError as e:
                 self.current_plan += 1
 
     def run_next_plan(self):
@@ -76,12 +80,12 @@ class FetchInProgress:
             self.set_filename(filename, True)
             self.result(True, None)
         else:
-            raise Exception("Plan use-local-file failed for %s: no such file %s" % (self.ref, filename), "BLOCKSTORE", logging.INFO)
+            raise PlanFailedError("Plan use-local-file failed for %s: no such file %s" % (self.ref, filename), "BLOCKSTORE", logging.INFO)
 
     def attach_local_producer(self):
         producer = get_producer_for_id(self.ref.id)
         if producer is None:
-            raise Exception("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
+            raise PlanFailedError("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
         else:
             is_pipe = producer.subscribe(self, try_direct=True)
             if is_pipe:
@@ -98,7 +102,7 @@ class FetchInProgress:
 
     def tcp_fetch(self):
         if (not self.may_pipe) or (not self.sole_consumer):
-            raise Exception("TCP-Fetch currently only capable of delivering a pipe")
+            raise PlanFailedError("TCP-Fetch currently only capable of delivering a pipe")
         self.producer = TcpTransferContext(self.ref, self.chunk_size, self)
         self.producer.start()
                 
@@ -130,7 +134,7 @@ class FetchInProgress:
         else:
             fifo_name = tempfile.mktemp(prefix="ciel-socket-fifo")
             os.mkfifo(fifo_name)
-            subprocess.Popen(["cat > %s" % fifo_name], shell=True, stdin=fd, close_fds=True)
+            self.cat_process = subprocess.Popen(["cat > %s" % fifo_name], shell=True, stdin=fd, close_fds=True)
             os.close(fd)
             self.start_filename_callback(fifo_name, True)
 
@@ -144,6 +148,11 @@ class FetchInProgress:
             producer = self.producer
         if producer is not None:
             producer.unsubscribe(self)
+        if self.cat_process is not None:
+            try:
+                self.cat_process.kill()
+            except Exception as e:
+                ciel.log("Fetcher for %s failed to kill 'cat': %s" % (self.ref.id, repr(e)), "FETCHER", logging.ERROR)
 
 # After you call this, you'll get some callbacks:
 # 1. A start_filename or start_fd to announce that the transfer has begun and you can use the given filename or FD.
