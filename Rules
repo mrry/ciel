@@ -15,18 +15,43 @@ compile '/stylesheet/' do
   # don’t filter or layout
 end
 
+compile '/images/*/' do
+  # don't filter or layout
+end
+
+compile '/ext/*/' do
+  # don't filter or layout
+end
+
+compile '/' do
+  filter :erb
+  filter :kramdown
+  layout 'default-nosidebar'
+  filter :relativize_paths, :type => :html
+end
+
 compile '*' do
   filter :erb
   filter :kramdown
   filter :colorize_syntax
   layout 'default'
+  filter :relativize_paths, :type => :html
 end
 
 route '/stylesheet/' do
   '/style.css'
 end
 
+route '/images/*/' do
+  item.identifier.chop + '.' + item[:extension]
+end
+
+route '/ext/*/' do
+  item.identifier.chop + '.' + item[:extension]
+end
+
 route '*' do
+
   item.identifier + 'index.html'
 end
 

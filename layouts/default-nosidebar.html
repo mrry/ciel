@@ -3,14 +3,11 @@
   <head>
     <meta charset="utf-8">
     <title><%= @item[:title] %></title>
-    <link rel="shortcut icon" href="/images/favicon.png">
-    <link rel="stylesheet" type="text/css" href="/style.css" media="screen">
-    <link href="/ext/sunburst.css" type="text/css" rel="stylesheet" />
-    <script type="text/javascript" src="/ext/prettify.js"></script>
-
+    <link rel="shortcut icon" href="favicon.png"/>
+    <link rel="stylesheet" type="text/css" href="style.css" media="screen"/>
     <meta name="generator" content="nanoc 3.1.6">
   </head>
-  <body onload="prettyPrint()">
+  <body>
 <script type="text/javascript">
   var _gaq = _gaq || [];
   _gaq.push(['_setAccount', 'UA-377063-3']);
@@ -26,11 +23,8 @@
 <div id="wrapper">
   <h1 class="pageheader">CIEL</h1>
   <div id="content">
-    <div id="article-withsidebar">
+    <div id="article-nosidebar">
       <%= yield %>
-    </div>
-    <div id="sidebar">
-      <p>Dummy sidebar text.</p>
     </div>
   </div>
   <div id="pagefooter">

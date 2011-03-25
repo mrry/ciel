@@ -19,7 +19,7 @@ for interacting with a CIEL cluster.
 
 Executes an external piece of code, and waits for the result.
 
-<pre><code class="CodeRay language-c">result = exec(executor, args, num_outputs);</code></pre>
+<pre class="prettyprint">result = exec(executor, args, num_outputs);</pre>
 
 Let's have something else in here.
 
@@ -35,7 +35,7 @@ Let's have something else in here.
 
 Creates a new task to compute a Skywriting function.
 
-<pre><code class="CodeRay language-c">result = spawn(f, args);</code></pre>
+<pre class="prettyprint">result = spawn(f, args);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -48,7 +48,7 @@ Creates a new task to compute a Skywriting function.
 
 Creates a new task to execute and external piece of code.
 
-<pre><code class="CodeRay language-c">result = spawn_exec(executor, args, num_outputs);</code></pre>
+<pre class="prettyprint">result = spawn_exec(executor, args, num_outputs);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -62,7 +62,7 @@ Creates a new task to execute and external piece of code.
 
 Creates a reference from a URL.
 
-<pre><code class="CodeRay language-c">result = ref(url);</code></pre>
+<pre class="prettyprint">result = ref(url);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -78,7 +78,7 @@ Utility functions
 Returns the value associated with the given `key` in `dict`, or
 `default` if that key is not found in `dict`.
 
-<pre><code class="CodeRay language-c">result = get_key(dict, key, default);</code></pre>
+<pre class="prettyprint">result = get_key(dict, key, default);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -90,24 +90,23 @@ Returns the value associated with the given `key` in `dict`, or
 
 ### has_key()
 
-Returns <code class="language-c">true</code> if the given
-<code>key</code> is found in <code>dict</code>, otherwise <code
-class="language-c">false</code>.
+Returns `true` if the given
+`key` is found in `dict`, otherwise `false`.
 
-<pre><code class="CodeRay language-c">result = has_key(dict, key);</code></pre>
+<pre class="prettyprint">result = has_key(dict, key);</pre>
 
 |Argument|Description|
 |--------------------|
 | `dict` |The dictionary to be queried.|
 | `key` |The key to be accessed.|
 |===|
-| `result` |<code class="language-c">true</code> if `key` is found in `dict`, otherwise <code class="language-c">false</code>.|
+| `result` | `true` if `key` is found in `dict`, otherwise `false`.|
 
 ### int()
 
 Returns the integer value of the given `input` (typically a string).
 
-<pre><code class="CodeRay language-c">result = int(input);</code></pre>
+<pre class="prettyprint">result = int(input);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -119,7 +118,7 @@ Returns the integer value of the given `input` (typically a string).
 
 Returns the length of the given list.
 
-<pre><code class="CodeRay language-c">result = len(list);</code></pre>
+<pre class="prettyprint">result = len(list);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -132,8 +131,8 @@ Returns the length of the given list.
 Applies a function to each element of the given `list`, and returns
 the resulting list.  Returns a list
 
-<pre><code class="CodeRay language-c">include "mapreduce";
-result = map(f, list);</code></pre>
+<pre class="prettyprint">include "mapreduce";
+result = map(f, list);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -157,8 +156,8 @@ create tasks, include `spawn()` or `spawn_exec()` in the definition of
 `mapper` and `reducer`. Partitioning and sorting should be implemented
 in `mapper` and `reducer` respectively.
 
-<pre><code class="CodeRay language-c">include "mapreduce";
-result = mapreduce(list, mapper, reducer, num_outputs);</code></pre>
+<pre class="prettyprint">include "mapreduce";
+result = mapreduce(list, mapper, reducer, num_outputs);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -173,8 +172,8 @@ result = mapreduce(list, mapper, reducer, num_outputs);</code></pre>
 
 Returns a list of numbers within a given range.
 
-<pre><code class="CodeRay language-c">result = range(stop);
-result = range(start, stop);</code></pre>
+<pre class="prettyprint">result = range(stop);
+result = range(start, stop);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -192,8 +191,8 @@ The *wrapper functions* are convenience functions for invoking executors.
 
 Convenience function for spawning a task using the [`environ` executor](../../executors/environ).
 
-<pre><code class="CodeRay language-c">include "environ";
-result = environ(input_refs, command_line, num_outputs);</code></pre>
+<pre class="prettyprint">include "environ";
+result = environ(input_refs, command_line, num_outputs);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -207,8 +206,8 @@ result = environ(input_refs, command_line, num_outputs);</code></pre>
 
 Fetches the given URL into the cluster, and returns a reference to the resulting value.
 
-<pre><code class="CodeRay language-c">include "grab";
-result = grab(url);</code></pre>
+<pre class="prettyprint">include "grab";
+result = grab(url);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -220,8 +219,8 @@ result = grab(url);</code></pre>
 
 Convenience function for spawning a task using the [`java` executor](../../executors/java).
 
-<pre><code class="CodeRay language-c">include "java";
-result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
+<pre class="prettyprint">include "java";
+result = java(class_name, input_refs, args, jar_refs, num_outputs);</pre>
 
 |Argument|Description|
 |--------------------|
@@ -235,9 +234,9 @@ result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
 
 Convenience function for spawning a task using the [`stdinout` executor](../../executors/stdinout)
 
-<pre><code class="CodeRay language-c">include "stdinout";
+<pre class="prettyprint">include "stdinout";
 result = stdinout(input_refs, command_line);
-result = stdinout_stream(input_refs, command_line);</code></pre>
+result = stdinout_stream(input_refs, command_line);</pre>
 
 |Argument|Description|
 |--------------------|
