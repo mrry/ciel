@@ -220,7 +220,8 @@ result = grab(url);</pre>
 Convenience function for spawning a task using the [`java` executor](../../executors/java).
 
 <pre class="prettyprint">include "java";
-result = java(class_name, input_refs, args, jar_refs, num_outputs);</pre>
+result = java(class_name, input_refs, args,
+              jar_refs, num_outputs);</pre>
 
 |Argument|Description|
 |--------------------|

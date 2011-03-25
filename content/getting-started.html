@@ -77,5 +77,6 @@ The `sw-start-job` script starts a job, based on a package
 file. Example package files can be found in the `src/package`
 directory. The following starts a simple test job:
 
-<pre class="prettyprint lang-bash">$ $CLROOT/scripts/sw-start-job -m http://localhost:8000/ \
+<pre class="prettyprint lang-bash">$ $CLROOT/scripts/sw-start-job \
+        -m http://localhost:8000/ \ 
         $CLROOT/src/package/test.pack</pre>

@@ -57,20 +57,25 @@ p {
 #sidebar {
     float: right;
     float: right;
-    width: 180px;
-    padding: 5px 10px 5px 10px;
+    width: 175px;
+    height: 100%;
+    margin: 5px 0 5px 0;
+    padding: 0 10px 0 10px;
 }
 
 #article-nosidebar {
     width: 780px;
-    padding: 5px 10px 5px 10px;
+    margin: 5px 0 5px 0;
+    padding: 0 10px 0 10px;
     overflow: hidden;
 }
 
 #article-withsidebar {
     float: left;
     width: 580px;
-    padding: 5px 10px 5px 10px;
+    border-right: 1px solid #cccccc;
+    margin: 5px 0 5px 0;
+    padding: 0 10px 0 10px;
     overflow: hidden;
 }
 
@@ -92,6 +97,7 @@ ul.threebigbuttons li a {
     border-radius: 5px;
     margin-left: 2px;
     margin-right: 2px;
+    background: #777777;
     background: -webkit-gradient(linear, left top, left bottom, from(#ccc), to(#777));
     background: -moz-linear-gradient(top,  #ccc,  #999);
     filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#cccccc', endColorstr='#999999');
@@ -109,6 +115,10 @@ ul.threebigbuttons div.caption {
     margin-top: 5px;
     margin-bottom: 5px;
     font-size: 18px;
+}
+
+ul.threebigbuttons li img {
+    border-style: none;
 }
 
 #pagefooter {
