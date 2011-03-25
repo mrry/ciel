@@ -1,0 +1,121 @@
+
+
+#wrapper {
+  text-align: left;
+  width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+body {
+    background-color:#000020;
+    font-family: Helvetica Neue, Helvetica, Arial, sans-serif;
+    font-size: 12pt;
+    color:#000000;
+    text-align: center;
+    min-width: 800px;
+    margin: 0 0 0 0;
+    padding: 0 0 0 0;
+}
+
+
+h1.pageheader {
+    height: 200px;
+    width: 800px;
+    background: #0d259e url('http://www.cl.cam.ac.uk/~dgm36/ciel-logo.png') no-repeat bottom left;
+    font-family: Helvetica;
+    font-weight: bold;
+    font-size: 72pt;
+    color: #ffffff;
+    overflow: hidden;
+    line-height: 600px;
+    margin: 0 0 0 0;
+    border-top-left-radius: 15px 5px;
+    border-top-right-radius: 15px 5px;
+    border-bottom-left-radius: 15px 5px;
+    border-bottom-right-radius: 15px 5px;
+}
+
+#content {
+    background-color: #ffffff;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border-top-left-radius: 15px 5px;
+    border-top-right-radius: 15px 5px;
+    border-bottom-left-radius: 15px 5px;
+    border-bottom-right-radius: 15px 5px;
+    clear: both;
+    height: 100%;
+    overflow: auto;
+}
+
+p {
+    margin: 0 0 12pt 0;
+    padding: 0 0 0 0;
+}
+
+#sidebar {
+    float: right;
+    float: right;
+    width: 180px;
+    padding: 5px 10px 5px 10px;
+}
+
+#article-nosidebar {
+    width: 780px;
+    padding: 5px 10px 5px 10px;
+    overflow: hidden;
+}
+
+#article-withsidebar {
+    float: left;
+    width: 580px;
+    padding: 5px 10px 5px 10px;
+    overflow: hidden;
+}
+
+ul.threebigbuttons {
+    padding: 0;
+    margin: 10px 0 0 0;
+    text-align: center;
+}
+
+ul.threebigbuttons li {
+    list-style-type: none;
+    display: inline-block;
+}
+
+ul.threebigbuttons li a {
+    display: block;
+    width: 250px;
+    border: 1px solid gray;
+    border-radius: 5px;
+    margin-left: 2px;
+    margin-right: 2px;
+    background: -webkit-gradient(linear, left top, left bottom, from(#ccc), to(#777));
+    background: -moz-linear-gradient(top,  #ccc,  #999);
+    filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#cccccc', endColorstr='#999999');
+    vertical-align: bottom;
+    text-decoration: none;
+}
+
+ul.threebigbuttons li a:hover {
+    text-decoration: underline;
+}
+
+ul.threebigbuttons div.caption {
+    color: #0d259e;
+    font-weight: bold;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    font-size: 18px;
+}
+
+#pagefooter {
+    clear: both;
+}
+
+#content h1 {
+    margin-top: 0;
+}
+
