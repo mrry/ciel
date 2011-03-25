@@ -3,10 +3,14 @@
   <head>
     <meta charset="utf-8">
     <title>Skywriting language reference</title>
-    <link rel="stylesheet" type="text/css" href="/style.css" media="screen">
+    <link rel="shortcut icon" href="../../images/favicon.png">
+    <link rel="stylesheet" type="text/css" href="../../style.css" media="screen">
+    <link href="../../ext/sunburst.css" type="text/css" rel="stylesheet" />
+    <script type="text/javascript" src="../../ext/prettify.js"></script>
+
     <meta name="generator" content="nanoc 3.1.6">
   </head>
-  <body>
+  <body onload="prettyPrint()">
 <script type="text/javascript">
   var _gaq = _gaq || [];
   _gaq.push(['_setAccount', 'UA-377063-3']);
@@ -19,7 +23,10 @@
   })();
 
 </script>
-    <div id="main">
+<div id="wrapper">
+  <h1 class="pageheader">CIEL</h1>
+  <div id="content">
+    <div id="article-withsidebar">
       <h1 id="skywriting-language-reference">Skywriting language reference</h1>
 
 <p>Skywriting contains many built-in functions, and various additional
@@ -35,7 +42,7 @@ for interacting with a CIEL cluster.</p>
 
 <p>Executes an external piece of code, and waits for the result.</p>
 
-<pre><code class="CodeRay language-c">result = exec(executor, args, num_outputs);</code></pre>
+<pre class="prettyprint">result = exec(executor, args, num_outputs);</pre>
 
 <p>Let’s have something else in here.</p>
 
@@ -66,7 +73,7 @@ for interacting with a CIEL cluster.</p>
 
 <p>Creates a new task to compute a Skywriting function.</p>
 
-<pre><code class="CodeRay language-c">result = spawn(f, args);</code></pre>
+<pre class="prettyprint">result = spawn(f, args);</pre>
 
 <table>
 <thead><tr>
@@ -91,7 +98,7 @@ for interacting with a CIEL cluster.</p>
 
 <p>Creates a new task to execute and external piece of code.</p>
 
-<pre><code class="CodeRay language-c">result = spawn_exec(executor, args, num_outputs);</code></pre>
+<pre class="prettyprint">result = spawn_exec(executor, args, num_outputs);</pre>
 
 <table>
 <thead><tr>
@@ -120,7 +127,7 @@ for interacting with a CIEL cluster.</p>
 
 <p>Creates a reference from a URL.</p>
 
-<pre><code class="CodeRay language-c">result = ref(url);</code></pre>
+<pre class="prettyprint">result = ref(url);</pre>
 
 <table>
 <thead><tr>
@@ -142,7 +149,7 @@ for interacting with a CIEL cluster.</p>
 <p>Returns the value associated with the given <code>key</code> in <code>dict</code>, or
 <code>default</code> if that key is not found in <code>dict</code>.</p>
 
-<pre><code class="CodeRay language-c">result = get_key(dict, key, <span class="r">default</span>);</code></pre>
+<pre class="prettyprint">result = get_key(dict, key, default);</pre>
 
 <table>
 <thead><tr>
@@ -169,10 +176,10 @@ for interacting with a CIEL cluster.</p>
     </tr></tfoot>
 </table><h3 id="haskey">has_key()</h3>
 
-<p>Returns <code class="language-c">true</code> if the given
-<code>key</code> is found in <code>dict</code>, otherwise <code class="language-c">false</code>.</p>
+<p>Returns <code>true</code> if the given
+<code>key</code> is found in <code>dict</code>, otherwise <code>false</code>.</p>
 
-<pre><code class="CodeRay language-c">result = has_key(dict, key);</code></pre>
+<pre class="prettyprint">result = has_key(dict, key);</pre>
 
 <table>
 <thead><tr>
@@ -190,15 +197,15 @@ for interacting with a CIEL cluster.</p>
     </tr>
 </tbody>
 <tfoot><tr>
-<td>
-<code>result</code> <code class="language-c">true</code> if <code>key</code> is found in <code>dict</code>, otherwise <code class="language-c">false</code>.</td>
-      <td> </td>
+<td><code>result</code></td>
+      <td>
+<code>true</code> if <code>key</code> is found in <code>dict</code>, otherwise <code>false</code>.</td>
     </tr></tfoot>
 </table><h3 id="int">int()</h3>
 
 <p>Returns the integer value of the given <code>input</code> (typically a string).</p>
 
-<pre><code class="CodeRay language-c">result = <span class="pt">int</span>(input);</code></pre>
+<pre class="prettyprint">result = int(input);</pre>
 
 <table>
 <thead><tr>
@@ -217,7 +224,7 @@ for interacting with a CIEL cluster.</p>
 
 <p>Returns the length of the given list.</p>
 
-<pre><code class="CodeRay language-c">result = len(list);</code></pre>
+<pre class="prettyprint">result = len(list);</pre>
 
 <table>
 <thead><tr>
@@ -237,8 +244,8 @@ for interacting with a CIEL cluster.</p>
 <p>Applies a function to each element of the given <code>list</code>, and returns
 the resulting list.  Returns a list</p>
 
-<pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">mapreduce</span><span class="dl">"</span></span>;
-result = map(f, list);</code></pre>
+<pre class="prettyprint">include "mapreduce";
+result = map(f, list);</pre>
 
 <table>
 <thead><tr>
@@ -274,8 +281,8 @@ create tasks, include <code>spawn()</code> or <code>spawn_exec()</code> in the d
 <code>mapper</code> and <code>reducer</code>. Partitioning and sorting should be implemented
 in <code>mapper</code> and <code>reducer</code> respectively.</p>
 
-<pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">mapreduce</span><span class="dl">"</span></span>;
-result = mapreduce(list, mapper, reducer, num_outputs);</code></pre>
+<pre class="prettyprint">include "mapreduce";
+result = mapreduce(list, mapper, reducer, num_outputs);</pre>
 
 <table>
 <thead><tr>
@@ -308,8 +315,8 @@ result = mapreduce(list, mapper, reducer, num_outputs);</code></pre>
 
 <p>Returns a list of numbers within a given range.</p>
 
-<pre><code class="CodeRay language-c">result = range(stop);
-result = range(start, stop);</code></pre>
+<pre class="prettyprint">result = range(stop);
+result = range(start, stop);</pre>
 
 <table>
 <thead><tr>
@@ -338,8 +345,8 @@ result = range(start, stop);</code></pre>
 
 <p>Convenience function for spawning a task using the <a href="../../executors/environ"><code>environ</code> executor</a>.</p>
 
-<pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">environ</span><span class="dl">"</span></span>;
-result = environ(input_refs, command_line, num_outputs);</code></pre>
+<pre class="prettyprint">include "environ";
+result = environ(input_refs, command_line, num_outputs);</pre>
 
 <table>
 <thead><tr>
@@ -368,8 +375,8 @@ result = environ(input_refs, command_line, num_outputs);</code></pre>
 
 <p>Fetches the given URL into the cluster, and returns a reference to the resulting value.</p>
 
-<pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">grab</span><span class="dl">"</span></span>;
-result = grab(url);</code></pre>
+<pre class="prettyprint">include "grab";
+result = grab(url);</pre>
 
 <table>
 <thead><tr>
@@ -388,8 +395,8 @@ result = grab(url);</code></pre>
 
 <p>Convenience function for spawning a task using the <a href="../../executors/java"><code>java</code> executor</a>.</p>
 
-<pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">java</span><span class="dl">"</span></span>;
-result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
+<pre class="prettyprint">include "java";
+result = java(class_name, input_refs, args, jar_refs, num_outputs);</pre>
 
 <table>
 <thead><tr>
@@ -418,9 +425,9 @@ result = java(class_name, input_refs, args, jar_refs, num_outputs);</code></pre>
 
 <p>Convenience function for spawning a task using the <a href="../../executors/stdinout"><code>stdinout</code> executor</a></p>
 
-<pre><code class="CodeRay language-c">include <span class="s"><span class="dl">"</span><span class="k">stdinout</span><span class="dl">"</span></span>;
+<pre class="prettyprint">include "stdinout";
 result = stdinout(input_refs, command_line);
-result = stdinout_stream(input_refs, command_line);</code></pre>
+result = stdinout_stream(input_refs, command_line);</pre>
 
 <table>
 <thead><tr>
@@ -443,18 +450,14 @@ result = stdinout_stream(input_refs, command_line);</code></pre>
     </tr></tfoot>
 </table>
     </div>
-    <!--<div id="sidebar">
-      <h2>Documentation</h2>
-      <ul>
-        <li><a href="http://nanoc.stoneship.org/docs/">Documentation</a></li>
-        <li><a href="http://nanoc.stoneship.org/docs/3-getting-started/">Getting Started</a></li>
-      </ul>
-      <h2>Community</h2>
-      <ul>
-        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
-        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
-        <li><a href="http://projects.stoneship.org/trac/nanoc/">Wiki</a></li>
-      </ul>
-    </div>-->
-  </body>
+    <div id="sidebar">
+      <p>Dummy sidebar text.</p>
+    </div>
+  </div>
+  <div id="pagefooter">
+    <hr />
+    <p>Copyright 2011, CIEL project team.</p>
+  </div>
+</div>
+</body>
 </html>

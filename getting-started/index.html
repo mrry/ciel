@@ -3,10 +3,14 @@
   <head>
     <meta charset="utf-8">
     <title>Getting started</title>
-    <link rel="stylesheet" type="text/css" href="/style.css" media="screen">
+    <link rel="shortcut icon" href="../images/favicon.png">
+    <link rel="stylesheet" type="text/css" href="../style.css" media="screen">
+    <link href="../ext/sunburst.css" type="text/css" rel="stylesheet" />
+    <script type="text/javascript" src="../ext/prettify.js"></script>
+
     <meta name="generator" content="nanoc 3.1.6">
   </head>
-  <body>
+  <body onload="prettyPrint()">
 <script type="text/javascript">
   var _gaq = _gaq || [];
   _gaq.push(['_setAccount', 'UA-377063-3']);
@@ -19,7 +23,10 @@
   })();
 
 </script>
-    <div id="main">
+<div id="wrapper">
+  <h1 class="pageheader">CIEL</h1>
+  <div id="content">
+    <div id="article-withsidebar">
       <h1>Getting started</h1>
 
 <h2>Downloading CIEL</h2>
@@ -28,7 +35,7 @@
 repository</a>. To obtain the code, the
 first step is to checkout a working copy of the repository:</p>
 
-<pre><code class="CodeRay language-bash">$ git clone http://github.com/mrry/ciel.git</code></pre>
+<pre class="prettyprint lang-bash">$ git clone http://github.com/mrry/ciel.git</pre>
 
 <p>This will create a directory named <code>ciel</code> in the current
 directory. You can run CIEL directly from that directory.</p>
@@ -142,27 +149,27 @@ for all languages.</p>
 </tbody>
 </table><h2>Building the bindings</h2>
 
-<p>If you want to use the foreign language <a href="/executors/">executors</a>, you
+<p>If you want to use the foreign language <a href="../executors/">executors</a>, you
 will need to build the bindings by doing the following in the CIEL directory:</p>
 
-<pre><code class="CodeRay language-bash">$ ./build-all.sh</code></pre>
+<pre class="prettyprint lang-bash">$ ./build-all.sh</pre>
 
 <h2>Setting your PYTHONPATH</h2>
 
 <p>You must configure your environment before running CIEL:</p>
 
-<pre><code class="CodeRay language-bash">$ export CLROOT=/path/to/ciel/directory
-$ export PYTHONPATH=$CLROOT/src/python:$PYTHONPATH</code></pre>
+<pre class="prettyprint lang-bash">$ export CLROOT=/path/to/ciel/directory
+$ export PYTHONPATH=$CLROOT/src/python:$PYTHONPATH</pre>
 
 <h2>Starting the master and a worker</h2>
 
 <p>The master can be started with default options as follows:</p>
 
-<pre><code class="CodeRay language-bash">$ $CLROOT/scripts/run_master.sh</code></pre>
+<pre class="prettyprint lang-bash">$ $CLROOT/scripts/run_master.sh</pre>
 
 <p>In another terminal, start a worker with the following:</p>
 
-<pre><code class="CodeRay language-bash">$ $CLROOT/scripts/run_worker.sh -p 8001</code></pre>
+<pre class="prettyprint lang-bash">$ $CLROOT/scripts/run_worker.sh -p 8001</pre>
 
 <h2>Submitting your first job</h2>
 
@@ -170,20 +177,17 @@ $ export PYTHONPATH=$CLROOT/src/python:$PYTHONPATH</code></pre>
 file. Example package files can be found in the <code>src/package</code>
 directory. The following starts a simple test job:</p>
 
-<pre><code class="CodeRay language-bash">$ $CLROOT/scripts/sw-start-job -m http://localhost:8000/ $CLROOT/src/package/test.pack</code></pre>
+<pre class="prettyprint lang-bash">$ $CLROOT/scripts/sw-start-job -m http://localhost:8000/ \
+        $CLROOT/src/package/test.pack</pre>
     </div>
-    <!--<div id="sidebar">
-      <h2>Documentation</h2>
-      <ul>
-        <li><a href="http://nanoc.stoneship.org/docs/">Documentation</a></li>
-        <li><a href="http://nanoc.stoneship.org/docs/3-getting-started/">Getting Started</a></li>
-      </ul>
-      <h2>Community</h2>
-      <ul>
-        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
-        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
-        <li><a href="http://projects.stoneship.org/trac/nanoc/">Wiki</a></li>
-      </ul>
-    </div>-->
-  </body>
+    <div id="sidebar">
+      <p>Dummy sidebar text.</p>
+    </div>
+  </div>
+  <div id="pagefooter">
+    <hr />
+    <p>Copyright 2011, CIEL project team.</p>
+  </div>
+</div>
+</body>
 </html>

@@ -3,10 +3,14 @@
   <head>
     <meta charset="utf-8">
     <title>java executor</title>
-    <link rel="stylesheet" type="text/css" href="/style.css" media="screen">
+    <link rel="shortcut icon" href="../../images/favicon.png">
+    <link rel="stylesheet" type="text/css" href="../../style.css" media="screen">
+    <link href="../../ext/sunburst.css" type="text/css" rel="stylesheet" />
+    <script type="text/javascript" src="../../ext/prettify.js"></script>
+
     <meta name="generator" content="nanoc 3.1.6">
   </head>
-  <body>
+  <body onload="prettyPrint()">
 <script type="text/javascript">
   var _gaq = _gaq || [];
   _gaq.push(['_setAccount', 'UA-377063-3']);
@@ -19,7 +23,10 @@
   })();
 
 </script>
-    <div id="main">
+<div id="wrapper">
+  <h1 class="pageheader">CIEL</h1>
+  <div id="content">
+    <div id="article-withsidebar">
       <h1 id="java"><code>java</code></h1>
 
 <p>This executor invokes a Java class from a list of JARs. The Java class
@@ -27,18 +34,14 @@ must conform to the CIEL Java Task interface. This executor supports
 multiple inputs and outputs, which are exposed to the task as
 <code>InputStream</code> and <code>OutputStream</code> objects.</p>
     </div>
-    <!--<div id="sidebar">
-      <h2>Documentation</h2>
-      <ul>
-        <li><a href="http://nanoc.stoneship.org/docs/">Documentation</a></li>
-        <li><a href="http://nanoc.stoneship.org/docs/3-getting-started/">Getting Started</a></li>
-      </ul>
-      <h2>Community</h2>
-      <ul>
-        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
-        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
-        <li><a href="http://projects.stoneship.org/trac/nanoc/">Wiki</a></li>
-      </ul>
-    </div>-->
-  </body>
+    <div id="sidebar">
+      <p>Dummy sidebar text.</p>
+    </div>
+  </div>
+  <div id="pagefooter">
+    <hr />
+    <p>Copyright 2011, CIEL project team.</p>
+  </div>
+</div>
+</body>
 </html>
