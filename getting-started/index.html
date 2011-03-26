@@ -24,7 +24,7 @@
 
 </script>
 <div id="wrapper">
-  <h1 class="pageheader">CIEL</h1>
+  <a href="../"><h1 class="pageheader">CIEL</h1></a>
   <div id="content">
     <div id="article-withsidebar">
       <h1>Getting started</h1>
@@ -177,16 +177,31 @@ $ export PYTHONPATH=$CLROOT/src/python:$PYTHONPATH</pre>
 file. Example package files can be found in the <code>src/package</code>
 directory. The following starts a simple test job:</p>
 
-<pre class="prettyprint lang-bash">$ $CLROOT/scripts/sw-start-job -m http://localhost:8000/ \
+<pre class="prettyprint lang-bash">$ $CLROOT/scripts/sw-start-job \
+        -m http://localhost:8000/ \ 
         $CLROOT/src/package/test.pack</pre>
     </div>
     <div id="sidebar">
-      <p>Dummy sidebar text.</p>
+      <ul>
+	<li><a href="../">CIEL</a>
+	  <ul>
+	    <li><a href="../download/">Download</a></li>
+	    <li><a href="./">Tutorial</a></li>
+	    <li><a href="../publications/">Publications</a></li>
+	  </ul>
+	</li>
+	<li><a href="../skywriting">Skywriting</a>
+	  <ul>
+	    <li><a href="../skywriting/reference">Language reference</a></li>
+	  </ul>
+	</li>
+	<li><a href="../who-we-are/">Contact us</a></li>
+	<li><a href="../search/">Search</a></li>
+      </ul>
     </div>
   </div>
   <div id="pagefooter">
-    <hr />
-    <p>Copyright 2011, CIEL project team.</p>
+    <p>Copyright &copy; 2011, CIEL project team.</p>
   </div>
 </div>
 </body>

@@ -24,7 +24,7 @@
 
 </script>
 <div id="wrapper">
-  <h1 class="pageheader">CIEL</h1>
+  <a href="../../"><h1 class="pageheader">CIEL</h1></a>
   <div id="content">
     <div id="article-withsidebar">
       <h1 id="skywriting-language-reference">Skywriting language reference</h1>
@@ -43,8 +43,6 @@ for interacting with a CIEL cluster.</p>
 <p>Executes an external piece of code, and waits for the result.</p>
 
 <pre class="prettyprint">result = exec(executor, args, num_outputs);</pre>
-
-<p>Let’s have something else in here.</p>
 
 <table>
 <thead><tr>
@@ -396,7 +394,8 @@ result = grab(url);</pre>
 <p>Convenience function for spawning a task using the <a href="../../executors/java"><code>java</code> executor</a>.</p>
 
 <pre class="prettyprint">include "java";
-result = java(class_name, input_refs, args, jar_refs, num_outputs);</pre>
+result = java(class_name, input_refs, args,
+              jar_refs, num_outputs);</pre>
 
 <table>
 <thead><tr>
@@ -451,12 +450,26 @@ result = stdinout_stream(input_refs, command_line);</pre>
 </table>
     </div>
     <div id="sidebar">
-      <p>Dummy sidebar text.</p>
+      <ul>
+	<li><a href="../../">CIEL</a>
+	  <ul>
+	    <li><a href="../../download/">Download</a></li>
+	    <li><a href="../../getting-started/">Tutorial</a></li>
+	    <li><a href="../../publications/">Publications</a></li>
+	  </ul>
+	</li>
+	<li><a href="..">Skywriting</a>
+	  <ul>
+	    <li><a href=".">Language reference</a></li>
+	  </ul>
+	</li>
+	<li><a href="../../who-we-are/">Contact us</a></li>
+	<li><a href="../../search/">Search</a></li>
+      </ul>
     </div>
   </div>
   <div id="pagefooter">
-    <hr />
-    <p>Copyright 2011, CIEL project team.</p>
+    <p>Copyright &copy; 2011, CIEL project team.</p>
   </div>
 </div>
 </body>
