@@ -21,8 +21,6 @@ Executes an external piece of code, and waits for the result.
 
 <pre class="prettyprint">result = exec(executor, args, num_outputs);</pre>
 
-Let's have something else in here.
-
 |Argument|Description|
 |--------------------|
 | `executor` |The name of the CIEL [executor](../../executors/)  to invoke.|

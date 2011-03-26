@@ -63,6 +63,29 @@ p {
     padding: 0 10px 0 10px;
 }
 
+#sidebar ul {
+    margin: 0 0 0 0;
+    list-style-type: none;
+    padding: 0 0 0 0;
+}
+
+#sidebar ul li {
+    border-top: 1px solid gray;
+    padding-bottom: 10px;
+}
+
+#sidebar ul li ul li {
+    border-top: none;
+    padding-bottom: 0px;
+}
+
+#sidebar ul ul {
+    margin: 0 0 0px 20px;
+    list-style-type: disc;
+}
+
+
+
 #article-nosidebar {
     width: 780px;
     margin: 5px 0 5px 0;
@@ -81,7 +104,7 @@ p {
 
 ul.threebigbuttons {
     padding: 0;
-    margin: 10px 0 0 0;
+    margin: 10px 0 20px 0;
     text-align: center;
 }
 
@@ -121,11 +144,78 @@ ul.threebigbuttons li img {
     border-style: none;
 }
 
+ul.peoplelist {
+    border-top: 1px solid gray;
+    margin: 12pt 0 12pt 0;
+    padding: 0 0 0 0;
+}
+
+ul.peoplelist li {
+    margin: 0 0 0 0;
+    border-bottom: 1px solid gray;
+    height: 100%;
+    clear: both;
+    overflow: auto;
+    list-style-type: none;
+    padding: 5px 5px 5px 5px;
+}
+
+ul.peoplelist li.odd {
+    background: #cccccc;
+}
+
+ul.peoplelist li img {
+    float: right;
+    padding: 0 0 0 10px;
+}
+
+ul.peoplelist li.odd img {
+    float: left;
+    padding: 0 10px 0 0;
+}
+
 #pagefooter {
     clear: both;
+    font-size: 8pt;
+    padding-top: 10px;
+    color: #ffffff;
 }
 
 #content h1 {
     margin-top: 0;
 }
 
+.ribbon-holder {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  height: 10em;
+  right: 0;
+}
+
+.ribbon {
+  display: block;
+  background-color: #a00;
+  /* top right corner */
+  position: relative;
+  right: -3em;
+  top: 2.5em;
+  /* 45 deg ccw rotation */
+  -moz-transform: rotate(45deg);
+  -webkit-transform: rotate(45deg);
+  /* shadow */
+  -moz-box-shadow: 0 0 1em #888;
+  -webkit-box-shadow: 0 0 1em #888;
+}
+.ribbon a {
+  border: 1px solid #faa;
+  color: #fff;
+  display: block;
+  font: bold 81.25% 'Helvetiva Neue', Helvetica, Arial, sans-serif;
+  margin: 0.05em 0 0.075em 0;
+  padding: 0.5em 3.5em;
+  text-align: center;
+  text-decoration: none;
+  /* shadow */
+  text-shadow: 0 0 0.5em #444;
+}
