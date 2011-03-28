@@ -5,7 +5,7 @@ import ciel
 import threading
 from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
-from skywriting.runtime.block_store import filename_for_ref
+from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref
 from skywriting.runtime.producer import get_producer_for_id
 
 class PlanFailedError(Exception):
@@ -63,14 +63,14 @@ class FetchInProgress:
         self.run_plans()
 
     def resolve_dataval(self):
-        decoded_dataval = decode_datavalue(ref)
+        decoded_dataval = decode_datavalue(self.ref)
         if self.string_callback is not None:
             self.string_callback(decoded_datavalue)
         else:
-            filename = fetch_filename(ref)
-            with open(filename, 'w') as obj_file:
+            bs_ctx = create_fetch_file_for_ref(self.ref)
+            with open(bs_ctx.filename, 'w') as obj_file:
                 obj_file.write(decoded_dataval)
-            commit_fetch(ref)
+            bs_ctx.commit()
             self.set_filename(filename_for_ref(ref), True)
             self.result(True, None)
 

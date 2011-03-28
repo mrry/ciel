@@ -1,7 +1,7 @@
 
 from skywriting.runtime.pycurl_thread import pycURLContext
 from skywriting.runtime.pycurl_rpc import _post_string_noreturn
-from skywriting.runtime.block_store import get_fetch_urls_for_ref, fetch_filename, commit_fetch
+from skywriting.runtime.block_store import get_fetch_urls_for_ref, create_fetch_file_for_ref
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SweetheartReference
 import skywriting.runtime.remote_stat as remote_stat
 
@@ -40,16 +40,16 @@ class pycURLFetchContext(pycURLContext):
 
 class FileTransferContext:
 
-    def __init__(self, urls, save_filename, callbacks):
-        self.urls = urls
-        self.save_filename = save_filename
+    def __init__(self, ref, callbacks):
+        self.ref = ref
+        self.urls = get_fetch_urls_for_ref(self.ref)
         self.callbacks = callbacks
         self.failures = 0
         self.cancelled = False
         self.curl_fetch = None
 
     def start_next_attempt(self):
-        self.fp = open(self.save_filename, "w")
+        self.fp = open(self.callbacks.bs_ctx.filename, "w")
         ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
         self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.result, self.callbacks.progress)
         self.curl_fetch.start()
@@ -64,7 +64,7 @@ class FileTransferContext:
         else:
             self.failures += 1
             if self.failures == len(self.urls):
-                ciel.log.error('Fetch %s: no more URLs to try.' % self.save_filename, 'BLOCKSTORE', logging.INFO)
+                ciel.log.error('Fetch %s: no more URLs to try.' % self.ref.id, 'BLOCKSTORE', logging.INFO)
                 self.callbacks.result(False)
             else:
                 ciel.log.error("Fetch %s failed; trying next URL" % (self.urls[self.failures - 1]))
@@ -78,7 +78,7 @@ class FileTransferContext:
         pass
 
     def cancel(self):
-        ciel.log("Fetch %s: cancelling" % self.save_filename, "CURL_FETCH", logging.INFO)
+        ciel.log("Fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.cancelled = True
         if self.curl_fetch is not None:
             self.curl_fetch.cancel()
@@ -92,8 +92,7 @@ class StreamTransferContext:
         parsed_url = urlparse.urlparse(self.url)
         self.worker_netloc = parsed_url.netloc
         self.ref = ref
-        self.save_filename = fetch_filename(ref.id)
-        open(self.save_filename, "w").close()
+        open(callbacks.bs_ctx.filename, "w").close()
         self.callbacks = callbacks
         self.current_data_fetch = None
         self.previous_fetches_bytes_downloaded = 0
@@ -109,7 +108,7 @@ class StreamTransferContext:
         self.current_data_fetch.start()
 
     def start(self):
-        self.fp = open(self.save_filename, "w")
+        self.fp = open(self.callbacks.bs_ctx.filename, "w")
         self.start_next_fetch()
         active_stream_transfers[self.ref.id] = self
 
@@ -213,6 +212,7 @@ class pycURLFetchInProgress:
         self.listeners = []
         self.last_progress = 0
         self.ref = ref
+        self.bs_ctx = create_fetch_file_for_ref(self.ref)
         self.chunk_size = None
         self.completed = False
 
@@ -227,9 +227,9 @@ class pycURLFetchInProgress:
     def result(self, success):
         self.completed = True
         del active_http_transfers[self.ref.id]
-        commit_fetch(self.ref)
         if success:
             ref = SW2_ConcreteReference(self.ref.id, self.last_progress, [get_own_netloc()])
+            self.bs_ctx.commit()
         else:
             ref = None
         for l in self.listeners:
@@ -273,9 +273,7 @@ class HttpTransferContext:
     def start_http_fetch(self):
         new_fetch = pycURLFetchInProgress(self.ref)
         if isinstance(ref, SW2_ConcreteReference):
-            urls = get_fetch_urls_for_ref(self.ref)
-            save_filename = fetch_filename(self.ref)
-            new_ctx = FileTransferContext(urls, save_filename, new_fetch)
+            new_ctx = FileTransferContext(self.ref, new_fetch)
         else:
             new_ctx = StreamTransferContext(self.ref, new_fetch)
         active_http_transfers[ref.id] = new_fetch
@@ -287,6 +285,7 @@ class HttpTransferContext:
             self.start_http_fetch()
         active_http_transfers[ref.id].add_listener(self.fetch_client)
         self.fetch = active_http_fetches[ref.id]
+        self.fetch_client.set_filename(self.fetch.save_filename)
 
     def start(self):
         do_from_curl_thread(lambda: self._start())

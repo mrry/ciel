@@ -19,6 +19,7 @@ import struct
 import tempfile
 import logging
 import re
+import threading
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -64,19 +65,35 @@ class BlockStore:
         self.bus = bus
         self.pin_set = set()
         self.ignore_blocks = ignore_blocks
+        self.lock = threading.Lock()
 
         global singleton_blockstore
         assert singleton_blockstore is None
         singleton_blockstore = self
 
-    def allocate_new_id(self):
-        return str(uuid.uuid1())
+        def allocate_new_id(self):
+            return str(uuid.uuid1())
     
     def pin_filename(self, id): 
         return os.path.join(self.base_dir, PIN_PREFIX + id)
     
-    def fetch_filename(self, id):
-        return os.path.join(self.base_dir, '.fetch:%s' % id)
+    class OngoingFetch:
+
+        def __init__(self, ref, block_store)
+            self.ref = ref
+            self.filename = None
+            self.block_store = block_store
+            while self.filename is None:
+                possible_name = os.path.join(block_store.base_dir, ".fetch:%s:%s" % (datetime.now().microsecond), ref.id)
+                if not os.path.exists(possible_name):
+                    self.filename = possible_name
+
+        def commit(self):
+            self.block_store.commit_file(self.filename, self.block_store.filename_for_ref(self.ref))
+
+    def create_fetch_file_for_ref(self, ref):
+        with self.lock:
+            return BlockStore.OngoingFetch(ref, self)
     
     def producer_filename(self, id):
         return os.path.join(self.base_dir, '.producer:%s' % id)
@@ -109,10 +126,6 @@ class BlockStore:
     def commit_producer(self, id):
         ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
         self.commit_file(self.producer_filename(id), self.filename(id))
-
-    # Called from cURL thread
-    def commit_fetch(self, ref):
-        self.commit_file(self.fetch_filename(ref.id), self.filename(ref.id))
         
     def choose_best_netloc(self, netlocs):
         for netloc in netlocs:
@@ -225,8 +238,8 @@ def commit_producer(id):
 def get_own_netloc():
     return singleton_blockstore.netloc
 
-def fetch_filename(id):
-    return singleton_blockstore.fetch_filename(id)
+def create_fetch_file_for_ref(ref):
+    return singleton_blockstore.create_fetch_file_for_ref(ref)
     
 def producer_filename(id):
     return singleton_blockstore.producer_filename(id)
