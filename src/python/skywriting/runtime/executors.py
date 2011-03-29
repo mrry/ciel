@@ -24,6 +24,9 @@ from skywriting.runtime.exceptions import FeatureUnavailableException,\
 from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager
 
+from skywriting.runtime.producer import make_local_output
+from skywriting.runtime.fetcher import fetch_ref_async
+
 import hashlib
 import urlparse
 import simplejson
@@ -295,7 +298,7 @@ class BaseExecutor:
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
 
-class AsyncFetchCallbackCatcher:
+class SkyPyFetch:
 
     def __init__(self, ref, chunk_size):
         self.lock = threading.Lock()
@@ -304,10 +307,16 @@ class AsyncFetchCallbackCatcher:
         self.ref = ref
         self.chunk_size = chunk_size
         self.done = False
-
-    def set_fetch_client(self, client):
-        self.client = client
-
+        self.success = None
+        self.filename = None
+        self.file_blocking = None
+        fetch_ref_async(real_ref, 
+                        result_callback=self.result,
+                        progress_callback=self.progress, 
+                        reset_callback=self.reset,
+                        start_filename_callback=self.set_filename,
+                        chunk_size=chunk_size)
+        
     def progress(self, bytes):
         with self.lock:
             self.bytes = bytes
@@ -325,6 +334,21 @@ class AsyncFetchCallbackCatcher:
             self.success = False
             self.condvar.notify_all()
         self.client.cancel()
+
+    def set_filename(self, filename, is_blocking):
+        with self.lock:
+            self.filename = filename
+            self.file_blocking = is_blocking
+            self.condvar.notify_all()
+
+    def get_filename(self):
+        with self.lock:
+            while self.filename is None and self.success is None:
+                self.condvar.wait()
+            if self.filename is not None:
+                return (self.filename, self.file_blocking)
+            else:
+                return (None. None)
 
     def wait_bytes(self, bytes):
         with self.lock:
@@ -615,61 +639,58 @@ class SkyPyExecutor(BaseExecutor):
 
     def deref_async(self, ref, chunk_size):
         real_ref = self.task_record.retrieve_ref(ref)
-        new_catcher = AsyncFetchCallbackCatcher(real_ref, chunk_size)
-        new_fetch = self.block_store.fetch_ref_async(real_ref, 
-                                                     result_callback=new_catcher.result,
-                                                     progress_callback=new_catcher.progress, 
-                                                     reset_callback=new_catcher.reset,
-                                                     chunk_size=chunk_size)
-        new_catcher.set_fetch_client(new_fetch)
-        self.context_manager.add_context(new_catcher)
-        self.ongoing_fetches.append(new_catcher)
-        ret = {"filename": new_fetch.get_filename(), "done": new_catcher.done, "size": new_catcher.bytes}
-        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s" % (real_ref, chunk_size, ret["size"], ret["done"]), "SKYPY", logging.INFO)
-        if new_catcher.done:
-            if not new_catcher.success:
+        new_fetch = SkyPyFetch(real_ref, chunk_size)
+        filename, file_blocking = new_fetch.get_filename()
+        if not new_fetch.done:
+            self.context_manager.add_context(new_fetch)
+            self.ongoing_fetches.append(new_fetch)
+        # Blocking FDs like pipes are "complete" in the sense that EOF really means what it says.
+        ret = {"filename": filename, "done": new_fetch.done, "blocking": file_blocking, "size": new_fetch.bytes}
+        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"]), "SKYPY", logging.INFO)
+        if new_fetch.done:
+            if not new_fetch.success:
                 ciel.log("Async fetch %s failed early" % ref, "SKYPY", logging.WARNING)
-            ret["success"] = new_catcher.success
+            ret["success"] = new_fetch.success
         else:
             ret["success"] = True
         return ret
 
     def close_async_file(self, id, chunk_size):
-        for catcher in self.ongoing_fetches:
-            if catcher.ref.id == id and catcher.chunk_size == chunk_size:
-                self.context_manager.remove_context(catcher)
-                self.ongoing_fetches.remove(catcher)
+        for fetch in self.ongoing_fetches:
+            if fetch.ref.id == id and fetch.chunk_size == chunk_size:
+                self.context_manager.remove_context(fetch)
+                self.ongoing_fetches.remove(fetch)
                 ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "SKYPY", logging.INFO)
                 return
         ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "SKYPY", logging.WARNING)
 
     def wait_async_file(self, id, eof=None, bytes=None):
-        the_catcher = None
-        for catcher in self.ongoing_fetches:
-            if catcher.ref.id == id:
-                the_catcher = catcher
+        the_fetch = None
+        for fetch in self.ongoing_fetches:
+            if fetch.ref.id == id:
+                the_fetch = fetch
                 break
-        if the_catcher is None:
+        if the_fetch is None:
             ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "SKYPY", logging.WARNING)
             return {"success": False}
         if eof is not None:
             ciel.log("Waiting for fetch %s to complete" % id, "SKYPY", logging.INFO)
-            the_catcher.wait_eof()
+            the_fetch.wait_eof()
         else:
             ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "SKYPY", logging.INFO)
-            the_catcher.wait_bytes(bytes)
-        if the_catcher.done and not the_catcher.success:
+            the_fetch.wait_bytes(bytes)
+        if the_fetch.done and not the_fetch.success:
             ciel.log("Wait %s complete: transfer has failed" % id, "SKYPY", logging.WARNING)
             return {"success": False}
         else:
-            ret = {"size": the_catcher.bytes, "done": the_catcher.done, "success": True}
+            ret = {"size": the_fetch.bytes, "done": the_fetch.done, "success": True}
             ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "SKYPY", logging.INFO)
             return ret
 
-    def open_output(self, id, may_pipe=False, single_consumer=False):
+    def open_output(self, id, may_pipe=False):
         if id in self.ongoing_outputs:
             raise Exception("SkyPy tried to open output %s which was already open" % id)
-        new_output = self.block_store.make_local_output(id, subscribe_callback=self.subscribe_output, may_pipe=may_pipe, single_consumer=single_consumer)
+        new_output = make_local_output(id, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
         skypy_output = SkyPyOutput(new_output, self)
         self.ongoing_outputs[id] = skypy_output
         self.context_manager.add_context(skypy_output)
@@ -878,7 +899,7 @@ class ProcExecutor(BaseExecutor):
         Also, can specify what output is being created.
         Returns the created reference to the object, and (if necessary) filename."""
         id = self.task_record.create_published_output_name()
-        ctx = self.block_store.make_local_output(id)
+        ctx = make_local_output(id)
         self.open_ref_contexts[ctx.get_filename()] = ctx
         return ctx.get_filename()
     
@@ -891,7 +912,7 @@ class ProcExecutor(BaseExecutor):
     
     def write_output_file(self, index):
         """Creates a file for the output with the given index, and returns the filename."""
-        ctx = self.block_store.make_local_output(self.expected_outputs[index])
+        ctx = make_local_output(self.expected_outputs[index])
         self.open_output_contexts[index] = ctx
         return ctx.get_filename()
 
@@ -1443,8 +1464,7 @@ class SimpleExecutor(BaseExecutor):
 
 class AsyncPushThread:
 
-    def __init__(self, block_store, ref, chunk_size=67108864):
-        self.block_store = block_store
+    def __init__(self, ref, chunk_size=67108864):
         self.ref = ref
         self.chunk_size = chunk_size
         self.next_threshold = self.chunk_size
@@ -1457,35 +1477,53 @@ class AsyncPushThread:
         self.bytes_available = 0
         self.condvar = threading.Condition(self.lock)
         self.thread = None
+        self.read_filename = None
         self.filename = None
+
+    def _check_completion(self):
+        if self.success is False:
+            ciel.log("Fetch for %s failed" % self.ref, "EXEC", logging.INFO)
+            return True
+        elif self.success is True:
+            ciel.log("Fetch for %s completed; using file directly" % self.ref, "EXEC", logging.INFO)
+            return True
+        elif self.filename is not None and self.file_blocking:
+            ciel.log("Fetch for %s yielded a blocking-readable file; using directly" % self.ref, "EXEC", logging.INFO)
+            return True
+        else:
+            return False
+
+    def check_completion(self):
+        ret = self._check_completion():
+        if ret:
+            with self.lock:
+                self.filename = self.read_filename
+                self.stream_done = True
+                self.condvar.notify_all()
+        return ret
 
     def start(self, fifos_dir):
         self.fifos_dir = fifos_dir
-        self.file_fetch = self.block_store.fetch_ref_async(self.ref,
-                                                           chunk_size=self.chunk_size,
-                                                           result_callback=self.result, 
-                                                           reset_callback=self.reset, 
-                                                           progress_callback=self.progress)
-        if not self.fetch_done:
+        self.file_fetch = fetch_ref_async(self.ref,
+                                          chunk_size=self.chunk_size,
+                                          result_callback=self.result, 
+                                          reset_callback=self.reset, 
+                                          progress_callback=self.progress,
+                                          start_filename_callback=self.set_filename)
+        if not self.check_completion():
             self.thread = threading.Thread(target=self.thread_main)
             self.thread.start()
-        else:
-            ciel.log("Fetch for %s completed before first read; using file directly" % self.ref, "EXEC", logging.INFO)
-            with self.lock:
-                self.filename = self.file_fetch.get_filename()
-                self.stream_done = True
-                self.condvar.notify_all()
 
     def thread_main(self):
 
         with self.lock:
+            while self.read_filename is None and not self.fetch_done:
+                self.condvar.wait()
+            if self.check_completion():
+                return
             while self.bytes_available < self.next_threshold and not self.fetch_done:
                 self.condvar.wait()
-            if self.fetch_done:
-                ciel.log("Fetch for %s completed before we got %d bytes: using file directly" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
-                self.stream_done = True
-                self.filename = self.file_fetch.get_filename()
-                self.condvar.notify_all()
+            if self.check_completion():
                 return
             else:
                 self.stream_started = True
@@ -1495,13 +1533,12 @@ class AsyncPushThread:
     def copy_loop(self):
         
         try:
-            read_filename = self.file_fetch.get_filename()
             fifo_name = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
             os.mkfifo(fifo_name)
             with self.lock:
                 self.filename = fifo_name
                 self.condvar.notify_all()
-            with open(read_filename, "r") as input_fp:
+            with open(self.read_filename, "r") as input_fp:
                 with open(fifo_name, "w") as output_fp:
                     while True:
                         while True:
@@ -1522,7 +1559,7 @@ class AsyncPushThread:
                             while self.bytes_available < self.next_threshold and not self.fetch_done:
                                 self.condvar.wait()
         except Exception as e:
-            ciel.log("Push thread for %s died with exception %s" % (read_filename, e), "EXEC", logging.WARNING)
+            ciel.log("Push thread for %s died with exception %s" % (self.read_filename, e), "EXEC", logging.WARNING)
             with self.lock:
                 self.stream_done = True
                 self.condvar.notify_all()
@@ -1554,6 +1591,11 @@ class AsyncPushThread:
             ciel.log("FIFO-stream had begun: failing transfer", "EXEC", logging.ERROR)
             self.file_fetch.cancel()
 
+    def set_filename(self, filename, file_blocking):
+        with self.lock:
+            self.read_filename, self.file_blocking = filename, file_blocking
+            self.condvar.notify_all()
+
     def get_filename(self):
         with self.lock:
             while self.filename is None and self.success is not False:
@@ -1568,7 +1610,7 @@ class AsyncPushThread:
 
     def wait(self):
         with self.lock:
-            while not self.stream_done:
+            while (not self.stream_done) or (self.success is None):
                 self.condvar.wait()
 
 class AsyncPushGroup:
@@ -1653,10 +1695,6 @@ class ProcessRunningExecutor(SimpleExecutor):
         except KeyError:
             self.pipe_output = False
         try:
-            self.single_consumer = self.args['single_consumer']
-        except KeyError:
-            self.single_consumer = False
-        try:
             self.eager_fetch = self.args['eager_fetch']
         except KeyError:
             self.eager_fetch = False
@@ -1672,12 +1710,12 @@ class ProcessRunningExecutor(SimpleExecutor):
             push_threads = [DummyPushThread(x) for x in self.block_store.retrieve_filenames_for_refs(self.input_refs)]
             push_ctx = DummyPushGroup(push_threads)
         else:
-            push_threads = [AsyncPushThread(self.block_store, ref) for ref in self.input_refs]
+            push_threads = [AsyncPushThread(ref) for ref in self.input_refs]
             push_ctx = AsyncPushGroup(push_threads, self.make_sweetheart, self.task_record)
 
         with push_ctx:
 
-            with list_with([self.block_store.make_local_output(id, may_pipe=self.pipe_output, single_consumer=self.single_consumer) for id in self.output_ids]) as out_file_contexts:
+            with list_with([make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
 
                 if self.stream_output:
            

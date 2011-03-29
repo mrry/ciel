@@ -161,14 +161,18 @@ def package_lookup(key):
 
 class CompleteFile:
 
-    def __init__(self, ref, filename):
+    def __init__(self, ref, filename, chunk_size=None, must_close=False):
         self.ref = ref
         self.filename = filename
+        self.chunk_size = chunk_size
+        self.must_close = must_close
         self.fp = open(self.filename, "r")
         add_ref_dependency(self.ref)
 
     def close(self):
         self.fp.close()
+        if self.must_close:
+            message_helper.send_message({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size})            
         remove_ref_dependency(self.ref)
 
     def __enter__(self):
@@ -182,14 +186,19 @@ class CompleteFile:
 
     def __getstate__(self):
         if self.fp.closed:
-            return (self.ref, None)
+            return (self.ref, None, None, None)
         else:
-            return (self.ref, self.fp.tell())
+            return (self.ref, self.fp.tell(), self.chunk_size, self.must_close)
 
-    def __setstate__(self, (ref, offset)):
+    def __setstate__(self, (ref, offset, chunk_size, must_close)):
         self.ref = ref
         if offset is not None:
-            runtime_response = fetch_ref(self.ref, "deref")
+            if must_close is True:
+                runtime_response = fetch_ref(self.ref, "deref_async", chunk_size=chunk_size)
+                self.must_close = runtime_response["blocking"] and not runtime_response["done"]
+                self.chunk_size = chunk_size
+            else:
+                runtime_response = fetch_ref(self.ref, "deref")
             self.filename = runtime_response["filename"]
             self.fp = open(self.filename, "r")
             self.fp.seek(offset, os.SEEK_SET)
@@ -319,6 +328,8 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
         runtime_response = fetch_ref(ref, "deref_async", chunk_size=chunk_size)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
+        elif runtime_response["blocking"]:
+            return CompleteFile(ref, runtime_response["filename"], chunk_size=chunk_size, must_close=True)
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 

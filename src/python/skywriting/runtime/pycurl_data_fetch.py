@@ -285,7 +285,7 @@ class HttpTransferContext:
             self.start_http_fetch()
         active_http_transfers[ref.id].add_listener(self.fetch_client)
         self.fetch = active_http_fetches[ref.id]
-        self.fetch_client.set_filename(self.fetch.save_filename)
+        self.fetch_client.set_filename(self.fetch.bs_ctx.filename)
 
     def start(self):
         do_from_curl_thread(lambda: self._start())
