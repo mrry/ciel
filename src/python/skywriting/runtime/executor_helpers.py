@@ -5,7 +5,7 @@ from skywriting.runtime.fetcher import fetch_ref_async
 from skywriting.runtime.producer import make_local_output
 from shared.references import SW2_TombstoneReference
 from skywriting.runtime.exceptions import MissingInputException
-from skywriting.runtime.block_store import filename_for_ref, make_local_output
+from skywriting.runtime.block_store import filename_for_ref
 
 class ContextManager:
     def __init__(self, description):

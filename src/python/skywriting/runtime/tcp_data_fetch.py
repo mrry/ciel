@@ -70,4 +70,4 @@ class TcpTransferContext:
                 ciel.log("TCP-fetch %s: weird advertisment (%s, %s, %s, %s)" % (bytes, done, absent, failed), "TCP_FETCH", logging.ERROR)
                 self.fetch_ctx.result(False)
         else:
-            ciel.log("TCP-fetch %s: ignored advertisment as transfer is done" % self.ref.is, "TCP_FETCH", logging.WARNING)
+            ciel.log("TCP-fetch %s: ignored advertisment as transfer is done" % self.ref.id, "TCP_FETCH", logging.WARNING)

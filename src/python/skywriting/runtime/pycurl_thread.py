@@ -7,7 +7,8 @@ import os
 import threading
 import select
 
-from skywriting.runtime.producer import new_aux_connection
+from errno import EAGAIN
+from skywriting.runtime.tcp_server import new_aux_connection
 
 class pycURLContext:
 

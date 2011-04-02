@@ -3,10 +3,10 @@ import simplejson
 import tempfile
 import threading
 import os
-import skywriting.runtime.tcp_server as tcp
+import skywriting.runtime.tcp_server
 import skywriting.runtime.file_watcher as fwt
-from skywriting.runtime.pycurl_thread import post_string_noreturn
-from skywriting.runtime.block_store import get_own_netloc, producer_filename, commit_file
+import skywriting.runtime.pycurl_rpc
+from skywriting.runtime.block_store import get_own_netloc, producer_filename
 
 # Maintains a set of block IDs that are currently being written.
 # (i.e. They are in the pre-publish/streamable state, and have not been
@@ -63,8 +63,8 @@ class FileOutputContext:
         return producer_filename(self.refid)
 
     def get_stream_ref(self):
-        if tcp.tcp_server_active():
-            return SW2_SocketStreamReference(self.refid, get_own_netloc(), tcp.aux_listen_port)
+        if skywriting.runtime.tcp_server.tcp_server_active():
+            return SW2_SocketStreamReference(self.refid, get_own_netloc(), skywriting.runtime.tcp_server.aux_listen_port)
         else:
             return SW2_StreamReference(self.refid, location_hints=[get_own_netloc()])
 

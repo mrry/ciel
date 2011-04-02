@@ -22,7 +22,7 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-from skywriting.runtime.block_store import json_decode_object_hook,\
+from skywriting.runtime.references import json_decode_object_hook,\
     SWReferenceJSONEncoder
 from skywriting.runtime.remote_stat import receive_stream_advertisment
 from skywriting.runtime.producer_stat import subscribe_output, unsubscribe_output

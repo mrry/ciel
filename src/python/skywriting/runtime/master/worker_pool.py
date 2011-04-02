@@ -14,7 +14,7 @@
 from __future__ import with_statement
 from Queue import Queue
 from cherrypy.process import plugins
-from skywriting.runtime.block_store import SWReferenceJSONEncoder
+from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.pycurl_rpc import post_string_noreturn, post_string, get_string
 from skywriting.runtime.exceptions import WorkerFailedException
 import ciel

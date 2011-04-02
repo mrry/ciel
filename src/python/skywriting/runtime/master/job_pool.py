@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from cherrypy.process import plugins
-from skywriting.runtime.block_store import SWReferenceJSONEncoder
+from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.task import TASK_STATES, \
     build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED,\
     TASK_COMMITTED, TASK_QUEUED_STREAMING, TASK_STATE_NAMES

@@ -41,7 +41,7 @@ import time
 import codecs
 from subprocess import PIPE
 from datetime import datetime
-from skywriting.runtime.block_store import STREAM_RETRY, json_decode_object_hook
+from skywriting.runtime.references import json_decode_object_hook
 from errno import EPIPE
 
 import ciel
@@ -323,7 +323,7 @@ class SkyPyFetch:
             self.bytes = bytes
             self.condvar.notify_all()
 
-    def result(self, success, completed_ref)
+    def result(self, success, completed_ref):
         with self.lock:
             self.done = True
             self.success = success
@@ -1504,7 +1504,7 @@ class AsyncPushThread:
             return False
 
     def check_completion(self):
-        ret = self._check_completion():
+        ret = self._check_completion()
         if ret:
             with self.lock:
                 self.filename = self.read_filename

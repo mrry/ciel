@@ -1,5 +1,5 @@
 
-import skywriting.runtime.pycurl_thread as pct
+import skywriting.runtime.pycurl_thread
 from skywriting.runtime.producer import get_producer_for_id
 
 import threading
@@ -124,7 +124,7 @@ class TcpServer:
     def get_select_fds(self):
         return [self.aux_listen_socket.fileno()], [], []
 
-    def notify_fds(self, read_fds, _, _):
+    def notify_fds(self, read_fds, write_fds, exn_fds):
         if self.aux_listen_socket.fileno() in read_fds:
             (new_sock, _) = self.aux_listen_socket.accept()
             new_aux_connection(new_sock)
@@ -134,7 +134,7 @@ aux_listen_port = None
 def create_tcp_server(port):
     global aux_listen_port
     aux_listen_port = port
-    pct.add_event_source(TcpServer(port))
+    skywriting.runtime.pycurl_thread.add_event_source(TcpServer(port))
 
 def tcp_server_active():
     return aux_listen_port is not None

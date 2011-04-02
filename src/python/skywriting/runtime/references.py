@@ -22,3 +22,9 @@ class SWReferenceJSONEncoder(simplejson.JSONEncoder):
         else:
             return simplejson.JSONEncoder.default(self, obj)
 
+def json_decode_object_hook(dict_):
+        if '__ref__' in dict_:
+            return shared.references.build_reference_from_tuple(dict_['__ref__'])
+        else:
+            return dict_
+

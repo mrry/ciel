@@ -59,10 +59,9 @@ def sw_to_external_url(url):
 
 class BlockStore:
 
-    def __init__(self, bus, hostname, port, base_dir, ignore_blocks=False):
+    def __init__(self, hostname, port, base_dir, ignore_blocks=False):
         self.netloc = "%s:%s" % (hostname, port)
         self.base_dir = base_dir
-        self.bus = bus
         self.pin_set = set()
         self.ignore_blocks = ignore_blocks
         self.lock = threading.Lock()
@@ -79,7 +78,7 @@ class BlockStore:
     
     class OngoingFetch:
 
-        def __init__(self, ref, block_store)
+        def __init__(self, ref, block_store):
             self.ref = ref
             self.filename = None
             self.block_store = block_store

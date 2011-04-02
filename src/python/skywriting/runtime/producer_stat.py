@@ -1,6 +1,7 @@
 
 import ciel
 import simplejson
+import threading
 
 from skywriting.runtime.pycurl_rpc import post_string_noreturn
 from skywriting.runtime.block_store import filename
