@@ -1,14 +1,14 @@
 
 from cStringIO import StringIO
 import threading
-from skywriting.runtime.pycurl_thread import pycURLContext
+import skywriting.runtime.pycurl_thread
 import pycurl
 
-class pycURLBufferContext(pycURLContext):
+class pycURLBufferContext(skywriting.runtime.pycurl_thread.pycURLContext):
 
-    def __init__(self, method, in_str, out_fp, url, multi, result_callback):
+    def __init__(self, method, in_str, out_fp, url, result_callback):
         
-        pycURLContext.__init__(self, url, multi, result_callback)
+        skywriting.runtime.pycurl_thread.pycURLContext.__init__(self, url, result_callback)
 
         self.write_fp = out_fp
 
@@ -25,13 +25,13 @@ class pycURLBufferContext(pycURLContext):
 
 class BufferTransferContext:
         
-    def __init__(self, method, url, postdata, fetch_thread, result_callback=None):
+    def __init__(self, method, url, postdata, result_callback=None):
         
         self.response_buffer = StringIO()
         self.completed_event = threading.Event()
         self.result_callback = result_callback
         self.url = url
-        self.curl_ctx = pycURLBufferContext(method, postdata, self.response_buffer, url, fetch_thread, self.result)
+        self.curl_ctx = pycURLBufferContext(method, postdata, self.response_buffer, url, self.result)
 
     def start(self):
 
@@ -55,29 +55,29 @@ class BufferTransferContext:
             self.result_callback(success, self.url)
 
 # Called from cURL thread
-def _post_string_noreturn(self, url, postdata, result_callback=None):
-    ctx = BufferTransferContext("POST", url, postdata, self.fetch_thread, result_callback)
+def _post_string_noreturn(url, postdata, result_callback=None):
+    ctx = BufferTransferContext("POST", url, postdata, result_callback)
     ctx.start()
 
-def post_string_noreturn(self, url, postdata, result_callback=None):
-    self.fetch_thread.do_from_curl_thread(lambda: self._post_string_noreturn(url, postdata, result_callback))
+def post_string_noreturn(url, postdata, result_callback=None):
+    skywriting.runtime.pycurl_thread.do_from_curl_thread(lambda: _post_string_noreturn(url, postdata, result_callback))
 
 # Called from cURL thread
-def _post_string(self, url, postdata):
-    ctx = BlockStore.BufferTransferContext("POST", url, postdata, self.fetch_thread)
+def _post_string(url, postdata):
+    ctx = BufferTransferContext("POST", url, postdata)
     ctx.start()
     return ctx
 
-def post_string(self, url, postdata):
-    ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._post_string(url, postdata))
+def post_string(url, postdata):
+    ctx = skywriting.runtime.pycurl_thread.do_from_curl_thread_sync(lambda: _post_string(url, postdata))
     return ctx.get_result()
 
 # Called from the cURL thread
-def _get_string(self, url):
-    ctx = BlockStore.BufferTransferContext("GET", url, "", self.fetch_thread)
+def _get_string(url):
+    ctx = BufferTransferContext("GET", url, "")
     ctx.start()
     return ctx
 
-def get_string(self, url):
-    ctx = self.fetch_thread.do_from_curl_thread_sync(lambda: self._get_string(url))
+def get_string(url):
+    ctx = skywriting.runtime.pycurl_thread.do_from_curl_thread_sync(lambda: _get_string(url))
     return ctx.get_result()

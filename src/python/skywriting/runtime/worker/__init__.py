@@ -49,7 +49,7 @@ class Worker(plugins.SimplePlugin):
     def __init__(self, bus, port, options):
         plugins.SimplePlugin.__init__(self, bus)
 
-        create_pycurl_thread()
+        create_pycurl_thread(bus)
         if options.aux_port is not None:
             create_tcp_server(options.aux_port)
 

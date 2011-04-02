@@ -1,6 +1,6 @@
 
 import skywriting.runtime.pycurl_thread
-from skywriting.runtime.producer import get_producer_for_id
+import skywriting.runtime.producer
 
 import threading
 import socket
@@ -47,7 +47,7 @@ class SocketPusher:
         self.remote_netloc = bits[1]
         self.chunk_size = bits[2]
         sock_file.close()
-        producer = get_producer_for_id(output_id)
+        producer = skywriting.runtime.producer.get_producer_for_id(output_id)
         if producer is None:
             ciel.log("Got auxiliary TCP connection for bad output %s" % output_id, "TCP_FETCH", logging.WARNING)
             new_sock.sendall("FAIL\n")

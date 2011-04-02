@@ -48,7 +48,7 @@ class ControlRoot:
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
-        self.streamstat = StreamStatRoot(worker.block_store)
+        self.streamstat = StreamStatRoot()
         self.features = FeaturesRoot(worker.execution_features)
         self.kill = KillRoot()
         self.log = LogRoot(worker)
