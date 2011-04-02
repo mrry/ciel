@@ -12,7 +12,8 @@ import os
 import os.path
 from skywriting.runtime.util.sw_pprint import sw_pprint
 
-from skywriting.runtime.block_store import SWReferenceJSONEncoder,json_decode_object_hook,BlockStore
+from skywriting.runtime.references import SWReferenceJSONEncoder,json_decode_object_hook
+from skywriting.runtime.object_cache import retrieve_object_for_ref
 from shared.references import SW2_ConcreteReference
 from optparse import OptionParser
 import ciel
@@ -149,8 +150,7 @@ def main():
 
     result = await_job(new_job['job_id'], master_uri)
 
-    fakeBlockStore = BlockStore(ciel.engine, None, None, "/tmp")
-    reflist = fakeBlockStore.retrieve_object_for_ref(result, "json")
+    reflist = retrieve_object_for_ref(result, "json")
 
     print "GOT_RESULT", now_as_timestamp()
 

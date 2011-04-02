@@ -13,6 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.executors import kill_all_running_children
 from shared.references import SW2_FetchReference, SW2_ConcreteReference
+from skywriting.runtime.executor_helpers import ref_from_string
 import logging
 import StringIO
 
@@ -190,7 +191,7 @@ class DataRoot:
                 
         elif cherrypy.request.method == 'POST':
             request_body = cherrypy.request.body.read()
-            new_ref = self.block_store.ref_from_string(request_body, safe_id)
+            new_ref = ref_from_string(request_body, safe_id)
             if self.backup_sender is not None:
                 self.backup_sender.add_data(safe_id, request_body)
             #if self.task_pool is not None:
@@ -211,7 +212,7 @@ class DataRoot:
         if cherrypy.request.method == 'POST':
             id = self.block_store.allocate_new_id()
             request_body = cherrypy.request.body.read()
-            new_ref = self.block_store.ref_from_string(request_body, id)
+            new_ref = ref_from_string(request_body, id)
             if self.backup_sender is not None:
                 self.backup_sender.add_data(id, request_body)
             #if self.task_pool is not None:

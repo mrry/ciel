@@ -70,8 +70,8 @@ class BlockStore:
         assert singleton_blockstore is None
         singleton_blockstore = self
 
-        def allocate_new_id(self):
-            return str(uuid.uuid1())
+    def allocate_new_id(self):
+        return str(uuid.uuid1())
     
     def pin_filename(self, id): 
         return os.path.join(self.base_dir, PIN_PREFIX + id)

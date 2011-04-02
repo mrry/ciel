@@ -1,12 +1,18 @@
 
+import ciel
+import logging
+
 import simplejson
 import tempfile
 import threading
 import os
+from datetime import datetime, timedelta
+
 import skywriting.runtime.tcp_server
 import skywriting.runtime.file_watcher as fwt
 import skywriting.runtime.pycurl_rpc
 from skywriting.runtime.block_store import get_own_netloc, producer_filename
+from shared.references import SWDataValue, encode_datavalue, SW2_ConcreteReference
 
 # Maintains a set of block IDs that are currently being written.
 # (i.e. They are in the pre-publish/streamable state, and have not been
@@ -19,7 +25,6 @@ class FileOutputContext:
     # may_pipe: Should wait for a direct connection, either via local pipe or direct remote socket
     def __init__(self, refid, subscribe_callback, can_use_fd=False, may_pipe=False):
         self.refid = refid
-        self.block_store = block_store
         self.subscribe_callback = subscribe_callback
         self.file_watch = None
         self.subscriptions = []
@@ -60,7 +65,7 @@ class FileOutputContext:
                 else:
                     self.started = True
                     ciel.log("Producer for %s: timed out waiting for a consumer; writing to local block store" % self.refid, "BLOCKPIPE", logging.INFO)
-        return producer_filename(self.refid)
+        return (producer_filename(self.refid), False)
 
     def get_stream_ref(self):
         if skywriting.runtime.tcp_server.tcp_server_active():
@@ -103,10 +108,10 @@ class FileOutputContext:
                 self.closed = True
                 self.succeeded = True
             if self.direct_write_filename is None and self.direct_write_fd is None:
-                bs.commit_producer(self.refid)
+                skywriting.runtime.block_store.commit_producer(self.refid)
             if self.file_watch is not None:
                 self.file_watch.cancel()
-            self.current_size = os.stat(self.block_store.filename(self.refid)).st_size
+            self.current_size = os.stat(producer_filename(self.refid)).st_size
             for subscriber in self.subscriptions:
                 subscriber.progress(self.current_size)
                 subscriber.result(True)
@@ -223,17 +228,17 @@ class FileOutputContext:
                 self.rollback()
         return False
 
-def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
+def make_local_output(id, subscribe_callback=None, may_pipe=False):
     '''
     Creates a file-in-progress in the block store directory.
     '''
     if subscribe_callback is None:
         subscribe_callback = fwt.create_watch
     ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-    new_ctx = FileOutputContext(id, self, subscribe_callback, may_pipe)
+    new_ctx = FileOutputContext(id, subscribe_callback, may_pipe=may_pipe)
     dot_filename = producer_filename(id)
     open(dot_filename, 'wb').close()
-    streaming_producers[id] = new_producer
+    streaming_producers[id] = new_ctx
     return new_ctx
 
 def get_producer_for_id(id):

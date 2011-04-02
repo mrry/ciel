@@ -116,7 +116,8 @@ def write_fixed_ref_string(string, fixed_ref):
 
 def ref_from_string(string, id):
     output_ctx = make_local_output(id)
-    with open(output_ctx.get_filename(), "w") as fp:
+    filename, _ = output_ctx.get_filename_or_fd()
+    with open(filename, "w") as fp:
         fp.write(string)
     output_ctx.close()
     return output_ctx.get_completed_ref()
