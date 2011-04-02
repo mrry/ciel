@@ -309,23 +309,25 @@ class SkyPyFetch:
         self.done = False
         self.success = None
         self.filename = None
+        self.completed_ref = None
         self.file_blocking = None
-        fetch_ref_async(real_ref, 
-                        result_callback=self.result,
-                        progress_callback=self.progress, 
-                        reset_callback=self.reset,
-                        start_filename_callback=self.set_filename,
-                        chunk_size=chunk_size)
+        self.fetc_ctx = fetch_ref_async(real_ref, 
+                                        result_callback=self.result,
+                                        progress_callback=self.progress, 
+                                        reset_callback=self.reset,
+                                        start_filename_callback=self.set_filename,
+                                        chunk_size=chunk_size)
         
     def progress(self, bytes):
         with self.lock:
             self.bytes = bytes
             self.condvar.notify_all()
 
-    def result(self, success):
+    def result(self, success, completed_ref)
         with self.lock:
             self.done = True
             self.success = success
+            self.completed_ref = completed_ref
             self.condvar.notify_all()
 
     def reset(self):
@@ -350,6 +352,9 @@ class SkyPyFetch:
             else:
                 return (None. None)
 
+    def get_completed_ref(self):
+        return self.completed_ref
+
     def wait_bytes(self, bytes):
         with self.lock:
             while self.bytes < bytes and not self.done:
@@ -361,7 +366,7 @@ class SkyPyFetch:
                 self.condvar.wait()
 
     def cancel(self):
-        self.client.cancel()
+        self.fetch_ctx.cancel()
 
     def __enter__(self):
         return self
@@ -660,7 +665,11 @@ class SkyPyExecutor(BaseExecutor):
             if fetch.ref.id == id and fetch.chunk_size == chunk_size:
                 self.context_manager.remove_context(fetch)
                 self.ongoing_fetches.remove(fetch)
-                ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "SKYPY", logging.INFO)
+                completed_ref = fetch.get_completed_ref()
+                if completed_ref is None:
+                    ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "SKYPY", logging.INFO)
+                else:
+                    self.task_record.publish_ref(ref)
                 return
         ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "SKYPY", logging.WARNING)
 
@@ -1475,6 +1484,7 @@ class AsyncPushThread:
         self.stream_started = False
         self.bytes_copied = 0
         self.bytes_available = 0
+        self.completed_ref = None
         self.condvar = threading.Condition(self.lock)
         self.thread = None
         self.read_filename = None
@@ -1564,13 +1574,17 @@ class AsyncPushThread:
                 self.stream_done = True
                 self.condvar.notify_all()
                 
-    def get_completed_ref(self, is_sweetheart):
-        return self.file_fetch.get_completed_ref(is_sweetheart)
+    def get_completed_ref(self, make_sweetheart):
+        if make_sweetheart and self.completed_ref is not None:
+            return SW2_SweetheartReference(self.completed_ref.id, [get_own_netloc()], self.completed_ref.size_hint, self.completed_ref.netlocs)
+        else:
+            return self.completed_ref
 
-    def result(self, success):
+    def result(self, success, completed_ref):
         with self.lock:
             if self.success is None:
                 self.success = success
+                self.completed_ref = completed_ref
                 self.fetch_done = True
                 self.condvar.notify_all()
             # Else we've already failed due to a reset.

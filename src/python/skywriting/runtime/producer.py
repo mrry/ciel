@@ -33,6 +33,7 @@ class FileOutputContext:
         self.direct_write_fd = None
         self.started = False
         self.pipe_deadline = datetime.now() + timedelta(seconds=5)
+        self.cat_proc = None
         self.lock = threading.Lock()
         self.cond = threading.Condition(self.lock)
 
@@ -52,6 +53,7 @@ class FileOutputContext:
                     return (self.direct_write_filename, False)
                 elif self.direct_write_fd is not None:
                     ciel.log("Producer for %s: writing direct to consumer-supplied FD" % self.refid, "BLOCKPIPE", logging.INFO)
+                    self.started = True
                     return (self.direct_write_fd, True)
                 elif self.started:
                     ciel.log("Producer for %s: kicked by a regular-file subscription; using conventional stream-file" % self.refid, "BLOCKPIPE", logging.INFO)
@@ -86,6 +88,11 @@ class FileOutputContext:
                     pass
             if self.file_watch is not None:
                 self.file_watch.cancel()
+            if self.cat_proc is not None:
+                try:
+                    self.cat_proc.kill()
+                except:
+                    pass
             for subscriber in self.subscriptions:
                 subscriber.result(False)
 
@@ -128,29 +135,25 @@ class FileOutputContext:
             with self.lock:
                 if self.started:
                     ciel.log("Producer for %s: consumer tried to attach, but we've already started writing a file" % self.refid, "BLOCKPIPE", logging.INFO)
-                    return False
+                    ret = False
                 if consumer_filename is not None:
                     ciel.log("Producer for %s: writing to consumer-supplied filename %s" % (self.refid, consumer_filename), "BLOCKPIPE", logging.INFO)
                     self.direct_write_filename = consumer_filename
-                    consumer.start_direct_write()
-                    return True
+                    ret = True
                 elif consumer_fd is not None and self.can_use_fd:
                     ciel.log("Producer for %s: writing to consumer-supplied FD %s" % (self.refid, consumer_fd), "BLOCKPIPE", logging.INFO)
                     self.direct_write_fd = consumer_fd
-                    consumer.start_direct_write()
-                    return True
+                    ret = True
                 else:
                     self.fifo_name = tempfile.mktemp(prefix="ciel-producer-fifo-")
-                    os.mkfifo(fifo_name)
+                    os.mkfifo(self.fifo_name)
                     self.direct_write_filename = self.fifo_name
                     if consumer_fd is not None:
                         ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.INFO)
-                        consumer.start_direct_write()
-                        subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
-                        return True
-                    else:
-                        return self.direct_write_filename
+                        self.cat_proc = subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
+                    ret = True
                 self.cond.notify_all()
+                return ret
 
     def get_fifo_filename(self):
         return self.fifo_filename
@@ -178,16 +181,12 @@ class FileOutputContext:
             if self.may_pipe:
                 if self.direct_write_filename is not None or self.direct_write_fd is not None:
                     raise Exception("Tried to subscribe to output %s, but it's already being consumed directly! Bug? Or duplicate consumer task?" % self.refid)
-                self.started = True
-                if try_direct:
-                    if self.try_direct_attach_consumer(new_subscriber, consumer_filename, consumer_fd):
-                        ret = True
-                    else:
-                        self.follow_file(new_subscriber)
-                        ret = False
+                if try_direct and self.try_direct_attach_consumer(new_subscriber, consumer_filename, consumer_fd):
+                    ret = True
                 else:
                     self.follow_file(new_subscriber)
                     ret = False
+            self.started = True
             self.subscriptions.append(new_subscriber)
             self.cond.notify_all()
             return ret
@@ -232,9 +231,9 @@ def make_local_output(self, id, subscribe_callback=None, may_pipe=False):
         subscribe_callback = fwt.create_watch
     ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
     new_ctx = FileOutputContext(id, self, subscribe_callback, may_pipe)
-    streaming_producers[id] = new_producer
     dot_filename = producer_filename(id)
     open(dot_filename, 'wb').close()
+    streaming_producers[id] = new_producer
     return new_ctx
 
 def get_producer_for_id(id):
