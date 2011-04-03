@@ -2,7 +2,9 @@
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference, SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue
 
 import ciel
+import logging
 import threading
+import os
 from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
 from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref
@@ -55,6 +57,7 @@ class FetchInProgress:
         while self.current_plan < len(self.plans):
             try:
                 self.plans[self.current_plan]()
+                return
             except PlanFailedError as e:
                 self.current_plan += 1
 
@@ -65,13 +68,13 @@ class FetchInProgress:
     def resolve_dataval(self):
         decoded_dataval = decode_datavalue(self.ref)
         if self.string_callback is not None:
-            self.string_callback(decoded_datavalue)
+            self.string_callback(decoded_dataval)
         else:
             bs_ctx = create_fetch_file_for_ref(self.ref)
             with open(bs_ctx.filename, 'w') as obj_file:
                 obj_file.write(decoded_dataval)
             bs_ctx.commit()
-            self.set_filename(filename_for_ref(ref), True)
+            self.set_filename(filename_for_ref(self.ref), True)
             self.result(True, None)
 
     def use_local_file(self):
@@ -171,14 +174,14 @@ class FetchInProgress:
 #             has read sufficient data, e.g. a pipe or socket. Must be False if you intend to wait for completion.
 # * sole_consumer: If False, a copy of the file will be made to local disk as well as being supplied to the consumer.
 #                  If True, the file might be directly supplied to the producer, likely dependent on may_pipe.
-def fetch_ref_async(self, ref, result_callback, reset_callback, start_filename_callback, 
+def fetch_ref_async(ref, result_callback, reset_callback, start_filename_callback, 
                     start_fd_callback=None, string_callback=None, progress_callback=None, 
                     chunk_size=67108864, may_pipe=False, sole_consumer=False):
 
     if isinstance(ref, SWErrorReference):
         raise RuntimeSkywritingError()
     if isinstance(ref, SW2_FixedReference):
-        assert ref.fixed_netloc == self.netloc
+        assert ref.fixed_netloc == get_own_netloc()
 
     new_client = FetchInProgress(ref, result_callback, reset_callback, 
                                  start_filename_callback, start_fd_callback, 

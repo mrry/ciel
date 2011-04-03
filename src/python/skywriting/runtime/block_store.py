@@ -20,6 +20,7 @@ import tempfile
 import logging
 import re
 import threading
+from datetime import datetime
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
@@ -83,7 +84,7 @@ class BlockStore:
             self.filename = None
             self.block_store = block_store
             while self.filename is None:
-                possible_name = os.path.join(block_store.base_dir, ".fetch:%s:%s" % (datetime.now().microsecond), ref.id)
+                possible_name = os.path.join(block_store.base_dir, ".fetch:%s:%s" % (datetime.now().microsecond, ref.id))
                 if not os.path.exists(possible_name):
                     self.filename = possible_name
 
@@ -214,7 +215,7 @@ class BlockStore:
 
 ### Stateless functions
 
-def get_fetch_urls_for_ref(self, ref):
+def get_fetch_urls_for_ref(ref):
 
     if isinstance(ref, SW2_ConcreteReference):
         return ["http://%s/data/%s" % (loc_hint, ref.id) for loc_hint in ref.location_hints]

@@ -22,10 +22,11 @@ from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
 from shared.skypy_spawn import SkyPySpawn
-from skywriting.runtime.executor_helpers import ContextManager
+from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, retrieve_filenames_for_refs
 
 from skywriting.runtime.producer import make_local_output
 from skywriting.runtime.fetcher import fetch_ref_async
+from skywriting.runtime.object_cache import retrieve_object_for_ref, ref_from_object
 
 import hashlib
 import urlparse
@@ -136,7 +137,7 @@ def package_lookup(task_record, block_store, key):
     if task_record.package_ref is None:
         ciel.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
         return None
-    package_dict = block_store.retrieve_object_for_ref(task_record.package_ref, "pickle")
+    package_dict = retrieve_object_for_ref(task_record.package_ref, "pickle")
     try:
         return package_dict[key]
     except KeyError:
@@ -284,7 +285,7 @@ class BaseExecutor:
     def prepare_task_descriptor_for_execute(cls, task_descriptor, block_store):
         # Convert task_private from a reference to an object in here.
         try:
-            task_descriptor["task_private"] = block_store.retrieve_object_for_ref(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING)
+            task_descriptor["task_private"] = retrieve_object_for_ref(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING)
         except:
             ciel.log('Error retrieving task_private reference from task', 'BASE_EXECUTOR', logging.WARN, True)
             raise
@@ -293,7 +294,7 @@ class BaseExecutor:
     def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
         # Convert task_private to a reference in here. 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
-        task_private_ref = block_store.ref_from_object(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING, task_private_id)
+        task_private_ref = ref_from_object(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING, task_private_id)
         parent_task_record.publish_ref(task_private_ref)
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
@@ -500,7 +501,7 @@ class SkyPyExecutor(BaseExecutor):
             coroutine_ref = self.task_record.retrieve_ref(skypy_private["coro_ref"])
             rq_list.append(coroutine_ref)
 
-        filenames = self.block_store.retrieve_filenames_for_refs(rq_list)
+        filenames = retrieve_filenames_for_refs(rq_list)
 
         py_source_filename = filenames[0]
         if "coro_ref" in skypy_private:
@@ -606,7 +607,7 @@ class SkyPyExecutor(BaseExecutor):
                 # The interpreter is stopping because the function has completed
                 result = FileOrString(request_args, self.block_store)
                 if request_args["export_json"]:
-                    result_ref = self.block_store.ref_from_object(result.toobj(), "json", request_args["ret_output"])
+                    result_ref = ref_from_object(result.toobj(), "json", request_args["ret_output"])
                 else:
                     result_ref = result.toref(request_args["ret_output"])
                 self.task_record.publish_ref(result_ref)
@@ -633,14 +634,14 @@ class SkyPyExecutor(BaseExecutor):
         ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.task_record.retrieve_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
+            return {"success": True, "strdata": retrieve_object_for_ref(real_ref, "noop")}
         else:
-            filenames = self.block_store.retrieve_filenames_for_refs([real_ref])
+            filenames = retrieve_filenames_for_refs([real_ref])
             return {"success": True, "filename": filenames[0]}
 
     def deref_json(self, ref):
         real_ref = self.task_record.retrieve_ref(ref)
-        return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
+        return {"success": True, "obj": retrieve_object_for_ref(ref, "json")}
 
     def deref_async(self, ref, chunk_size):
         real_ref = self.task_record.retrieve_ref(ref)
@@ -880,7 +881,7 @@ class ProcExecutor(BaseExecutor):
         Options to do with eagerness, streaming, etc.
         If reference is unavailable, raises a ReferenceUnavailableException."""
         ref = self.task_record.retrieve_ref(ref)
-        return self.block_store.retrieve_filename_for_ref(ref)
+        return retrieve_filename_for_ref(ref)
         
     def spawn(self, request_args):
         """Spawns a child task. Arguments define a task_private structure. Returns a list
@@ -1133,14 +1134,14 @@ class Java2Executor(BaseExecutor):
         ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.task_record.retrieve_ref(ref)
         if isinstance(real_ref, SWDataValue):
-            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
+            return {"success": True, "strdata": retrieve_object_for_ref(real_ref, "noop")}
         else:
-            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
+            filenames = retrieve_filenames_for_refs_eager([real_ref])
             return {"success": True, "filename": filenames[0]}
 
     def deref_json(self, ref):
         real_ref = self.task_record.retrieve_ref(ref)
-        return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
+        return {"success": True, "obj": retrieve_object_for_ref(ref, "json")}
 
 
 # Imports for Skywriting
@@ -1196,7 +1197,7 @@ class SkywritingExecutor(BaseExecutor):
             task_descriptor["expected_outputs"] = [cont_delegated_output]
         if cont is not None:
             cont_id = "%s:cont" % task_descriptor["task_id"]
-            spawned_cont_ref = block_store.ref_from_object(cont, "pickle", cont_id)
+            spawned_cont_ref = ref_from_object(cont, "pickle", cont_id)
             parent_task_record.publish_ref(spawned_cont_ref)
             task_descriptor["task_private"]["cont"] = spawned_cont_ref
             task_descriptor["dependencies"].append(spawned_cont_ref)
@@ -1218,7 +1219,7 @@ class SkywritingExecutor(BaseExecutor):
 
     def start_sw_script(self, swref, args, env):
 
-        sw_file = self.block_store.retrieve_filename_for_ref(swref)
+        sw_file = retrieve_filename_for_ref(swref)
         parser = SWScriptParser()
         with open(sw_file, "r") as sw_fp:
             script = parser.parse(sw_fp.read())
@@ -1253,7 +1254,7 @@ class SkywritingExecutor(BaseExecutor):
         self.result = None
 
         if "cont" in sw_private:
-            self.continuation = self.block_store.retrieve_object_for_ref(sw_private["cont"], 'pickle')
+            self.continuation = retrieve_object_for_ref(sw_private["cont"], 'pickle')
         else:
             self.continuation = self.start_sw_script(sw_private["swfile_ref"], sw_private["start_args"], sw_private["start_env"])
 
@@ -1286,7 +1287,7 @@ class SkywritingExecutor(BaseExecutor):
             if result is None:
                 result = SWErrorReference('NO_RETURN_VALUE', 'null')
 
-            result_ref = self.block_store.ref_from_object(result, "json", task_descriptor["expected_outputs"][0])
+            result_ref = ref_from_object(result, "json", task_descriptor["expected_outputs"][0])
             self.task_record.publish_ref(result_ref)
             
         except ExecutionInterruption, ei:
@@ -1347,7 +1348,7 @@ class SkywritingExecutor(BaseExecutor):
     def eager_dereference(self, ref):
         # For SWI, all decodes are JSON
         real_ref = self.task_record.retrieve_ref(ref)
-        ret = self.block_store.retrieve_object_for_ref(real_ref, "json")
+        ret = retrieve_object_for_ref(real_ref, "json")
         self.lazy_derefs.discard(ref)
         return ret
 
@@ -1365,7 +1366,7 @@ class SkywritingExecutor(BaseExecutor):
             raise BlameUserException('Invalid object %s passed as the argument of include', 'INCLUDE', logging.ERROR)
 
         try:
-            script = self.block_store.retrieve_object_for_ref(target_ref, 'script')
+            script = retrieve_object_for_ref(target_ref, 'script')
         except:
             ciel.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
             raise BlameUserException('The included script did not parse successfully')
@@ -1401,7 +1402,7 @@ class SimpleExecutor(BaseExecutor):
 
         # Add the args dict
         args_name = "%ssimple_exec_args" % name_prefix
-        args_ref = block_store.ref_from_object(args, "pickle", args_name)
+        args_ref = ref_from_object(args, "pickle", args_name)
         parent_task_record.publish_ref(args_ref)
         task_descriptor["dependencies"].append(args_ref)
         task_descriptor["task_private"]["simple_exec_args"] = args_ref
@@ -1444,7 +1445,7 @@ class SimpleExecutor(BaseExecutor):
         self.output_ids = task_descriptor["expected_outputs"]
         self.output_refs = [None for i in range(len(self.output_ids))]
         self.succeeded = False
-        self.args = self.block_store.retrieve_object_for_ref(task_private["simple_exec_args"], "pickle")
+        self.args = retrieve_object_for_ref(task_private["simple_exec_args"], "pickle")
 
         try:
             self.debug_opts = self.args['debug_options']
@@ -1721,7 +1722,7 @@ class ProcessRunningExecutor(SimpleExecutor):
             self.make_sweetheart = []
 
         if self.eager_fetch:
-            push_threads = [DummyPushThread(x) for x in self.block_store.retrieve_filenames_for_refs(self.input_refs)]
+            push_threads = [DummyPushThread(x) for x in retrieve_filenames_for_refs(self.input_refs)]
             push_ctx = DummyPushGroup(push_threads)
         else:
             push_threads = [AsyncPushThread(ref) for ref in self.input_refs]
@@ -2014,7 +2015,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         ciel.engine.publish("worker_event", "Java: fetching JAR")
 
-        self.jar_filenames = self.block_store.retrieve_filenames_for_refs(self.jar_refs)
+        self.jar_filenames = retrieve_filenames_for_refs(self.jar_refs)
 
     def get_process_args(self):
         cp = os.getenv('CLASSPATH')
@@ -2054,7 +2055,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
-        self.dll_filenames = self.block_store.retrieve_filenames_for_refs(self.dll_refs)
+        self.dll_filenames = retrieve_filenames_for_refs(self.dll_refs)
 
     def get_process_args(self):
 
@@ -2091,7 +2092,7 @@ class CExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         ciel.engine.publish("worker_event", "C-exec: fetching SOs")
-        self.so_filenames = self.retrieve_filenames_for_refs(self.so_refs)
+        self.so_filenames = retrieve_filenames_for_refs(self.so_refs)
 
     def get_process_args(self):
 
@@ -2145,7 +2146,7 @@ class SyncExecutor(SimpleExecutor):
 
     def _execute(self):
         reflist = [self.task_record.retrieve_ref(x) for x in self.args["inputs"]]
-        self.output_refs[0] = self.block_store.ref_from_object(reflist, "json", self.output_ids[0])
+        self.output_refs[0] = ref_from_object(reflist, "json", self.output_ids[0])
 
 # XXX: Passing ref_of_string to get round a circular import. Should really move ref_of_string() to
 #      a nice utility package.

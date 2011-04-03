@@ -242,6 +242,9 @@ def make_local_output(id, subscribe_callback=None, may_pipe=False):
     return new_ctx
 
 def get_producer_for_id(id):
-    return streaming_producers[id]
+    try:
+        return streaming_producers[id]
+    except KeyError:
+        return None
 
         

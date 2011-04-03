@@ -1,5 +1,6 @@
 
 import ciel
+import logging
 import threading
 from skywriting.runtime.fetcher import fetch_ref_async
 from skywriting.runtime.producer import make_local_output
@@ -39,10 +40,12 @@ class SynchronousTransfer:
         self.ref = ref
         self.filename = None
         self.str = None
+        self.success = None
         self.finished_event = threading.Event()
 
-    def result(self, success):
+    def result(self, success, completed_ref):
         self.success = success
+        # Completed ref ignored... for now
         self.finished_event.set()
 
     def reset(self):
@@ -73,7 +76,7 @@ def retrieve_filenames_for_refs(refs):
     failed_transfers = filter(lambda x: not x.success, ctxs)
     if len(failed_transfers) > 0:
         raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
-    return [x.filename for x in sync_transfers]
+    return [x.filename for x in ctxs]
 
 def retrieve_filename_for_ref(ref):
 

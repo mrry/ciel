@@ -1,7 +1,7 @@
 
-from skywriting.runtime.pycurl_thread import pycURLContext
+from skywriting.runtime.pycurl_thread import pycURLContext, do_from_curl_thread
 from skywriting.runtime.pycurl_rpc import _post_string_noreturn
-from skywriting.runtime.block_store import get_fetch_urls_for_ref, create_fetch_file_for_ref
+from skywriting.runtime.block_store import get_fetch_urls_for_ref, create_fetch_file_for_ref, get_own_netloc
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SweetheartReference
 import skywriting.runtime.remote_stat as remote_stat
 
@@ -272,20 +272,22 @@ class HttpTransferContext:
 
     def start_http_fetch(self):
         new_fetch = pycURLFetchInProgress(self.ref)
-        if isinstance(ref, SW2_ConcreteReference):
+        if isinstance(self.ref, SW2_ConcreteReference):
             new_ctx = FileTransferContext(self.ref, new_fetch)
         else:
             new_ctx = StreamTransferContext(self.ref, new_fetch)
-        active_http_transfers[ref.id] = new_fetch
+        new_fetch.set_fetch_context(new_ctx)
+        active_http_transfers[self.ref.id] = new_fetch
+        new_ctx.start()
         
     def _start(self):
         if self.ref.id in active_http_transfers:
-            ciel.log("Joining existing fetch for ref %s" % ref, "BLOCKSTORE", logging.INFO)
+            ciel.log("Joining existing fetch for ref %s" % self.ref, "BLOCKSTORE", logging.INFO)
         else:
             self.start_http_fetch()
-        active_http_transfers[ref.id].add_listener(self.fetch_client)
-        self.fetch = active_http_fetches[ref.id]
-        self.fetch_client.set_filename(self.fetch.bs_ctx.filename)
+        active_http_transfers[self.ref.id].add_listener(self.fetch_client)
+        self.fetch = active_http_transfers[self.ref.id]
+        self.fetch_client.set_filename(self.fetch.bs_ctx.filename, False)
 
     def start(self):
         do_from_curl_thread(lambda: self._start())
