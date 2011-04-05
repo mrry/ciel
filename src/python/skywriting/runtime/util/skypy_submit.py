@@ -18,7 +18,8 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 import skywriting.runtime.util.start_job
-from skywriting.runtime.block_store import BlockStore,json_decode_object_hook
+from skywriting.runtime.references import json_decode_object_hook
+from skywriting.runtime.object_cache import retrieve_object_for_ref
 import time
 import datetime
 import simplejson
@@ -54,8 +55,7 @@ def main():
     
     result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
 
-    fakeBlockStore = BlockStore(ciel.engine, None, None, "/tmp")
-    reflist = fakeBlockStore.retrieve_object_for_ref(result, "json")
+    reflist = retrieve_object_for_ref(result, "json")
 
     return reflist[0]
 

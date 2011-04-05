@@ -17,7 +17,8 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from skywriting.runtime.block_store import BlockStore, json_decode_object_hook
+from skywriting.runtime.references import json_decode_object_hook
+from skywriting.runtime.object_cache import retrieve_object_for_ref
 import skywriting.runtime.util.start_job
 import time
 import datetime
@@ -63,10 +64,8 @@ def main():
     
     result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
     
-    fakeBlockStore = BlockStore(ciel.engine, None, None, "/tmp")
-    reflist = fakeBlockStore.retrieve_object_for_ref(result, "json")
-    sw_return = fakeBlockStore.retrieve_object_for_ref(reflist[0], "json")
-    #fakeBlockStore.stop_thread()
+    reflist = retrieve_object_for_ref(result, "json")
+    sw_return = retrieve_object_for_ref(reflist[0], "json")
     return sw_return
     
 if __name__ == '__main__':

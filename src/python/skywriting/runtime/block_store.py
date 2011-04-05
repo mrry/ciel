@@ -44,12 +44,6 @@ def get_netloc_for_sw_url(url):
 def get_id_for_sw_url(url):
     return urlparse.urlparse(url).path
 
-def json_decode_object_hook(dict_):
-        if '__ref__' in dict_:
-            return build_reference_from_tuple(dict_['__ref__'])
-        else:
-            return dict_
-
 def sw_to_external_url(url):
     parsed_url = urlparse.urlparse(url)
     if parsed_url.scheme == 'swbs':

@@ -18,7 +18,7 @@ import httplib2
 import os
 import sys
 import simplejson
-from skywriting.runtime.block_store import json_decode_object_hook,\
+from skywriting.runtime.references import json_decode_object_hook,\
     SWReferenceJSONEncoder
 import uuid
 
