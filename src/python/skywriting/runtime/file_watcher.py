@@ -91,4 +91,4 @@ def get_watcher_thread():
     return singleton_watcher
 
 def create_watch(output):
-    singleton_watcher.create_watch(output)
+    return singleton_watcher.create_watch(output)

@@ -302,23 +302,28 @@ class BaseExecutor:
 
 class SkyPyFetch:
 
-    def __init__(self, ref, chunk_size):
+    def __init__(self, ref, chunk_size, sole_consumer):
         self.lock = threading.Lock()
         self.condvar = threading.Condition(self.lock)
         self.bytes = 0
         self.ref = ref
         self.chunk_size = chunk_size
+        self.sole_consumer = sole_consumer
         self.done = False
         self.success = None
         self.filename = None
         self.completed_ref = None
         self.file_blocking = None
+        # may_pipe = True because this class is only used for async operations.
+        # The only current danger of pipes is that waiting for a transfer to complete might deadlock.
         self.fetch_ctx = fetch_ref_async(ref, 
-                                        result_callback=self.result,
-                                        progress_callback=self.progress, 
-                                        reset_callback=self.reset,
-                                        start_filename_callback=self.set_filename,
-                                        chunk_size=chunk_size)
+                                         result_callback=self.result,
+                                         progress_callback=self.progress, 
+                                         reset_callback=self.reset,
+                                         start_filename_callback=self.set_filename,
+                                         chunk_size=chunk_size,
+                                         may_pipe=True,
+                                         sole_consumer=sole_consumer)
         
     def progress(self, bytes):
         with self.lock:
@@ -649,14 +654,15 @@ class SkyPyExecutor(BaseExecutor):
         real_ref = self.task_record.retrieve_ref(ref)
         return {"success": True, "obj": retrieve_object_for_ref(ref, "json")}
 
-    def deref_async(self, ref, chunk_size):
+    def deref_async(self, ref, chunk_size, sole_consumer=False):
         real_ref = self.task_record.retrieve_ref(ref)
-        new_fetch = SkyPyFetch(real_ref, chunk_size)
+        new_fetch = SkyPyFetch(real_ref, chunk_size, sole_consumer)
         filename, file_blocking = new_fetch.get_filename()
         if not new_fetch.done:
             self.context_manager.add_context(new_fetch)
             self.ongoing_fetches.append(new_fetch)
-        # Blocking FDs like pipes are "complete" in the sense that EOF really means what it says.
+        # Definitions here: "done" means we're already certain that the producer has completed successfully.
+        # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
         ret = {"filename": filename, "done": new_fetch.done, "blocking": file_blocking, "size": new_fetch.bytes}
         ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"]), "SKYPY", logging.INFO)
         if new_fetch.done:

@@ -92,7 +92,7 @@ class FetchInProgress:
         if producer is None:
             raise PlanFailedError("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
         else:
-            is_pipe = producer.subscribe(self, try_direct=True)
+            is_pipe = producer.subscribe(self, try_direct=(self.may_pipe and self.sole_consumer))
             if is_pipe:
                 ciel.log("Fetch-ref %s: attached to direct pipe!" % self.ref, "BLOCKSTORE", logging.INFO)
                 filename = producer.get_fifo_filename()
@@ -175,7 +175,7 @@ class FetchInProgress:
 # * may_pipe: allows a producer to supply data via a channel that blocks the producer until the consumer
 #             has read sufficient data, e.g. a pipe or socket. Must be False if you intend to wait for completion.
 # * sole_consumer: If False, a copy of the file will be made to local disk as well as being supplied to the consumer.
-#                  If True, the file might be directly supplied to the producer, likely dependent on may_pipe.
+#                  If True, the file might be directly supplied to the consumer, likely dependent on may_pipe.
 def fetch_ref_async(ref, result_callback, reset_callback, start_filename_callback, 
                     start_fd_callback=None, string_callback=None, progress_callback=None, 
                     chunk_size=67108864, may_pipe=False, sole_consumer=False):

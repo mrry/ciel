@@ -317,7 +317,7 @@ class StreamingFile:
             self.fp.seek(offset, os.SEEK_SET)
         # Else we're already closed
 
-def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
+def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864):
     if not may_stream:
         runtime_response = fetch_ref(ref, "deref")
         try:
@@ -325,7 +325,7 @@ def deref_as_raw_file(ref, may_stream=False, chunk_size=67108864):
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
-        runtime_response = fetch_ref(ref, "deref_async", chunk_size=chunk_size)
+        runtime_response = fetch_ref(ref, "deref_async", chunk_size=chunk_size, sole_consumer=sole_consumer)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:
