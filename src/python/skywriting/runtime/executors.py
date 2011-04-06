@@ -402,6 +402,11 @@ class SkyPyOutput:
             self.executor._subscribe_output(self.output_ctx.refid, new_chunk_size)
         self.watch_chunk_size = new_chunk_size
 
+    def get_filename(self):
+        (filename, is_fd) = self.output_ctx.get_filename_or_fd()
+        assert not is_fd
+        return filename
+
     def get_stream_ref(self):
         return self.output_ctx.get_stream_ref()
 
@@ -910,8 +915,10 @@ class ProcExecutor(BaseExecutor):
         Returns the created reference to the object, and (if necessary) filename."""
         id = self.task_record.create_published_output_name()
         ctx = make_local_output(id)
-        self.open_ref_contexts[ctx.get_filename()] = ctx
-        return ctx.get_filename()
+        (filename, is_fd) = ctx.get_filename_or_fd()
+        assert not is_fd
+        self.open_ref_contexts[filename] = ctx
+        return filename
     
     def write_output_inline(self, index, content):
         """Creates a concrete object for the output with the given index, having the given string contents."""
@@ -924,7 +931,9 @@ class ProcExecutor(BaseExecutor):
         """Creates a file for the output with the given index, and returns the filename."""
         ctx = make_local_output(self.expected_outputs[index])
         self.open_output_contexts[index] = ctx
-        return ctx.get_filename()
+        (filename, is_fd) = ctx.get_filename_or_fd()
+        assert not is_fd
+        return filename
 
     def close_ref(self, filename):
         """Closes the open file for a constructed reference."""
@@ -1740,7 +1749,7 @@ class ProcessRunningExecutor(SimpleExecutor):
                 # We do these last, as these are the calls which can lead to stalls whilst we await a stream's beginning or end.
                 file_inputs = [push_thread.get_filename() for push_thread in push_threads]
                 
-                file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
+                file_outputs = [filename for (filename, is_fd) in (ctx.get_filename_or_fd() for ctx in out_file_contexts)]
                 
                 self.proc = self.start_process(file_inputs, file_outputs)
                 add_running_child(self.proc)

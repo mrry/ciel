@@ -56,6 +56,7 @@ class SynchronousTransfer:
 
     def return_string(self, str):
         self.str = str
+        self.success = True
         self.finished_event.set()
 
     def wait(self):

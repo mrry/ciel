@@ -3,7 +3,7 @@ import pickle
 import simplejson
 from cStringIO import StringIO
 from skywriting.lang.parser import CloudScriptParser
-from skywriting.runtime.references import SWReferenceJSONEncoder
+from skywriting.runtime.references import SWReferenceJSONEncoder, json_decode_object_hook
 from skywriting.runtime.executor_helpers import ref_from_string, retrieve_strings_for_refs
 
 def decode_handle(file):
