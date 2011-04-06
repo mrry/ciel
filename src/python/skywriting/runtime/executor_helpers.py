@@ -2,6 +2,12 @@
 import ciel
 import logging
 import threading
+import urlparse
+import hashlib
+import contextlib
+import urllib2
+import tempfile
+import shutil
 from skywriting.runtime.fetcher import fetch_ref_async
 from skywriting.runtime.producer import make_local_output
 from shared.references import SW2_TombstoneReference
@@ -132,10 +138,12 @@ def ref_from_string(string, id):
 def ref_from_external_file(filename, id):
     output_ctx = make_local_output(id)
     with output_ctx:
-        shutil.move(filename, output_ctx.get_filename())
+        (new_filename, is_fd) = output_ctx.get_filename_or_fd()
+        assert not is_fd
+        shutil.move(filename, new_filename)
     return output_ctx.get_completed_ref()
 
-def get_ref_for_url(self, url, version, task_id):
+def get_ref_for_url(url, version, task_id):
     """
     Returns a SW2_ConcreteReference for the data stored at the given URL.
     Currently, the version is ignored, but we imagine using this for e.g.

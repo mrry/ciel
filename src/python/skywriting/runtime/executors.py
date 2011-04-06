@@ -22,7 +22,8 @@ from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
 from shared.skypy_spawn import SkyPySpawn
-from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, retrieve_filenames_for_refs
+from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
+    retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, ref_from_external_file
 
 from skywriting.runtime.producer import make_local_output
 from skywriting.runtime.fetcher import fetch_ref_async
@@ -247,9 +248,9 @@ class FileOrString:
 
     def toref(self, refid):
         if self.str is not None:
-            ref = self.block_store.ref_from_string(self.str, refid)
+            ref = ref_from_string(self.str, refid)
         else:
-            ref = self.block_store.ref_from_external_file(self.filename, refid)
+            ref = ref_from_external_file(self.filename, refid)
         return ref
 
     def tostr(self):
@@ -312,7 +313,7 @@ class SkyPyFetch:
         self.filename = None
         self.completed_ref = None
         self.file_blocking = None
-        self.fetc_ctx = fetch_ref_async(real_ref, 
+        self.fetch_ctx = fetch_ref_async(ref, 
                                         result_callback=self.result,
                                         progress_callback=self.progress, 
                                         reset_callback=self.reset,
@@ -711,7 +712,9 @@ class SkyPyExecutor(BaseExecutor):
         self.context_manager.add_context(skypy_output)
         ref = skypy_output.get_stream_ref()
         self.task_record.prepublish_refs([ref])
-        return new_output.get_filename()
+        (filename, is_fd) = new_output.get_filename_or_fd()
+        assert not is_fd
+        return filename
 
     def stop_output(self, id):
         self.context_manager.remove_context(self.ongoing_outputs[id])
@@ -904,7 +907,7 @@ class ProcExecutor(BaseExecutor):
     
     def create_ref_inline(self, content):
         """Creates a new reference, with the given string contents."""
-        ref = self.block_store.ref_from_string(content, self.task_record.create_published_output_name())
+        ref = ref_from_string(content, self.task_record.create_published_output_name())
         self.task_record.publish_ref(ref)
         return ref
     
@@ -923,7 +926,7 @@ class ProcExecutor(BaseExecutor):
     def write_output_inline(self, index, content):
         """Creates a concrete object for the output with the given index, having the given string contents."""
         self.expected_output_mask.add(index)
-        ref = self.block_store.ref_from_string(content, self.task_descriptor['expected_outputs'][index])
+        ref = ref_from_string(content, self.task_descriptor['expected_outputs'][index])
         self.task_record.publish_ref(ref)
         return ref
     
@@ -1368,7 +1371,7 @@ class SkywritingExecutor(BaseExecutor):
                 target_url = 'file://%s' % os.path.join(self.stdlibbase, target_expr)
             else:
                 target_url = target_expr
-            target_ref = self.block_store.get_ref_for_url(target_url, 0, self.task_id)
+            target_ref = get_ref_for_url(target_url, 0, self.task_id)
         elif isinstance(target_expr, SWRealReference):    
             target_ref = target_expr
         else:
@@ -2132,7 +2135,7 @@ class GrabURLExecutor(SimpleExecutor):
         ciel.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
         
         for i, url in enumerate(urls):
-            ref = self.block_store.get_ref_for_url(url, version, self.task_id)
+            ref = get_ref_for_url(url, version, self.task_id)
             self.task_record.publish_ref(ref)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
             self.block_store.cache_object(ref, "json", self.output_ids[i])

@@ -12,7 +12,8 @@ import skywriting.runtime.tcp_server
 import skywriting.runtime.file_watcher as fwt
 import skywriting.runtime.pycurl_rpc
 from skywriting.runtime.block_store import get_own_netloc, producer_filename
-from shared.references import SWDataValue, encode_datavalue, SW2_ConcreteReference
+from shared.references import SWDataValue, encode_datavalue, SW2_ConcreteReference, \
+    SW2_StreamReference, SW2_CompletedReference
 
 # Maintains a set of block IDs that are currently being written.
 # (i.e. They are in the pre-publish/streamable state, and have not been
@@ -22,6 +23,8 @@ streaming_producers = dict()
 
 class FileOutputContext:
 
+    # can_use_fd: If we're presented with an FD which a consumer wishes us to write to, the producer can do that directly.
+    #             If it can't, we'll provide an intermediary FIFO for him.
     # may_pipe: Should wait for a direct connection, either via local pipe or direct remote socket
     def __init__(self, refid, subscribe_callback, can_use_fd=False, may_pipe=False):
         self.refid = refid
@@ -133,35 +136,33 @@ class FileOutputContext:
         self.file_watch.set_chunk_size(self.subscriptions[0].chunk_size)
 
     def try_direct_attach_consumer(self, consumer, consumer_filename=None, consumer_fd=None):
-        assert consumer_filename is not None or consumer_fd is not None
         if not self.may_pipe:
             return False
         else:
-            with self.lock:
-                if self.started:
-                    ciel.log("Producer for %s: consumer tried to attach, but we've already started writing a file" % self.refid, "BLOCKPIPE", logging.INFO)
-                    ret = False
-                if consumer_filename is not None:
-                    ciel.log("Producer for %s: writing to consumer-supplied filename %s" % (self.refid, consumer_filename), "BLOCKPIPE", logging.INFO)
-                    self.direct_write_filename = consumer_filename
-                    ret = True
-                elif consumer_fd is not None and self.can_use_fd:
-                    ciel.log("Producer for %s: writing to consumer-supplied FD %s" % (self.refid, consumer_fd), "BLOCKPIPE", logging.INFO)
-                    self.direct_write_fd = consumer_fd
-                    ret = True
-                else:
-                    self.fifo_name = tempfile.mktemp(prefix="ciel-producer-fifo-")
-                    os.mkfifo(self.fifo_name)
-                    self.direct_write_filename = self.fifo_name
-                    if consumer_fd is not None:
-                        ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.INFO)
-                        self.cat_proc = subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
-                    ret = True
-                self.cond.notify_all()
-                return ret
+            if self.started:
+                ciel.log("Producer for %s: consumer tried to attach, but we've already started writing a file" % self.refid, "BLOCKPIPE", logging.INFO)
+                ret = False
+            elif consumer_filename is not None:
+                ciel.log("Producer for %s: writing to consumer-supplied filename %s" % (self.refid, consumer_filename), "BLOCKPIPE", logging.INFO)
+                self.direct_write_filename = consumer_filename
+                ret = True
+            elif consumer_fd is not None and self.can_use_fd:
+                ciel.log("Producer for %s: writing to consumer-supplied FD %s" % (self.refid, consumer_fd), "BLOCKPIPE", logging.INFO)
+                self.direct_write_fd = consumer_fd
+                ret = True
+            else:
+                self.fifo_name = tempfile.mktemp(prefix="ciel-producer-fifo-")
+                os.mkfifo(self.fifo_name)
+                self.direct_write_filename = self.fifo_name
+                if consumer_fd is not None:
+                    ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.INFO)
+                    self.cat_proc = subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
+                ret = True
+            self.cond.notify_all()
+            return ret
 
     def get_fifo_filename(self):
-        return self.fifo_filename
+        return self.fifo_name
 
     def follow_file(self, new_subscriber):
         should_start_watch = False
@@ -191,6 +192,9 @@ class FileOutputContext:
                 else:
                     self.follow_file(new_subscriber)
                     ret = False
+            else:
+                self.follow_file(new_subscriber)
+                ret = False
             self.started = True
             self.subscriptions.append(new_subscriber)
             self.cond.notify_all()

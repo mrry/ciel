@@ -16,6 +16,7 @@ import shutil
 import logging
 import os
 import ciel
+from skywriting.runtime.producer import make_local_output
 
 class UploadSession:
     
@@ -23,8 +24,10 @@ class UploadSession:
         self.id = id
         self.block_store = block_store
         self.current_pos = 0
-        self.output_ctx = block_store.make_local_output(self.id)
-        self.output_filename = self.output_ctx.get_filename()
+        self.output_ctx = make_local_output(self.id)
+        (filename, is_fd) = self.output_ctx.get_filename_or_fd()
+        assert not is_fd
+        self.output_filename = filename
         
     def save_chunk(self, start_index, body_file):
         assert self.current_pos == start_index

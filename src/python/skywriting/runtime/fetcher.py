@@ -1,5 +1,6 @@
 
-from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference, SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue
+from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference,\
+    SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue
 
 import ciel
 import logging
@@ -9,6 +10,7 @@ from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
 from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref
 from skywriting.runtime.producer import get_producer_for_id
+from skywriting.runtime.exceptions import RuntimeSkywritingError
 
 class PlanFailedError(Exception):
     pass
@@ -92,10 +94,10 @@ class FetchInProgress:
         else:
             is_pipe = producer.subscribe(self, try_direct=True)
             if is_pipe:
-                ciel.log("Fetch-ref %s: attached to direct pipe!" % ref, "BLOCKSTORE", logging.INFO)
+                ciel.log("Fetch-ref %s: attached to direct pipe!" % self.ref, "BLOCKSTORE", logging.INFO)
                 filename = producer.get_fifo_filename()
             else:
-                ciel.log("Fetch-ref %s: following local producer's file" % ref, "BLOCKSTORE", logging.INFO)
+                ciel.log("Fetch-ref %s: following local producer's file" % self.ref, "BLOCKSTORE", logging.INFO)
                 filename = producer_filename(self.ref.id)
             self.set_filename(filename, is_pipe)
 
