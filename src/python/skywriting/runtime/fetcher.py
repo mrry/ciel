@@ -8,7 +8,7 @@ import threading
 import os
 from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
-from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref
+from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref, producer_filename
 from skywriting.runtime.producer import get_producer_for_id
 from skywriting.runtime.exceptions import RuntimeSkywritingError
 

@@ -1,6 +1,5 @@
 
 from skywriting.runtime.pycurl_thread import pycURLContext, do_from_curl_thread
-from skywriting.runtime.pycurl_rpc import _post_string_noreturn
 from skywriting.runtime.block_store import get_fetch_urls_for_ref, create_fetch_file_for_ref, get_own_netloc
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SweetheartReference
 import skywriting.runtime.remote_stat as remote_stat
@@ -110,7 +109,6 @@ class StreamTransferContext:
     def start(self):
         self.fp = open(self.callbacks.bs_ctx.filename, "w")
         self.start_next_fetch()
-        active_stream_transfers[self.ref.id] = self
 
     def progress(self, bytes_downloaded):
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
@@ -149,7 +147,6 @@ class StreamTransferContext:
 
     def complete(self, success):
         self.fp.close()
-        del active_stream_transfers[self.ref.id]
         self.callbacks.result(success)
 
     # Sneaky knowledge here: this call comes from the cURL thread.

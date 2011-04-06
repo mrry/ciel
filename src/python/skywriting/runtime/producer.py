@@ -184,6 +184,7 @@ class FileOutputContext:
                     new_subscriber.progress(self.current_size)
                 new_subscriber.result(self.succeeded)
                 return False
+            self.subscriptions.append(new_subscriber)
             if self.may_pipe:
                 if self.direct_write_filename is not None or self.direct_write_fd is not None:
                     raise Exception("Tried to subscribe to output %s, but it's already being consumed directly! Bug? Or duplicate consumer task?" % self.refid)
@@ -196,7 +197,6 @@ class FileOutputContext:
                 self.follow_file(new_subscriber)
                 ret = False
             self.started = True
-            self.subscriptions.append(new_subscriber)
             self.cond.notify_all()
             return ret
 
