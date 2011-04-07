@@ -20,7 +20,7 @@ def stream_link(chunk_size, input_ref, use_direct_pipes):
 
     # Convoluted structure to avoid blocking on a ref whilst we've got an output in progress
     with skypy.open_output(skypy.extra_outputs[0], may_pipe=use_direct_pipes) as out_file:
-        with skypy.deref_as_raw_file(input_ref, may_stream=True, chunk_size=chunk_size) as in_file:
+        with skypy.deref_as_raw_file(input_ref, may_stream=True, sole_consumer=True, chunk_size=chunk_size) as in_file:
             while True:
                 buf = in_file.read(4096)
                 if len(buf) == 0:
@@ -34,7 +34,7 @@ def stream_consumer(chunk_size, in_ref):
 
     bytes_read = 0
 
-    with skypy.deref_as_raw_file(in_ref, may_stream=True, chunk_size=chunk_size) as in_file:
+    with skypy.deref_as_raw_file(in_ref, may_stream=True, sole_consumer=True, chunk_size=chunk_size) as in_file:
         while True:
             str = in_file.read(4096)
             bytes_read += len(str)

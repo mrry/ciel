@@ -28,9 +28,12 @@ def subscribe_remote_output(refid, remote_netloc, chunk_size, subscriber):
     post_data = simplejson.dumps({"netloc": get_own_netloc(), "chunk_size": chunk_size})
     post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (remote_netloc, refid), post_data, result_callback=(lambda success, url: subscribe_result(refid, success, url)))
 
-def unsubscribe_remote_output(refid):
+def unsubscribe_remote_output_nopost(refid):
     with module_lock:
         del remote_stat_subscriptions[refid]
+
+def unsubscribe_remote_output(refid):
+    unsubscribe_remote_output_nopost(refid)
     post_data = simplejson.dumps({"netloc": get_own_netloc()})
     post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" 
                           % (self.worker_netloc, self.ref.id), post_data)

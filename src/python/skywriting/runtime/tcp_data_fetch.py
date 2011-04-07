@@ -1,6 +1,6 @@
 
 from shared.references import SW2_SocketStreamReference
-from skywriting.runtime.remote_stat import subscribe_remote_output_nopost
+from skywriting.runtime.remote_stat import subscribe_remote_output_nopost, unsubscribe_remote_output_nopost
 from skywriting.runtime.block_store import get_own_netloc
 import threading
 import ciel
@@ -20,7 +20,7 @@ class TcpTransferContext:
         self.done = False
 
     def start(self):
-        ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
+        ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
         self.thread.start()
 
     def thread_main(self):
@@ -37,16 +37,18 @@ class TcpTransferContext:
             with self.lock:
                 if response.find("GO") != -1:
                     ciel.log("TCP-fetch %s: transfer started" % self.ref.id, "TCP_FETCH", logging.INFO)
-                    self.fetch_ctx.set_fd(socket.fileno(), True)
+                    self.fetch_ctx.set_fd(self.sock.fileno(), True)
                 else:
                     ciel.log("TCP-fetch %s: request failed: other end said '%s'" % (self.ref.id, response), "TCP_FETCH", logging.WARNING)
+                    unsubscribe_remote_output_nopost(self.ref.id)
                     self.sock.close()
                     self.fetch_ctx.result(False)
         except Exception as e:
+            unsubscribe_remote_output_nopost(self.ref.id)
             ciel.log("TCP-fetch %s: failed due to exception %s" % (self.ref.id, repr(e)), "TCP_FETCH", logging.ERROR)
             self.fetch_ctx.result(False)
 
-    def unsubscribe(self):
+    def unsubscribe(self, fetcher):
         should_callback = False
         with self.lock:
             if self.done:
@@ -54,6 +56,7 @@ class TcpTransferContext:
             else:
                 self.done = True
                 self.sock.close()
+                unsubscribe_remote_output_nopost(self.ref.id)
         if should_callback:
             self.fetch_ctx.result(False)
 

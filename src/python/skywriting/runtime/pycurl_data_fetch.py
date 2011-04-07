@@ -292,6 +292,6 @@ class HttpTransferContext:
     def _unsubscribe(self):
         self.fetch.unsubscribe(self.fetch_client)
 
-    def unsubscribe(self):
+    def unsubscribe(self, fetcher):
         do_from_curl_thread(lambda: self._unsubscribe())
 

@@ -357,7 +357,7 @@ class SkyPyFetch:
             if self.filename is not None:
                 return (self.filename, self.file_blocking)
             else:
-                return (None. None)
+                return (None, None)
 
     def get_completed_ref(self):
         return self.completed_ref

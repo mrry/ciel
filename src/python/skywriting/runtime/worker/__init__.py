@@ -37,6 +37,7 @@ from skywriting.runtime.lighttpd import LighttpdAdapter
 from skywriting.runtime.worker.process_pool import ProcessPool
 from skywriting.runtime.worker.multiworker import MultiWorker
 from skywriting.runtime.pycurl_thread import create_pycurl_thread
+from skywriting.runtime.tcp_server import create_tcp_server
 
 class WorkerState:
     pass

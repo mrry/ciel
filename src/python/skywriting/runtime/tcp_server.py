@@ -1,6 +1,7 @@
 
 import skywriting.runtime.pycurl_thread
 import skywriting.runtime.producer
+from skywriting.runtime.block_store import producer_filename
 
 import threading
 import socket
@@ -45,16 +46,17 @@ class SocketPusher:
         bits = sock_file.readline().strip().split()
         self.refid = bits[0]
         self.remote_netloc = bits[1]
-        self.chunk_size = bits[2]
+        self.chunk_size = int(bits[2])
         sock_file.close()
-        producer = skywriting.runtime.producer.get_producer_for_id(output_id)
+        producer = skywriting.runtime.producer.get_producer_for_id(self.refid)
         if producer is None:
-            ciel.log("Got auxiliary TCP connection for bad output %s" % output_id, "TCP_FETCH", logging.WARNING)
-            new_sock.sendall("FAIL\n")
-            new_sock.close()
+            ciel.log("Got auxiliary TCP connection for bad output %s" % self.refid, "TCP_FETCH", logging.WARNING)
+            self.sock_obj.sendall("FAIL\n")
+            self.sock_obj.close()
             return None
         else:
-            return producer.subscribe(self, try_direct=True, consumer_fd=sock_file.fileno())
+            self.sock_obj.sendall("GO\n")
+            return producer.subscribe(self, try_direct=True, consumer_fd=self.sock_obj.fileno())
 
     def thread_main(self):
         try:
@@ -66,7 +68,7 @@ class SocketPusher:
                 return
             # Otherwise we'll get progress/result callbacks as we follow the producer's on-disk file.
             self.read_filename = producer_filename(self.refid)
-            ciel.log("Auxiliary TCP connection for output %s (chunk %s) attached via push thread" % (output_id, chunk_size), "TCP_FETCH", logging.INFO)
+            ciel.log("Auxiliary TCP connection for output %s (chunk %s) attached via push thread" % (self.refid, self.chunk_size), "TCP_FETCH", logging.INFO)
 
             with open(self.read_filename, "r") as input_fp:
                 while True:
@@ -99,7 +101,7 @@ class SocketPusher:
         # Callback indicating the producer is about to take our socket
         self.sock_obj.sendall("GO\n")
 
-def new_aux_connection(self, new_sock):
+def new_aux_connection(new_sock):
     try:
         handler = SocketPusher(new_sock)
         handler.start()

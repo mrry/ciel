@@ -2,6 +2,8 @@
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference,\
     SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue
 
+import tempfile
+import subprocess
 import ciel
 import logging
 import threading

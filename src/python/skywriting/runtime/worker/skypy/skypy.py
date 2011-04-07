@@ -72,7 +72,7 @@ def fetch_ref(ref, verb, **kwargs):
                     main_coro.switch()
                     continue
                 else:
-                    raise Exeception("Double failure trying to deref %s" % ref.id)
+                    raise Exception("Double failure trying to deref %s" % ref.id)
             # We're back -- the ref should be available now.
             return runtime_response
 

@@ -2,6 +2,7 @@
 import ciel
 import logging
 
+import subprocess
 import simplejson
 import tempfile
 import threading
@@ -13,7 +14,7 @@ import skywriting.runtime.file_watcher as fwt
 import skywriting.runtime.pycurl_rpc
 from skywriting.runtime.block_store import get_own_netloc, producer_filename
 from shared.references import SWDataValue, encode_datavalue, SW2_ConcreteReference, \
-    SW2_StreamReference, SW2_CompletedReference
+    SW2_StreamReference, SW2_CompletedReference, SW2_SocketStreamReference
 
 # Maintains a set of block IDs that are currently being written.
 # (i.e. They are in the pre-publish/streamable state, and have not been
@@ -72,6 +73,7 @@ class FileOutputContext:
 
     def get_stream_ref(self):
         if skywriting.runtime.tcp_server.tcp_server_active():
+            print "TCP!"
             return SW2_SocketStreamReference(self.refid, get_own_netloc(), skywriting.runtime.tcp_server.aux_listen_port)
         else:
             return SW2_StreamReference(self.refid, location_hints=[get_own_netloc()])
@@ -156,7 +158,7 @@ class FileOutputContext:
                 self.direct_write_filename = self.fifo_name
                 if consumer_fd is not None:
                     ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.INFO)
-                    self.cat_proc = subprocess.Popen(["cat < %s" % fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
+                    self.cat_proc = subprocess.Popen(["cat < %s" % self.fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
                 ret = True
             self.cond.notify_all()
             return ret
