@@ -70,9 +70,9 @@ class StreamStatRoot:
         if cherrypy.request.method == "POST":
             payload = simplejson.loads(cherrypy.request.body.read())
             if op == "subscribe":
-                subscribe_to_stream(payload["netloc"], payload["chunk_size"], id)
+                subscribe_output(payload["netloc"], payload["chunk_size"], id)
             elif op == "unsubscribe":
-                unsubscribe_from_stream(payload["netloc"], id)
+                unsubscribe_output(payload["netloc"], id)
             elif op == "advert":
                 receive_stream_advertisment(id, **payload)
             else:

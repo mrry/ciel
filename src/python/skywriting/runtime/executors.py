@@ -682,7 +682,7 @@ class SkyPyExecutor(BaseExecutor):
                 if completed_ref is None:
                     ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "SKYPY", logging.INFO)
                 else:
-                    self.task_record.publish_ref(ref)
+                    self.task_record.publish_ref(completed_ref)
                 return
         ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "SKYPY", logging.WARNING)
 
@@ -1497,7 +1497,7 @@ class AsyncPushThread:
         self.chunk_size = chunk_size
         self.next_threshold = self.chunk_size
         self.success = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.fetch_done = False
         self.stream_done = False
         self.stream_started = False
@@ -1747,7 +1747,7 @@ class ProcessRunningExecutor(SimpleExecutor):
             push_ctx = AsyncPushGroup(push_threads, self.make_sweetheart, self.task_record)
 
         with push_ctx:
-
+            
             with list_with([make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
 
                 if self.stream_output:

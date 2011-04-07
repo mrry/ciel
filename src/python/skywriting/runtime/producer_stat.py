@@ -1,7 +1,9 @@
 
 import ciel
+import logging
 import simplejson
 import threading
+import os
 
 from skywriting.runtime.pycurl_rpc import post_string_noreturn
 from skywriting.runtime.block_store import filename
@@ -53,19 +55,20 @@ def subscribe_output(otherend_netloc, chunk_size, id):
     with module_lock:
         try:
             producer = get_producer_for_id(id)
-            try:
-                remote_stream_subscribers[(id, otherend_netloc)].set_chunk_size(chunk_size)
-                ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
-            except KeyError:
-                new_subscriber = RemoteOutputSubscriber(producer, otherend_netloc, chunk_size)
-                producer.subscribe(new_subscriber, try_direct=False)
-                ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
-        except KeyError:
-            try:
-                st = os.stat(filename(id))
-                post = simplejson.dumps({"bytes": st.st_size, "done": True})
-            except OSError:
-                post = simplejson.dumps({"absent": True})
+            if producer is not None:
+                try:
+                    remote_stream_subscribers[(id, otherend_netloc)].set_chunk_size(chunk_size)
+                    ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
+                except KeyError:
+                    new_subscriber = RemoteOutputSubscriber(producer, otherend_netloc, chunk_size)
+                    producer.subscribe(new_subscriber, try_direct=False)
+                    ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
+            else:
+                try:
+                    st = os.stat(filename(id))
+                    post = simplejson.dumps({"bytes": st.st_size, "done": True})
+                except OSError:
+                    post = simplejson.dumps({"absent": True})
         except Exception as e:
             ciel.log("Subscription to %s failed with exception %s; reporting absent" % (id, e), "BLOCKSTORE", logging.WARNING)
             post = simplejson.dumps({"absent": True})

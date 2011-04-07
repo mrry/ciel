@@ -5,6 +5,9 @@ from skywriting.runtime.block_store import get_own_netloc
 import simplejson
 import threading
 
+import ciel
+import logging
+
 module_lock = threading.RLock()
 
 # Maps reference ID -> entity interested in advertisments
@@ -23,7 +26,7 @@ def subscribe_remote_output_nopost(refid, subscriber):
 def subscribe_remote_output(refid, remote_netloc, chunk_size, subscriber):
     subscribe_remote_output_nopost(refid, subscriber)
     post_data = simplejson.dumps({"netloc": get_own_netloc(), "chunk_size": chunk_size})
-    post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (remote_netloc, refid), post_data, result_callback=(lambda (success, url): subscribe_result(refid, success, url)))
+    post_string_noreturn("http://%s/control/streamstat/%s/subscribe" % (remote_netloc, refid), post_data, result_callback=(lambda success, url: subscribe_result(refid, success, url)))
 
 def unsubscribe_remote_output(refid):
     with module_lock:
@@ -35,11 +38,11 @@ def unsubscribe_remote_output(refid):
 def subscribe_result(refid, success, url):
     try:
         with module_lock:
-            remote_stat_subscription[id].subscribe_result(success, url)
+            remote_stat_subscriptions[id].subscribe_result(success, url)
     except KeyError:
         ciel.log("Subscribe-result for %s ignored as no longer subscribed" % url, "REMOTE_STAT", logging.WARNING)
 
-def receive_stream_advertisment(self, id, **args):
+def receive_stream_advertisment(id, **args):
     try:
         with module_lock:
             remote_stat_subscriptions[id].advertisment(**args)
