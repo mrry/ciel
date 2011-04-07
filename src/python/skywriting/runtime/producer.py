@@ -73,7 +73,6 @@ class FileOutputContext:
 
     def get_stream_ref(self):
         if skywriting.runtime.tcp_server.tcp_server_active():
-            print "TCP!"
             return SW2_SocketStreamReference(self.refid, get_own_netloc(), skywriting.runtime.tcp_server.aux_listen_port)
         else:
             return SW2_StreamReference(self.refid, location_hints=[get_own_netloc()])
