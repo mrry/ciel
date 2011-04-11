@@ -17,7 +17,7 @@ def subscribe_remote_output_nopost(refid, subscriber):
     with module_lock:
         try:
             if remote_stat_subscriptions[refid] != subscriber:
-                raise Exception("Remote-stat currently only supports one subscriber per remote output!")
+                raise Exception("Subscribing %s: Remote-stat currently only supports one subscriber per remote output!" % refid)
         except KeyError:
             # Nobody is currently subscribed
             pass
@@ -34,14 +34,15 @@ def unsubscribe_remote_output_nopost(refid):
 
 def unsubscribe_remote_output(refid):
     unsubscribe_remote_output_nopost(refid)
-    post_data = simplejson.dumps({"netloc": get_own_netloc()})
+    netloc = get_own_netloc()
+    post_data = simplejson.dumps({"netloc": netloc})
     post_string_noreturn("http://%s/control/streamstat/%s/unsubscribe" 
-                          % (self.worker_netloc, self.ref.id), post_data)
+                          % (netloc, refid), post_data)
 
 def subscribe_result(refid, success, url):
     try:
         with module_lock:
-            remote_stat_subscriptions[id].subscribe_result(success, url)
+            remote_stat_subscriptions[refid].subscribe_result(success, url)
     except KeyError:
         ciel.log("Subscribe-result for %s ignored as no longer subscribed" % url, "REMOTE_STAT", logging.WARNING)
 

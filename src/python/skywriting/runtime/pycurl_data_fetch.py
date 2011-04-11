@@ -99,6 +99,7 @@ class StreamTransferContext:
         self.remote_failed = False
         self.latest_advertisment = 0
         self.cancelled = False
+        self.local_done = False
         self.current_chunk_size = None
 
     def start_next_fetch(self):
@@ -124,7 +125,6 @@ class StreamTransferContext:
 
     def check_complete(self):
         if self.remote_done and self.latest_advertisment == self.previous_fetches_bytes_downloaded:
-            ciel.log("Stream-fetch %s: complete" % self.ref.id, "CURL_FETCH", logging.INFO)
             self.complete(True)
         else:
             self.consider_next_fetch()
@@ -146,8 +146,12 @@ class StreamTransferContext:
             self.check_complete()
 
     def complete(self, success):
-        self.fp.close()
-        self.callbacks.result(success)
+        if not self.local_done:
+            self.local_done = True
+            ciel.log("Stream-fetch %s: complete" % self.ref.id, "CURL_FETCH", logging.INFO)
+            remote_stat.unsubscribe_remote_output(self.ref.id)
+            self.fp.close() 
+            self.callbacks.result(success)        
 
     # Sneaky knowledge here: this call comes from the cURL thread.
     def subscribe_result(self, success, _):
@@ -174,7 +178,7 @@ class StreamTransferContext:
         remote_stat.unsubscribe_remote_output(self.ref.id)
         if self.current_data_fetch is not None:
             self.current_data_fetch.cancel()
-        self.callbacks.result(False)
+        self.complete(False)
 
     def _advertisment(self, bytes=None, done=None, absent=None, failed=None):
         if self.cancelled:
@@ -189,7 +193,7 @@ class StreamTransferContext:
                 self.complete(False)
         else:
             ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (self.ref.id, bytes, done), "CURL_FETCH", logging.INFO)
-            if self.latest_advertisment < bytes:
+            if self.latest_advertisment <= bytes:
                 self.latest_advertisment = bytes
             else:
                 ciel.log("Stream-fetch %s: intriguing anomaly: advert for %d bytes; currently have %d. Probable reordering in the network" % (self.ref.id, bytes, self.latest_advertisment), "CURL_FETCH", logging.WARNING)
