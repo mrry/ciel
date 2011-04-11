@@ -15,7 +15,6 @@
  */
 package com.asgow.ciel.references;
 
-import com.asgow.ciel.protocol.CielProtos.Reference;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -37,11 +36,6 @@ public final class SweetheartReference extends ConcreteReference {
 		this.addLocation(sweetheartLocation);
 	}
 	
-	public SweetheartReference(Reference ref) {
-		super(ref);
-		this.sweetheartLocation = new Netloc(ref.getSweetheart());
-	}
-	
 	public SweetheartReference(JsonArray refTuple) {
 		this(refTuple.get(1).getAsString(), refTuple.get(3).getAsLong(), new Netloc(refTuple.get(2).getAsString()));
 		for (JsonElement elem : refTuple.get(4).getAsJsonArray()) {
@@ -51,10 +45,6 @@ public final class SweetheartReference extends ConcreteReference {
 	
 	public Netloc getSweetheartLocation() {
 		return this.sweetheartLocation;
-	}
-	
-	public com.asgow.ciel.protocol.CielProtos.Reference.Builder buildProtoBuf(com.asgow.ciel.protocol.CielProtos.Reference.Builder builder) {
-		return super.buildProtoBuf(builder).setSweetheart(this.sweetheartLocation.asProtoBuf());
 	}
 	
 	public static final JsonPrimitive IDENTIFIER = new JsonPrimitive("<3");

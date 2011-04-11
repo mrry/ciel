@@ -8,8 +8,6 @@ import stackless
 import pickle
 import imp
 import sys
-import tempfile
-import traceback
 import os
 
 import skypy

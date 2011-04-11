@@ -3,16 +3,11 @@ from __future__ import with_statement
 
 import stackless
 import pickle
-import hashlib
-import tempfile
 import traceback
 import os
-import sys
 from contextlib import closing
 from StringIO import StringIO
 
-import shared.references
-from shared.references import SW2_FutureReference
 from shared.io_helpers import MaybeFile
 
 from file_outputs import OutputFile
@@ -23,6 +18,8 @@ persistent_state = None
 taskid = None
 ret_output = None
 other_outputs = None
+message_helper = None
+file_outputs = None
 
 # Volatile; emptied each run
 ref_cache = dict()
@@ -56,9 +53,7 @@ class ResumeState:
 def fetch_ref(ref, verb, **kwargs):
 
     global halt_reason
-    global ref_cache
-    global halt_spawn_id
-    
+        
     if ref.id in ref_cache:
         return ref_cache[ref.id]
     else:
@@ -147,8 +142,9 @@ def spawn_exec(executor_name, **args):
 def sync_exec(executor_name, **args):
     return do_exec(executor_name, True, **args)
 
-class PackageKeyError:
+class PackageKeyError(Exception):
     def __init__(self, key):
+        Exception.__init__(self)
         self.key = key
 
 def package_lookup(key):

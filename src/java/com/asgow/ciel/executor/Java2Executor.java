@@ -3,7 +3,6 @@ package com.asgow.ciel.executor;
 import java.net.MalformedURLException;
 import java.net.URL;
 
-import com.asgow.ciel.protocol.executors.Java2.Java2TaskPrivate;
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.tasks.Java2Task;
 import com.asgow.ciel.tasks.TaskDescriptor;
@@ -14,6 +13,8 @@ public class Java2Executor {
 
 	public static Java2Task buildTask (ExecutionContext context, TaskDescriptor descriptor) {
 		
+		return null;
+/*		
 		Reference taskPrivateRef = descriptor.getPrivateData();
 		Java2TaskPrivate taskPrivateData = context.getObjectForReference(taskPrivateRef, Java2TaskPrivate.class);
 
@@ -48,6 +49,8 @@ public class Java2Executor {
 		}
 		
 		return task;
+		
+		*/
 		
 	}
 	

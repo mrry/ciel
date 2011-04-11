@@ -19,9 +19,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-import com.asgow.ciel.protocol.CielProtos.NetworkLocation;
-import com.asgow.ciel.protocol.CielProtos.Reference.Builder;
-import com.asgow.ciel.protocol.CielProtos.Reference.ReferenceType;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -50,13 +47,6 @@ public class ConcreteReference extends Reference {
 		this.addLocation(location);
 	}
 	
-	public ConcreteReference (com.asgow.ciel.protocol.CielProtos.Reference ref) {
-		this(ref.getId(), ref.getSizeHint());
-		for (NetworkLocation netloc : ref.getLocationHintsList()) {
-			this.addLocation(new Netloc(netloc));
-		}
-	}
-	
 	public ConcreteReference (JsonArray refTuple) {
 		this(refTuple.get(1).getAsString(), refTuple.get(2).getAsLong());
 		for (JsonElement elem : refTuple.get(3).getAsJsonArray()) {
@@ -78,15 +68,6 @@ public class ConcreteReference extends Reference {
 	
 	public boolean isConsumable() {
 		return true;
-	}
-
-	@Override
-	public Builder buildProtoBuf(Builder builder) {
-		builder.setType(ReferenceType.CONCRETE).setSizeHint(this.sizeHint);
-		for (Netloc hint : this.locationHints) {
-			builder.addLocationHints(hint.asProtoBuf());
-		}		
-		return builder;
 	}
 	
 	public static final JsonPrimitive IDENTIFIER = new JsonPrimitive("c2");

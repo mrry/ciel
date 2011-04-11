@@ -12,10 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.executors import kill_all_running_children
-from shared.references import SW2_FetchReference, SW2_ConcreteReference
 from skywriting.runtime.executor_helpers import ref_from_string
-import logging
-import StringIO
 
 '''
 Created on 8 Feb 2010
@@ -31,9 +28,6 @@ import sys
 import simplejson
 import cherrypy
 import os
-import time
-import ciel
-import logging
 
 class WorkerRoot:
     

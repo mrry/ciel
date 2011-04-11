@@ -29,43 +29,13 @@ public abstract class Reference {
 		this.id = id;
 	}
 	
-	protected Reference (com.asgow.ciel.protocol.CielProtos.Reference ref) {
-		this.id = ref.getId();
-	}
-	
 	public String getId() {
 		return this.id;
 	}
 	
 	abstract public boolean isConsumable();
 	
-	public abstract com.asgow.ciel.protocol.CielProtos.Reference.Builder buildProtoBuf(com.asgow.ciel.protocol.CielProtos.Reference.Builder builder);
-	
 	public abstract JsonObject toJson();
-	
-	public com.asgow.ciel.protocol.CielProtos.Reference asProtoBuf() {
-		com.asgow.ciel.protocol.CielProtos.Reference.Builder builder = com.asgow.ciel.protocol.CielProtos.Reference.newBuilder();
-		builder.setId(this.id);
-		this.buildProtoBuf(builder);
-		return builder.build();
-	}
-	
-	public static Reference fromProtoBuf(com.asgow.ciel.protocol.CielProtos.Reference ref) {
-		switch (ref.getType()) {
-		case CONCRETE:
-			return new ConcreteReference(ref);
-		case FUTURE:
-			return new FutureReference(ref);
-		case STREAM:
-			return new StreamReference(ref);
-		case SWEETHEART:
-			return new SweetheartReference(ref);
-		case VALUE:
-			return new ValueReference(ref);
-		default:
-			throw new UnsupportedOperationException("Cannot handle references of type: " + ref.getType());
-		}
-	}
 	
 	public static Reference fromJson(JsonObject jsonRef) {
 		JsonArray refTuple = jsonRef.get("__ref__").getAsJsonArray();

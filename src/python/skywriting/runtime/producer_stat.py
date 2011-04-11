@@ -78,7 +78,7 @@ def subscribe_output(otherend_netloc, chunk_size, id):
 def unsubscribe_output(otherend_netloc, id):
     with module_lock:
         try:
-            self.remote_stream_subscribers[(id, otherend_netloc)].cancel()
+            remote_stream_subscribers[(id, otherend_netloc)].cancel()
             ciel.log("%s unsubscribed from %s" % (otherend_netloc, id), "BLOCKSTORE", logging.INFO)
         except KeyError:
             ciel.log("Ignored unsubscribe request for unknown block %s" % id, "BLOCKSTORE", logging.WARNING)
