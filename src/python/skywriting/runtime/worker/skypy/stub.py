@@ -33,11 +33,16 @@ unbuffered_stdin = os.fdopen(0, "r", 0)
 entry_dict = pickle.load(unbuffered_stdin)
 
 skypy.main_coro = stackless.coroutine.getcurrent()
-user_script_namespace = imp.load_source("user_script_namespace", entry_dict["source_filename"])
 
-if "coro_filename" in entry_dict:
+with skypy.deref_as_raw_file(entry_dict["py_ref"]) as py_file:
+    source_filename = py_file.filename
+user_script_namespace = imp.load_source("user_script_namespace", source_filename)
+
+if "coro_ref" in entry_dict:
     print >>sys.stderr, "SkyPy: Resuming"
-    resume_fp = open(entry_dict["coro_filename"], "r")
+    with skypy.deref_as_raw_file(entry_dict["coro_ref"]) as coro_fp:
+        coro_filename = coro_fp.filename
+    resume_fp = open(coro_filename, "r")
     resume_state = pickle.load(resume_fp)
     resume_fp.close()
     user_coro = resume_state.coro
@@ -52,6 +57,7 @@ if not entry_dict["is_continuation"]:
     resume_state.persistent_state.export_json = entry_dict["export_json"]
     resume_state.persistent_state.ret_output = entry_dict["ret_output"]
     resume_state.persistent_state.extra_outputs = entry_dict["extra_outputs"]
+    resume_state.persistent_state.py_ref = entry_dict["py_ref"]
 skypy.persistent_state = resume_state.persistent_state
 skypy.extra_outputs = skypy.persistent_state.extra_outputs
 
@@ -64,7 +70,8 @@ user_coro.switch()
 with MaybeFile() as output_fp:
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
         pickle.dump(resume_state, output_fp)
-        out_dict = {"request": "freeze", 
+        out_dict = {"request": "freeze",
+                    "py_ref": skypy.persistent_state.py_ref,
                     "additional_deps": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]}
     elif skypy.halt_reason == skypy.HALT_DONE:
         if skypy.persistent_state.export_json:

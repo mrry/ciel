@@ -60,6 +60,7 @@ def fetch_ref(ref, verb, **kwargs):
         return ref_cache[ref.id]
     else:
         for tries in range(2):
+            add_ref_dependency(ref)
             send_dict = {"request": verb, "ref": ref}
             send_dict.update(kwargs)
             runtime_response = message_helper.synchronous_request(send_dict)
@@ -70,6 +71,7 @@ def fetch_ref(ref, verb, **kwargs):
                     continue
                 else:
                     raise Exception("Double failure trying to deref %s" % ref.id)
+            remove_ref_dependency(ref)
             # We're back -- the ref should be available now.
             return runtime_response
 

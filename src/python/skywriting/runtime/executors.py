@@ -406,6 +406,8 @@ class SkyPyExecutor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
         self.skypybase = os.getenv("CIEL_SKYPY_BASE")
         self.proc = None
+        self.ongoing_fetches = []
+        self.ongoing_outputs = dict()
         self.transmit_lock = threading.Lock()
 
     @classmethod
@@ -465,30 +467,8 @@ class SkyPyExecutor(BaseExecutor):
 
         self.task_descriptor = task_descriptor
         self.task_record = task_record
-        halt_dependencies = []
         skypy_private = task_private
-
-        self.ongoing_fetches = []
-        self.ongoing_outputs = dict()
-
-        pyfile_ref = self.task_record.retrieve_ref(skypy_private["py_ref"])
-        self.pyfile_ref = pyfile_ref
-        rq_list = [pyfile_ref]
-        if "coro_ref" in skypy_private:
-            coroutine_ref = self.task_record.retrieve_ref(skypy_private["coro_ref"])
-            rq_list.append(coroutine_ref)
-
-        filenames = retrieve_filenames_for_refs(rq_list)
-
-        py_source_filename = filenames[0]
-        if "coro_ref" in skypy_private:
-            coroutine_filename = filenames[1]
-            ciel.log.error('Fetched coroutine image to %s, .py source to %s' 
-                               % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
-        else:
-            ciel.log.error("Fetched .py source to %s; starting from entry point %s, args %s"
-                               % (py_source_filename, skypy_private["entry_point"], skypy_private["entry_args"]))
-
+        
         pypy_env = os.environ.copy()
         pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
 
@@ -499,17 +479,7 @@ class SkyPyExecutor(BaseExecutor):
         # Handle used for aborting the process.
         self.proc = self.pypy_process
 
-        if "coro_ref" not in skypy_private:
-            start_dict = {"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}
-        else:
-            start_dict = {"coro_filename": coroutine_filename}
-        start_dict.update({"source_filename": py_source_filename,
-                           "is_continuation": skypy_private["is_continuation"]})
-        if not skypy_private["is_continuation"]:
-            start_dict.update({"extra_outputs": skypy_private["extra_outputs"], 
-                               "ret_output": skypy_private["ret_output"], 
-                               "export_json": skypy_private["export_json"]})
-        pickle.dump(start_dict, self.pypy_process.stdin)
+        pickle.dump(skypy_private, self.pypy_process.stdin)
 
         while True:
             
@@ -524,13 +494,11 @@ class SkyPyExecutor(BaseExecutor):
                 try:
                     ret = self.deref_func(**request_args)
                 except ReferenceUnavailableException:
-                    halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
             elif request == "deref_async":
                 try:
                     ret = self.deref_async(**request_args)
                 except ReferenceUnavailableException:
-                    halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
             elif request == "wait_stream":
                 ret = self.wait_async_file(**request_args)
@@ -570,9 +538,9 @@ class SkyPyExecutor(BaseExecutor):
                                   "skypy", 
                                   small_task=True, 
                                   cont_delegated_outputs=task_descriptor["expected_outputs"], 
-                                  extra_dependencies=cont_deps, 
+                                  extra_dependencies=request_args["additional_deps"], 
                                   coro_data=coro_data, 
-                                  pyfile_ref=pyfile_ref)
+                                  pyfile_ref=request_args["py_ref"])
                 return
             elif request == "done":
                 # The interpreter is stopping because the function has completed
