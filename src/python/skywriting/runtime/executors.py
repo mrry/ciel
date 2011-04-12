@@ -24,7 +24,7 @@ from skywriting.runtime.exceptions import FeatureUnavailableException,\
 from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, ref_from_external_file, \
-    FileOrString
+    FileOrString, retrieve_file_or_string_for_ref
 
 from skywriting.runtime.producer import make_local_output
 from skywriting.runtime.fetcher import fetch_ref_async
@@ -526,12 +526,6 @@ class SkyPyExecutor(BaseExecutor):
                 except ReferenceUnavailableException:
                     halt_dependencies.append(request_args["ref"])
                     ret = {"success": False}
-            elif request == "deref_json":
-                try:
-                    ret = self.deref_json(**request_args)
-                except ReferenceUnavailableException:
-                    halt_dependencies.append(request_args["ref"])
-                    ret = {"success": False}
             elif request == "deref_async":
                 try:
                     ret = self.deref_async(**request_args)
@@ -583,10 +577,7 @@ class SkyPyExecutor(BaseExecutor):
             elif request == "done":
                 # The interpreter is stopping because the function has completed
                 result = FileOrString.from_safe_dict(request_args["output"])
-                if request_args["export_json"]:
-                    result_ref = ref_from_object(pickle.loads(result.to_str()), "json", request_args["ret_output"])
-                else:
-                    result_ref = result.to_ref(request_args["ret_output"])
+                result_ref = result.to_ref(request_args["ret_output"])
                 self.task_record.publish_ref(result_ref)
                 return
             elif request == "exception":
@@ -610,15 +601,9 @@ class SkyPyExecutor(BaseExecutor):
     def deref_func(self, ref):
         ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.task_record.retrieve_ref(ref)
-        if isinstance(real_ref, SWDataValue):
-            return {"success": True, "strdata": retrieve_object_for_ref(real_ref, "noop")}
-        else:
-            filenames = retrieve_filenames_for_refs([real_ref])
-            return {"success": True, "filename": filenames[0]}
-
-    def deref_json(self, ref):
-        real_ref = self.task_record.retrieve_ref(ref)
-        return {"success": True, "obj": retrieve_object_for_ref(real_ref, "json")}
+        response_dict = retrieve_file_or_string_for_ref(real_ref).to_safe_dict()
+        response_dict["success"] = True
+        return response_dict
 
     def deref_async(self, ref, chunk_size, sole_consumer=False):
         real_ref = self.task_record.retrieve_ref(ref)

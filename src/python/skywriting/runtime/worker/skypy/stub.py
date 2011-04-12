@@ -9,6 +9,7 @@ import pickle
 import imp
 import sys
 import os
+import simplejson
 
 import skypy
 from rpc_helper import RpcHelper
@@ -66,10 +67,12 @@ with MaybeFile() as output_fp:
         out_dict = {"request": "freeze", 
                     "additional_deps": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]}
     elif skypy.halt_reason == skypy.HALT_DONE:
-        pickle.dump(skypy.script_return_val, output_fp)
+        if skypy.persistent_state.export_json:
+            simplejson.dump(skypy.script_return_val, output_fp)
+        else:
+            pickle.dump(skypy.script_return_val, output_fp)
         out_dict = {"request": "done",
-                    "ret_output": skypy.persistent_state.ret_output,
-                    "export_json": skypy.persistent_state.export_json}
+                    "ret_output": skypy.persistent_state.ret_output}
     elif skypy.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
         pickle.dump("Runtime exception %s\n%s" % (str(skypy.script_return_val), skypy.script_backtrace), output_fp)
         out_dict = {"request": "exception"}

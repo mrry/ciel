@@ -4,12 +4,13 @@ from __future__ import with_statement
 import stackless
 import pickle
 import traceback
+import simplejson
 import os
 from contextlib import closing
 from StringIO import StringIO
 
 from shared.io_helpers import MaybeFile
-from shared.references import encode_datavalue
+from shared.references import encode_datavalue, decode_datavalue
 
 from file_outputs import OutputFile
 
@@ -74,16 +75,21 @@ def fetch_ref(ref, verb, **kwargs):
 
 def deref_json(ref):
     
-    runtime_response = fetch_ref(ref, "deref_json")
-    obj = runtime_response["obj"]
+    runtime_response = fetch_ref(ref, "deref")
+    try:
+        obj = simplejson.loads(runtime_response["strdata"])
+    except KeyError:
+        ref_fp = open(runtime_response["filename"], "r")
+        obj = simplejson.load(ref_fp)
+        ref_fp.close()
     ref_cache[ref.id] = obj
-    return obj    
+    return obj
 
 def deref(ref):
 
     runtime_response = fetch_ref(ref, "deref")
     try:
-        obj = pickle.loads(runtime_response["strdata"])
+        obj = pickle.loads(decode_datavalue(runtime_response["strdata"]))
     except KeyError:
         ref_fp = open(runtime_response["filename"], "r")
         obj = pickle.load(ref_fp)
