@@ -222,8 +222,10 @@ class TaskExecutionRecord:
         self.spawn_counter += 1
         return ret
     
-    def create_published_output_name(self):
-        ret = '%s:pub:%d' % (self.task_descriptor["task_id"], self.publish_counter)
+    def create_published_output_name(self, prefix=""):
+        if prefix == "":
+            prefix = "pub"
+        ret = '%s:%s:%d' % (self.task_descriptor["task_id"], prefix, self.publish_counter)
         self.publish_counter += 1
         return ret
 

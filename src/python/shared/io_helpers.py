@@ -5,9 +5,10 @@ import tempfile
 
 class MaybeFile:
 
-    def __init__(self, threshold_bytes=1024, filename=None):
+    def __init__(self, threshold_bytes=1024, filename=None, open_callback=None):
         self.real_fp = None
         self.filename = filename
+        self.open_callback = open_callback
         self.bytes_written = 0
         self.fake_fp = StringIO()
         self.threshold_bytes = threshold_bytes
@@ -17,7 +18,9 @@ class MaybeFile:
             self.real_fp.write(str)
         else:
             if self.bytes_written + len(str) > self.threshold_bytes:
-                if self.filename is None:
+                if self.open_callback is not None:
+                    self.real_fp = self.open_callback()
+                elif self.filename is None:
                     self.fd, self.filename = tempfile.mkstemp()
                     self.real_fp = os.fdopen(self.fd, "w")
                 else:

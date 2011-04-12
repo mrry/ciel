@@ -10,7 +10,7 @@ from contextlib import closing
 from StringIO import StringIO
 
 from shared.io_helpers import MaybeFile
-from shared.references import encode_datavalue, decode_datavalue
+from shared.references import encode_datavalue, decode_datavalue, SWDataValue
 
 from file_outputs import OutputFile
 
@@ -41,6 +41,13 @@ def describe_maybe_file(output_fp, out_dict):
         output_fp.real_fp.close()
     else:
         out_dict["strdata"] = encode_datavalue(output_fp.fake_fp.getvalue())
+        
+def ref_from_maybe_file(output_fp, refid):
+    if output_fp.real_fp is not None:
+        return output_fp.real_fp.get_completed_ref()
+    else:
+        send_dict = {"request": "publish_string", "id": refid, "str": encode_datavalue(output_fp.fake_fp.getvalue())}
+        return message_helper.synchronous_request(send_dict)["ref"]
 
 class PersistentState:
     def __init__(self):
@@ -129,27 +136,26 @@ def spawn(spawn_callable, *pargs, **kwargs):
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
     save_obj = ResumeState(None, new_coro)
-    with MaybeFile() as new_coro_fp:
+    new_coro_name = get_fresh_output_name(prefix="coro")
+    new_coro_fp = MaybeFile(open_callback=lambda: open_output(new_coro_name))
+    with new_coro_fp:
         pickle.dump(save_obj, new_coro_fp)
-        out_dict = {"request": "spawn", "coro_descriptor": dict()}
-        describe_maybe_file(new_coro_fp, out_dict["coro_descriptor"])
-    out_dict.update(kwargs)
-    response = message_helper.synchronous_request(out_dict)
-    return response["outputs"]
+    coro_ref = describe_maybe_file(new_coro_fp, new_coro_name)
+    return do_spawn("skypy", False, pyfile_ref=persistent_state.py_ref, coro_ref=coro_ref, **kwargs)
 
-def do_exec(executor_name, small_task, **args):
+def do_spawn(executor_name, small_task, **args):
     
-    args["request"] = "exec"
+    args["request"] = "spawn"
     args["small_task"] = small_task
     args["executor_name"] = executor_name
     response = message_helper.synchronous_request(args)
     return response["outputs"]
 
 def spawn_exec(executor_name, **args):
-    return do_exec(executor_name, False, **args)
+    return do_spawn(executor_name, False, **args)
 
 def sync_exec(executor_name, **args):
-    return do_exec(executor_name, True, **args)
+    return do_spawn(executor_name, True, **args)
 
 class PackageKeyError(Exception):
     def __init__(self, key):
@@ -338,8 +344,8 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 
-def get_fresh_output_name():
-    runtime_response = message_helper.synchronous_request({"request": "create_fresh_output"})
+def get_fresh_output_name(prefix=""):
+    runtime_response = message_helper.synchronous_request({"request": "create_fresh_output", "prefix": prefix})
     return runtime_response["name"]
 
 def open_output(id, may_pipe=False):

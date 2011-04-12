@@ -24,7 +24,7 @@ from skywriting.runtime.exceptions import FeatureUnavailableException,\
 from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, ref_from_external_file, \
-    FileOrString, retrieve_file_or_string_for_ref
+    FileOrString, retrieve_file_or_string_for_ref, ref_from_safe_string
 from skywriting.runtime.block_store import get_own_netloc
 
 from skywriting.runtime.producer import make_local_output
@@ -412,13 +412,11 @@ class SkyPyExecutor(BaseExecutor):
         self.transmit_lock = threading.Lock()
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, cont_delegated_outputs=None, extra_dependencies=[]):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, cont_delegated_outputs=None, extra_dependencies=[]):
 
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
-        if coro_data is not None:
-            coro_ref = coro_data.to_ref("%s:coro" % task_descriptor["task_id"])
-            parent_task_record.publish_ref(coro_ref)
+        if coro_ref is not None:
             task_descriptor["task_private"]["coro_ref"] = coro_ref
             task_descriptor["dependencies"].append(coro_ref)
         else:
@@ -506,21 +504,19 @@ class SkyPyExecutor(BaseExecutor):
             elif request == "close_stream":
                 self.close_async_file(request_args["id"], request_args["chunk_size"])
             elif request == "spawn":
-                coro_descriptor = request_args["coro_descriptor"]
-                del request_args["coro_descriptor"]
-                out_obj = self.spawn_func(coro_descriptor, **request_args)
-                ret = {"outputs": out_obj}
-            elif request == "exec":
                 out_refs = spawn_task_helper(self.task_record, **request_args)
                 ret = {"outputs": out_refs}
             elif request == "create_fresh_output":
-                new_output_name = self.task_record.create_published_output_name()
+                new_output_name = self.task_record.create_published_output_name(**request_args)
                 ret = {"name": new_output_name}
             elif request == "open_output":
                 filename = self.open_output(**request_args)
                 ret = {"filename": filename}
             elif request == "close_output":
                 ret_ref = self.close_output(**request_args)
+                ret = {"ref": ret_ref}
+            elif request == "publish_string":
+                ret_ref = self.publish_string(**request_args)
                 ret = {"ref": ret_ref}
             elif request == "advert":
                 self.output_size_update(**request_args)
@@ -558,13 +554,6 @@ class SkyPyExecutor(BaseExecutor):
                 with self.transmit_lock:
                     pickle.dump(ret, self.pypy_process.stdin)
 
-    # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
-    # This is tricky to implement as a spawn_other because we need self.pyfile_ref. Could pass that down to SkyPy at start of day perhaps.
-    def spawn_func(self, coro_descriptor, **otherargs):
-
-        coro_data = FileOrString.from_safe_dict(coro_descriptor)
-        return spawn_task_helper(self.task_record, "skypy", coro_data=coro_data, pyfile_ref=self.pyfile_ref, **otherargs)
-        
     def deref_func(self, ref):
         ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
         real_ref = self.task_record.retrieve_ref(ref)
@@ -651,6 +640,11 @@ class SkyPyExecutor(BaseExecutor):
         ret_ref = output.get_completed_ref()
         self.task_record.publish_ref(ret_ref)
         return ret_ref
+
+    def publish_string(self, id, str):
+        ref = ref_from_safe_string(str, id)
+        self.task_record.publish_ref(ref)
+        return ref
 
     def rollback_output(self, id):
         self.ongoing_outputs[id].rollback()
