@@ -114,7 +114,7 @@ class ExecutionFeatures:
         return self.executors[name]
 
 # Helper functions
-def spawn_task_helper(task_record, executor_name, small_task=False, scheduling_class=None, scheduling_type=None, **executor_args):
+def spawn_task_helper(task_record, executor_name, delegated_outputs=None, small_task=False, scheduling_class=None, scheduling_type=None, **executor_args):
 
     new_task_descriptor = {"handler": executor_name}
     if small_task:
@@ -128,6 +128,8 @@ def spawn_task_helper(task_record, executor_name, small_task=False, scheduling_c
         new_task_descriptor["scheduling_class"] = scheduling_class
     if scheduling_type is not None:
         new_task_descriptor["scheduling_type"] = scheduling_type
+    if delegated_outputs is not None:
+        new_task_descriptor["expected_outputs"] = delegated_outputs
     return task_record.spawn_task(new_task_descriptor, **executor_args)
 
 def package_lookup(task_record, block_store, key):
@@ -412,7 +414,9 @@ class SkyPyExecutor(BaseExecutor):
         self.transmit_lock = threading.Lock()
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, cont_delegated_outputs=None, extra_dependencies=[]):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, extra_dependencies=[]):
+
+        is_continuation = ("expected_outputs" in task_descriptor)
 
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
@@ -422,7 +426,7 @@ class SkyPyExecutor(BaseExecutor):
         else:
             task_descriptor["task_private"]["entry_point"] = entry_point
             task_descriptor["task_private"]["entry_args"] = entry_args
-        if cont_delegated_outputs is None:
+        if not is_continuation:
             ret_output = "%s:retval" % task_descriptor["task_id"]
             task_descriptor["expected_outputs"].append(ret_output)
             task_descriptor["task_private"]["ret_output"] = ret_output
@@ -430,10 +434,7 @@ class SkyPyExecutor(BaseExecutor):
             task_descriptor["expected_outputs"].extend(extra_outputs)
             task_descriptor["task_private"]["extra_outputs"] = extra_outputs
             task_descriptor["task_private"]["export_json"] = export_json
-            task_descriptor["task_private"]["is_continuation"] = False
-        else:
-            task_descriptor["expected_outputs"].extend(cont_delegated_outputs)
-            task_descriptor["task_private"]["is_continuation"] = True
+        task_descriptor["task_private"]["is_continuation"] = is_continuation
         task_descriptor["dependencies"].extend(extra_dependencies)
         task_descriptor["task_private"]["py_ref"] = pyfile_ref
         task_descriptor["dependencies"].append(pyfile_ref)
@@ -441,7 +442,7 @@ class SkyPyExecutor(BaseExecutor):
 
         BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
 
-        if cont_delegated_outputs is not None:
+        if is_continuation:
             return None
         elif n_extra_outputs == 0:
             return SW2_FutureReference(ret_output)
@@ -506,6 +507,8 @@ class SkyPyExecutor(BaseExecutor):
             elif request == "spawn":
                 out_refs = spawn_task_helper(self.task_record, **request_args)
                 ret = {"outputs": out_refs}
+            elif request == "tail_spawn":
+                spawn_task_helper(self.task_record, delegated_outputs=task_descriptor["expected_outputs"], **request_args)
             elif request == "create_fresh_output":
                 new_output_name = self.task_record.create_published_output_name(**request_args)
                 ret = {"name": new_output_name}
@@ -524,28 +527,10 @@ class SkyPyExecutor(BaseExecutor):
                 self.rollback_output(**request_args)
             elif request == "package_lookup":
                 ret = {"value": package_lookup(self.task_record, self.block_store, request_args["key"])}
-            elif request == "freeze":
-                # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                if len(self.ongoing_outputs) != 0:
-                    raise Exception("SkyPy attempted to freeze with active outputs!")
-                coro_data = FileOrString.from_safe_dict(request_args["output"])
-                spawn_task_helper(self.task_record, 
-                                  "skypy", 
-                                  small_task=True, 
-                                  cont_delegated_outputs=task_descriptor["expected_outputs"], 
-                                  extra_dependencies=request_args["additional_deps"], 
-                                  coro_data=coro_data, 
-                                  pyfile_ref=request_args["py_ref"])
-                return
             elif request == "done":
-                # The interpreter is stopping because the function has completed
-                result = FileOrString.from_safe_dict(request_args["output"])
-                result_ref = result.to_ref(request_args["ret_output"])
-                self.task_record.publish_ref(result_ref)
                 return
             elif request == "exception":
-                report_text = FileOrString.from_safe_dict(request_args).to_str()
-                raise Exception("Fatal pypy exception: %s" % report_text)
+                raise Exception("Fatal pypy exception: %s" % request_args["report"])
             else:
                 raise Exception("Pypy requested bad operation: %s / %s" % (request, request_args))
             

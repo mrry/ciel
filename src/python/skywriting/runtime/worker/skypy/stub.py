@@ -67,25 +67,28 @@ skypy.file_outputs.set_message_helper(skypy.message_helper)
 
 user_coro.switch()
 # We're back -- either the user script is done, or else it's stuck waiting on a reference.
-with MaybeFile() as output_fp:
+if skypy.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
+    report = "Runtime exception %s\n%s" % (str(skypy.script_return_val), skypy.script_backtrace)
+    out_dict = {"request": "exception",
+                "report": report}
+else:
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
-        pickle.dump(resume_state, output_fp)
-        out_dict = {"request": "freeze",
+        coro_ref = skypy.save_state(resume_state)
+        out_dict = {"request": "tail_spawn",
+                    "handler": "skypy",
                     "py_ref": skypy.persistent_state.py_ref,
+                    "coro_ref": coro_ref,
                     "additional_deps": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]}
+        pickle.dump(out_dict, sys.stdout)
     elif skypy.halt_reason == skypy.HALT_DONE:
-        if skypy.persistent_state.export_json:
-            simplejson.dump(skypy.script_return_val, output_fp)
-        else:
-            pickle.dump(skypy.script_return_val, output_fp)
-        out_dict = {"request": "done",
-                    "ret_output": skypy.persistent_state.ret_output}
-    elif skypy.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
-        pickle.dump("Runtime exception %s\n%s" % (str(skypy.script_return_val), skypy.script_backtrace), output_fp)
-        out_dict = {"request": "exception"}
-    out_dict["output"] = {}
-    skypy.describe_maybe_file(output_fp, out_dict["output"])
-pickle.dump(out_dict, sys.stdout)
+        out_fp = MaybeFile(open_callback=skypy.open_output(skypy.persistent_state.ret_output))
+        with out_fp:
+            if skypy.persistent_state.export_json:
+                simplejson.dump(skypy.script_return_val, out_fp)
+            else:
+                pickle.dump(skypy.script_return_val, out_fp)
+        skypy.ref_from_maybe_file(out_fp, skypy.persistent_state.ret_output)
+    out_dict = {"request": "done"}
 
 
 

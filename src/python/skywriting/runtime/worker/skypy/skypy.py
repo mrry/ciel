@@ -131,16 +131,20 @@ class RequiredRefs():
         for ref in self.refs:
             remove_ref_dependency(ref)
 
+def save_state(state):
+
+    state_name = get_fresh_output_name(prefix="coro")
+    state_fp = MaybeFile(open_callback=lambda: open_output(state_name))
+    with state_fp:
+        pickle.dump(state, state_fp)
+    return ref_from_maybe_file(state_fp, state_name)
+
 def spawn(spawn_callable, *pargs, **kwargs):
     
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
     save_obj = ResumeState(None, new_coro)
-    new_coro_name = get_fresh_output_name(prefix="coro")
-    new_coro_fp = MaybeFile(open_callback=lambda: open_output(new_coro_name))
-    with new_coro_fp:
-        pickle.dump(save_obj, new_coro_fp)
-    coro_ref = describe_maybe_file(new_coro_fp, new_coro_name)
+    coro_ref = save_state(save_obj)
     return do_spawn("skypy", False, pyfile_ref=persistent_state.py_ref, coro_ref=coro_ref, **kwargs)
 
 def do_spawn(executor_name, small_task, **args):
