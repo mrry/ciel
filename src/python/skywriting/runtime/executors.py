@@ -25,6 +25,7 @@ from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, ref_from_external_file, \
     FileOrString, retrieve_file_or_string_for_ref
+from skywriting.runtime.block_store import get_own_netloc
 
 from skywriting.runtime.producer import make_local_output
 from skywriting.runtime.fetcher import fetch_ref_async
@@ -532,8 +533,6 @@ class SkyPyExecutor(BaseExecutor):
                 if len(self.ongoing_outputs) != 0:
                     raise Exception("SkyPy attempted to freeze with active outputs!")
                 coro_data = FileOrString.from_safe_dict(request_args["output"])
-                cont_deps = halt_dependencies
-                cont_deps.extend(request_args["additional_deps"])
                 spawn_task_helper(self.task_record, 
                                   "skypy", 
                                   small_task=True, 

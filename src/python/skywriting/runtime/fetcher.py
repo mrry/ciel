@@ -10,7 +10,8 @@ import threading
 import os
 from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
-from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref, producer_filename
+from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref, producer_filename,\
+    get_own_netloc
 from skywriting.runtime.producer import get_producer_for_id
 from skywriting.runtime.exceptions import RuntimeSkywritingError
 
@@ -71,7 +72,7 @@ class FetchInProgress:
 
     def resolve_dataval(self):
         if self.string_callback is not None:
-            self.string_callback(ref.value)
+            self.string_callback(self.ref.value)
         else:
             decoded_dataval = decode_datavalue(self.ref)
             bs_ctx = create_fetch_file_for_ref(self.ref)
