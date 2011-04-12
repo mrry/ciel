@@ -1,14 +1,13 @@
 
 from skywriting.runtime.pycurl_thread import pycURLContext, do_from_curl_thread
 from skywriting.runtime.block_store import get_fetch_urls_for_ref, create_fetch_file_for_ref, get_own_netloc
-from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SweetheartReference
+from shared.references import SW2_ConcreteReference
 import skywriting.runtime.remote_stat as remote_stat
 
 import pycurl
 import urlparse
 import ciel
 import logging
-import threading
 
 # pycURLFetches currently in operation
 active_http_transfers = dict()

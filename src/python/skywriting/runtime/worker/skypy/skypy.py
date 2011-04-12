@@ -9,6 +9,7 @@ from contextlib import closing
 from StringIO import StringIO
 
 from shared.io_helpers import MaybeFile
+from shared.references import encode_datavalue
 
 from file_outputs import OutputFile
 
@@ -38,7 +39,7 @@ def describe_maybe_file(output_fp, out_dict):
         out_dict["filename"] = output_fp.filename
         output_fp.real_fp.close()
     else:
-        out_dict["outstr"] = output_fp.fake_fp.getvalue()
+        out_dict["strdata"] = encode_datavalue(output_fp.fake_fp.getvalue())
 
 class PersistentState:
     def __init__(self):

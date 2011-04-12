@@ -70,10 +70,10 @@ class FetchInProgress:
         self.run_plans()
 
     def resolve_dataval(self):
-        decoded_dataval = decode_datavalue(self.ref)
         if self.string_callback is not None:
-            self.string_callback(decoded_dataval)
+            self.string_callback(ref.value)
         else:
+            decoded_dataval = decode_datavalue(self.ref)
             bs_ctx = create_fetch_file_for_ref(self.ref)
             with open(bs_ctx.filename, 'w') as obj_file:
                 obj_file.write(decoded_dataval)

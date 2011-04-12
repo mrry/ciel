@@ -10,7 +10,8 @@ import tempfile
 import shutil
 from skywriting.runtime.fetcher import fetch_ref_async
 from skywriting.runtime.producer import make_local_output
-from shared.references import SW2_TombstoneReference
+from shared.references import SW2_TombstoneReference, SW2_ConcreteReference, \
+    SWDataValue, encode_datavalue, decode_datavalue
 from skywriting.runtime.exceptions import MissingInputException
 from skywriting.runtime.block_store import filename_for_ref
 
@@ -67,14 +68,63 @@ class SynchronousTransfer:
 
     def wait(self):
         self.finished_event.wait()
-
-def retrieve_filenames_for_refs(refs):
         
+class FileOrString:
+    
+    def __init__(self, strdata=None, filename=None):
+        self.str = encode_datavalue(strdata)
+        self.filename = filename
+            
+    @staticmethod
+    def from_dict(in_dict):
+        return FileOrString(**in_dict)
+    
+    @staticmethod
+    def from_safe_dict(in_dict):
+        try:
+            in_dict["str"] = encode_datavalue(in_dict["str"])
+        except KeyError:
+            pass
+        return FileOrString(**in_dict)
+    
+    def to_dict(self):
+        if self.str is not None:
+            return {"strdata": self.to_str()}
+        else:
+            return {"filename": self.filename}
+        
+    def to_safe_dict(self):
+        if self.str is not None:
+            return {"strdata": self.str}
+        else:
+            return {"filename": self.filename}
+
+    def to_ref(self, refid):
+        if self.str is not None:
+            ref = ref_from_safe_string(self.str, refid)
+        else:
+            ref = ref_from_external_file(self.filename, refid)
+        return ref
+
+    def to_str(self):
+        if self.str is not None:
+            return decode_datavalue(self.str)
+        else:
+            with open(self.filename, "r") as f:
+                return f.read()
+            
+def sync_retrieve_refs(refs, accept_string=False):
+    
     ctxs = []
+    
     for ref in refs:
         sync_transfer = SynchronousTransfer(ref)
         ciel.log("Synchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
-        transfer_ctx = fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset, sync_transfer.start_filename)
+        if accept_string:
+            kwargs = {"string_callback": sync_transfer.return_string}
+        else:
+            kwargs = {}
+        fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset, sync_transfer.start_filename, **kwargs)
         ctxs.append(sync_transfer)
             
     for ctx in ctxs:
@@ -83,6 +133,20 @@ def retrieve_filenames_for_refs(refs):
     failed_transfers = filter(lambda x: not x.success, ctxs)
     if len(failed_transfers) > 0:
         raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
+    return ctxs
+
+def retrieve_files_or_strings_for_refs(refs):
+    
+    ctxs = sync_retrieve_refs(refs, accept_string=True)
+    return [FileOrString(ctx.str, ctx.filename) for ctx in ctxs]
+
+def retrieve_file_or_string_for_ref(ref):
+    
+    return retrieve_files_or_strings_for_refs([ref])[0]
+
+def retrieve_filenames_for_refs(refs):
+        
+    ctxs = sync_retrieve_refs(refs, accept_string=False)
     return [x.filename for x in ctxs]
 
 def retrieve_filename_for_ref(ref):
@@ -91,28 +155,8 @@ def retrieve_filename_for_ref(ref):
 
 def retrieve_strings_for_refs(refs):
 
-    ctxs = []
-    for ref in refs:
-        sync_transfer = SynchronousTransfer(ref)
-        ciel.log("Synchronous fetch ref %s" % ref, "BLOCKSTORE", logging.INFO)
-        transfer_ctx = fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset, sync_transfer.start_filename, string_callback=sync_transfer.return_string)
-        ctxs.append(sync_transfer)
-
-    for ctx in ctxs:
-        ctx.wait()
-
-    failed_transfers = filter(lambda x: not x.success, ctxs)
-    if len(failed_transfers) > 0:
-        raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
-
-    strs = []
-    for ctx in ctxs:
-        if ctx.str is not None:
-            strs.append(ctx.str)
-        else:
-            with open(ctx.filename, "r") as fp:
-                strs.append(fp.read())
-    return strs
+    ctxs = retrieve_files_or_strings_for_refs(refs)
+    return [ctx.to_str() for ctx in ctxs]
 
 def retrieve_string_for_ref(ref):
         
@@ -124,13 +168,22 @@ def write_fixed_ref_string(string, fixed_ref):
         fp.write(string)
     output_ctx.close()
 
+def ref_from_safe_string(string, id):
+    if len(string) < 1024:
+        return SWDataValue(id, value=string)
+    else:
+        return ref_from_string(decode_datavalue(string))
+
 def ref_from_string(string, id):
-    output_ctx = make_local_output(id)
-    filename, _ = output_ctx.get_filename_or_fd()
-    with open(filename, "w") as fp:
-        fp.write(string)
-    output_ctx.close()
-    return output_ctx.get_completed_ref()
+    if len(string) < 1024:
+        return SWDataValue(id, value=encode_datavalue(string))
+    else:
+        output_ctx = make_local_output(id)
+        filename, _ = output_ctx.get_filename_or_fd()
+        with open(filename, "w") as fp:
+            fp.write(string)
+        output_ctx.close()
+        return output_ctx.get_completed_ref()
 
 # Why not just rename to self.filename(id) and skip this nonsense? Because os.rename() can be non-atomic.
 # When it renames between filesystems it does a full copy; therefore I copy/rename to a colocated dot-file,

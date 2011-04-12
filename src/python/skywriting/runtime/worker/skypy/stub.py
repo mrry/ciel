@@ -73,7 +73,8 @@ with MaybeFile() as output_fp:
     elif skypy.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
         pickle.dump("Runtime exception %s\n%s" % (str(skypy.script_return_val), skypy.script_backtrace), output_fp)
         out_dict = {"request": "exception"}
-    skypy.describe_maybe_file(output_fp, out_dict)
+    out_dict["output"] = {}
+    skypy.describe_maybe_file(output_fp, out_dict["output"])
 pickle.dump(out_dict, sys.stdout)
 
 

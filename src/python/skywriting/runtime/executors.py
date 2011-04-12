@@ -23,7 +23,8 @@ from skywriting.runtime.exceptions import FeatureUnavailableException,\
     BlameUserException, MissingInputException
 from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
-    retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, ref_from_external_file
+    retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, ref_from_external_file, \
+    FileOrString
 
 from skywriting.runtime.producer import make_local_output
 from skywriting.runtime.fetcher import fetch_ref_async
@@ -48,12 +49,6 @@ from errno import EPIPE
 
 import ciel
 import struct
-
-try:
-    from shared.generated.ciel.protoc_pb2 import Task
-    from shared.generated.java2.protoc_pb2 import Java2TaskPrivate
-except:
-    pass
 
 running_children = {}
 
@@ -233,35 +228,6 @@ def accumulate_leaf_values(f, value):
         return accumd_keys
     else:
         return [f(value)]
-
-# Helper class for SkyPy
-class FileOrString:
-    
-    def __init__(self, in_dict, block_store):
-        self.block_store = block_store
-        if "outstr" in in_dict:
-            self.str = in_dict["outstr"]
-            self.filename = None
-        else:
-            self.str = None
-            self.filename = in_dict["filename"]
-
-    def toref(self, refid):
-        if self.str is not None:
-            ref = ref_from_string(self.str, refid)
-        else:
-            ref = ref_from_external_file(self.filename, refid)
-        return ref
-
-    def tostr(self):
-        if self.str is not None:
-            return pickle.loads(self.str)
-        else:
-            with open(self.filename, "r") as f:
-                return pickle.load(f)
-
-    def toobj(self):
-        return self.tostr()
 
 class BaseExecutor:
     
@@ -448,7 +414,7 @@ class SkyPyExecutor(BaseExecutor):
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
         if coro_data is not None:
-            coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
+            coro_ref = coro_data.to_ref("%s:coro" % task_descriptor["task_id"])
             parent_task_record.publish_ref(coro_ref)
             task_descriptor["task_private"]["coro_ref"] = coro_ref
             task_descriptor["dependencies"].append(coro_ref)
@@ -603,7 +569,7 @@ class SkyPyExecutor(BaseExecutor):
                 # The interpreter is stopping because it needed a reference that wasn't ready yet.
                 if len(self.ongoing_outputs) != 0:
                     raise Exception("SkyPy attempted to freeze with active outputs!")
-                coro_data = FileOrString(request_args, self.block_store)
+                coro_data = FileOrString.from_safe_dict(request_args["output"])
                 cont_deps = halt_dependencies
                 cont_deps.extend(request_args["additional_deps"])
                 spawn_task_helper(self.task_record, 
@@ -616,15 +582,15 @@ class SkyPyExecutor(BaseExecutor):
                 return
             elif request == "done":
                 # The interpreter is stopping because the function has completed
-                result = FileOrString(request_args, self.block_store)
+                result = FileOrString.from_safe_dict(request_args["output"])
                 if request_args["export_json"]:
-                    result_ref = ref_from_object(result.toobj(), "json", request_args["ret_output"])
+                    result_ref = ref_from_object(pickle.loads(result.to_str()), "json", request_args["ret_output"])
                 else:
-                    result_ref = result.toref(request_args["ret_output"])
+                    result_ref = result.to_ref(request_args["ret_output"])
                 self.task_record.publish_ref(result_ref)
                 return
             elif request == "exception":
-                report_text = FileOrString(request_args, self.block_store).tostr()
+                report_text = FileOrString.from_safe_dict(request_args).to_str()
                 raise Exception("Fatal pypy exception: %s" % report_text)
             else:
                 raise Exception("Pypy requested bad operation: %s / %s" % (request, request_args))
@@ -638,7 +604,7 @@ class SkyPyExecutor(BaseExecutor):
     # This is tricky to implement as a spawn_other because we need self.pyfile_ref. Could pass that down to SkyPy at start of day perhaps.
     def spawn_func(self, coro_descriptor, **otherargs):
 
-        coro_data = FileOrString(coro_descriptor, self.block_store)
+        coro_data = FileOrString.from_safe_dict(coro_descriptor)
         return spawn_task_helper(self.task_record, "skypy", coro_data=coro_data, pyfile_ref=self.pyfile_ref, **otherargs)
         
     def deref_func(self, ref):
@@ -652,7 +618,7 @@ class SkyPyExecutor(BaseExecutor):
 
     def deref_json(self, ref):
         real_ref = self.task_record.retrieve_ref(ref)
-        return {"success": True, "obj": retrieve_object_for_ref(ref, "json")}
+        return {"success": True, "obj": retrieve_object_for_ref(real_ref, "json")}
 
     def deref_async(self, ref, chunk_size, sole_consumer=False):
         real_ref = self.task_record.retrieve_ref(ref)
