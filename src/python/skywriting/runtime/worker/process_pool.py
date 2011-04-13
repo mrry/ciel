@@ -47,17 +47,26 @@ class ProcessRecord:
         
         self._lock = threading.Lock()
         
+    def set_pid(self, pid):
+        self.pid = pid
+        
     def get_read_fifo(self):
         with self._lock:
             if self.from_process_fifo is None:
                 self.from_process_fifo = open(self.from_process_fifo_name, "r")
             return self.from_process_fifo
         
+    def get_read_fifo_name(self):
+        return self.from_process_fifo_name
+        
     def get_write_fifo(self):
         with self._lock:
             if self.to_process_fifo is None:
                 self.to_process_fifo = open(self.to_process_fifo_name, "w")
             return self.to_process_fifo
+        
+    def get_write_fifo_name(self):
+        return self.to_process_fifo_name
         
     def cleanup(self):
         try:

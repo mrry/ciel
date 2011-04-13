@@ -239,7 +239,7 @@ class TaskExecutionRecord:
             new_task_descriptor["expected_outputs"] = []
         executor_class = self.execution_features.get_executor_class(new_task_descriptor["handler"])
         # Throws a BlameUserException if we can quickly determine the task descriptor is bad
-        return_obj = executor_class.build_task_descriptor(new_task_descriptor, self, self.block_store, **args)
+        return_obj = executor_class.build_task_descriptor(new_task_descriptor, self, **args)
         self.spawned_tasks.append(new_task_descriptor)
         return return_obj
 

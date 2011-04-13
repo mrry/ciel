@@ -23,7 +23,8 @@ from skywriting.runtime.exceptions import BlameUserException, MissingInputExcept
 from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
-    FileOrString, retrieve_file_or_string_for_ref, ref_from_safe_string
+    FileOrString, retrieve_file_or_string_for_ref, ref_from_safe_string,\
+    write_fixed_ref_string
 from skywriting.runtime.block_store import get_own_netloc
 
 from skywriting.runtime.producer import make_local_output
@@ -258,7 +259,7 @@ class BaseExecutor:
             raise
         
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record):
         # Convert task_private to a reference in here. 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
         task_private_ref = ref_from_object(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING, task_private_id)
@@ -266,7 +267,7 @@ class BaseExecutor:
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
 
-class SkyPyFetch:
+class OngoingFetch:
 
     def __init__(self, ref, chunk_size, sole_consumer):
         self.lock = threading.Lock()
@@ -350,7 +351,7 @@ class SkyPyFetch:
             self.cancel()
         return False
 
-class SkyPyOutput:
+class OngoingOutput:
 
     def __init__(self, output_ctx, executor):
         self.output_ctx = output_ctx
@@ -398,29 +399,32 @@ class SkyPyOutput:
         else:
             self.close()
 
-class SkyPyExecutor(BaseExecutor):
+# Return states for proc task termination.
+PROC_EXITED = 0
+PROC_BLOCKED = 1
+PROC_ERROR = 2
 
-    handler_name = "skypy"
+class ProcExecutor(BaseExecutor):
+    """Executor for running generic processes."""
+    
+    handler_name = "proc"
     
     def __init__(self, worker):
         BaseExecutor.__init__(self, worker)
-        self.skypybase = os.getenv("CIEL_SKYPY_BASE")
-        self.proc = None
+        self.process_pool = worker.process_pool
         self.ongoing_fetches = []
         self.ongoing_outputs = dict()
         self.transmit_lock = threading.Lock()
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, 
+                              process_record_id=None, start_command=None, 
+                              n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
 
-        if pyfile_ref is None:
-            raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
-        if coro_ref is not None:
-            task_descriptor["task_private"]["coro_ref"] = coro_ref
-            task_descriptor["dependencies"].append(coro_ref)
-        else:
-            task_descriptor["task_private"]["entry_point"] = entry_point
-            task_descriptor["task_private"]["entry_args"] = entry_args
+        if process_record_id is not None:
+            task_descriptor["task_private"]["id"] = process_record_id
+        task_descriptor["dependencies"].extend(extra_dependencies)
+
         if not is_tail_spawn:
             ret_output = "%s:retval" % task_descriptor["task_id"]
             task_descriptor["expected_outputs"].append(ret_output)
@@ -428,261 +432,10 @@ class SkyPyExecutor(BaseExecutor):
             extra_outputs = ["%s:out:%d" % (task_descriptor["task_id"], i) for i in range(n_extra_outputs)]
             task_descriptor["expected_outputs"].extend(extra_outputs)
             task_descriptor["task_private"]["extra_outputs"] = extra_outputs
-            task_descriptor["task_private"]["export_json"] = export_json
-        task_descriptor["task_private"]["is_continuation"] = is_tail_spawn
-        task_descriptor["dependencies"].extend(extra_dependencies)
-        task_descriptor["task_private"]["py_ref"] = pyfile_ref
-        task_descriptor["dependencies"].append(pyfile_ref)
-        add_package_dep(parent_task_record.package_ref, task_descriptor)
-
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
-
-        if is_tail_spawn:
-            return None
-        elif n_extra_outputs == 0:
-            return SW2_FutureReference(ret_output)
-        else:
-            return SkyPySpawn(SW2_FutureReference(ret_output), [SW2_FutureReference(x) for x in extra_outputs])
-
-    @staticmethod
-    def can_run():
-        if "CIEL_SKYPY_BASE" not in os.environ:
-            ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
-            return False
-        else:
-            return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
-
-    def _run(self, task_private, task_descriptor, task_record):
-        
-        with ContextManager("SkyPy task %s" % task_descriptor["task_id"]) as manager:
-            self.context_manager = manager
-            self._guarded_run(task_private, task_descriptor, task_record)
-
-    def _guarded_run(self, task_private, task_descriptor, task_record):
-
-        self.task_descriptor = task_descriptor
-        self.task_record = task_record
-        skypy_private = task_private
-        
-        pypy_env = os.environ.copy()
-        pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
-
-        pypy_args = ["pypy", self.skypybase + "/stub.py"]
-            
-        self.pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE, close_fds=True)
-
-        # Handle used for aborting the process.
-        self.proc = self.pypy_process
-
-        pickle.dump(skypy_private, self.pypy_process.stdin)
-
-        while True:
-            
-            request_args = pickle.load(self.pypy_process.stdout)
-            request = request_args["request"]
-            del request_args["request"]
-            ciel.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
-            ret = None
-            # The key difference between deref and deref_json is that the JSON variant MUST be decoded locally
-            # This is a hack around the fact that the simplejson library hasn't been ported to pypy.
-            if request == "deref":
-                try:
-                    ret = self.deref_func(**request_args)
-                except ReferenceUnavailableException:
-                    ret = {"success": False}
-            elif request == "deref_async":
-                try:
-                    ret = self.deref_async(**request_args)
-                except ReferenceUnavailableException:
-                    ret = {"success": False}
-            elif request == "wait_stream":
-                ret = self.wait_async_file(**request_args)
-            elif request == "close_stream":
-                self.close_async_file(request_args["id"], request_args["chunk_size"])
-            elif request == "spawn":
-                out_refs = spawn_task_helper(self.task_record, **request_args)
-                ret = {"outputs": out_refs}
-            elif request == "tail_spawn":
-                spawn_task_helper(self.task_record, 
-                                  delegated_outputs=task_descriptor["expected_outputs"],
-                                  **request_args)
-            elif request == "create_fresh_output":
-                new_output_name = self.task_record.create_published_output_name(**request_args)
-                ret = {"name": new_output_name}
-            elif request == "open_output":
-                filename = self.open_output(**request_args)
-                ret = {"filename": filename}
-            elif request == "close_output":
-                ret_ref = self.close_output(**request_args)
-                ret = {"ref": ret_ref}
-            elif request == "publish_string":
-                ret_ref = self.publish_string(**request_args)
-                ret = {"ref": ret_ref}
-            elif request == "advert":
-                self.output_size_update(**request_args)
-            elif request == "rollback_output":
-                self.rollback_output(**request_args)
-            elif request == "package_lookup":
-                ret = {"value": package_lookup(self.task_record, self.block_store, request_args["key"])}
-            elif request == "done":
-                return
-            elif request == "exception":
-                raise Exception("Fatal pypy exception: %s" % request_args["report"])
-            else:
-                raise Exception("Pypy requested bad operation: %s / %s" % (request, request_args))
-            
-            if ret is not None:
-                ret["request"] = request
-                with self.transmit_lock:
-                    pickle.dump(ret, self.pypy_process.stdin)
-
-    def deref_func(self, ref):
-        ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
-        real_ref = self.task_record.retrieve_ref(ref)
-        response_dict = retrieve_file_or_string_for_ref(real_ref).to_safe_dict()
-        response_dict["success"] = True
-        return response_dict
-
-    def deref_async(self, ref, chunk_size, sole_consumer=False):
-        real_ref = self.task_record.retrieve_ref(ref)
-        new_fetch = SkyPyFetch(real_ref, chunk_size, sole_consumer)
-        filename, file_blocking = new_fetch.get_filename()
-        if not new_fetch.done:
-            self.context_manager.add_context(new_fetch)
-            self.ongoing_fetches.append(new_fetch)
-        # Definitions here: "done" means we're already certain that the producer has completed successfully.
-        # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
-        ret = {"filename": filename, "done": new_fetch.done, "blocking": file_blocking, "size": new_fetch.bytes}
-        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"]), "SKYPY", logging.INFO)
-        if new_fetch.done:
-            if not new_fetch.success:
-                ciel.log("Async fetch %s failed early" % ref, "SKYPY", logging.WARNING)
-            ret["success"] = new_fetch.success
-        else:
-            ret["success"] = True
-        return ret
-
-    def close_async_file(self, id, chunk_size):
-        for fetch in self.ongoing_fetches:
-            if fetch.ref.id == id and fetch.chunk_size == chunk_size:
-                self.context_manager.remove_context(fetch)
-                self.ongoing_fetches.remove(fetch)
-                completed_ref = fetch.get_completed_ref()
-                if completed_ref is None:
-                    ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "SKYPY", logging.INFO)
-                else:
-                    self.task_record.publish_ref(completed_ref)
-                return
-        ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "SKYPY", logging.WARNING)
-
-    def wait_async_file(self, id, eof=None, bytes=None):
-        the_fetch = None
-        for fetch in self.ongoing_fetches:
-            if fetch.ref.id == id:
-                the_fetch = fetch
-                break
-        if the_fetch is None:
-            ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "SKYPY", logging.WARNING)
-            return {"success": False}
-        if eof is not None:
-            ciel.log("Waiting for fetch %s to complete" % id, "SKYPY", logging.INFO)
-            the_fetch.wait_eof()
-        else:
-            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "SKYPY", logging.INFO)
-            the_fetch.wait_bytes(bytes)
-        if the_fetch.done and not the_fetch.success:
-            ciel.log("Wait %s complete: transfer has failed" % id, "SKYPY", logging.WARNING)
-            return {"success": False}
-        else:
-            ret = {"size": the_fetch.bytes, "done": the_fetch.done, "success": True}
-            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "SKYPY", logging.INFO)
-            return ret
-
-    def open_output(self, id, may_pipe=False):
-        if id in self.ongoing_outputs:
-            raise Exception("SkyPy tried to open output %s which was already open" % id)
-        new_output = make_local_output(id, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
-        skypy_output = SkyPyOutput(new_output, self)
-        self.ongoing_outputs[id] = skypy_output
-        self.context_manager.add_context(skypy_output)
-        ref = skypy_output.get_stream_ref()
-        self.task_record.prepublish_refs([ref])
-        (filename, is_fd) = new_output.get_filename_or_fd()
-        assert not is_fd
-        return filename
-
-    def stop_output(self, id):
-        self.context_manager.remove_context(self.ongoing_outputs[id])
-        del self.ongoing_outputs[id]
-
-    def close_output(self, id, size):
-        output = self.ongoing_outputs[id]
-        output.size_update(size)
-        self.stop_output(id)
-        ret_ref = output.get_completed_ref()
-        self.task_record.publish_ref(ret_ref)
-        return ret_ref
-
-    def publish_string(self, id, str):
-        ref = ref_from_safe_string(str, id)
-        self.task_record.publish_ref(ref)
-        return ref
-
-    def rollback_output(self, id):
-        self.ongoing_outputs[id].rollback()
-        self.stop_output(id)
-
-    def subscribe_output(self, output_ctx):
-        return self.ongoing_outputs[output_ctx.refid]
-
-    def output_size_update(self, id, size):
-        self.ongoing_outputs[id].size_update(size)
-
-    def _subscribe_output(self, id, chunk_size):
-        with self.transmit_lock:
-            pickle.dump({"request": "subscribe", "id": id, "chunk_size": chunk_size}, self.pypy_process.stdin)
-
-    def _unsubscribe_output(self, id):
-        with self.transmit_lock:
-            pickle.dump({"request": "unsubscribe", "id": id}, self.pypy_process.stdin)
-
-    def _abort(self):
-        try:
-            if self.proc is not None:
-                self.proc.kill()
-        except:
-            ciel.log('Error killing SkyPy process', 'SKYPY', logging.ERROR, )
-
-# Return states for proc task termination.
-PROC_EXITED = 0
-PROC_BLOCKED = 1
-PROC_ERROR = 2
-
-class ProcExecutor(BaseExecutor):
-    """Executor for running long-lived legacy processes."""
-    
-    handler_name = "proc"
-    
-    def __init__(self, worker):
-        BaseExecutor.__init__(self, worker)
-        self.process_pool = worker.process_pool
-
-    @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, process_record_id, blocking_refs, current_outputs, output_mask):
-
-        task_descriptor["task_private"]["id"] = process_record_id
-        task_descriptor["task_private"]["blocking_refs"] = blocking_refs
-        task_descriptor["dependencies"].extend(blocking_refs)
-
-        task_descriptor["expected_outputs"] = []
-
-        for i, id in enumerate(current_outputs):
-            if i not in output_mask:
-                task_descriptor["expected_outputs"].append(id)
 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])        
-        task_private_ref = SW2_FixedReference(task_private_id, block_store.netloc)
-        block_store.write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
+        task_private_ref = SW2_FixedReference(task_private_id, get_own_netloc())
+        write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
         parent_task_record.publish_ref(task_private_ref)
         
         task_descriptor["task_private"] = task_private_ref
@@ -690,56 +443,50 @@ class ProcExecutor(BaseExecutor):
 
     @staticmethod
     def can_run():
-        ciel.log('proc executor enabled', 'PROC', logging.INFO)
         return True
     
     def _run(self, task_private, task_descriptor, task_record):
         
-        print task_private
+        with ContextManager("Task %s" % task_descriptor["task_id"]) as manager:
+            self.context_manager = manager
+            self._guarded_run(task_private, task_descriptor, task_record)
+            
+    def _guarded_run(self, task_private, task_descriptor, task_record):
         
         id = task_private['id']
-        self.process_record = self.process_pool.get_process_record(id)
-        
         self.task_record = task_record
         self.task_descriptor = task_descriptor
-        
         self.expected_outputs = self.task_descriptor['expected_outputs']
         
-        # Stores the indices of expected outputs that have been produced.
-        self.open_output_contexts = {}
-        self.expected_output_mask = set()
-        
+        if "id" in task_private:
+            self.process_record = self.process_pool.get_process_record(id)
+        else:
+            self.process_record = self.process_pool.create_process_record(None, "json")
+            command = [task_private["start_command"], "--write-fifo", 
+                       self.process_record.get_read_fifo_name(), "--read-fifo", 
+                       self.process_record.get_write_fifo_name()]
+            new_proc = subprocess.Popen(command)
+            self.process_record.set_pid(new_proc.pid)
+               
         # XXX: This will block until the attached process opens the pipes.
         reader = self.process_record.get_read_fifo()
         writer = self.process_record.get_write_fifo()
+        self.reader = reader
+        self.writer = writer
         
         ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
-        
-        try:
-            # If we are resuming, we need to unblock the process by replying to the block RPC.
-            prev_block_refs = task_private['blocking_refs']
-            assert self.process_record.protocol == 'json'
-            reply_refs = [self.task_record.retrieve_ref(x) for x in prev_block_refs]
 
-            response_string = simplejson.dumps(reply_refs, cls=SWReferenceJSONEncoder)
-            ciel.log('Writing %d bytes response to blocking RPC' % len(response_string), 'PROC', logging.INFO)
-            writer.write(struct.pack('!I', len(response_string)))
-            writer.write(response_string)
-            writer.flush()
-            
-        except:
-            pass
-        
-        
+        response_string = simplejson.dumps(("start_task", task_private), 
+                                           cls=SWReferenceJSONEncoder)
+        writer.write(struct.pack('!I', len(response_string)))
+        writer.write(response_string)
+        writer.flush()
+
         try:
             if self.process_record.protocol == 'line':
                 finished = self.line_event_loop(reader, writer)
             elif self.process_record.protocol == 'json':
                 finished = self.json_event_loop(reader, writer)
-            elif self.process_record.protocol == 'pickle':
-                finished = self.pickle_event_loop(reader, writer)
-            elif self.process_record.protocol == 'protobuf':
-                finished = self.protobuf_event_loop(reader, writer)
             else:
                 raise BlameUserException('Unsupported protocol: %s' % self.process_record.protocol)
         except:
@@ -748,14 +495,6 @@ class ProcExecutor(BaseExecutor):
         
         if finished == PROC_EXITED:
             
-            if len(self.expected_output_mask) != len(self.expected_outputs):
-                # Not all outputs have been produced, but we have exited.
-                # So let's publish error references for those.
-                for i, id in enumerate(self.expected_outputs):
-                    if i not in self.expected_output_mask:
-                        ciel.log('No output written for output[%d] = %s' % (i, id), 'PROC', logging.ERROR)
-                        task_record.publish_ref(SWErrorReference(id, 'OUTPUT_NOT_WRITTEN', str(i))) 
-                            
             self.process_pool.delete_process_record(self.process_record)
             
         elif finished == PROC_BLOCKED:
@@ -784,12 +523,68 @@ class ProcExecutor(BaseExecutor):
             else:
                 print 'Unrecognised command:', argv
         
-    def open_ref(self, ref):
+    def open_ref(self, ref, accept_string=False):
         """Fetches a reference if it is available, and returns a filename for reading it.
         Options to do with eagerness, streaming, etc.
         If reference is unavailable, raises a ReferenceUnavailableException."""
         ref = self.task_record.retrieve_ref(ref)
-        return retrieve_filename_for_ref(ref)
+        if not accept_string:   
+            return {"filename": retrieve_filename_for_ref(ref)}
+        else:
+            return retrieve_file_or_string_for_ref(ref).to_safe_dict()
+        
+    def open_ref_async(self, ref, chunk_size, sole_consumer=False):
+        real_ref = self.task_record.retrieve_ref(ref)
+        new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer)
+        filename, file_blocking = new_fetch.get_filename()
+        if not new_fetch.done:
+            self.context_manager.add_context(new_fetch)
+            self.ongoing_fetches.append(new_fetch)
+        # Definitions here: "done" means we're already certain that the producer has completed successfully.
+        # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
+        ret = {"filename": filename, "done": new_fetch.done, "blocking": file_blocking, "size": new_fetch.bytes}
+        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"]), "EXEC", logging.INFO)
+        if new_fetch.done:
+            if not new_fetch.success:
+                ciel.log("Async fetch %s failed early" % ref, "EXEC", logging.WARNING)
+                ret["error"] = "EFAILED"
+        return ret
+    
+    def close_async_file(self, id, chunk_size):
+        for fetch in self.ongoing_fetches:
+            if fetch.ref.id == id and fetch.chunk_size == chunk_size:
+                self.context_manager.remove_context(fetch)
+                self.ongoing_fetches.remove(fetch)
+                completed_ref = fetch.get_completed_ref()
+                if completed_ref is None:
+                    ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "EXEC", logging.INFO)
+                else:
+                    self.task_record.publish_ref(completed_ref)
+                return
+        ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "EXEC", logging.WARNING)
+
+    def wait_async_file(self, id, eof=None, bytes=None):
+        the_fetch = None
+        for fetch in self.ongoing_fetches:
+            if fetch.ref.id == id:
+                the_fetch = fetch
+                break
+        if the_fetch is None:
+            ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "EXEC", logging.WARNING)
+            return {"success": False}
+        if eof is not None:
+            ciel.log("Waiting for fetch %s to complete" % id, "EXEC", logging.INFO)
+            the_fetch.wait_eof()
+        else:
+            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "EXEC", logging.INFO)
+            the_fetch.wait_bytes(bytes)
+        if the_fetch.done and not the_fetch.success:
+            ciel.log("Wait %s complete: transfer has failed" % id, "EXEC", logging.WARNING)
+            return {"success": False}
+        else:
+            ret = {"size": the_fetch.bytes, "done": the_fetch.done, "success": True}
+            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "EXEC", logging.INFO)
+            return ret
         
     def spawn(self, request_args):
         """Spawns a child task. Arguments define a task_private structure. Returns a list
@@ -798,69 +593,78 @@ class ProcExecutor(BaseExecutor):
         # Args dict arrives from sw with unicode keys :(
         str_args = dict([(str(k), v) for (k, v) in request_args.items()])
         
-        try:
-            small_task = str_args['small_task']
-        except KeyError:
+        if "small_task" not in str_args:
             str_args['small_task'] = False
         
         return spawn_task_helper(self.task_record, **str_args)
     
-    def create_ref_inline(self, content):
-        """Creates a new reference, with the given string contents."""
-        ref = ref_from_string(content, self.task_record.create_published_output_name())
+    def tail_spawn(self, request_args):
+        
+        request_args["delegated_outputs"] = self.task_descriptor["expected_outputs"]
+        self.spawn(request_args)
+    
+    def allocate_output(self, prefix=""):
+        new_output_name = self.task_record.create_published_output_name(prefix)
+        self.expected_outputs.append(new_output_name)
+        return {"index": len(self.expected_outputs) - 1}
+    
+    def publish_string(self, index, str):
+        """Defines a reference with the given string contents."""
+        ref = ref_from_safe_string(str, self.expected_outputs[index])
         self.task_record.publish_ref(ref)
-        return ref
-    
-    def create_ref_file(self):
-        """Creates a new reference, and returns a filename for writing it.
-        Also, can supply a string and create the new reference inline.
-        Also, can specify what output is being created.
-        Returns the created reference to the object, and (if necessary) filename."""
-        id = self.task_record.create_published_output_name()
-        ctx = make_local_output(id)
-        (filename, is_fd) = ctx.get_filename_or_fd()
-        assert not is_fd
-        self.open_ref_contexts[filename] = ctx
-        return filename
-    
-    def write_output_inline(self, index, content):
-        """Creates a concrete object for the output with the given index, having the given string contents."""
-        self.expected_output_mask.add(index)
-        ref = ref_from_string(content, self.task_descriptor['expected_outputs'][index])
-        self.task_record.publish_ref(ref)
-        return ref
-    
-    def write_output_file(self, index):
-        """Creates a file for the output with the given index, and returns the filename."""
-        ctx = make_local_output(self.expected_outputs[index])
-        self.open_output_contexts[index] = ctx
-        (filename, is_fd) = ctx.get_filename_or_fd()
-        assert not is_fd
-        return filename
+        return {"ref": ref}
 
-    def close_ref(self, filename):
-        """Closes the open file for a constructed reference."""
-        ctx = self.open_ref_contexts.pop(filename)
-        ctx.close()
-        ref = ctx.get_completed_ref()
-        self.task_record.publish_ref(ref)
-        return ref
-    
-    def close_output(self, index):
-        """Closes the open file for an output."""
-        ctx = self.open_output_contexts.pop(index)
-        self.expected_output_mask.add(index)
-        ctx.close()
-        ref = ctx.get_completed_ref()
-        self.task_record.publish_ref(ref)
-        return ref
-    
-    def block_on_refs(self, refs):
-        """Creates a continuation task for blocking on the given references."""
+    def open_output(self, index, may_pipe=False):
+        if index in self.ongoing_outputs:
+            raise Exception("Tried to open output %d which was already open" % index)
+        output_name = self.expected_outputs[index]
+        new_output = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
+        output_ctx = OngoingOutput(new_output, self)
+        self.ongoing_outputs[index] = output_ctx
+        self.context_manager.add_context(output_ctx)
+        ref = output_ctx.get_stream_ref()
+        self.task_record.prepublish_refs([ref])
+        (filename, is_fd) = new_output.get_filename_or_fd()
+        assert not is_fd
+        return {"filename": filename}
+
+    def stop_output(self, index):
+        self.context_manager.remove_context(self.ongoing_outputs[index])
+        del self.ongoing_outputs[index]
+
+    def close_output(self, index, size):
+        output = self.ongoing_outputs[index]
+        output.size_update(size)
+        self.stop_output(index)
+        ret_ref = output.get_completed_ref()
+        self.task_record.publish_ref(ret_ref)
+        return {"ref": ret_ref}
+
+    def rollback_output(self, index):
+        self.ongoing_outputs[index].rollback()
+        self.stop_output(index)
         
-        task_descriptor = {"handler" : "proc"}
-        spawn_task_helper(self.task_record, "proc", False, process_record_id=self.process_record.id, blocking_refs=refs, current_outputs=self.expected_outputs, output_mask=self.expected_output_mask)
-        
+    def subscribe_output(self, output_ctx):
+        return self.ongoing_outputs[output_ctx.index]
+
+    def output_size_update(self, index, size):
+        self.ongoing_outputs[index].size_update(size)
+
+    def _subscribe_output(self, index, chunk_size):
+        message = ("subscribe", {"id": id, "chunk_size": chunk_size})
+        with self.transmit_lock:
+            self.write_framed_json(message, self.writer)
+
+    def _unsubscribe_output(self, id):
+        message = ("unsubscribe", {"id": id})
+        with self.transmit_lock:
+            self.write_framed_json(message, self.writer)
+           
+    def write_framed_json(self, obj, fp):
+        json_string = simplejson.dumps(obj, cls=SWReferenceJSONEncoder)
+        fp.write(struct.pack('!I', len(json_string)))
+        fp.write(json_string)
+        fp.flush()
     
     def json_event_loop(self, reader, writer):
         while True:
@@ -879,85 +683,108 @@ class ProcExecutor(BaseExecutor):
                 return PROC_ERROR
         
             ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
+            response = None
         
             try:
                 if method == 'open_ref':
                     
-                    try:
-                        ref = args['ref']
-                    except KeyError:
+                    if "ref" not in args:
                         ciel.log('Missing required argument key: ref', 'PROC', logging.ERROR, False)
                         return PROC_ERROR
                     
                     try:
-                        response = {'filename' : self.open_ref(ref)}
+                        response = self.open_ref(**args)
                     except ReferenceUnavailableException:
                         response = {'error' : 'EWOULDBLOCK'}
+                        
+                elif method == "open_ref_async":
+                    
+                    if "ref" not in args or "chunk_size" not in args:
+                        ciel.log("Missing required argument key: open_ref_async needs both 'ref' and 'chunk_size'", "PROC", logging.ERROR, False)
+                        return PROC_ERROR
+            
+                    try:
+                        response = self.open_ref_async(**args)
+                    except ReferenceUnavailableException:
+                        response = {"error": "EWOULDBLOCK"}
+                        
+                elif method == "wait_stream":
+                    ret = self.wait_async_file(**args)
+                    
+                elif method == "close_stream":
+                    self.close_async_file(args["id"], args["chunk_size"])
                     
                 elif method == 'spawn':
                     
                     response = self.spawn(args)
                     
-                elif method == 'create_ref':
+                elif method == 'tail_spawn':
+                    
+                    response = self.tail_spawn(args)
+                    
+                elif method == 'allocate_output':
+                    
+                    response = self.allocate_output(**args)
+                    
+                elif method == 'publish_string':
+                    
+                    response = {'ref' : self.publish_string(**args)}
+
+                elif method == 'open_output':
                     
                     try:
-                        # Create ref for inline string.
-                        response = {'ref' : self.create_ref_inline(args['inline'])}
-                    except KeyError:
-                        # Create ref and return filename for writing.
-                        response = {'filename' : self.create_ref_file()}
-                        
-                elif method == 'write_output':
-                    
-                    try:
-                        index = int(args['i'])
-                        if index < 0 or index > len(self.task_descriptor['expected_outputs']):
-                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.task_descriptor['expected_outputs'], 'PROC', logging.ERROR, False)
+                        index = int(args['index'])
+                        if index < 0 or index > len(self.expected_outputs):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                     except KeyError:
                         if len(self.task_descriptor['expected_outputs']) == 1:
-                            index = 0
+                            args["index"] = 0
                         else:
                             ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
                             return PROC_ERROR
-                        
-                    try:
-                        # Write output with inline string.
-                        response = {'ref' : self.write_output_inline(index, args['inline'])}
-                    except KeyError:
-                        # Return filename for writing.
-                        response = {'filename' : self.write_output_file(index)}
-                        
-                elif method == 'close_ref':
                     
-                    try:
-                        filename = args['filename']
-                    except KeyError:
-                        ciel.log('Missing required argument: ref', 'PROC', logging.ERROR, False)
-                        return PROC_ERROR
-                    
-                    response = {'ref' : self.close_ref(filename)}
+                    response = {'filename' : self.open_output(**args)}
                         
                 elif method == 'close_output':
     
                     try:
                         index = int(args['i'])
-                        if index < 0 or index > len(self.task_descriptor['expected_outputs']):
-                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.task_descriptor['expected_outputs'], 'PROC', logging.ERROR, False)
+                        if index < 0 or index > len(self.expected_outputs):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                     except KeyError:
                         if len(self.task_descriptor['expected_outputs']) == 1:
-                            index = 0
+                            args["index"] = 0
                         else:
                             ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                         
-                    response = {'ref' : self.close_output(index)}
-    
-                elif method == 'block':
+                    response = {'ref' : self.close_output(**args)}
                     
-                    self.block_on_refs(args)
-                    return PROC_BLOCKED
+                elif method == 'rollback_output':
+    
+                    try:
+                        index = int(args['i'])
+                        if index < 0 or index > len(self.expected_outputs):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                    except KeyError:
+                        if len(self.task_descriptor['expected_outputs']) == 1:
+                            args["index"] = 0
+                        else:
+                            ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                        
+                    response = {'ref' : self.rollback_output(**args)}
+                    
+                elif method == "advert":
+                    
+                    self.output_size_update(**args)
+    
+                elif method == "package_lookup":
+                    
+                    response = {"value": package_lookup(self.task_record, self.block_store, args["key"])}
     
                 elif method == 'error':
                     ciel.log('Got error from task: %s' % args, 'PROC', logging.ERROR, False)
@@ -965,7 +792,10 @@ class ProcExecutor(BaseExecutor):
     
                 elif method == 'exit':
                     
-                    return PROC_EXITED
+                    if args["keep_process"]:
+                        return PROC_BLOCKED
+                    else:
+                        return PROC_EXITED
                 
                 else:
                     ciel.log('Invalid method: %s' % method, 'PROC', logging.WARN, False)
@@ -976,24 +806,57 @@ class ProcExecutor(BaseExecutor):
                 return PROC_ERROR
         
             try:
-                response_string = simplejson.dumps(response, cls=SWReferenceJSONEncoder)
-                ciel.log('Writing %d bytes response' % len(response_string), 'PROC', logging.INFO)
-                writer.write(struct.pack('!I', len(response_string)))
-                writer.write(response_string)
-                writer.flush()
+                if response is not None:
+                    with self.transmit_lock:
+                        self.write_framed_json((method, response), writer)
             except:
                 ciel.log('Error writing response in JSON event loop', 'PROC', logging.WARN, True)
                 return PROC_ERROR
         
         return True
     
-    def pickle_event_loop(self, reader, writer):
-        """Could be on the SkyPy event loop, above"""
-        return PROC_ERROR
+class SkyPyExecutor(ProcExecutor):
+
+    handler_name = "skypy"
     
-    def protobuf_event_loop(self, reader, writer):
-        return PROC_ERROR
-        
+    def __init__(self, worker):
+        ProcExecutor.__init__(self, worker)
+        self.skypybase = os.getenv("CIEL_SKYPY_BASE")
+
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, is_tail_spawn=False, n_extra_outputs=0, **kwargs):
+
+        if pyfile_ref is None:
+            raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
+        if coro_ref is not None:
+            task_descriptor["task_private"]["coro_ref"] = coro_ref
+            task_descriptor["dependencies"].append(coro_ref)
+        else:
+            task_descriptor["task_private"]["entry_point"] = entry_point
+            task_descriptor["task_private"]["entry_args"] = entry_args
+            task_descriptor["task_private"]["export_json"] = export_json
+            task_descriptor["task_private"]["is_continuation"] = is_tail_spawn
+        task_descriptor["task_private"]["py_ref"] = pyfile_ref
+        task_descriptor["dependencies"].append(pyfile_ref)
+        add_package_dep(parent_task_record.package_ref, task_descriptor)
+
+        refs = ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
+        if refs is not None:
+            if n_extra_outputs == 0:
+                return refs
+            else:
+                return SkyPySpawn(refs[0], refs[1:])
+        else:
+            return None
+
+    @staticmethod
+    def can_run():
+        if "CIEL_SKYPY_BASE" not in os.environ:
+            ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
+            return False
+        else:
+            return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
+   
 class Java2Executor(BaseExecutor):
     
     handler_name = "java2"
@@ -1002,9 +865,9 @@ class Java2Executor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record):
         # More good stuff goes here.
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record)
 
     @staticmethod
     def can_run():
@@ -1100,7 +963,7 @@ class SkywritingExecutor(BaseExecutor):
         self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, sw_file_ref=None, start_env=None, start_args=None, cont=None, cont_delegated_output=None, extra_dependencies={}):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, sw_file_ref=None, start_env=None, start_args=None, cont=None, cont_delegated_output=None, extra_dependencies={}):
 
         if cont_delegated_output is None:
             ret_output = "%s:retval" % task_descriptor["task_id"]
@@ -1122,7 +985,7 @@ class SkywritingExecutor(BaseExecutor):
         task_descriptor["dependencies"].extend(extra_dependencies)
         add_package_dep(parent_task_record.package_ref, task_descriptor)
         
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record)
 
         if cont_delegated_output is not None:
             return None
@@ -1290,7 +1153,7 @@ class SimpleExecutor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs, is_tail_spawn=False):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, args, n_outputs, is_tail_spawn=False):
 
         if is_tail_spawn and len(task_descriptor["expected_outputs"]) != n_outputs:
             raise BlameUserException("SimpleExecutor being built with delegated outputs %s but n_outputs=%d" % (task_descriptor["expected_outputs"], n_outputs))
@@ -1317,7 +1180,7 @@ class SimpleExecutor(BaseExecutor):
         task_descriptor["dependencies"].append(args_ref)
         task_descriptor["task_private"]["simple_exec_args"] = args_ref
         
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record)
 
         if is_tail_spawn:
             return None
