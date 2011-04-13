@@ -15,15 +15,14 @@
 from __future__ import with_statement
 
 from shared.references import \
-    SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
+    SWRealReference, SW2_FutureReference, SWDataValue, \
+    SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
     SW2_FixedReference
 from skywriting.runtime.references import SWReferenceJSONEncoder
-from skywriting.runtime.exceptions import FeatureUnavailableException,\
-    BlameUserException, MissingInputException
+from skywriting.runtime.exceptions import BlameUserException, MissingInputException
 from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
-    retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, ref_from_external_file, \
+    retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
     FileOrString, retrieve_file_or_string_for_ref, ref_from_safe_string
 from skywriting.runtime.block_store import get_own_netloc
 
@@ -32,7 +31,6 @@ from skywriting.runtime.fetcher import fetch_ref_async
 from skywriting.runtime.object_cache import retrieve_object_for_ref, ref_from_object
 
 import hashlib
-import urlparse
 import simplejson
 import logging
 import shutil
@@ -42,7 +40,6 @@ import os.path
 import threading
 import pickle
 import time
-import codecs
 from subprocess import PIPE
 from datetime import datetime
 from skywriting.runtime.references import json_decode_object_hook
@@ -1062,7 +1059,7 @@ class Java2Executor(BaseExecutor):
 # Imports for Skywriting
 
 from skywriting.runtime.exceptions import ReferenceUnavailableException,\
-    BlameUserException, MissingInputException, ExecutionInterruption
+    ExecutionInterruption
 from skywriting.lang.context import SimpleContext, TaskContext,\
     LambdaFunction
 from skywriting.lang.visitors import \
@@ -1861,8 +1858,8 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                         anything_read = True
                     if c == ",":
                         if message[0] == "C":
-                           timestamp = float(message[1:])
-                           ciel.engine.publish("worker_event", "Process log %f Computing" % timestamp)
+                            timestamp = float(message[1:])
+                            ciel.engine.publish("worker_event", "Process log %f Computing" % timestamp)
                         elif message[0] == "I":
                             try:
                                 params = message[1:].split("|")

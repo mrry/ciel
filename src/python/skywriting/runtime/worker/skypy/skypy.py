@@ -10,7 +10,7 @@ from contextlib import closing
 from StringIO import StringIO
 
 from shared.io_helpers import MaybeFile
-from shared.references import encode_datavalue, decode_datavalue, SWDataValue
+from shared.references import encode_datavalue, decode_datavalue
 
 from file_outputs import OutputFile
 

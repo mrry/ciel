@@ -15,7 +15,7 @@ from cherrypy.process import plugins
 from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.task import TASK_STATES, \
     build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED,\
-    TASK_COMMITTED, TASK_QUEUED_STREAMING, TASK_STATE_NAMES
+    TASK_COMMITTED, TASK_QUEUED_STREAMING
 from threading import Lock, Condition
 import Queue
 import ciel
@@ -31,7 +31,6 @@ from shared.references import SWErrorReference
 from skywriting.runtime.master.scheduling_policy import LocalitySchedulingPolicy,\
     get_scheduling_policy
 import collections
-import sys
 
 JOB_CREATED = -1
 JOB_ACTIVE = 0

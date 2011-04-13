@@ -19,10 +19,9 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 from urlparse import urljoin
-from skywriting.runtime.references import SWReferenceJSONEncoder,\
-    json_decode_object_hook
+from skywriting.runtime.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import MasterNotRespondingException,\
-    WorkerShutdownException, RuntimeSkywritingError
+    WorkerShutdownException
 import logging
 import random
 import cherrypy

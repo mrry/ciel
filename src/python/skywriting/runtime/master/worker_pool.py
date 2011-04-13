@@ -13,10 +13,8 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from Queue import Queue
-from cherrypy.process import plugins
 from skywriting.runtime.references import SWReferenceJSONEncoder
-from skywriting.runtime.pycurl_rpc import post_string_noreturn, post_string, get_string
-from skywriting.runtime.exceptions import WorkerFailedException
+from skywriting.runtime.pycurl_rpc import post_string_noreturn, get_string
 import ciel
 import datetime
 import logging

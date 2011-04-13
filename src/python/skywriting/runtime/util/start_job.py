@@ -1,6 +1,5 @@
 
 import simplejson
-import sys
 import load
 import urlparse
 import httplib2
@@ -8,15 +7,12 @@ import pickle
 import skywriting.runtime.executors
 import time
 import datetime
-import os
 import os.path
 from skywriting.runtime.util.sw_pprint import sw_pprint
 
 from skywriting.runtime.references import SWReferenceJSONEncoder,json_decode_object_hook
 from skywriting.runtime.object_cache import retrieve_object_for_ref
-from shared.references import SW2_ConcreteReference
 from optparse import OptionParser
-import ciel
 
 http = httplib2.Http()
 

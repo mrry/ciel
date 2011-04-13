@@ -3,7 +3,6 @@ import ciel
 import logging
 
 import subprocess
-import simplejson
 import tempfile
 import threading
 import os
@@ -11,7 +10,6 @@ from datetime import datetime, timedelta
 
 import skywriting.runtime.tcp_server
 import skywriting.runtime.file_watcher as fwt
-import skywriting.runtime.pycurl_rpc
 from skywriting.runtime.block_store import get_own_netloc, producer_filename
 from shared.references import SWDataValue, encode_datavalue, SW2_ConcreteReference, \
     SW2_StreamReference, SW2_CompletedReference, SW2_SocketStreamReference

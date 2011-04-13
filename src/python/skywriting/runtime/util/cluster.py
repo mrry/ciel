@@ -17,17 +17,13 @@ Created on 15 Apr 2010
 
 @author: dgm36
 '''
-from skywriting.runtime.references import json_decode_object_hook
 from skywriting.runtime.object_cache import retrieve_object_for_ref
 import skywriting.runtime.util.start_job
 import time
 import datetime
-import simplejson
 import sys
 import os
 from optparse import OptionParser
-
-import ciel
 
 def now_as_timestamp():
     return (lambda t: (time.mktime(t.timetuple()) + t.microsecond / 1e6))(datetime.datetime.now())

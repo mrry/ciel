@@ -5,7 +5,6 @@ from skywriting.runtime.block_store import producer_filename
 
 import threading
 import socket
-import os
 import ciel
 import logging
 
