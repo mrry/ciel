@@ -11,7 +11,7 @@ import shutil
 from skywriting.runtime.fetcher import fetch_ref_async
 from skywriting.runtime.producer import make_local_output
 from shared.references import SW2_TombstoneReference, SW2_ConcreteReference, \
-    SWDataValue, encode_datavalue, decode_datavalue
+    SWDataValue, encode_datavalue, decode_datavalue, decode_datavalue_string
 from skywriting.runtime.exceptions import MissingInputException
 from skywriting.runtime.block_store import filename_for_ref
 
@@ -72,7 +72,7 @@ class SynchronousTransfer:
 class FileOrString:
     
     def __init__(self, strdata=None, filename=None):
-        self.str = encode_datavalue(strdata)
+        self.str = strdata
         self.filename = filename
             
     @staticmethod
@@ -108,7 +108,7 @@ class FileOrString:
 
     def to_str(self):
         if self.str is not None:
-            return decode_datavalue(self.str)
+            return decode_datavalue_string(self.str)
         else:
             with open(self.filename, "r") as f:
                 return f.read()
@@ -172,7 +172,7 @@ def ref_from_safe_string(string, id):
     if len(string) < 1024:
         return SWDataValue(id, value=string)
     else:
-        return ref_from_string(decode_datavalue(string))
+        return ref_from_string(decode_datavalue_string(string))
 
 def ref_from_string(string, id):
     if len(string) < 1024:

@@ -10,7 +10,8 @@ from contextlib import closing
 from StringIO import StringIO
 
 from shared.io_helpers import MaybeFile
-from shared.references import encode_datavalue, decode_datavalue
+from shared.references import encode_datavalue, decode_datavalue,\
+    decode_datavalue_string
 
 from file_outputs import OutputFile
 
@@ -40,13 +41,13 @@ def describe_maybe_file(output_fp, out_dict):
         out_dict["filename"] = output_fp.filename
         output_fp.real_fp.close()
     else:
-        out_dict["strdata"] = encode_datavalue(output_fp.fake_fp.getvalue())
+        out_dict["strdata"] = encode_datavalue(output_fp.str)
         
 def ref_from_maybe_file(output_fp, refid):
     if output_fp.real_fp is not None:
         return output_fp.real_fp.get_completed_ref()
     else:
-        send_dict = {"request": "publish_string", "id": refid, "str": encode_datavalue(output_fp.fake_fp.getvalue())}
+        send_dict = {"request": "publish_string", "id": refid, "str": encode_datavalue(output_fp.str)}
         return message_helper.synchronous_request(send_dict)["ref"]
 
 class PersistentState:
@@ -88,9 +89,8 @@ def deref_json(ref):
     try:
         obj = simplejson.loads(runtime_response["strdata"])
     except KeyError:
-        ref_fp = open(runtime_response["filename"], "r")
-        obj = simplejson.load(ref_fp)
-        ref_fp.close()
+        with open(runtime_response["filename"], "r") as ref_fp:
+            obj = simplejson.load(ref_fp)
     ref_cache[ref.id] = obj
     return obj
 
@@ -98,11 +98,10 @@ def deref(ref):
 
     runtime_response = fetch_ref(ref, "deref")
     try:
-        obj = pickle.loads(decode_datavalue(runtime_response["strdata"]))
+        obj = pickle.loads(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
-        ref_fp = open(runtime_response["filename"], "r")
-        obj = pickle.load(ref_fp)
-        ref_fp.close()
+        with open(runtime_response["filename"], "r") as ref_fp:
+            obj = pickle.load(ref_fp)
     ref_cache[ref.id] = obj
     return obj
 
@@ -336,7 +335,7 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
     if not may_stream:
         runtime_response = fetch_ref(ref, "deref")
         try:
-            return closing(StringIO(runtime_response["strdata"]))
+            return closing(StringIO(decode_datavalue_string(runtime_response["strdata"])))
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:

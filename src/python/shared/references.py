@@ -319,6 +319,9 @@ def encode_datavalue(str):
 def decode_datavalue(ref):
     return (dataval_codec.decode(ref.value))[0]
 
+def decode_datavalue_string(str):
+    return (dataval_codec.decode(str))[0]
+
 class SWDataValue(SWRealReference):
     """
     This is akin to a SW2_ConcreteReference which encapsulates its own data.

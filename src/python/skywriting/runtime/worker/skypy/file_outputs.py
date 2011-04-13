@@ -100,7 +100,6 @@ class OutputFile:
             self.rollback()
 
     def __getstate__(self):
-        print >>sys.stderr, "GETSTATE CALLED", self.id
         if self.closed:
             return (self.id, self.ref)
         else:

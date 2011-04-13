@@ -111,7 +111,7 @@ class ExecutionFeatures:
         return self.executors[name]
 
 # Helper functions
-def spawn_task_helper(task_record, executor_name, delegated_outputs=None, small_task=False, scheduling_class=None, scheduling_type=None, **executor_args):
+def spawn_task_helper(task_record, executor_name, small_task=False, delegated_outputs=None, scheduling_class=None, scheduling_type=None, **executor_args):
 
     new_task_descriptor = {"handler": executor_name}
     if small_task:
@@ -127,7 +127,7 @@ def spawn_task_helper(task_record, executor_name, delegated_outputs=None, small_
         new_task_descriptor["scheduling_type"] = scheduling_type
     if delegated_outputs is not None:
         new_task_descriptor["expected_outputs"] = delegated_outputs
-    return task_record.spawn_task(new_task_descriptor, **executor_args)
+    return task_record.spawn_task(new_task_descriptor, is_tail_spawn=(delegated_outputs is not None), **executor_args)
 
 def package_lookup(task_record, block_store, key):
     if task_record.package_ref is None:
@@ -411,9 +411,7 @@ class SkyPyExecutor(BaseExecutor):
         self.transmit_lock = threading.Lock()
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, extra_dependencies=[]):
-
-        is_continuation = ("expected_outputs" in task_descriptor)
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
 
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
@@ -423,7 +421,7 @@ class SkyPyExecutor(BaseExecutor):
         else:
             task_descriptor["task_private"]["entry_point"] = entry_point
             task_descriptor["task_private"]["entry_args"] = entry_args
-        if not is_continuation:
+        if not is_tail_spawn:
             ret_output = "%s:retval" % task_descriptor["task_id"]
             task_descriptor["expected_outputs"].append(ret_output)
             task_descriptor["task_private"]["ret_output"] = ret_output
@@ -431,7 +429,7 @@ class SkyPyExecutor(BaseExecutor):
             task_descriptor["expected_outputs"].extend(extra_outputs)
             task_descriptor["task_private"]["extra_outputs"] = extra_outputs
             task_descriptor["task_private"]["export_json"] = export_json
-        task_descriptor["task_private"]["is_continuation"] = is_continuation
+        task_descriptor["task_private"]["is_continuation"] = is_tail_spawn
         task_descriptor["dependencies"].extend(extra_dependencies)
         task_descriptor["task_private"]["py_ref"] = pyfile_ref
         task_descriptor["dependencies"].append(pyfile_ref)
@@ -439,7 +437,7 @@ class SkyPyExecutor(BaseExecutor):
 
         BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
 
-        if is_continuation:
+        if is_tail_spawn:
             return None
         elif n_extra_outputs == 0:
             return SW2_FutureReference(ret_output)
@@ -505,7 +503,9 @@ class SkyPyExecutor(BaseExecutor):
                 out_refs = spawn_task_helper(self.task_record, **request_args)
                 ret = {"outputs": out_refs}
             elif request == "tail_spawn":
-                spawn_task_helper(self.task_record, delegated_outputs=task_descriptor["expected_outputs"], **request_args)
+                spawn_task_helper(self.task_record, 
+                                  delegated_outputs=task_descriptor["expected_outputs"],
+                                  **request_args)
             elif request == "create_fresh_output":
                 new_output_name = self.task_record.create_published_output_name(**request_args)
                 ret = {"name": new_output_name}
@@ -1290,10 +1290,10 @@ class SimpleExecutor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs, delegated_outputs=None):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs, is_tail_spawn=False):
 
-        if delegated_outputs is not None and len(delegated_outputs) != n_outputs:
-            raise BlameUserException("SimpleExecutor being built with delegated outputs %s but n_outputs=%d" % (delegated_outputs, n_outputs))
+        if is_tail_spawn and len(task_descriptor["expected_outputs"]) != n_outputs:
+            raise BlameUserException("SimpleExecutor being built with delegated outputs %s but n_outputs=%d" % (task_descriptor["expected_outputs"], n_outputs))
 
         # Throw early if the args are bad
         cls.check_args_valid(args, n_outputs)
@@ -1307,10 +1307,8 @@ class SimpleExecutor(BaseExecutor):
         name_prefix = "%s:%s:" % (cls.handler_name, sha.hexdigest())
 
         # Name our outputs
-        if delegated_outputs is None:
+        if not is_tail_spawn:
             task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]
-        else:
-            task_descriptor["expected_outputs"] = delegated_outputs
 
         # Add the args dict
         args_name = "%ssimple_exec_args" % name_prefix
@@ -1321,7 +1319,7 @@ class SimpleExecutor(BaseExecutor):
         
         BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
 
-        if delegated_outputs is not None:
+        if is_tail_spawn:
             return None
         else:
             return [SW2_FutureReference(x) for x in task_descriptor["expected_outputs"]]

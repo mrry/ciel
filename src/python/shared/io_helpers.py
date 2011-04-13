@@ -8,6 +8,7 @@ class MaybeFile:
     def __init__(self, threshold_bytes=1024, filename=None, open_callback=None):
         self.real_fp = None
         self.filename = filename
+        self.str = None
         self.open_callback = open_callback
         self.bytes_written = 0
         self.fake_fp = StringIO()
@@ -40,5 +41,6 @@ class MaybeFile:
         if self.real_fp is not None:
             self.real_fp.close()
         if self.fake_fp is not None:
+            self.str = self.fake_fp.getvalue()
             self.fake_fp.close()
 
