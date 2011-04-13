@@ -418,7 +418,7 @@ class ProcExecutor(BaseExecutor):
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, 
-                              process_record_id=None, start_command=None, 
+                              process_record_id=None, start_command=None, is_fixed=False,
                               n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
 
         if process_record_id is not None:
@@ -433,9 +433,12 @@ class ProcExecutor(BaseExecutor):
             task_descriptor["expected_outputs"].extend(extra_outputs)
             task_descriptor["task_private"]["extra_outputs"] = extra_outputs
 
-        task_private_id = ("%s:_private" % task_descriptor["task_id"])        
-        task_private_ref = SW2_FixedReference(task_private_id, get_own_netloc())
-        write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
+        task_private_id = ("%s:_private" % task_descriptor["task_id"])
+        if is_fixed:     
+            task_private_ref = SW2_FixedReference(task_private_id, get_own_netloc())
+            write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
+        else:
+            task_private_ref = ref_from_string(pickle.dumps(task_descriptor["task_private"]))
         parent_task_record.publish_ref(task_private_ref)
         
         task_descriptor["task_private"] = task_private_ref
