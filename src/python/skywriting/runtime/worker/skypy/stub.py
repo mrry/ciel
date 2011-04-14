@@ -8,18 +8,19 @@ import stackless
 import pickle
 import imp
 import sys
-import os
 import simplejson
 
 import skypy
 from rpc_helper import RpcHelper
 from file_outputs import FileOutputRecords
 
-from shared.io_helpers import MaybeFile
+from shared.io_helpers import MaybeFile, read_framed_json
 from shared.references import SW2_FutureReference
 
 parser = optparse.OptionParser()
 parser.add_option("-v", "--version", action="store_true", dest="version", default=False, help="Display version info")
+parser.add_option("-w", "--write-fifo", action="store", dest="write_fifo", default=None, help="FIFO for communication towards Ciel")
+parser.add_option("-r", "--read-fifo", action="store", dest="read_fifo", default=None, help="FIFO for communication from Ciel")
 
 (options, args) = parser.parse_args()
 
@@ -27,15 +28,25 @@ if options.version:
     print "Ciel SkyPy v0.1. Python:"
     print sys.version
     sys.exit(0)
+    
+if options.write_fifo is None or options.read_fifo is None:
+    print >>sys.stderr, "SkyPy: Must specify a read-fifo and a write-fifo."
+    sys.exit(1)
+
+write_fp = open(options.write_fifo, "w")
+read_fp = open(options.read_fifo, "r", 0)
+# Unbuffered so we can use select() on its FD for IO mux
 
 print >>sys.stderr, "SkyPy: Awaiting task"
-unbuffered_stdin = os.fdopen(0, "r", 0)
-entry_dict = pickle.load(unbuffered_stdin)
+(first_method, entry_dict) = read_framed_json(read_fp)
+if first_method != "start_task":
+    print >>sys.stderr, "SkyPy: First method was not 'start_task'"
+    sys.exit(1)
 
 skypy.main_coro = stackless.coroutine.getcurrent()
 
 skypy.file_outputs = FileOutputRecords()
-skypy.message_helper = RpcHelper(unbuffered_stdin, sys.stdout, skypy.file_outputs)
+skypy.message_helper = RpcHelper(read_fp, write_fp, skypy.file_outputs)
 skypy.file_outputs.set_message_helper(skypy.message_helper)
 
 with skypy.deref_as_raw_file(entry_dict["py_ref"]) as py_file:

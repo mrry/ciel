@@ -1,16 +1,16 @@
 
 from __future__ import with_statement
 
-import os
 import select
 import sys
-import pickle
+from shared.io_helpers import read_framed_json, write_framed_json
 
 class RpcRequest:
 
-    def __init__(self):
+    def __init__(self, method):
 
         self.response = None
+        self.method = method
 
 class RpcHelper:
 
@@ -39,29 +39,32 @@ class RpcHelper:
 
         have_message = self.in_fd in reads
         if have_message:
-            next_message = pickle.load(self.in_fp)
-            if next_message["request"] == "subscribe" or next_message["request"] == "unsubscribe":
-                self.active_outputs.handle_request(next_message)
+            (method, args) = read_framed_json(self.in_fp)
+            if method == "subscribe" or method == "unsubscribe":
+                self.active_outputs.handle_request(method, args)
             else:
                 if self.pending_request is not None:
-                    self.pending_request.response = next_message
+                    if method != self.pending_request.method:
+                        print >>sys.stderr, "Ignored response of type", method, \
+                            "because I'm waiting for", self.pending_request.method
+                    self.pending_request.response = args
                 else:
-                    print >>sys.stderr, "Ignored request", next_message
+                    print >>sys.stderr, "Ignored request", method, "args", args
         return have_message
 
-    def synchronous_request(self, request):
+    def synchronous_request(self, method, args):
         
 
-        self.pending_request = RpcRequest()
-        self.send_message(request)
+        self.pending_request = RpcRequest(method)
+        self.send_message((method, args))
         while self.pending_request.response is None:
             self.receive_message(block=True)
             ret = self.pending_request.response
         self.pending_request = None
         return ret
 
-    def send_message(self, message):
+    def send_message(self, method, args):
         
-        pickle.dump(message, self.out_fp)
+        write_framed_json((method, args), self.out_fp)
         self.out_fp.flush()
 

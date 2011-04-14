@@ -2,16 +2,15 @@
 from __future__ import with_statement
 
 import stackless
-import pickle
 import traceback
+import pickle
 import simplejson
 import os
 from contextlib import closing
 from StringIO import StringIO
 
 from shared.io_helpers import MaybeFile
-from shared.references import encode_datavalue, decode_datavalue,\
-    decode_datavalue_string
+from shared.references import encode_datavalue, decode_datavalue_string
 
 from file_outputs import OutputFile
 
@@ -47,8 +46,8 @@ def ref_from_maybe_file(output_fp, refid):
     if output_fp.real_fp is not None:
         return output_fp.real_fp.get_completed_ref()
     else:
-        send_dict = {"request": "publish_string", "id": refid, "str": encode_datavalue(output_fp.str)}
-        return message_helper.synchronous_request(send_dict)["ref"]
+        args = {"id": refid, "str": encode_datavalue(output_fp.str)}
+        return message_helper.synchronous_request("publish_string", args)["ref"]
 
 class PersistentState:
     def __init__(self):
@@ -69,10 +68,10 @@ def fetch_ref(ref, verb, **kwargs):
     else:
         for tries in range(2):
             add_ref_dependency(ref)
-            send_dict = {"request": verb, "ref": ref}
+            send_dict = {"ref": ref}
             send_dict.update(kwargs)
-            runtime_response = message_helper.synchronous_request(send_dict)
-            if not runtime_response["success"]:
+            runtime_response = message_helper.synchronous_request(verb, send_dict)
+            if "error" in runtime_response:
                 if tries == 0:
                     halt_reason = HALT_REFERENCE_UNAVAILABLE
                     main_coro.switch()
@@ -87,7 +86,7 @@ def deref_json(ref):
     
     runtime_response = fetch_ref(ref, "deref")
     try:
-        obj = simplejson.loads(runtime_response["strdata"])
+        obj = simplejson.loads(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
         with open(runtime_response["filename"], "r") as ref_fp:
             obj = simplejson.load(ref_fp)
@@ -148,10 +147,9 @@ def spawn(spawn_callable, *pargs, **kwargs):
 
 def do_spawn(executor_name, small_task, **args):
     
-    args["request"] = "spawn"
     args["small_task"] = small_task
     args["executor_name"] = executor_name
-    response = message_helper.synchronous_request(args)
+    response = message_helper.synchronous_request("spawn", args)
     return response["outputs"]
 
 def spawn_exec(executor_name, **args):
@@ -167,7 +165,7 @@ class PackageKeyError(Exception):
 
 def package_lookup(key):
     
-    response = message_helper.synchronous_request({"request": "package_lookup", "key": key})
+    response = message_helper.synchronous_request("package_lookup", {"key": key})
     retval = response["value"]
     if retval is None:
         raise PackageKeyError(key)
@@ -186,7 +184,7 @@ class CompleteFile:
     def close(self):
         self.fp.close()
         if self.must_close:
-            message_helper.send_message({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size})            
+            message_helper.send_message("close_stream", {"id": self.ref.id, "chunk_size": self.chunk_size})            
         remove_ref_dependency(self.ref)
 
     def __enter__(self):
@@ -237,16 +235,16 @@ class StreamingFile:
     def close(self):
         self.closed = True
         self.fp.close()
-        message_helper.send_message({"request": "close_stream", "id": self.ref.id, "chunk_size": self.chunk_size})
+        message_helper.send_message("close_stream", {"id": self.ref.id, "chunk_size": self.chunk_size})
         remove_ref_dependency(self.ref)
 
     def __exit__(self, exnt, exnv, exnbt):
         self.close()
 
     def wait(self, **kwargs):
-        out_dict = {"request": "wait_stream", "id": self.ref.id}
+        out_dict = {"id": self.ref.id}
         out_dict.update(kwargs)
-        runtime_response = message_helper.synchronous_request(out_dict)
+        runtime_response = message_helper.synchronous_request("wait_stream", out_dict)
         if not runtime_response["success"]:
             raise Exception("File transfer failed before EOF")
         else:
@@ -348,12 +346,12 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 
 def get_fresh_output_name(prefix=""):
-    runtime_response = message_helper.synchronous_request({"request": "create_fresh_output", "prefix": prefix})
+    runtime_response = message_helper.synchronous_request("create_fresh_output", {"prefix": prefix})
     return runtime_response["name"]
 
 def open_output(id, may_pipe=False):
     new_output = OutputFile(message_helper, file_outputs, id)
-    runtime_response = message_helper.synchronous_request({"request": "open_output", "id": id, "may_pipe": may_pipe})
+    runtime_response = message_helper.synchronous_request("open_output", {"id": id, "may_pipe": may_pipe})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 

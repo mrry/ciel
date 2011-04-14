@@ -12,20 +12,20 @@ class FileOutputRecords:
     def set_message_helper(self, helper):
         self.message_helper = helper
 
-    def handle_request(self, message):
+    def handle_request(self, method, args):
 
-        if message["request"] == "subscribe":
+        if method == "subscribe":
             try:
-                output = self.ongoing_outputs[message["id"]]
-                output.subscribe(message["chunk_size"])
+                output = self.ongoing_outputs[args["id"]]
+                output.subscribe(args["chunk_size"])
             except KeyError:
-                print >>sys.stderr, "Ignored subscribe for non-existent output", message["id"]
-        elif message["request"] == "unsubscribe":
+                print >>sys.stderr, "Ignored subscribe for non-existent output", args["id"]
+        elif method == "unsubscribe":
             try:
-                output = self.ongoing_outputs[message["id"]]
+                output = self.ongoing_outputs[args["id"]]
                 output.unsubscribe()
             except KeyError:
-                print >>sys.stderr, "Ignored unsubscribe for output", message["id"], "not in progress"
+                print >>sys.stderr, "Ignored unsubscribe for output", args["id"], "not in progress"
 
     def add_output(self, id, output):
         self.ongoing_outputs[id] = output
@@ -61,7 +61,7 @@ class OutputFile:
             self.notify_threshold += self.chunk_size
             should_notify = True
         if should_notify:
-            self.message_helper.send_message({"request": "advert", "id": self.id, "size": self.bytes_written})
+            self.message_helper.send_message("advert", {"id": self.id, "size": self.bytes_written})
 
     def writelines(self, lines):
         for line in lines:
@@ -79,7 +79,7 @@ class OutputFile:
         self.closed = True
         self.fp.close()
         self.file_outputs.remove_output(self.id)
-        runtime_response = self.message_helper.synchronous_request({"request": "close_output", "size": self.bytes_written, "id": self.id})
+        runtime_response = self.message_helper.synchronous_request("close_output", {"size": self.bytes_written, "id": self.id})
         self.ref = runtime_response["ref"]
 
     def get_completed_ref(self):
@@ -91,7 +91,7 @@ class OutputFile:
         self.closed = True
         self.fp.close()
         self.file_outputs.remove_output(self.id)
-        self.message_helper.send_message({"request": "rollback_output", "id": self.id})
+        self.message_helper.send_message("rollback_output", {"id": self.id})
 
     def __exit__(self, exnt, exnv, exnbt):
         if exnt is None:
