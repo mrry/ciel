@@ -356,6 +356,12 @@ class OngoingOutputWatch:
         
     def start(self):
         self.ongoing_output.start_watch()
+        
+    def set_chunk_size(self, new_size):
+        return self.ongoing_output.set_watch_chunk_size(new_size)
+    
+    def cancel(self):
+        return self.ongoing_output.cancel_watch()
 
 class OngoingOutput:
 
@@ -377,11 +383,6 @@ class OngoingOutput:
     def rollback(self):
         self.output_ctx.rollback()
 
-    def set_chunk_size(self, new_chunk_size):
-        if self.watch_chunk_size is not None:
-            self.executor._subscribe_output(self.output_ctx.refid, new_chunk_size)
-        self.watch_chunk_size = new_chunk_size
-
     def get_filename(self):
         (filename, is_fd) = self.output_ctx.get_filename_or_fd()
         assert not is_fd
@@ -393,13 +394,18 @@ class OngoingOutput:
     def get_completed_ref(self):
         return self.output_ctx.get_completed_ref()
 
-    def subscribe_output(self):
+    def subscribe_output(self, _):
         return OngoingOutputWatch(self)
 
     def start_watch(self):
         self.executor._subscribe_output(self.output_ctx.refid, self.watch_chunk_size)
+        
+    def set_watch_chunk_size(self, new_chunk_size):
+        if self.watch_chunk_size is not None:
+            self.executor._subscribe_output(self.output_ctx.refid, new_chunk_size)
+        self.watch_chunk_size = new_chunk_size
 
-    def cancel(self):
+    def cancel_watch(self):
         self.watch_chunk_size = None
         self.executor._unsubscribe_output(self.output_ctx.refid)
 
