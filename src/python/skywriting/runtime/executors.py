@@ -365,9 +365,10 @@ class OngoingOutputWatch:
 
 class OngoingOutput:
 
-    def __init__(self, output_name, may_pipe, executor):
+    def __init__(self, output_name, output_index, may_pipe, executor):
         self.output_ctx = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
-        self.output_name = output_name 
+        self.output_name = output_name
+        self.output_index = output_index
         self.watch_chunk_size = None
         self.executor = executor
 
@@ -398,16 +399,16 @@ class OngoingOutput:
         return OngoingOutputWatch(self)
 
     def start_watch(self):
-        self.executor._subscribe_output(self.output_ctx.refid, self.watch_chunk_size)
+        self.executor._subscribe_output(self.output_index, self.watch_chunk_size)
         
     def set_watch_chunk_size(self, new_chunk_size):
         if self.watch_chunk_size is not None:
-            self.executor._subscribe_output(self.output_ctx.refid, new_chunk_size)
+            self.executor._subscribe_output(self.output_index, new_chunk_size)
         self.watch_chunk_size = new_chunk_size
 
     def cancel_watch(self):
         self.watch_chunk_size = None
-        self.executor._unsubscribe_output(self.output_ctx.refid)
+        self.executor._unsubscribe_output(self.output_index)
 
     def __exit__(self, exnt, exnv, exnbt):
         if exnt is not None:
@@ -647,7 +648,7 @@ class ProcExecutor(BaseExecutor):
         if index in self.ongoing_outputs:
             raise Exception("Tried to open output %d which was already open" % index)
         output_name = self.expected_outputs[index]
-        output_ctx = OngoingOutput(output_name, may_pipe, self)
+        output_ctx = OngoingOutput(output_name, index, may_pipe, self)
         self.ongoing_outputs[index] = output_ctx
         self.context_manager.add_context(output_ctx)
         ref = output_ctx.get_stream_ref()
