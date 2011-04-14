@@ -42,11 +42,11 @@ def describe_maybe_file(output_fp, out_dict):
     else:
         out_dict["strdata"] = encode_datavalue(output_fp.str)
         
-def ref_from_maybe_file(output_fp, refid):
+def ref_from_maybe_file(output_fp, refidx):
     if output_fp.real_fp is not None:
         return output_fp.real_fp.get_completed_ref()
     else:
-        args = {"id": refid, "str": encode_datavalue(output_fp.str)}
+        args = {"index": refidx, "str": encode_datavalue(output_fp.str)}
         return message_helper.synchronous_request("publish_string", args)["ref"]
 
 class PersistentState:
@@ -131,11 +131,11 @@ class RequiredRefs():
 
 def save_state(state):
 
-    state_name = get_fresh_output_name(prefix="coro")
-    state_fp = MaybeFile(open_callback=lambda: open_output(state_name))
+    state_index = get_fresh_output_index(prefix="coro")
+    state_fp = MaybeFile(open_callback=lambda: open_output(state_index))
     with state_fp:
         pickle.dump(state, state_fp)
-    return ref_from_maybe_file(state_fp, state_name)
+    return ref_from_maybe_file(state_fp, state_index)
 
 def spawn(spawn_callable, *pargs, **kwargs):
     
@@ -345,13 +345,13 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
 
-def get_fresh_output_name(prefix=""):
-    runtime_response = message_helper.synchronous_request("create_fresh_output", {"prefix": prefix})
-    return runtime_response["name"]
+def get_fresh_output_index(prefix=""):
+    runtime_response = message_helper.synchronous_request("allocate_output", {"prefix": prefix})
+    return runtime_response["index"]
 
-def open_output(id, may_pipe=False):
-    new_output = OutputFile(message_helper, file_outputs, id)
-    runtime_response = message_helper.synchronous_request("open_output", {"id": id, "may_pipe": may_pipe})
+def open_output(index, may_pipe=False):
+    new_output = OutputFile(message_helper, file_outputs, index)
+    runtime_response = message_helper.synchronous_request("open_output", {"index": index, "may_pipe": may_pipe})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 
