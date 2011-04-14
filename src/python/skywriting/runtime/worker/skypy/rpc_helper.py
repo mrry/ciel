@@ -56,7 +56,7 @@ class RpcHelper:
         
 
         self.pending_request = RpcRequest(method)
-        self.send_message((method, args))
+        self.send_message(method, args)
         while self.pending_request.response is None:
             self.receive_message(block=True)
             ret = self.pending_request.response

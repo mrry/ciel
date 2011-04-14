@@ -84,7 +84,7 @@ def fetch_ref(ref, verb, **kwargs):
 
 def deref_json(ref):
     
-    runtime_response = fetch_ref(ref, "deref")
+    runtime_response = fetch_ref(ref, "open_ref")
     try:
         obj = simplejson.loads(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
@@ -95,7 +95,7 @@ def deref_json(ref):
 
 def deref(ref):
 
-    runtime_response = fetch_ref(ref, "deref")
+    runtime_response = fetch_ref(ref, "open_ref")
     try:
         obj = pickle.loads(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
@@ -206,11 +206,11 @@ class CompleteFile:
         self.ref = ref
         if offset is not None:
             if must_close is True:
-                runtime_response = fetch_ref(self.ref, "deref_async", chunk_size=chunk_size)
+                runtime_response = fetch_ref(self.ref, "open_ref_async", chunk_size=chunk_size)
                 self.must_close = runtime_response["blocking"] and not runtime_response["done"]
                 self.chunk_size = chunk_size
             else:
-                runtime_response = fetch_ref(self.ref, "deref")
+                runtime_response = fetch_ref(self.ref, "open_ref")
             self.filename = runtime_response["filename"]
             self.fp = open(self.filename, "r")
             self.fp.seek(offset, os.SEEK_SET)
@@ -322,7 +322,7 @@ class StreamingFile:
         self.ref = ref
         self.chunk_size = chunk_size
         if offset is not None:
-            runtime_response = fetch_ref(self.ref, "deref_async", chunk_size=chunk_size)
+            runtime_response = fetch_ref(self.ref, "open_ref_async", chunk_size=chunk_size)
             self.really_eof = runtime_response["done"]
             self.current_size = runtime_response["size"]
             self.fp = open(runtime_response["filename"], "r")
@@ -331,13 +331,13 @@ class StreamingFile:
 
 def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864):
     if not may_stream:
-        runtime_response = fetch_ref(ref, "deref")
+        runtime_response = fetch_ref(ref, "open_ref")
         try:
             return closing(StringIO(decode_datavalue_string(runtime_response["strdata"])))
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
-        runtime_response = fetch_ref(ref, "deref_async", chunk_size=chunk_size, sole_consumer=sole_consumer)
+        runtime_response = fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:

@@ -418,11 +418,17 @@ class ProcExecutor(BaseExecutor):
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, 
-                              process_record_id=None, start_command=None, is_fixed=False,
+                              process_record_id=None, start_command=None, start_env={}, is_fixed=False,
                               n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
+
+        if process_record_id is None and start_command is None:
+            raise BlameUserException("ProcExecutor tasks must specify either process_record_id or start_command")
 
         if process_record_id is not None:
             task_descriptor["task_private"]["id"] = process_record_id
+        else:
+            task_descriptor["task_private"]["start_command"] = start_command
+            task_descriptor["task_private"]["start_env"] = start_env
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         if not is_tail_spawn:
@@ -438,11 +444,14 @@ class ProcExecutor(BaseExecutor):
             task_private_ref = SW2_FixedReference(task_private_id, get_own_netloc())
             write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
         else:
-            task_private_ref = ref_from_string(pickle.dumps(task_descriptor["task_private"]))
+            task_private_ref = ref_from_string(pickle.dumps(task_descriptor["task_private"]), task_private_id)
         parent_task_record.publish_ref(task_private_ref)
         
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
+        
+        if not is_tail_spawn:
+            return [SW2_FutureReference(refid) for refid in task_descriptor["expected_outputs"]]
 
     @staticmethod
     def can_run():
@@ -456,19 +465,21 @@ class ProcExecutor(BaseExecutor):
             
     def _guarded_run(self, task_private, task_descriptor, task_record):
         
-        id = task_private['id']
         self.task_record = task_record
         self.task_descriptor = task_descriptor
         self.expected_outputs = self.task_descriptor['expected_outputs']
         
         if "id" in task_private:
+            id = task_private['id']
             self.process_record = self.process_pool.get_process_record(id)
         else:
             self.process_record = self.process_pool.create_process_record(None, "json")
-            command = [task_private["start_command"], "--write-fifo", 
-                       self.process_record.get_read_fifo_name(), "--read-fifo", 
-                       self.process_record.get_write_fifo_name()]
-            new_proc = subprocess.Popen(command)
+            command = task_private["start_command"]
+            command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
+                            "--read-fifo", self.process_record.get_write_fifo_name()])
+            new_proc_env = os.environ.copy()
+            new_proc_env.update(task_private["start_env"])
+            new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
             self.process_record.set_pid(new_proc.pid)
                
         # XXX: This will block until the attached process opens the pipes.
@@ -830,8 +841,10 @@ class SkyPyExecutor(ProcExecutor):
         task_descriptor["dependencies"].append(pyfile_ref)
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
-        command = "python " + os.path.join(SkyPyExecutor.skypybase, "stub.py")
-        refs = ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
+        command = ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]
+        env = {"PYTHONPATH": SkyPyExecutor.skypybase + ":" + os.environ["PYTHONPATH"]}
+        refs = ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, start_env=env, 
+                                                    is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
         if refs is not None:
             if n_extra_outputs == 0:
                 return refs
@@ -846,7 +859,7 @@ class SkyPyExecutor(ProcExecutor):
             ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
             return False
         else:
-            return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
+            return test_program(["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py"), "--version"], "PyPy")
    
 class Java2Executor(ProcExecutor):
     
