@@ -712,7 +712,7 @@ class ProcExecutor(BaseExecutor):
                         response = {"error": "EWOULDBLOCK"}
                         
                 elif method == "wait_stream":
-                    ret = self.wait_async_file(**args)
+                    response = self.wait_async_file(**args)
                     
                 elif method == "close_stream":
                     self.close_async_file(args["id"], args["chunk_size"])
@@ -821,10 +821,10 @@ class ProcExecutor(BaseExecutor):
 class SkyPyExecutor(ProcExecutor):
 
     handler_name = "skypy"
+    skypybase = os.getenv("CIEL_SKYPY_BASE")
     
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)
-        self.skypybase = os.getenv("CIEL_SKYPY_BASE")
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, is_tail_spawn=False, n_extra_outputs=0, **kwargs):
@@ -843,7 +843,8 @@ class SkyPyExecutor(ProcExecutor):
         task_descriptor["dependencies"].append(pyfile_ref)
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
-        refs = ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
+        command = "python " + os.path.join(SkyPyExecutor.skypybase, "stub.py")
+        refs = ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
         if refs is not None:
             if n_extra_outputs == 0:
                 return refs
@@ -860,12 +861,12 @@ class SkyPyExecutor(ProcExecutor):
         else:
             return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
    
-class Java2Executor(BaseExecutor):
+class Java2Executor(ProcExecutor):
     
     handler_name = "java2"
     
     def __init__(self, worker):
-        BaseExecutor.__init__(self, worker)
+        ProcExecutor.__init__(self, worker)
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record):
@@ -881,46 +882,6 @@ class Java2Executor(BaseExecutor):
             return False
         else:
             return test_program(["java", "-cp", cp, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
-
-    def _run(self, task_private, task_descriptor, task_record):
-        
-        # 1. Convert the task descriptor and task-private data to a protobuf.
-        
-        # 2. Run the JVM, passing in the task protobuf on stdin.
-        
-        # 3. Read from standard output to get any messages (in protobuf format) from the executor.
-        
-        # 4. If we get a non-zero exit code, write SWErrorReferences to all of the task's expected outputs.
-        
-        # 5. Communicate the report back to the master.
-        
-        pass
-
-    def spawn_func(self, **otherargs):
-        private_data = FileOrString(otherargs, self.block_store)
-        new_task_descriptor = {"handler": "skypy",
-                               "task_private": private_data}
-        
-        self.task_record.spawn_task(new_task_descriptor)
-
-        new_task_descriptor = {"handler": "skypy"}
-        coro_data = FileOrString(otherargs, self.block_store)
-        self.task_record.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
-        return SW2_FutureReference(new_task_descriptor["expected_outputs"][0])
-        
-    def deref_func(self, ref):
-        ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
-        real_ref = self.task_record.retrieve_ref(ref)
-        if isinstance(real_ref, SWDataValue):
-            return {"success": True, "strdata": retrieve_object_for_ref(real_ref, "noop")}
-        else:
-            filenames = retrieve_filenames_for_refs_eager([real_ref])
-            return {"success": True, "filename": filenames[0]}
-
-    def deref_json(self, ref):
-        real_ref = self.task_record.retrieve_ref(ref)
-        return {"success": True, "obj": retrieve_object_for_ref(ref, "json")}
-
 
 # Imports for Skywriting
 
