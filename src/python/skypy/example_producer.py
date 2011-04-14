@@ -62,8 +62,8 @@ def skypy_main():
     refs = []
 
     for i in range(3):
-        name = skypy.get_fresh_output_name()
-        file_out = skypy.open_output(name)
+        idx = skypy.get_fresh_output_index()
+        file_out = skypy.open_output(idx)
         with file_out:
             file_out.write("Skypy writing anonymous output %d" % i)
         refs.append(file_out.get_completed_ref())
@@ -77,9 +77,9 @@ def skypy_main():
     # Step 4: Test a stream producer/consumer pair.
 
     producer = skypy.spawn(stream_producer, 262144, 100, n_extra_outputs=1)
-    consumer_out = skypy.spawn(stream_consumer, 262144, producer.extra_outputs[0])
+    consumer_out = skypy.spawn(stream_consumer, 262144, producer[1])
 
-    ret_outs = [producer.ret_output, consumer_out]
+    ret_outs = [producer[0], consumer_out]
     with skypy.RequiredRefs(ret_outs):
         results = [skypy.deref(x) for x in ret_outs]
 

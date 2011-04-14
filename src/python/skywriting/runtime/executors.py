@@ -20,7 +20,6 @@ from shared.references import \
     SW2_FixedReference, SWReferenceJSONEncoder
 from shared.io_helpers import read_framed_json, write_framed_json
 from skywriting.runtime.exceptions import BlameUserException, MissingInputException
-from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
     retrieve_file_or_string_for_ref, ref_from_safe_string,\
@@ -47,7 +46,6 @@ from datetime import datetime
 from errno import EPIPE
 
 import ciel
-import struct
 
 running_children = {}
 
@@ -351,10 +349,19 @@ class OngoingFetch:
             self.cancel()
         return False
 
+class OngoingOutputWatch:
+    
+    def __init__(self, ongoing_output):
+        self.ongoing_output = ongoing_output
+        
+    def start(self):
+        self.ongoing_output.start_watch()
+
 class OngoingOutput:
 
-    def __init__(self, output_ctx, executor):
-        self.output_ctx = output_ctx
+    def __init__(self, output_name, may_pipe, executor):
+        self.output_ctx = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
+        self.output_name = output_name 
         self.watch_chunk_size = None
         self.executor = executor
 
@@ -386,7 +393,10 @@ class OngoingOutput:
     def get_completed_ref(self):
         return self.output_ctx.get_completed_ref()
 
-    def start(self):
+    def subscribe_output(self):
+        return OngoingOutputWatch(self)
+
+    def start_watch(self):
         self.executor._subscribe_output(self.output_ctx.refid, self.watch_chunk_size)
 
     def cancel(self):
@@ -451,7 +461,10 @@ class ProcExecutor(BaseExecutor):
         task_descriptor["dependencies"].append(task_private_ref)
         
         if not is_tail_spawn:
-            return [SW2_FutureReference(refid) for refid in task_descriptor["expected_outputs"]]
+            if len(task_descriptor["expected_outputs"]) == 1:
+                return SW2_FutureReference(task_descriptor["expected_outputs"][0])
+            else:
+                return [SW2_FutureReference(refid) for refid in task_descriptor["expected_outputs"]]
 
     @staticmethod
     def can_run():
@@ -490,11 +503,7 @@ class ProcExecutor(BaseExecutor):
         
         ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
 
-        response_string = simplejson.dumps(("start_task", task_private), 
-                                           cls=SWReferenceJSONEncoder)
-        writer.write(struct.pack('!I', len(response_string)))
-        writer.write(response_string)
-        writer.flush()
+        write_framed_json(("start_task", task_private), writer)
 
         try:
             if self.process_record.protocol == 'line':
@@ -632,14 +641,12 @@ class ProcExecutor(BaseExecutor):
         if index in self.ongoing_outputs:
             raise Exception("Tried to open output %d which was already open" % index)
         output_name = self.expected_outputs[index]
-        new_output = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
-        output_ctx = OngoingOutput(new_output, self)
+        output_ctx = OngoingOutput(output_name, may_pipe, self)
         self.ongoing_outputs[index] = output_ctx
         self.context_manager.add_context(output_ctx)
         ref = output_ctx.get_stream_ref()
         self.task_record.prepublish_refs([ref])
-        (filename, is_fd) = new_output.get_filename_or_fd()
-        assert not is_fd
+        filename = output_ctx.get_filename()
         return {"filename": filename}
 
     def stop_output(self, index):
@@ -657,20 +664,17 @@ class ProcExecutor(BaseExecutor):
     def rollback_output(self, index):
         self.ongoing_outputs[index].rollback()
         self.stop_output(index)
-        
-    def subscribe_output(self, output_ctx):
-        return self.ongoing_outputs[output_ctx.index]
 
     def output_size_update(self, index, size):
         self.ongoing_outputs[index].size_update(size)
 
     def _subscribe_output(self, index, chunk_size):
-        message = ("subscribe", {"id": id, "chunk_size": chunk_size})
+        message = ("subscribe", {"index": index, "chunk_size": chunk_size})
         with self.transmit_lock:
             write_framed_json(message, self.writer)
 
-    def _unsubscribe_output(self, id):
-        message = ("unsubscribe", {"id": id})
+    def _unsubscribe_output(self, index):
+        message = ("unsubscribe", {"index": index})
         with self.transmit_lock:
             write_framed_json(message, self.writer)
            
@@ -729,7 +733,7 @@ class ProcExecutor(BaseExecutor):
                     
                 elif method == 'publish_string':
                     
-                    response = {'ref' : self.publish_string(**args)}
+                    response = self.publish_string(**args)
 
                 elif method == 'open_output':
                     
@@ -745,12 +749,12 @@ class ProcExecutor(BaseExecutor):
                             ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                     
-                    response = {'filename' : self.open_output(**args)}
+                    response = self.open_output(**args)
                         
                 elif method == 'close_output':
     
                     try:
-                        index = int(args['i'])
+                        index = int(args['index'])
                         if index < 0 or index > len(self.expected_outputs):
                             ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
                             return PROC_ERROR
@@ -761,12 +765,12 @@ class ProcExecutor(BaseExecutor):
                             ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                         
-                    response = {'ref' : self.close_output(**args)}
+                    response = self.close_output(**args)
                     
                 elif method == 'rollback_output':
     
                     try:
-                        index = int(args['i'])
+                        index = int(args['index'])
                         if index < 0 or index > len(self.expected_outputs):
                             ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
                             return PROC_ERROR
@@ -829,29 +833,25 @@ class SkyPyExecutor(ProcExecutor):
 
         if pyfile_ref is None:
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
+        if coro_ref is None and (entry_point is None or entry_args is None):
+            raise BlameUserException("All SkyPy invocations must specify either coro_ref or entry_point and entry_args")
         if coro_ref is not None:
             task_descriptor["task_private"]["coro_ref"] = coro_ref
             task_descriptor["dependencies"].append(coro_ref)
         else:
             task_descriptor["task_private"]["entry_point"] = entry_point
             task_descriptor["task_private"]["entry_args"] = entry_args
+        if not is_tail_spawn:
             task_descriptor["task_private"]["export_json"] = export_json
-            task_descriptor["task_private"]["is_continuation"] = is_tail_spawn
+        task_descriptor["task_private"]["is_continuation"] = is_tail_spawn
         task_descriptor["task_private"]["py_ref"] = pyfile_ref
         task_descriptor["dependencies"].append(pyfile_ref)
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
         command = ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]
         env = {"PYTHONPATH": SkyPyExecutor.skypybase + ":" + os.environ["PYTHONPATH"]}
-        refs = ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, start_env=env, 
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, start_env=env, 
                                                     is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
-        if refs is not None:
-            if n_extra_outputs == 0:
-                return refs
-            else:
-                return SkyPySpawn(refs[0], refs[1:])
-        else:
-            return None
 
     @staticmethod
     def can_run():

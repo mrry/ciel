@@ -10,7 +10,8 @@ from contextlib import closing
 from StringIO import StringIO
 
 from shared.io_helpers import MaybeFile
-from shared.references import encode_datavalue, decode_datavalue_string
+from shared.references import encode_datavalue, decode_datavalue_string,\
+    json_decode_object_hook
 
 from file_outputs import OutputFile
 
@@ -86,10 +87,10 @@ def deref_json(ref):
     
     runtime_response = fetch_ref(ref, "open_ref")
     try:
-        obj = simplejson.loads(decode_datavalue_string(runtime_response["strdata"]))
+        obj = simplejson.loads(decode_datavalue_string(runtime_response["strdata"]), object_hook=json_decode_object_hook)
     except KeyError:
         with open(runtime_response["filename"], "r") as ref_fp:
-            obj = simplejson.load(ref_fp)
+            obj = simplejson.load(ref_fp, object_hook=json_decode_object_hook)
     ref_cache[ref.id] = obj
     return obj
 
@@ -150,7 +151,7 @@ def do_spawn(executor_name, small_task, **args):
     args["small_task"] = small_task
     args["executor_name"] = executor_name
     response = message_helper.synchronous_request("spawn", args)
-    return response["outputs"]
+    return response
 
 def spawn_exec(executor_name, **args):
     return do_spawn(executor_name, False, **args)

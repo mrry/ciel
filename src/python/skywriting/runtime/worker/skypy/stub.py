@@ -82,14 +82,13 @@ else:
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
         coro_ref = skypy.save_state(resume_state)
         out_message = ("tail_spawn", 
-                        {"request": "tail_spawn",
-                         "executor_name": "skypy",
+                        {"executor_name": "skypy",
                          "pyfile_ref": skypy.persistent_state.py_ref,
                          "coro_ref": coro_ref,
                          "extra_dependencies": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]
                          }
                        )
-        write_framed_json(write_fp, out_message)
+        write_framed_json(out_message, write_fp)
     elif skypy.halt_reason == skypy.HALT_DONE:
         out_fp = MaybeFile(open_callback=lambda: skypy.open_output(skypy.persistent_state.ret_output))
         with out_fp:
