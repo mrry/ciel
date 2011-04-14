@@ -20,7 +20,7 @@ Created on 22 Apr 2010
 
 class WorkerFailedException(Exception):
     def __init__(self, worker):
-        self.worker = worke
+        self.worker = worker
 
 class AbortedException(Exception):
     def __init__(self):

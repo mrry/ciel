@@ -14,7 +14,7 @@ import skypy
 from rpc_helper import RpcHelper
 from file_outputs import FileOutputRecords
 
-from shared.io_helpers import MaybeFile, read_framed_json
+from shared.io_helpers import MaybeFile, read_framed_json, write_framed_json
 from shared.references import SW2_FutureReference
 
 parser = optparse.OptionParser()
@@ -77,17 +77,19 @@ user_coro.switch()
 # We're back -- either the user script is done, or else it's stuck waiting on a reference.
 if skypy.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
     report = "Runtime exception %s\n%s" % (str(skypy.script_return_val), skypy.script_backtrace)
-    out_dict = {"request": "exception",
-                "report": report}
+    out_message = ("error", {"report": report})
 else:
     if skypy.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
         coro_ref = skypy.save_state(resume_state)
-        out_dict = {"request": "tail_spawn",
-                    "executor_name": "skypy",
-                    "pyfile_ref": skypy.persistent_state.py_ref,
-                    "coro_ref": coro_ref,
-                    "extra_dependencies": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]}
-        pickle.dump(out_dict, sys.stdout)
+        out_message = ("tail_spawn", 
+                        {"request": "tail_spawn",
+                         "executor_name": "skypy",
+                         "pyfile_ref": skypy.persistent_state.py_ref,
+                         "coro_ref": coro_ref,
+                         "extra_dependencies": [SW2_FutureReference(x) for x in skypy.persistent_state.ref_dependencies.keys()]
+                         }
+                       )
+        write_framed_json(write_fp, out_message)
     elif skypy.halt_reason == skypy.HALT_DONE:
         out_fp = MaybeFile(open_callback=lambda: skypy.open_output(skypy.persistent_state.ret_output))
         with out_fp:
@@ -96,5 +98,5 @@ else:
             else:
                 pickle.dump(skypy.script_return_val, out_fp)
         skypy.ref_from_maybe_file(out_fp, skypy.persistent_state.ret_output)
-    out_dict = {"request": "done"}
-pickle.dump(out_dict, sys.stdout)
+    out_message = ("exit", {"keep_process": False})
+write_framed_json(out_message, write_fp)

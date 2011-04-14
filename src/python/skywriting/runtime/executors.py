@@ -434,10 +434,10 @@ class ProcExecutor(BaseExecutor):
         if not is_tail_spawn:
             ret_output = "%s:retval" % task_descriptor["task_id"]
             task_descriptor["expected_outputs"].append(ret_output)
-            task_descriptor["task_private"]["ret_output"] = ret_output
+            task_descriptor["task_private"]["ret_output"] = 0
             extra_outputs = ["%s:out:%d" % (task_descriptor["task_id"], i) for i in range(n_extra_outputs)]
             task_descriptor["expected_outputs"].extend(extra_outputs)
-            task_descriptor["task_private"]["extra_outputs"] = extra_outputs
+            task_descriptor["task_private"]["extra_outputs"] = range(1, n_extra_outputs + 1)
 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
         if is_fixed:     
@@ -788,7 +788,7 @@ class ProcExecutor(BaseExecutor):
                     response = {"value": package_lookup(self.task_record, self.block_store, args["key"])}
     
                 elif method == 'error':
-                    ciel.log('Got error from task: %s' % args, 'PROC', logging.ERROR, False)
+                    ciel.log('Got error from task: %s' % args["report"], 'PROC', logging.ERROR, False)
                     return PROC_ERROR
     
                 elif method == 'exit':
