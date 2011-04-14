@@ -14,7 +14,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from optparse import OptionParser
 from skywriting.runtime.object_cache import retrieve_object_for_ref
-from skywriting.runtime.references import SWReferenceJSONEncoder,\
+from shared.references import SWReferenceJSONEncoder,\
     json_decode_object_hook
 import sys
 import os

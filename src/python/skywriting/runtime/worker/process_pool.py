@@ -19,7 +19,7 @@ import logging
 import simplejson
 from shared.references import SW2_FixedReference
 import urlparse
-from skywriting.runtime.references import SWReferenceJSONEncoder
+from shared.references import SWReferenceJSONEncoder
 import pickle
 import fcntl
 import threading

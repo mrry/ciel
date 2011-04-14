@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 from Queue import Queue, Empty
-from skywriting.runtime.references import json_decode_object_hook
+from shared.references import json_decode_object_hook
 from urlparse import urljoin, urlparse
 import httplib2
 import simplejson

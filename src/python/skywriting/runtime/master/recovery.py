@@ -16,7 +16,7 @@ from shared.references import SW2_ConcreteReference, SW2_TombstoneReference
 from cherrypy.process import plugins
 import urllib2
 from skywriting.runtime.block_store import BLOCK_LIST_RECORD_STRUCT
-from skywriting.runtime.references import json_decode_object_hook
+from shared.references import json_decode_object_hook
 import logging
 import os
 import simplejson

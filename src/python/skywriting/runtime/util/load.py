@@ -19,8 +19,7 @@ import simplejson
 import math
 import random
 import uuid
-from shared.references import SW2_ConcreteReference, SW2_FetchReference
-from skywriting.runtime.references import SWReferenceJSONEncoder
+from shared.references import SW2_ConcreteReference, SW2_FetchReference, SWReferenceJSONEncoder
 import sys
 import time
 

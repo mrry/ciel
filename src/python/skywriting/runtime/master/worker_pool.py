@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from Queue import Queue
-from skywriting.runtime.references import SWReferenceJSONEncoder
+from shared.references import SWReferenceJSONEncoder
 from skywriting.runtime.pycurl_rpc import post_string_noreturn, get_string
 import ciel
 import datetime

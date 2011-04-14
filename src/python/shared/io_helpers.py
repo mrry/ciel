@@ -2,6 +2,9 @@
 from StringIO import StringIO
 import os
 import tempfile
+import simplejson
+import struct
+from shared.references import json_decode_object_hook, SWReferenceJSONEncoder
 
 class MaybeFile:
 
@@ -43,4 +46,15 @@ class MaybeFile:
         if self.fake_fp is not None:
             self.str = self.fake_fp.getvalue()
             self.fake_fp.close()
+            
+def write_framed_json(self, obj, fp):
+    json_string = simplejson.dumps(obj, cls=SWReferenceJSONEncoder)
+    fp.write(struct.pack('!I', len(json_string)))
+    fp.write(json_string)
+    fp.flush()
+    
+def read_framed_json(self, fp):
+    request_len, = struct.unpack_from('!I', fp.read(4))
+    request_string = fp.read(request_len)
+    return simplejson.loads(request_string, object_hook=json_decode_object_hook)
 

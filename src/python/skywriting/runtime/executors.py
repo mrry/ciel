@@ -17,13 +17,13 @@ from __future__ import with_statement
 from shared.references import \
     SWRealReference, SW2_FutureReference, SWDataValue, \
     SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
-    SW2_FixedReference
-from skywriting.runtime.references import SWReferenceJSONEncoder
+    SW2_FixedReference, SWReferenceJSONEncoder
+from shared.io_helpers import read_framed_json, write_framed_json
 from skywriting.runtime.exceptions import BlameUserException, MissingInputException
 from shared.skypy_spawn import SkyPySpawn
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
-    FileOrString, retrieve_file_or_string_for_ref, ref_from_safe_string,\
+    retrieve_file_or_string_for_ref, ref_from_safe_string,\
     write_fixed_ref_string
 from skywriting.runtime.block_store import get_own_netloc
 
@@ -43,7 +43,7 @@ import pickle
 import time
 from subprocess import PIPE
 from datetime import datetime
-from skywriting.runtime.references import json_decode_object_hook
+
 from errno import EPIPE
 
 import ciel
@@ -656,35 +656,22 @@ class ProcExecutor(BaseExecutor):
     def _subscribe_output(self, index, chunk_size):
         message = ("subscribe", {"id": id, "chunk_size": chunk_size})
         with self.transmit_lock:
-            self.write_framed_json(message, self.writer)
+            write_framed_json(message, self.writer)
 
     def _unsubscribe_output(self, id):
         message = ("unsubscribe", {"id": id})
         with self.transmit_lock:
-            self.write_framed_json(message, self.writer)
+            write_framed_json(message, self.writer)
            
-    def write_framed_json(self, obj, fp):
-        json_string = simplejson.dumps(obj, cls=SWReferenceJSONEncoder)
-        fp.write(struct.pack('!I', len(json_string)))
-        fp.write(json_string)
-        fp.flush()
-    
     def json_event_loop(self, reader, writer):
         while True:
+
             try:
-                request_len, = struct.unpack_from('!I', reader.read(4))
-                ciel.log('Reading %d bytes request' % request_len, 'PROC', logging.INFO)
-                request_string = reader.read(request_len)
+                (method, args) = read_framed_json(reader)
             except:
                 ciel.log('Error reading in JSON event loop', 'PROC', logging.WARN, True)
                 return PROC_ERROR
-        
-            try:
-                (method, args) = simplejson.loads(request_string, object_hook=json_decode_object_hook)
-            except:
-                ciel.log('Error parsing JSON request', 'PROC', logging.WARN, True)
-                return PROC_ERROR
-        
+                
             ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
             response = None
         
@@ -811,7 +798,7 @@ class ProcExecutor(BaseExecutor):
             try:
                 if response is not None:
                     with self.transmit_lock:
-                        self.write_framed_json((method, response), writer)
+                        write_framed_json((method, response), writer)
             except:
                 ciel.log('Error writing response in JSON event loop', 'PROC', logging.WARN, True)
                 return PROC_ERROR

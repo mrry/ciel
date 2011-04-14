@@ -13,6 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import codecs
+import simplejson
 
 class SWRealReference:
     
@@ -352,6 +353,20 @@ class SWDataValue(SWRealReference):
 
     def __repr__(self):
         return 'SWDataValue(%s, %s)' % (repr(self.id), repr(self.value))
+    
+class SWReferenceJSONEncoder(simplejson.JSONEncoder):
+
+    def default(self, obj):
+        if isinstance(obj, SWRealReference):
+            return {'__ref__': obj.as_tuple()}
+        else:
+            return simplejson.JSONEncoder.default(self, obj)
+
+def json_decode_object_hook(dict_):
+        if '__ref__' in dict_:
+            return build_reference_from_tuple(dict_['__ref__'])
+        else:
+            return dict_
 
 def build_reference_from_tuple(reference_tuple):
     ref_type = reference_tuple[0]

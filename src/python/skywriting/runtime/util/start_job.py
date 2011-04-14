@@ -10,7 +10,7 @@ import datetime
 import os.path
 from skywriting.runtime.util.sw_pprint import sw_pprint
 
-from skywriting.runtime.references import SWReferenceJSONEncoder,json_decode_object_hook
+from shared.references import SWReferenceJSONEncoder,json_decode_object_hook
 from skywriting.runtime.object_cache import retrieve_object_for_ref
 from optparse import OptionParser
 
