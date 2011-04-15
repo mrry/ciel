@@ -6,6 +6,7 @@ import threading
 import ciel
 import logging
 import socket
+import os
 
 class TcpTransferContext:
     
@@ -41,13 +42,14 @@ class TcpTransferContext:
                 self.should_close = False
                 if response.find("GO") != -1:
                     ciel.log("TCP-fetch %s: transfer started" % self.ref.id, "TCP_FETCH", logging.INFO)
-                    self.fetch_ctx.set_fd(self.sock.fileno(), True)
+                    new_fd = os.dup(self.sock.fileno())
+                    self.sock.close()
+                    self.fetch_ctx.set_fd(new_fd, True)
                 else:
                     ciel.log("TCP-fetch %s: request failed: other end said '%s'" % (self.ref.id, response), "TCP_FETCH", logging.WARNING)
                     unsubscribe_remote_output_nopost(self.ref.id)
-                    with self.lock:
-                        self.done = True
-                        self.sock.close()
+                    self.done = True
+                    self.sock.close()
                     self.fetch_ctx.result(False)
         except Exception as e:
             unsubscribe_remote_output_nopost(self.ref.id)

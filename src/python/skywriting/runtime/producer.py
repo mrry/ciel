@@ -156,6 +156,7 @@ class FileOutputContext:
                 if consumer_fd is not None:
                     ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.INFO)
                     self.cat_proc = subprocess.Popen(["cat < %s" % self.fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
+                    os.close(consumer_fd)
                 ret = True
             self.cond.notify_all()
             return ret

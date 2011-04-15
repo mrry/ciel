@@ -7,6 +7,7 @@ import threading
 import socket
 import ciel
 import logging
+import os
 
 # This is a lot like the AsyncPushThread in executors.py.
 # TODO after paper rush is over: get the spaghettificiation of the streaming code under control
@@ -15,6 +16,7 @@ class SocketPusher:
         
     def __init__(self, sock):
         self.sock_obj = sock
+        self.write_fd = None
         self.bytes_available = 0
         self.bytes_copied = 0
         self.fetch_done = False
@@ -55,7 +57,8 @@ class SocketPusher:
             return None
         else:
             self.sock_obj.sendall("GO\n")
-            return producer.subscribe(self, try_direct=True, consumer_fd=self.sock_obj.fileno())
+            self.write_fd = os.dup(self.sock_obj.fileno())
+            return producer.subscribe(self, try_direct=True, consumer_fd=self.write_fd)
 
     def thread_main(self):
         try:
@@ -64,8 +67,10 @@ class SocketPusher:
                 return
             elif fd_taken is True:
                 ciel.log("Incoming TCP connection for %s connected directly to producer" % self.refid, "TCP_SERVER", logging.INFO)
+                self.sock_obj.close()
                 return
             # Otherwise we'll get progress/result callbacks as we follow the producer's on-disk file.
+            os.close(self.write_fd)
             self.read_filename = producer_filename(self.refid)
             ciel.log("Auxiliary TCP connection for output %s (chunk %s) attached via push thread" % (self.refid, self.chunk_size), "TCP_FETCH", logging.INFO)
 

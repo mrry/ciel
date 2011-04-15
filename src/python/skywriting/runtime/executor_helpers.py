@@ -11,7 +11,7 @@ import shutil
 from skywriting.runtime.fetcher import fetch_ref_async
 from skywriting.runtime.producer import make_local_output
 from shared.references import SW2_TombstoneReference, SW2_ConcreteReference, \
-    SWDataValue, encode_datavalue, decode_datavalue, decode_datavalue_string
+    SWDataValue, encode_datavalue, decode_datavalue_string
 from skywriting.runtime.exceptions import MissingInputException
 from skywriting.runtime.block_store import filename_for_ref
 
