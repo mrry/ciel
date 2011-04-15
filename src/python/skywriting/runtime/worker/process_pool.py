@@ -71,9 +71,9 @@ class ProcessRecord:
     def cleanup(self):
         try:
             if self.from_process_fifo is not None: 
-                os.close(self.from_process_fifo)
+                self.from_process_fifo.close()
             if self.to_process_fifo is not None:
-                os.close(self.to_process_fifo)
+                self.to_process_fifo.close()
         except:
             ciel.log('Error cleaning up process %s, ignoring' % self.id, 'PROCESS', logging.WARN)
         

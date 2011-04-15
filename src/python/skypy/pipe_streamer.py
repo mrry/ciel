@@ -60,15 +60,15 @@ def skypy_main(n_links, n_chunks, use_direct_pipes):
     links_out = []
     for i in range(n_links):
         if i == 0:
-            input_ref = producer.extra_outputs[0]
+            input_ref = producer[1]
         else:
-            input_ref = links_out[-1].extra_outputs[0]
+            input_ref = links_out[-1][1]
         links_out.append(skypy.spawn(stream_link, 262144, input_ref, use_direct_pipes, extra_dependencies=[input_ref], n_extra_outputs=1))
 
-    consumer_out = skypy.spawn(stream_consumer, 262144, links_out[-1].extra_outputs[0], extra_dependencies=[links_out[-1].extra_outputs[0]])
+    consumer_out = skypy.spawn(stream_consumer, 262144, links_out[-1][1], extra_dependencies=[links_out[-1][1]])
 
-    ret_outs = [producer.ret_output]
-    ret_outs.extend([x.ret_output for x in links_out])
+    ret_outs = [producer[0]]
+    ret_outs.extend([x[0] for x in links_out])
     ret_outs.append(consumer_out)
     with skypy.RequiredRefs(ret_outs):
         results = [skypy.deref(x) for x in ret_outs]

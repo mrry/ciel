@@ -18,6 +18,7 @@ class TcpTransferContext:
         self.thread = threading.Thread(target=self.thread_main)
         self.lock = threading.Lock()
         self.done = False
+        self.should_close = False
 
     def start(self):
         ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
@@ -25,7 +26,9 @@ class TcpTransferContext:
 
     def thread_main(self):
         try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            with self.lock:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.should_close = True            
             ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
             subscribe_remote_output_nopost(self.ref.id, self)
             self.sock.connect((self.otherend_hostname, self.ref.socket_port))
@@ -35,17 +38,25 @@ class TcpTransferContext:
             response = fp.readline().strip()
             fp.close()
             with self.lock:
+                self.should_close = False
                 if response.find("GO") != -1:
                     ciel.log("TCP-fetch %s: transfer started" % self.ref.id, "TCP_FETCH", logging.INFO)
                     self.fetch_ctx.set_fd(self.sock.fileno(), True)
                 else:
                     ciel.log("TCP-fetch %s: request failed: other end said '%s'" % (self.ref.id, response), "TCP_FETCH", logging.WARNING)
                     unsubscribe_remote_output_nopost(self.ref.id)
-                    self.sock.close()
+                    with self.lock:
+                        self.done = True
+                        self.sock.close()
                     self.fetch_ctx.result(False)
         except Exception as e:
             unsubscribe_remote_output_nopost(self.ref.id)
             ciel.log("TCP-fetch %s: failed due to exception %s" % (self.ref.id, repr(e)), "TCP_FETCH", logging.ERROR)
+            with self.lock:
+                if self.should_close:
+                    self.sock.close()
+                self.done = True
+                self.should_close = False
             self.fetch_ctx.result(False)
 
     def unsubscribe(self, fetcher):
@@ -54,8 +65,10 @@ class TcpTransferContext:
             if self.done:
                 return
             else:
+                if self.should_close:
+                    self.sock.close()
                 self.done = True
-                self.sock.close()
+                should_callback = True
                 unsubscribe_remote_output_nopost(self.ref.id)
         if should_callback:
             self.fetch_ctx.result(False)
