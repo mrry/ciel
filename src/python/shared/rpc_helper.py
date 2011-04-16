@@ -14,7 +14,7 @@ class RpcRequest:
 
 class RpcHelper:
 
-    def __init__(self, in_fp, out_fp, active_outputs):
+    def __init__(self, in_fp, out_fp, active_outputs=None):
 
         self.in_fp = in_fp
         self.in_fd = in_fp.fileno()
@@ -41,7 +41,10 @@ class RpcHelper:
         if have_message:
             (method, args) = read_framed_json(self.in_fp)
             if method == "subscribe" or method == "unsubscribe":
-                self.active_outputs.handle_request(method, args)
+                if self.active_outputs:
+                    print >>sys.stderr, "Ignored request", method, "args", args, "because I have no active outputs dict"
+                else:
+                    self.active_outputs.handle_request(method, args)
             else:
                 if self.pending_request is not None:
                     if method != self.pending_request.method:
@@ -52,16 +55,19 @@ class RpcHelper:
                     print >>sys.stderr, "Ignored request", method, "args", args
         return have_message
 
-    def synchronous_request(self, method, args):
+    def synchronous_request(self, method, args=None, send=True):
         
-
         self.pending_request = RpcRequest(method)
-        self.send_message(method, args)
+        if send:
+            self.send_message(method, args)
         while self.pending_request.response is None:
             self.receive_message(block=True)
             ret = self.pending_request.response
         self.pending_request = None
         return ret
+    
+    def await_message(self, method):
+        return self.synchronous_request(method, send=False)
 
     def send_message(self, method, args):
         

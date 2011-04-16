@@ -11,7 +11,7 @@ import sys
 import simplejson
 
 import skypy
-from rpc_helper import RpcHelper
+from shared.rpc_helper import RpcHelper
 from file_outputs import FileOutputRecords
 
 from shared.io_helpers import MaybeFile, read_framed_json, write_framed_json
@@ -37,17 +37,14 @@ write_fp = open(options.write_fifo, "w")
 read_fp = open(options.read_fifo, "r", 0)
 # Unbuffered so we can use select() on its FD for IO mux
 
-print >>sys.stderr, "SkyPy: Awaiting task"
-(first_method, entry_dict) = read_framed_json(read_fp)
-if first_method != "start_task":
-    print >>sys.stderr, "SkyPy: First method was not 'start_task'"
-    sys.exit(1)
-
 skypy.main_coro = stackless.coroutine.getcurrent()
 
 skypy.file_outputs = FileOutputRecords()
 skypy.message_helper = RpcHelper(read_fp, write_fp, skypy.file_outputs)
 skypy.file_outputs.set_message_helper(skypy.message_helper)
+
+print >>sys.stderr, "SkyPy: Awaiting task"
+entry_dict = skypy.message_helper.await_message("start_task")
 
 with skypy.deref_as_raw_file(entry_dict["py_ref"]) as py_file:
     source_filename = py_file.filename

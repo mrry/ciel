@@ -2,14 +2,11 @@
 import pickle
 import simplejson
 from cStringIO import StringIO
-from skywriting.lang.parser import CloudScriptParser
 from shared.references import SWReferenceJSONEncoder, json_decode_object_hook
 from skywriting.runtime.executor_helpers import ref_from_string, retrieve_strings_for_refs
 
 def decode_handle(file):
     return file
-def decode_script(file):
-    return CloudScriptParser().parse(file.read())
 def encode_noop(obj, file):
     return file.write(obj)
 def decode_noop(file):
@@ -24,7 +21,7 @@ def decode_pickle(file):
     return pickle.load(file)
 
 encoders = {'noop': encode_noop, 'json': encode_json, 'pickle': encode_pickle}
-decoders = {'noop': decode_noop, 'json': decode_json, 'pickle': decode_pickle, 'handle': decode_handle, 'script': decode_script}
+decoders = {'noop': decode_noop, 'json': decode_json, 'pickle': decode_pickle, 'handle': decode_handle}
 
 object_cache = {}
 

@@ -19,7 +19,7 @@ from shared.references import \
     SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
     SW2_FixedReference, SWReferenceJSONEncoder
 from shared.io_helpers import read_framed_json, write_framed_json
-from skywriting.runtime.exceptions import BlameUserException, MissingInputException
+from skywriting.runtime.exceptions import BlameUserException, MissingInputException, ReferenceUnavailableException
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
     retrieve_file_or_string_for_ref, ref_from_safe_string,\
@@ -191,23 +191,6 @@ def hash_update_with_structure(hash, value):
         hash.update(value.id)
     else:
         hash.update(str(value))
-
-def map_leaf_values(f, value):
-    """
-    Recurses over a data structure containing lists, dicts and primitive leaves), 
-    and returns a new structure with the leaves mapped as specified.
-    """
-    if isinstance(value, list):
-        return map(lambda x: map_leaf_values(f, x), value)
-    elif isinstance(value, dict):
-        ret = {}
-        for (dict_key, dict_value) in value.items():
-            key = map_leaf_values(f, dict_key)
-            value = map_leaf_values(f, dict_value)
-            ret[key] = value
-        return ret
-    else:
-        return f(value)
 
 def accumulate_leaf_values(f, value):
 
@@ -900,9 +883,9 @@ class SkywritingExecutor(ProcExecutor):
         ProcExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, sw_file_ref=None, start_env=None, start_args=None, cont=None, n_extra_outputs=0, is_tail_spawn=False, **kwargs):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, sw_file_ref=None, start_env=None, start_args=None, cont_ref=None, n_extra_outputs=0, is_tail_spawn=False, **kwargs):
 
-        if sw_file_ref is None and cont is None:
+        if sw_file_ref is None and cont_ref is None:
             raise BlameUserException("Skywriting tasks must specify either a continuation object or a .sw file")
         if n_extra_outputs > 0:
             raise BlameUserException("Skywriting can't deal with extra outputs")
@@ -910,12 +893,9 @@ class SkywritingExecutor(ProcExecutor):
         if not is_tail_spawn:
             ret_output = "%s:retval" % task_descriptor["task_id"]
             task_descriptor["expected_outputs"].append(ret_output)
-        if cont is not None:
-            cont_id = "%s:cont" % task_descriptor["task_id"]
-            spawned_cont_ref = ref_from_object(cont, "pickle", cont_id)
-            parent_task_record.publish_ref(spawned_cont_ref)
-            task_descriptor["task_private"]["cont"] = spawned_cont_ref
-            task_descriptor["dependencies"].append(spawned_cont_ref)
+        if cont_ref is not None:
+            task_descriptor["task_private"]["cont"] = cont_ref
+            task_descriptor["dependencies"].append(cont_ref)
         else:
             # External call: SW file should be started from the beginning.
             task_descriptor["task_private"]["swfile_ref"] = sw_file_ref
@@ -924,8 +904,12 @@ class SkywritingExecutor(ProcExecutor):
             task_descriptor["task_private"]["start_args"] = start_args
         add_package_dep(parent_task_record.package_ref, task_descriptor)
         
+        command = ["python", os.path.join(SkywritingExecutor.sw_interpreter_base, "interpreter_main.py")]
+        if SkywritingExecutor.stdlibbase is not None:
+            command.extend(["--stdllib-base", SkywritingExecutor.stdlibbase])
+        
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=n_extra_outputs, 
-                                                  is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
+                                                  start_command=command, is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
 
     @staticmethod
     def can_run():
