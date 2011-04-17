@@ -34,8 +34,8 @@ class MaybeFile:
                 self.fake_fp.close()
                 self.fake_fp = None
             else:
-                self.bytes_written += len(str)
                 self.fake_fp.write(str)
+        self.bytes_written += len(str)
 
     def __enter__(self):
         return self

@@ -70,19 +70,20 @@ class SkywritingTask:
         return self.get_ref(ref, lambda str: simplejson.loads(str, object_hook=json_decode_object_hook), lambda fp: simplejson.load(fp, object_hook=json_decode_object_hook))
     
     def open_output(self, index):
-        return self.ciel_runtime.synchronous_request("open_output", {"index": index})
+        runtime_response = self.ciel_runtime.synchronous_request("open_output", {"index": index})
+        return open(runtime_response["filename"], "w")
     
     def write_output(self, index, write_callback):
         with MaybeFile(open_callback = lambda: self.open_output(index)) as fp:
             write_callback(fp)
         if fp.real_fp is not None:
-            ret = self.ciel_runtime.send_message("close_output", {"index": index})
+            ret = self.ciel_runtime.synchronous_request("close_output", {"index": index, "size": fp.bytes_written})
         else:
-            ret = self.ciel_runtime.send_message("publish_string", {"index": index, "str": encode_datavalue(fp.str)})
+            ret = self.ciel_runtime.synchronous_request("publish_string", {"index": index, "str": encode_datavalue(fp.str)})
         return ret["ref"]
             
     def get_fresh_output(self, prefix=""):
-        return self.ciel_runtime.synchronous_message("allocate_output", {"prefix": prefix})["index"]
+        return self.ciel_runtime.synchronous_request("allocate_output", {"prefix": prefix})["index"]
     
     ### End support functions
             
@@ -205,25 +206,31 @@ class SkywritingTask:
     
     def eager_dereference(self, ref):
         # For SWI, all decodes are JSON
-        real_ref = self.task_record.retrieve_ref(ref)
-        ret = self.unjson_ref(real_ref)
+        ret = self.unjson_ref(ref)
         self.lazy_derefs.discard(ref)
         return ret
+    
+    def package_lookup(self, key):
+        return self.ciel_runtime.synchronous_request("package_lookup", {"key": key})["value"]
     
     def include_script(self, target_expr):
         if isinstance(target_expr, basestring):
             # Name may be relative to the local stdlib.
-            if not target_expr.startswith('http'):
-                target_url = 'file://%s' % os.path.join(self.stdlibbase, target_expr)
+            if target_expr.startswith('http'):
+                try:
+                    _, script_str = httplib2.Http().request(target_expr)
+                except Exception as e:
+                    print >>sys.stderr, "Include HTTP failed:", repr(e)
+                    raise
             else:
-                target_url = target_expr
-            try:
-                _, script_str = httplib2.Http().request(target_url)
-            except Exception as e:
-                print >>sys.stderr, "Include failed:", repr(e)
-                raise
+                try:
+                    with open(os.path.join(self.stdlib_base, target_expr), "r") as fp:
+                        script_str = fp.read()
+                except Exception as e:
+                    print >>sys.stderr, "Include file failed:", repr(e)
+                    raise
         elif isinstance(target_expr, SWRealReference):    
-            script_str = self.get_string_for_ref(target_expr, 'script')
+            script_str = self.get_string_for_ref(target_expr)
         else:
             raise BlameUserException('Invalid object %s passed as the argument of include')
 

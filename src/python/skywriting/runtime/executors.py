@@ -890,9 +890,6 @@ class SkywritingExecutor(ProcExecutor):
         if n_extra_outputs > 0:
             raise BlameUserException("Skywriting can't deal with extra outputs")
 
-        if not is_tail_spawn:
-            ret_output = "%s:retval" % task_descriptor["task_id"]
-            task_descriptor["expected_outputs"].append(ret_output)
         if cont_ref is not None:
             task_descriptor["task_private"]["cont"] = cont_ref
             task_descriptor["dependencies"].append(cont_ref)
@@ -906,7 +903,7 @@ class SkywritingExecutor(ProcExecutor):
         
         command = ["python", os.path.join(SkywritingExecutor.sw_interpreter_base, "interpreter_main.py")]
         if SkywritingExecutor.stdlibbase is not None:
-            command.extend(["--stdllib-base", SkywritingExecutor.stdlibbase])
+            command.extend(["--stdlib-base", SkywritingExecutor.stdlibbase])
         
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=n_extra_outputs, 
                                                   start_command=command, is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
