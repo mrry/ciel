@@ -21,9 +21,10 @@ from shared.references import SW2_FixedReference
 import urlparse
 from shared.references import SWReferenceJSONEncoder
 import pickle
-import fcntl
 import threading
 from skywriting.runtime.pycurl_rpc import post_string
+from skywriting.runtime.executor_helpers import write_fixed_ref_string
+from skywriting.runtime.block_store import is_ref_local
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""
@@ -112,8 +113,8 @@ class ProcessPool:
         
     def get_reference_for_process(self, record):
         ref = SW2_FixedReference(record.id, self.worker.block_store.netloc)
-        if not self.worker.block_store.is_ref_local(ref):
-            self.worker.block_store.write_fixed_ref_string(pickle.dumps(record.as_descriptor()), ref)
+        if not is_ref_local(ref):
+            write_fixed_ref_string(pickle.dumps(record.as_descriptor()), ref)
         return ref
         
     def create_job_for_process(self, record):

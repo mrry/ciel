@@ -25,8 +25,10 @@ from datetime import datetime
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
 from shared.references import SW2_ConcreteReference, SW2_StreamReference,\
-    SW2_FetchReference, SW2_FixedReference
+    SW2_FetchReference, SW2_FixedReference, SWRealReference, SWErrorReference,\
+    SWDataValue, decode_datavalue
 import ciel
+from skywriting.runtime.exceptions import RuntimeSkywritingError
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -100,6 +102,24 @@ class BlockStore:
             return os.path.join(self.base_dir, '.__fixed__.%s' % ref.id)
         else:
             return self.filename(ref.id)
+        
+    def is_ref_local(self, ref):
+        assert isinstance(ref, SWRealReference)
+
+        if isinstance(ref, SWErrorReference):
+            raise RuntimeSkywritingError()
+
+        if isinstance(ref, SW2_FixedReference):
+            assert ref.fixed_netloc == self.netloc
+            
+        with self._lock:
+            if os.path.exists(self.filename_for_ref(ref)):
+                return True
+            if isinstance(ref, SWDataValue):
+                create_datavalue_file(ref)
+                return True
+
+        return False
 
     def commit_file(self, old_name, new_name):
 
@@ -243,3 +263,13 @@ def filename(id):
 
 def filename_for_ref(ref):
     return singleton_blockstore.filename_for_ref(ref)
+
+def is_ref_local(ref):
+    return singleton_blockstore.is_ref_local(ref)
+
+def create_datavalue_file(ref):
+    bs_ctx = create_fetch_file_for_ref(ref)
+    with open(bs_ctx.filename, 'w') as obj_file:
+        obj_file.write(decode_datavalue(ref))
+    bs_ctx.commit()
+

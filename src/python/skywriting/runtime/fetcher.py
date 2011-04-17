@@ -10,8 +10,8 @@ import threading
 import os
 from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
-from skywriting.runtime.block_store import filename_for_ref, create_fetch_file_for_ref, producer_filename,\
-    get_own_netloc
+from skywriting.runtime.block_store import filename_for_ref, producer_filename,\
+    get_own_netloc, create_datavalue_file
 from skywriting.runtime.producer import get_producer_for_id
 from skywriting.runtime.exceptions import RuntimeSkywritingError
 
@@ -63,7 +63,7 @@ class FetchInProgress:
             try:
                 self.plans[self.current_plan]()
                 return
-            except PlanFailedError as e:
+            except PlanFailedError:
                 self.current_plan += 1
 
     def run_next_plan(self):
@@ -72,13 +72,10 @@ class FetchInProgress:
 
     def resolve_dataval(self):
         if self.string_callback is not None:
-            self.string_callback(self.ref.value)
-        else:
             decoded_dataval = decode_datavalue(self.ref)
-            bs_ctx = create_fetch_file_for_ref(self.ref)
-            with open(bs_ctx.filename, 'w') as obj_file:
-                obj_file.write(decoded_dataval)
-            bs_ctx.commit()
+            self.string_callback(decoded_dataval)
+        else:
+            create_datavalue_file(self.ref)
             self.set_filename(filename_for_ref(self.ref), True)
             self.result(True, None)
 
