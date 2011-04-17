@@ -112,12 +112,11 @@ class BlockStore:
         if isinstance(ref, SW2_FixedReference):
             assert ref.fixed_netloc == self.netloc
             
-        with self._lock:
-            if os.path.exists(self.filename_for_ref(ref)):
-                return True
-            if isinstance(ref, SWDataValue):
-                create_datavalue_file(ref)
-                return True
+        if os.path.exists(self.filename_for_ref(ref)):
+            return True
+        if isinstance(ref, SWDataValue):
+            create_datavalue_file(ref)
+            return True
 
         return False
 
