@@ -5,7 +5,9 @@ import java.io.DataOutputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.ObjectInputStream;
+import java.io.ObjectStreamClass;
 import java.net.URL;
 import java.net.URLClassLoader;
 
@@ -27,6 +29,27 @@ public class JsonPipeRpc implements WorkerRpc {
 	private final DataInputStream fromWorkerPipe;
 	private final Gson gson;
 	private final JsonParser jsonParser;
+	
+	private class UserObjectInputStream extends ObjectInputStream {
+		
+		public UserObjectInputStream(InputStream in) throws IOException {
+			super(in);
+		}
+		
+		@Override
+		protected Class resolveClass(ObjectStreamClass desc) throws IOException,
+			ClassNotFoundException {
+			
+			try {
+				return Ciel.CLASSLOADER.loadClass(desc.getName());
+			} catch (Exception e) {
+				;
+			}
+			
+			return super.resolveClass(desc);
+		}
+		
+	}
 	
 	public JsonPipeRpc(String toWorkerPipeName, String fromWorkerPipeName) {
 		try {
@@ -60,6 +83,7 @@ public class JsonPipeRpc implements WorkerRpc {
 			byte[] responseBuffer = new byte[responseLength];
 			this.fromWorkerPipe.readFully(responseBuffer);
 			String responseString = new String(responseBuffer);
+			System.out.println(responseString);
 			return this.jsonParser.parse(responseString);
 		} catch (IOException ioe) {
 			throw new RuntimeException(ioe);
@@ -72,10 +96,11 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 	
 	public static final JsonPrimitive OPEN_REF = new JsonPrimitive("open_ref");
-	public static final JsonPrimitive CREATE_REF = new JsonPrimitive("create_ref");
+	public static final JsonPrimitive ALLOCATE_OUTPUT = new JsonPrimitive("allocate_output");
 	public static final JsonPrimitive OPEN_OUTPUT = new JsonPrimitive("open_output");
 	public static final JsonPrimitive EXIT = new JsonPrimitive("exit");
 	public static final JsonPrimitive SPAWN = new JsonPrimitive("spawn");
+	public static final JsonPrimitive TAIL_SPAWN = new JsonPrimitive("tail_spawn");
 	public static final JsonPrimitive CLOSE_REF = new JsonPrimitive("close_ref");
 	public static final JsonPrimitive CLOSE_OUTPUT = new JsonPrimitive("close_output");
 	public static final JsonPrimitive BLOCK = new JsonPrimitive("block");
@@ -92,14 +117,16 @@ public class JsonPipeRpc implements WorkerRpc {
 		try {
 			JsonArray jarLib = task.get("jar_lib").getAsJsonArray();
 			URL[] urls = new URL[jarLib.size()];
+			Reference[] refJarLib = new Reference[jarLib.size()];
 			
 			for (int i = 0; i < urls.length; ++i) {
-				Reference jarRef = Reference.fromJson(jarLib.get(i).getAsJsonObject());
-				urls[i] = new URL("file://" + this.getFilenameForReference(jarRef));
+				refJarLib[i] = Reference.fromJson(jarLib.get(i).getAsJsonObject());
+				urls[i] = new URL("file://" + this.getFilenameForReference(refJarLib[i]));
 			}
 	
 			URLClassLoader urlcl = new URLClassLoader(urls);
-			
+						
+			Ciel.jarLib = refJarLib;
 			Ciel.CLASSLOADER = urlcl;
 			
 			FirstClassJavaTask ret;
@@ -116,8 +143,8 @@ public class JsonPipeRpc implements WorkerRpc {
 			
 			if (task.has("object_ref")) {
 				// This is an internally-created task.
-				String contObjectFilename = this.getFilenameForReference(Reference.fromJson(task.get("cont_object").getAsJsonObject()));
-				ObjectInputStream ois = new ObjectInputStream(new FileInputStream(contObjectFilename));
+				String contObjectFilename = this.getFilenameForReference(Reference.fromJson(task.get("object_ref").getAsJsonObject()));
+				ObjectInputStream ois = new UserObjectInputStream(new FileInputStream(contObjectFilename));
 				ret = (FirstClassJavaTask) ois.readObject();
 			} else {
 				assert task.has("class_name");
@@ -192,12 +219,16 @@ public class JsonPipeRpc implements WorkerRpc {
 			throw new ReferenceUnavailableException(ref);
 		}
 	}
-
+	
 	@Override
-	public WritableReference getNewObjectFilename() {
+	public WritableReference getNewObjectFilename(String refPrefix) {
 		JsonObject args = new JsonObject();
-		JsonObject response = this.sendReceiveMessage(CREATE_REF, args).getAsJsonObject();
-		return new WritableReference(response.get("filename").getAsString());
+		args.add("prefix", new JsonPrimitive(refPrefix));
+		
+		JsonObject response = this.sendReceiveMessage(ALLOCATE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
+		int index = response.get("index").getAsInt();
+		
+		return this.getOutputFilename(index);
 	}
 
 	@Override
@@ -205,13 +236,13 @@ public class JsonPipeRpc implements WorkerRpc {
 		JsonObject args = new JsonObject();
 		args.add("index", new JsonPrimitive(index));
 		JsonObject response = this.sendReceiveMessage(OPEN_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		return new WritableReference(response.get("filename").getAsString());
+		return new WritableReference(response.get("filename").getAsString(), index);
 	}
 
 	@Override
 	public Reference[] spawnTask(TaskInformation taskInfo) {
 		JsonObject args = taskInfo.toJson();
-		JsonArray response = this.sendReceiveMessage(SPAWN, args).getAsJsonArray();
+		JsonArray response = this.sendReceiveMessage(SPAWN, args).getAsJsonArray().get(1).getAsJsonArray();
 		Reference[] ret = new Reference[response.size()];
 		int i = 0;
 		for (JsonElement elem : response) {
@@ -220,4 +251,10 @@ public class JsonPipeRpc implements WorkerRpc {
 		return ret;
 	}
 
+	@Override
+	public void tailSpawnTask(TaskInformation taskInfo) {
+		JsonObject args = taskInfo.toJson();
+		this.sendMessage(TAIL_SPAWN, args);
+	}
+	
 }

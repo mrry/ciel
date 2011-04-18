@@ -1,7 +1,15 @@
 package com.asgow.ciel.executor;
 
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+
 import com.asgow.ciel.references.Reference;
+import com.asgow.ciel.references.WritableReference;
 import com.asgow.ciel.rpc.WorkerRpc;
+import com.asgow.ciel.tasks.FirstClassJavaTask;
+import com.asgow.ciel.tasks.FirstClassJavaTaskInformation;
+import com.asgow.ciel.tasks.SingleOutputTask;
 
 public final class Ciel {
 
@@ -28,5 +36,53 @@ public final class Ciel {
 	 */
 	public static String[] args = null;
 	
+	public static Reference[] spawn(FirstClassJavaTask taskObject, String[] args, int numOutputs) throws IOException {
+		WritableReference objOut = Ciel.RPC.getNewObjectFilename("obj");
+		ObjectOutputStream oos = new ObjectOutputStream(objOut.open());
+		oos.writeObject(taskObject);
+		oos.close();
+		Reference objRef = Ciel.RPC.closeOutput(objOut.getIndex());
+		
+		FirstClassJavaTaskInformation fcjti = new FirstClassJavaTaskInformation(objRef, Ciel.jarLib, args, numOutputs);
+		for (Reference dependency : taskObject.getDependencies()) {
+			fcjti.addDependency(dependency);
+		}
+		return Ciel.RPC.spawnTask(fcjti);
+	}
+	
+	public static Reference[] spawn(Class<? extends FirstClassJavaTask> taskClass, String[] args, int numOutputs) {
+		FirstClassJavaTaskInformation fcjti = new FirstClassJavaTaskInformation(taskClass, Ciel.jarLib, args, numOutputs);
+		return Ciel.RPC.spawnTask(fcjti);
+	}
+	
+	public static Reference spawn(Class<? extends SingleOutputTask<? extends Serializable>> taskClass, String[] args) {
+		return Ciel.spawn(taskClass, args, 1)[0];
+	}
+
+	public static void tailSpawn(FirstClassJavaTask taskObject, String[] args) throws IOException {
+		WritableReference objOut = Ciel.RPC.getNewObjectFilename("obj");
+		ObjectOutputStream oos = new ObjectOutputStream(objOut.open());
+		oos.writeObject(taskObject);
+		oos.close();
+		Reference objRef = Ciel.RPC.closeOutput(objOut.getIndex());
+		
+		FirstClassJavaTaskInformation fcjti = new FirstClassJavaTaskInformation(objRef, Ciel.jarLib, args);
+		for (Reference dependency : taskObject.getDependencies()) {
+			fcjti.addDependency(dependency);
+		}
+		Ciel.RPC.tailSpawnTask(fcjti);
+	}
+	
+	public static void returnInt(int value) throws IOException {
+		Ciel.returnInt(value, 0);
+	}
+	
+	public static void returnInt(int value, int index) throws IOException {
+		WritableReference retOut = Ciel.RPC.getOutputFilename(index);
+		ObjectOutputStream oos = new ObjectOutputStream(retOut.open());
+		oos.write(value);
+		oos.close();
+		Ciel.RPC.closeOutput(index);
+	}
 	
 }

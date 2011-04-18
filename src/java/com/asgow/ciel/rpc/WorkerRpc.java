@@ -11,13 +11,15 @@ public interface WorkerRpc {
 	
 	Reference[] spawnTask(TaskInformation taskInfo);
 	
+	void tailSpawnTask(TaskInformation taskInfo);
+	
 	Reference[] blockOn(Reference... refs);
 	
 	String getFilenameForReference(Reference ref);
 	
 	WritableReference getOutputFilename(int index);
 	
-	WritableReference getNewObjectFilename();
+	WritableReference getNewObjectFilename(String refPrefix);
 	
 	Reference closeOutput(int index);
 	

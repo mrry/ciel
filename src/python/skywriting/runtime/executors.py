@@ -429,13 +429,14 @@ class ProcExecutor(BaseExecutor):
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, 
                               process_record_id=None, is_fixed=False,
-                              n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
+                              n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False, accept_ref_list_for_single=False):
 
         #if process_record_id is None and start_command is None:
         #    raise BlameUserException("ProcExecutor tasks must specify either process_record_id or start_command")
 
         if process_record_id is not None:
             task_descriptor["task_private"]["id"] = process_record_id
+        print "Extra dependencies!", extra_dependencies
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
@@ -450,7 +451,7 @@ class ProcExecutor(BaseExecutor):
         task_descriptor["dependencies"].append(task_private_ref)
         
         if not is_tail_spawn:
-            if len(task_descriptor["expected_outputs"]) == 1:
+            if len(task_descriptor["expected_outputs"]) == 1 and not accept_ref_list_for_single:
                 return SW2_FutureReference(task_descriptor["expected_outputs"][0])
             else:
                 return [SW2_FutureReference(refid) for refid in task_descriptor["expected_outputs"]]
@@ -689,6 +690,8 @@ class ProcExecutor(BaseExecutor):
                 
             ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
             response = None
+            
+            print args
         
             try:
                 if method == 'open_ref':
@@ -723,6 +726,8 @@ class ProcExecutor(BaseExecutor):
                     
                     response = self.spawn(args)
                     
+                    print "@@@@@@@@@@@@@@@@@@@ spawn response:", response 
+                                        
                 elif method == 'tail_spawn':
                     
                     response = self.tail_spawn(args)
@@ -895,10 +900,15 @@ class Java2Executor(ProcExecutor):
             raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref")
         
         task_descriptor["task_private"]["jar_lib"] = jar_lib
+        for jar_ref in jar_lib:
+            task_descriptor["dependencies"].append(jar_ref)
 
         if not is_tail_spawn:
             sha = hashlib.sha1()
             hash_update_with_structure(sha, [args, n_outputs])
+            hash_update_with_structure(sha, class_name)
+            hash_update_with_structure(sha, object_ref)
+            hash_update_with_structure(sha, jar_lib)
             name_prefix = "java2:%s:" % (sha.hexdigest())
             task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]            
         
@@ -910,7 +920,7 @@ class Java2Executor(ProcExecutor):
         if args is not None:
             task_descriptor["task_private"]["args"] = args
         
-        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, is_fixed=False, accept_ref_list_for_single=True, **kwargs)
         
     def get_command(self):
         return ["java", "-cp", os.getenv('CLASSPATH'), "com.asgow.ciel.executor.Java2Executor"]
