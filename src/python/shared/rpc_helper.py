@@ -5,6 +5,11 @@ import select
 import sys
 from shared.io_helpers import read_framed_json, write_framed_json
 
+class ShutdownException(Exception):
+    
+    def __init__(self, reason):
+        self.reason = reason
+
 class RpcRequest:
 
     def __init__(self, method):
@@ -45,6 +50,8 @@ class RpcHelper:
                     print >>sys.stderr, "Ignored request", method, "args", args, "because I have no active outputs dict"
                 else:
                     self.active_outputs.handle_request(method, args)
+            elif method == "die":
+                raise ShutdownException(args["reason"])
             else:
                 if self.pending_request is not None:
                     if method != self.pending_request.method:

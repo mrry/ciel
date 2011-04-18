@@ -17,7 +17,7 @@ import sys
 import traceback
 
 from skywriting.lang.task import SkywritingTask
-from shared.rpc_helper import RpcHelper
+from shared.rpc_helper import RpcHelper, ShutdownException
     
 parser = optparse.OptionParser()
 parser.add_option("-v", "--version", action="store_true", dest="version", default=False, help="Display version info")
@@ -41,12 +41,18 @@ read_fp = open(options.read_fifo, "r")
 
 message_helper = RpcHelper(read_fp, write_fp)
 
-try:
-    task = SkywritingTask(message_helper, options.stdlib_base)
-    task.run()
-    message_helper.send_message("exit", {"keep_process": False})
-    
-except Exception as e:
-    print >>sys.stderr, "Skywriting: dying due to exception at top level"
-    message_helper.send_message("error", {"report": traceback.format_exc()})
+while True:
+
+    try:
+        task = SkywritingTask(message_helper, options.stdlib_base)
+        task.run()
+        message_helper.send_message("exit", {"keep_process": "may_keep"})
+        
+    except ShutdownException as e:
+        print >>sys.stderr, "Skywriting: dying at Ciel's request. Given reason:", e.reason 
+        
+    except Exception as e:
+        print >>sys.stderr, "Skywriting: dying due to exception at top level"
+        message_helper.send_message("error", {"report": traceback.format_exc()})
+        sys.exit(0)
 

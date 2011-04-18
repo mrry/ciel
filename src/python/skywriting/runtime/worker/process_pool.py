@@ -17,6 +17,7 @@ import uuid
 import ciel
 import logging
 import simplejson
+from datetime import datetime
 from shared.references import SW2_FixedReference
 import urlparse
 from shared.references import SWReferenceJSONEncoder
@@ -25,6 +26,7 @@ import threading
 from skywriting.runtime.pycurl_rpc import post_string
 from skywriting.runtime.executor_helpers import write_fixed_ref_string
 from skywriting.runtime.block_store import is_ref_local
+from shared.io_helpers import write_framed_json
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""
@@ -34,6 +36,8 @@ class ProcessRecord:
         self.pid = pid
         self.protocol = protocol
         self.job_id = None
+        self.is_free = False
+        self.last_used_time = None
         
         # The worker communicates with the process using a pair of named pipes.
         self.fifos_dir = tempfile.mkdtemp(prefix="ciel-ipc-fifos-")
@@ -77,6 +81,12 @@ class ProcessRecord:
                 self.to_process_fifo.close()
         except:
             ciel.log('Error cleaning up process %s, ignoring' % self.id, 'PROCESS', logging.WARN)
+            
+    def kill(self):
+        ciel.log("Garbage collecting process %s", self.id, "PROCESSPOOL", logging.INFO)
+        write_fp = self.get_write_fifo()
+        write_framed_json(("die", {"reason": "Garbage collected"}), write_fp)
+        self.cleanup()
         
     def as_descriptor(self):
         return {'id' : self.id,
@@ -90,11 +100,16 @@ class ProcessRecord:
 
 class ProcessPool:
     """Represents a collection of long-running processes attached to this worker."""
-
+    
+    soft_cache_executors = []
+    
     def __init__(self, bus, worker):
         self.processes = {}
         self.bus = bus
         self.worker = worker
+        self.lock = threading.Lock()
+        self.gc_thread = None
+        self.gc_thread_stop = threading.Event()
         
     def subscribe(self):
         self.bus.subscribe('start', self.start)
@@ -104,10 +119,46 @@ class ProcessPool:
         self.bus.unsubscribe('start', self.start)
         self.bus.unsubscribe('stop', self.stop)
         
+    def soft_cache_process(self, proc_rec, exec_cls):
+        with self.lock:
+            ciel.log("Caching process %s" % proc_rec.id, "PROCESSPOOL", logging.INFO)
+            exec_cls.process_cache.append(proc_rec)
+            proc_rec.is_free = True
+            proc_rec.last_used_time = datetime.now()
+    
+    def get_soft_cache_process(self, exec_cls):
+        with self.lock:
+            try:
+                proc = exec_cls.process_cache.pop()
+                ciel.log("Re-using process %s" % proc.id, "PROCESSPOOL", logging.INFO)
+                proc.is_free = False
+                return proc
+            except IndexError:
+                return None
+        
+    def garbage_thread(self):
+        while True:
+            now = datetime.now()
+            with self.lock:
+                for executor in ProcessPool.soft_cache_executors:
+                    while len(executor.process_cache) > 0:
+                        proc_rec = executor.process_cache[-1]
+                        time_since_last_use = now - proc_rec.last_used_time
+                        if time_since_last_use.seconds > 30:
+                            proc_rec.kill()
+                            executor.process_cache.pop()
+                        else:
+                            break
+            self.gc_thread_stop.wait(60)
+            if self.gc_thread_stop.isSet():
+                ciel.log("Process pool garbage collector: terminating", "PROCESSPOOL", logging.INFO)
+                return
+        
     def start(self):
-        pass
+        self.gc_thread = threading.Thread(target=self.garbage_thread)
     
     def stop(self):
+        self.gc_thread_stop.set()
         for record in self.processes.values():
             record.cleanup()
         

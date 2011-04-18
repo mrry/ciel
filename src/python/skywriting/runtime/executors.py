@@ -402,8 +402,9 @@ class OngoingOutput:
 
 # Return states for proc task termination.
 PROC_EXITED = 0
-PROC_BLOCKED = 1
-PROC_ERROR = 2
+PROC_MUST_KEEP = 1
+PROC_MAY_KEEP = 2
+PROC_ERROR = 3
 
 class ProcExecutor(BaseExecutor):
     """Executor for running generic processes."""
@@ -474,7 +475,9 @@ class ProcExecutor(BaseExecutor):
             id = task_private['id']
             self.process_record = self.process_pool.get_process_record(id)
         else:
-            self.process_record = self.process_pool.create_process_record(None, "json")
+            self.process_record = self.process_pool.get_soft_cache_process(self.__class__)
+            if self.process_record is None:
+                self.process_record = self.process_pool.create_process_record(None, "json")
             command = self.get_command()
             command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
                             "--read-fifo", self.process_record.get_write_fifo_name()])
@@ -507,8 +510,11 @@ class ProcExecutor(BaseExecutor):
         if finished == PROC_EXITED:
             
             self.process_pool.delete_process_record(self.process_record)
-            
-        elif finished == PROC_BLOCKED:
+        
+        elif finished == PROC_MAY_KEEP:
+            self.process_pool.soft_cache_process(self.process_record, self.__class__)    
+        
+        elif finished == PROC_MUST_KEEP:
             pass
         elif finished == PROC_ERROR:
             ciel.log('Task died with an error', 'PROC', logging.ERROR)
@@ -785,10 +791,14 @@ class ProcExecutor(BaseExecutor):
     
                 elif method == 'exit':
                     
-                    if args["keep_process"]:
-                        return PROC_BLOCKED
-                    else:
+                    if args["keep_process"] == "must_keep":
+                        return PROC_MUST_KEEP
+                    elif args["keep_process"] == "may_keep":
+                        return PROC_MAY_KEEP
+                    elif args["keep_process"] == "no":
                         return PROC_EXITED
+                    else:
+                        ciel.log("Bad exit status from task: %s" % args, "PROC", logging.ERROR)
                 
                 else:
                     ciel.log('Invalid method: %s' % method, 'PROC', logging.WARN, False)
@@ -891,6 +901,7 @@ class SkywritingExecutor(ProcExecutor):
     handler_name = "swi"
     stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
     sw_interpreter_base = os.getenv("CIEL_SW_BASE", None)
+    process_cache = []
 
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)
