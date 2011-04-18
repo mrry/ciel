@@ -82,33 +82,33 @@ class FileOrString:
     @staticmethod
     def from_safe_dict(in_dict):
         try:
-            in_dict["str"] = encode_datavalue(in_dict["str"])
+            in_dict["strdata"] = decode_datavalue_string(in_dict["strdata"])
         except KeyError:
             pass
         return FileOrString(**in_dict)
     
     def to_dict(self):
         if self.str is not None:
-            return {"strdata": self.to_str()}
+            return {"strdata": self.str}
         else:
             return {"filename": self.filename}
         
     def to_safe_dict(self):
         if self.str is not None:
-            return {"strdata": self.str}
+            return {"strdata": encode_datavalue(self.str)}
         else:
             return {"filename": self.filename}
 
     def to_ref(self, refid):
         if self.str is not None:
-            ref = ref_from_safe_string(self.str, refid)
+            ref = ref_from_string(self.str, refid)
         else:
             ref = ref_from_external_file(self.filename, refid)
         return ref
 
     def to_str(self):
         if self.str is not None:
-            return decode_datavalue_string(self.str)
+            return self.str
         else:
             with open(self.filename, "r") as f:
                 return f.read()

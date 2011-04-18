@@ -28,7 +28,8 @@ from skywriting.runtime.block_store import get_own_netloc
 
 from skywriting.runtime.producer import make_local_output
 from skywriting.runtime.fetcher import fetch_ref_async
-from skywriting.runtime.object_cache import retrieve_object_for_ref, ref_from_object
+from skywriting.runtime.object_cache import retrieve_object_for_ref, ref_from_object,\
+    cache_object
 
 import hashlib
 import simplejson
@@ -418,7 +419,7 @@ class ProcExecutor(BaseExecutor):
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, 
-                              process_record_id=None, start_command=None, start_env={}, is_fixed=False,
+                              process_record_id=None, start_command=None, command_env={}, is_fixed=False,
                               n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
 
         if process_record_id is None and start_command is None:
@@ -428,7 +429,7 @@ class ProcExecutor(BaseExecutor):
             task_descriptor["task_private"]["id"] = process_record_id
         else:
             task_descriptor["task_private"]["start_command"] = start_command
-            task_descriptor["task_private"]["start_env"] = start_env
+            task_descriptor["task_private"]["command_env"] = command_env
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         if not is_tail_spawn:
@@ -481,7 +482,7 @@ class ProcExecutor(BaseExecutor):
             command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
                             "--read-fifo", self.process_record.get_write_fifo_name()])
             new_proc_env = os.environ.copy()
-            new_proc_env.update(task_private["start_env"])
+            new_proc_env.update(task_private["command_env"])
             new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
             self.process_record.set_pid(new_proc.pid)
                
@@ -1668,7 +1669,7 @@ class GrabURLExecutor(SimpleExecutor):
             ref = get_ref_for_url(url, version, self.task_id)
             self.task_record.publish_ref(ref)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
-            self.block_store.cache_object(ref, "json", self.output_ids[i])
+            cache_object(ref, "json", self.output_ids[i])
             self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
 
         ciel.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
