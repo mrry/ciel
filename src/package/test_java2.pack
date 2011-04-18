@@ -5,6 +5,7 @@
  	    "args": {
 	    	    "class_name" : "skywriting.examples.tests.java2.InitTaskTest",
 	    	    "jar_lib" : [{"__package__": "tests-jar"}],
+		    "args" : [42],
 		    "n_outputs" : 1}
 	  }
 }

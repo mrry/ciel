@@ -17,8 +17,8 @@ public class Java2Executor {
 			System.exit(1);
 		}
 		
-		assert(args[0].equals("--write-fifo"));
-		assert(args[2].equals("--read-fifo"));
+		assert args[0].equals("--write-fifo");
+		assert args[2].equals("--read-fifo");
 		
 		String writeFifoName = args[1];
 		String readFifoName = args[3];
@@ -32,7 +32,8 @@ public class Java2Executor {
 			task.invoke();
 			Ciel.RPC.exit();
 		} catch (Exception e) {
-			Ciel.RPC.error(e.getMessage());
+			e.printStackTrace();
+			Ciel.RPC.error(e.toString());
 		}
 		
 

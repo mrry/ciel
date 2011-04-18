@@ -60,7 +60,6 @@ public class JsonPipeRpc implements WorkerRpc {
 			byte[] responseBuffer = new byte[responseLength];
 			this.fromWorkerPipe.readFully(responseBuffer);
 			String responseString = new String(responseBuffer);
-			System.out.println(responseString);
 			return this.jsonParser.parse(responseString);
 		} catch (IOException ioe) {
 			throw new RuntimeException(ioe);
@@ -97,12 +96,9 @@ public class JsonPipeRpc implements WorkerRpc {
 			for (int i = 0; i < urls.length; ++i) {
 				Reference jarRef = Reference.fromJson(jarLib.get(i).getAsJsonObject());
 				urls[i] = new URL("file://" + this.getFilenameForReference(jarRef));
-				System.out.println(urls[i]);
 			}
 	
 			URLClassLoader urlcl = new URLClassLoader(urls);
-			
-			System.out.println(urlcl);
 			
 			Ciel.CLASSLOADER = urlcl;
 			
@@ -114,19 +110,16 @@ public class JsonPipeRpc implements WorkerRpc {
 				for (int i = 0; i < Ciel.args.length; ++i) {
 					Ciel.args[i] = jsonArgs.get(i).getAsString();
 				}
-				System.out.println(jsonArgs);
 			} else {
 				Ciel.args = new String[0];
 			}
 			
 			if (task.has("object_ref")) {
-				System.out.println("o");
 				// This is an internally-created task.
 				String contObjectFilename = this.getFilenameForReference(Reference.fromJson(task.get("cont_object").getAsJsonObject()));
 				ObjectInputStream ois = new ObjectInputStream(new FileInputStream(contObjectFilename));
 				ret = (FirstClassJavaTask) ois.readObject();
 			} else {
-				System.out.println("c");
 				assert task.has("class_name");
 				// This is an externally-created task.
 				String taskClassName = task.get("class_name").getAsString();
@@ -176,7 +169,9 @@ public class JsonPipeRpc implements WorkerRpc {
 
 	@Override
 	public void error(String errorMessage) {
-		this.sendMessage(ERROR, new JsonPrimitive(errorMessage));
+		JsonObject args = new JsonObject();
+		args.add("report", new JsonPrimitive(errorMessage));
+		this.sendMessage(ERROR, args);
 	}
 
 	@Override
@@ -192,7 +187,6 @@ public class JsonPipeRpc implements WorkerRpc {
 		args.add("ref", ref.toJson());
 		JsonObject response = this.sendReceiveMessage(OPEN_REF, args).getAsJsonArray().get(1).getAsJsonObject();
 		if (response.has("filename")) {
-			System.out.println(response.get("filename").getAsString());
 			return response.get("filename").getAsString();
 		} else {
 			throw new ReferenceUnavailableException(ref);
