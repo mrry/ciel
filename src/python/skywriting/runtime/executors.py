@@ -419,17 +419,14 @@ class ProcExecutor(BaseExecutor):
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, 
-                              process_record_id=None, start_command=None, command_env={}, is_fixed=False,
+                              process_record_id=None, is_fixed=False,
                               n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False):
 
-        if process_record_id is None and start_command is None:
-            raise BlameUserException("ProcExecutor tasks must specify either process_record_id or start_command")
+        #if process_record_id is None and start_command is None:
+        #    raise BlameUserException("ProcExecutor tasks must specify either process_record_id or start_command")
 
         if process_record_id is not None:
             task_descriptor["task_private"]["id"] = process_record_id
-        else:
-            task_descriptor["task_private"]["start_command"] = start_command
-            task_descriptor["task_private"]["command_env"] = command_env
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         if not is_tail_spawn:
@@ -478,11 +475,11 @@ class ProcExecutor(BaseExecutor):
             self.process_record = self.process_pool.get_process_record(id)
         else:
             self.process_record = self.process_pool.create_process_record(None, "json")
-            command = task_private["start_command"]
+            command = self.get_command()
             command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
                             "--read-fifo", self.process_record.get_write_fifo_name()])
             new_proc_env = os.environ.copy()
-            new_proc_env.update(task_private["command_env"])
+            new_proc_env.update(self.get_env())
             new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
             self.process_record.set_pid(new_proc.pid)
                
@@ -839,10 +836,14 @@ class SkyPyExecutor(ProcExecutor):
         task_descriptor["dependencies"].append(pyfile_ref)
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
-        command = ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]
-        env = {"PYTHONPATH": SkyPyExecutor.skypybase + ":" + os.environ["PYTHONPATH"]}
-        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, command_env=env, 
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record,  
                                                     is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
+
+    def get_command(self):
+        return ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]
+        
+    def get_env(self):
+        return {"PYTHONPATH": SkyPyExecutor.skypybase + ":" + os.environ["PYTHONPATH"]}
 
     @staticmethod
     def can_run():
@@ -860,8 +861,19 @@ class Java2Executor(ProcExecutor):
         ProcExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, args=None, class_name=None, object_ref=None, is_tail_spawn=False):
         # More good stuff goes here.
+        if class_name is None and object_ref is None:
+            raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref")
+        
+        if class_name is not None:
+            task_descriptor["task_private"]["class_name"] = class_name
+        if object_ref is not None:
+            task_descriptor["task_private"]["object_ref"] = object_ref
+            task_descriptor["dependencies"].append(object_ref)
+        if args is not None:
+            task_descriptor["task_private"]["args"] = args
+        
         BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record)
 
     @staticmethod
@@ -902,12 +914,17 @@ class SkywritingExecutor(ProcExecutor):
             task_descriptor["task_private"]["start_args"] = start_args
         add_package_dep(parent_task_record.package_ref, task_descriptor)
         
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=n_extra_outputs, 
+                                                  is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
+
+    def get_command(self):
         command = ["python", os.path.join(SkywritingExecutor.sw_interpreter_base, "interpreter_main.py")]
         if SkywritingExecutor.stdlibbase is not None:
             command.extend(["--stdlib-base", SkywritingExecutor.stdlibbase])
-        
-        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=n_extra_outputs, 
-                                                  start_command=command, is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
+        return command
+
+    def get_env(self):
+        return {}
 
     @staticmethod
     def can_run():
