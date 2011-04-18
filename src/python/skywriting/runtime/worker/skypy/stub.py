@@ -79,6 +79,7 @@ while True:
         if skypy.current_task.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
             report = "User script exception %s\n%s" % (str(skypy.current_task.script_return_val), skypy.current_task.script_backtrace)
             out_message = ("error", {"report": report})
+            sys.exit(0)
         else:
             if skypy.current_task.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
                 coro_ref = skypy.save_state(resume_state)
@@ -100,11 +101,13 @@ while True:
                 skypy.ref_from_maybe_file(out_fp, 0)
             out_message = ("exit", {"keep_process": "may_keep"})
         write_framed_json(out_message, write_fp)
-    except ShutdownException as e:
+        skypy.current_task = None
+    except ShutdownException, e:
         print >>sys.stderr, "SkyPy: killed by Ciel (reason: '%s')" % e.reason
         sys.exit(0)
-    except Exception as e:
+    except Exception, e:
         print >>sys.stderr, "SkyPy: exception reached top level!"
         report = "Top-level exception %s\n%s" % (repr(e), traceback.format_exc())
+        out_message = ("error", {"report": report})
         write_framed_json(out_message, write_fp)
         sys.exit(1)        
