@@ -24,7 +24,10 @@ HALT_RUNTIME_EXCEPTION = 3
 ### Helpers
 
 class PersistentState:
-    def __init__(self):
+    def __init__(self, export_json, extra_outputs, py_ref):
+        self.export_json = export_json
+        self.extra_outputs = extra_outputs
+        self.py_ref = py_ref
         self.ref_dependencies = dict()
 
 class ResumeState:
@@ -74,12 +77,10 @@ current_task = None
 
 class SkyPyTask:
     
-    def __init__(self, main_coro, persistent_state, ret_output, other_outputs, message_helper, file_outputs):
+    def __init__(self, main_coro, persistent_state, message_helper, file_outputs):
         
         self.main_coro = main_coro
         self.persistent_state = persistent_state
-        self.ret_output = ret_output
-        self.other_outputs = other_outputs
         self.message_helper = message_helper
         self.file_outputs = file_outputs
         self.ref_cache = dict()
@@ -155,7 +156,10 @@ def spawn(spawn_callable, *pargs, **kwargs):
     
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
-    save_obj = ResumeState(None, new_coro)
+    new_state = PersistentState(export_json=False, 
+                                extra_outputs = kwargs.get("extra_outputs", 0),
+                                py_ref=current_task.persistent_state.py_ref)
+    save_obj = ResumeState(new_state, new_coro)
     coro_ref = save_state(save_obj)
     return do_spawn("skypy", False, pyfile_ref=current_task.persistent_state.py_ref, coro_ref=coro_ref, **kwargs)
 
@@ -205,6 +209,12 @@ def open_output(index, may_pipe=False):
     runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_pipe": may_pipe})
     new_output.set_filename(runtime_response["filename"])
     return new_output
+
+def get_ret_output_index(self):
+    return 0
+
+def get_other_output_indices(self):
+    return current_task.persistent_state.other_outputs
     
 class RequiredRefs():
     def __init__(self, refs):
