@@ -841,7 +841,7 @@ class SkyPyExecutor(ProcExecutor):
 
         command = ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]
         env = {"PYTHONPATH": SkyPyExecutor.skypybase + ":" + os.environ["PYTHONPATH"]}
-        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, start_env=env, 
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, start_command=command, command_env=env, 
                                                     is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
 
     @staticmethod
