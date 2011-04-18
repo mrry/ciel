@@ -41,7 +41,7 @@ class RpcHelper:
         if have_message:
             (method, args) = read_framed_json(self.in_fp)
             if method == "subscribe" or method == "unsubscribe":
-                if self.active_outputs:
+                if self.active_outputs is None:
                     print >>sys.stderr, "Ignored request", method, "args", args, "because I have no active outputs dict"
                 else:
                     self.active_outputs.handle_request(method, args)
