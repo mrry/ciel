@@ -19,7 +19,8 @@ from shared.references import \
     SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
     SW2_FixedReference, SWReferenceJSONEncoder
 from shared.io_helpers import read_framed_json, write_framed_json
-from skywriting.runtime.exceptions import BlameUserException, MissingInputException, ReferenceUnavailableException
+from skywriting.runtime.exceptions import BlameUserException, MissingInputException, ReferenceUnavailableException,\
+    RuntimeSkywritingError
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
     retrieve_file_or_string_for_ref, ref_from_safe_string,\
@@ -351,10 +352,12 @@ class OngoingOutput:
 
     def __init__(self, output_name, output_index, may_pipe, executor):
         self.output_ctx = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
+        self.may_pipe = may_pipe
         self.output_name = output_name
         self.output_index = output_index
         self.watch_chunk_size = None
         self.executor = executor
+        self.filename = None
 
     def __enter__(self):
         return self
@@ -369,10 +372,16 @@ class OngoingOutput:
         self.output_ctx.rollback()
 
     def get_filename(self):
-        (filename, is_fd) = self.output_ctx.get_filename_or_fd()
-        assert not is_fd
-        return filename
-
+        if self.filename is None:
+            (self.filename, is_fd) = self.output_ctx.get_filename_or_fd()
+            assert not is_fd
+        return self.filename
+    
+    def get_size(self):
+        assert not self.may_pipe
+        assert self.filename is not None
+        return os.stat(self.filename)
+        
     def get_stream_ref(self):
         return self.output_ctx.get_stream_ref()
 
@@ -429,14 +438,6 @@ class ProcExecutor(BaseExecutor):
             task_descriptor["task_private"]["id"] = process_record_id
         task_descriptor["dependencies"].extend(extra_dependencies)
 
-        if not is_tail_spawn:
-            ret_output = "%s:retval" % task_descriptor["task_id"]
-            task_descriptor["expected_outputs"].append(ret_output)
-            task_descriptor["task_private"]["ret_output"] = 0
-            extra_outputs = ["%s:out:%d" % (task_descriptor["task_id"], i) for i in range(n_extra_outputs)]
-            task_descriptor["expected_outputs"].extend(extra_outputs)
-            task_descriptor["task_private"]["extra_outputs"] = range(1, n_extra_outputs + 1)
-
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
         if is_fixed:     
             task_private_ref = SW2_FixedReference(task_private_id, get_own_netloc())
@@ -453,6 +454,12 @@ class ProcExecutor(BaseExecutor):
                 return SW2_FutureReference(task_descriptor["expected_outputs"][0])
             else:
                 return [SW2_FutureReference(refid) for refid in task_descriptor["expected_outputs"]]
+
+    def get_command(self):
+        raise RuntimeSkywritingError("Attempted to get_command() for an executor that does not define this.")
+    
+    def get_env(self):
+        return {}
 
     @staticmethod
     def can_run():
@@ -625,15 +632,18 @@ class ProcExecutor(BaseExecutor):
         self.task_record.publish_ref(ref)
         return {"ref": ref}
 
-    def open_output(self, index, may_pipe=False):
+    def open_output(self, index, may_pipe=False, may_stream=False):
+        if may_pipe and not may_stream:
+            raise Exception("Insane parameters: may_stream=False and may_pipe=True may well lead to deadlock")
         if index in self.ongoing_outputs:
             raise Exception("Tried to open output %d which was already open" % index)
         output_name = self.expected_outputs[index]
         output_ctx = OngoingOutput(output_name, index, may_pipe, self)
         self.ongoing_outputs[index] = output_ctx
         self.context_manager.add_context(output_ctx)
-        ref = output_ctx.get_stream_ref()
-        self.task_record.prepublish_refs([ref])
+        if may_stream:
+            ref = output_ctx.get_stream_ref()
+            self.task_record.prepublish_refs([ref])
         filename = output_ctx.get_filename()
         return {"filename": filename}
 
@@ -641,8 +651,10 @@ class ProcExecutor(BaseExecutor):
         self.context_manager.remove_context(self.ongoing_outputs[index])
         del self.ongoing_outputs[index]
 
-    def close_output(self, index, size):
+    def close_output(self, index, size=None):
         output = self.ongoing_outputs[index]
+        if size is None:
+            size = output.get_size()
         output.size_update(size)
         self.stop_output(index)
         ret_ref = output.get_completed_ref()
@@ -823,6 +835,15 @@ class SkyPyExecutor(ProcExecutor):
             raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
         if coro_ref is None and (entry_point is None or entry_args is None):
             raise BlameUserException("All SkyPy invocations must specify either coro_ref or entry_point and entry_args")
+
+        if not is_tail_spawn:
+            ret_output = "%s:retval" % task_descriptor["task_id"]
+            task_descriptor["expected_outputs"].append(ret_output)
+            task_descriptor["task_private"]["ret_output"] = 0
+            extra_outputs = ["%s:out:%d" % (task_descriptor["task_id"], i) for i in range(n_extra_outputs)]
+            task_descriptor["expected_outputs"].extend(extra_outputs)
+            task_descriptor["task_private"]["extra_outputs"] = range(1, n_extra_outputs + 1)
+        
         if coro_ref is not None:
             task_descriptor["task_private"]["coro_ref"] = coro_ref
             task_descriptor["dependencies"].append(coro_ref)
@@ -837,7 +858,7 @@ class SkyPyExecutor(ProcExecutor):
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record,  
-                                                    is_fixed=False, is_tail_spawn=is_tail_spawn, n_extra_outputs=n_extra_outputs, **kwargs)
+                                                    is_fixed=False, is_tail_spawn=is_tail_spawn, **kwargs)
 
     def get_command(self):
         return ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]
@@ -861,10 +882,25 @@ class Java2Executor(ProcExecutor):
         ProcExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, args=None, class_name=None, object_ref=None, is_tail_spawn=False):
+    def check_args_valid(cls, args, n_outputs):
+        if "class_name" not in args and "object_ref" not in args:
+            raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref")
+        if "jar_lib" not in args:
+            raise BlameUserException("All Java2 invocations must specify a jar_lib")
+            
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, jar_lib, args=None, class_name=None, object_ref=None, n_outputs=1, is_tail_spawn=False, **kwargs):
         # More good stuff goes here.
         if class_name is None and object_ref is None:
             raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref")
+        
+        task_descriptor["task_private"]["jar_lib"] = jar_lib
+
+        if not is_tail_spawn:
+            sha = hashlib.sha1()
+            hash_update_with_structure(sha, [args, n_outputs])
+            name_prefix = "java2:%s:" % (sha.hexdigest())
+            task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]            
         
         if class_name is not None:
             task_descriptor["task_private"]["class_name"] = class_name
@@ -874,11 +910,13 @@ class Java2Executor(ProcExecutor):
         if args is not None:
             task_descriptor["task_private"]["args"] = args
         
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record)
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
+        
+    def get_command(self):
+        return ["java", "-cp", os.getenv('CLASSPATH'), "com.asgow.ciel.executor.Java2Executor"]
 
     @staticmethod
     def can_run():
-        return False
         cp = os.getenv("CLASSPATH")
         if cp is None:
             ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
@@ -903,6 +941,10 @@ class SkywritingExecutor(ProcExecutor):
         if n_extra_outputs > 0:
             raise BlameUserException("Skywriting can't deal with extra outputs")
 
+        if not is_tail_spawn:
+            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
+            task_descriptor["task_private"]["ret_output"] = 0
+
         if cont_ref is not None:
             task_descriptor["task_private"]["cont"] = cont_ref
             task_descriptor["dependencies"].append(cont_ref)
@@ -914,7 +956,7 @@ class SkywritingExecutor(ProcExecutor):
             task_descriptor["task_private"]["start_args"] = start_args
         add_package_dep(parent_task_record.package_ref, task_descriptor)
         
-        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=n_extra_outputs, 
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, 
                                                   is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
 
     def get_command(self):
@@ -922,9 +964,6 @@ class SkywritingExecutor(ProcExecutor):
         if SkywritingExecutor.stdlibbase is not None:
             command.extend(["--stdlib-base", SkywritingExecutor.stdlibbase])
         return command
-
-    def get_env(self):
-        return {}
 
     @staticmethod
     def can_run():

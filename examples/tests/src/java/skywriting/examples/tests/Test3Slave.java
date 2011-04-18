@@ -1,4 +1,4 @@
-package tests;
+package skywriting.examples.tests;
 
 
 public class Test3Slave {

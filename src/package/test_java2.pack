@@ -1,0 +1,10 @@
+{"package": 
+	    {"tests-jar": {"filename": "../../dist/sky-eg-tests.jar"}},
+ "start": 
+ 	  { "handler": "java2",
+ 	    "args": {
+	    	    "class_name" : "skywriting.examples.tests.java2.InitTaskTest",
+	    	    "jar_lib" : [{"__package__": "tests-jar"}],
+		    "n_outputs" : 1}
+	  }
+}
