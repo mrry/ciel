@@ -14,7 +14,7 @@ import skypy
 from shared.rpc_helper import RpcHelper
 from file_outputs import FileOutputRecords
 
-from shared.io_helpers import MaybeFile, read_framed_json, write_framed_json
+from shared.io_helpers import MaybeFile, write_framed_json
 from shared.references import SW2_FutureReference
 
 parser = optparse.OptionParser()

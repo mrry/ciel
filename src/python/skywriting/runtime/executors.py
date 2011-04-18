@@ -839,6 +839,7 @@ class SkyPyExecutor(ProcExecutor):
 
     handler_name = "skypy"
     skypybase = os.getenv("CIEL_SKYPY_BASE", None)
+    process_cache = []
     
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)
