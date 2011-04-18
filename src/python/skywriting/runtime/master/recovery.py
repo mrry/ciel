@@ -73,9 +73,10 @@ class TaskFailureInvestigator:
             if worker is not None:
                 self.worker_pool.worker_failed(worker)
                 
-        # Finally, propagate the failure to the task pool, so that we can re-run the failed task.
-        # FIXME: need to route this through the job.
-        task.job.task_graph.task_failed(task, revised_bindings, reason, detail)
+        with task.job._lock:
+            # Finally, propagate the failure to the task pool, so that we can re-run the failed task.
+            # FIXME: need to route this through the job.
+            task.job.task_graph.task_failed(task, revised_bindings, reason, detail)
 
 class RecoveryManager(plugins.SimplePlugin):
     
