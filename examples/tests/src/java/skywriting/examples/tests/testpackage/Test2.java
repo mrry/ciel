@@ -1,5 +1,5 @@
 
-package tests.testpackage;
+package skywriting.examples.tests.testpackage;
 
 import uk.co.mrry.mercator.task.Task;
 import java.io.InputStream;

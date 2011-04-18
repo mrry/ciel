@@ -2,11 +2,16 @@ package com.asgow.ciel.rpc;
 
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
+import com.asgow.ciel.tasks.FirstClassJavaTask;
 import com.asgow.ciel.tasks.TaskInformation;
 
 public interface WorkerRpc {
 
+	FirstClassJavaTask getTask();
+	
 	Reference[] spawnTask(TaskInformation taskInfo);
+	
+	void tailSpawnTask(TaskInformation taskInfo);
 	
 	Reference[] blockOn(Reference... refs);
 	
@@ -14,7 +19,7 @@ public interface WorkerRpc {
 	
 	WritableReference getOutputFilename(int index);
 	
-	WritableReference getNewObjectFilename();
+	WritableReference getNewObjectFilename(String refPrefix);
 	
 	Reference closeOutput(int index);
 	
