@@ -14,6 +14,7 @@
 
 import codecs
 import simplejson
+import base64
 
 class SWRealReference:
     
@@ -312,16 +313,14 @@ class SW2_FetchReference(SWRealReference):
     def __repr__(self):
         return 'SW2_FetchReference(%s, %s)' % (repr(self.id), repr(self.url))
 
-dataval_codec = codecs.lookup("string_escape")
-
 def encode_datavalue(str):
-    return (dataval_codec.encode(str))[0]
+    return base64.b64encode(str) 
 
 def decode_datavalue(ref):
-    return (dataval_codec.decode(ref.value))[0]
+    return decode_datavalue_string(ref.value)
 
 def decode_datavalue_string(str):
-    return (dataval_codec.decode(str))[0]
+    return base64.b64decode(str)
 
 class SWDataValue(SWRealReference):
     """
@@ -346,9 +345,9 @@ class SWDataValue(SWRealReference):
     def __str__(self):
         string_repr = ""
         if len(self.value) < 20:
-            string_repr = '"' + self.value + '"'
+            string_repr = '"' + decode_datavalue_string(self.value) + '"'
         else:
-            string_repr = "%d bytes inline, starting with '%s'" % (len(self.value), self.value[:20])
+            string_repr = "%d Base64 chars inline, starting with '%s'" % (len(self.value), decode_datavalue_string(self.value)[:20])
         return "<DataValue: %s...: %s>" % (self.id[:10], string_repr)
 
     def __repr__(self):

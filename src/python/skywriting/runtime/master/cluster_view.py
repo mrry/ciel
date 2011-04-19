@@ -16,7 +16,7 @@ from cherrypy._cperror import HTTPError
 from skywriting.runtime.task import TASK_STATES, TASK_STATE_NAMES
 import cherrypy
 import time
-from shared.references import SWDataValue
+from shared.references import SWDataValue, decode_datavalue
 
 def table_row(key, *args):
     return '<tr><td><b>%s</b></td>' % key + ''.join(['<td>%s</td>' % str(x) for x in args]) + '</tr>'
@@ -151,7 +151,7 @@ class RefBrowserRoot:
         ref_string += table_row('ID', ref_id)
         ref_string += table_row('Ref type', ref.__class__.__name__)
         if isinstance(ref, SWDataValue):
-            ref_string += table_row('Value', repr(ref.value))
+            ref_string += table_row('Value', decode_datavalue(ref))
         elif hasattr(ref, 'location_hints'):
             ref_string += span_row('Locations')
             for netloc in ref.location_hints:
