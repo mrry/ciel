@@ -38,6 +38,7 @@ class ProcessRecord:
         self.job_id = None
         self.is_free = False
         self.last_used_time = None
+        self.soft_cache_refs = set()
         
         # The worker communicates with the process using a pair of named pipes.
         self.fifos_dir = tempfile.mkdtemp(prefix="ciel-ipc-fifos-")
@@ -118,36 +119,49 @@ class ProcessPool:
         self.bus.unsubscribe('start', self.start)
         self.bus.unsubscribe('stop', self.stop)
         
-    def soft_cache_process(self, proc_rec, exec_cls):
+    def soft_cache_process(self, proc_rec, exec_cls, soft_cache_keys):
         with self.lock:
             ciel.log("Caching process %s" % proc_rec.id, "PROCESSPOOL", logging.INFO)
-            exec_cls.process_cache.append(proc_rec)
+            exec_cls.process_cache.add(proc_rec)
             proc_rec.is_free = True
             proc_rec.last_used_time = datetime.now()
+            for (refids, tag) in soft_cache_keys:
+                proc_rec.soft_cache_refs.update(refids)
     
-    def get_soft_cache_process(self, exec_cls):
+    def get_soft_cache_process(self, exec_cls, dependencies):
         with self.lock:
-            try:
-                proc = exec_cls.process_cache.pop()
+            best_proc = None
+            ciel.log("Looking to re-use a process for class %s" % exec_cls.handler_name, "PROCESSPOOL", logging.INFO)
+            for proc in exec_cls.process_cache:
+                hits = 0
+                for ref in dependencies:
+                    if ref.id in proc.soft_cache_refs:
+                        hits += 1
+                ciel.log("Process %s: has %d/%d cached" % (proc.id, hits, len(dependencies)), "PROCESSPOOL", logging.INFO)
+                if best_proc is None or best_proc[1] < hits:
+                    best_proc = (proc, hits)
+            if best_proc is None:
+                return None
+            else:
+                proc = best_proc[0]
                 ciel.log("Re-using process %s" % proc.id, "PROCESSPOOL", logging.INFO)
+                exec_cls.process_cache.remove(proc)
                 proc.is_free = False
                 return proc
-            except IndexError:
-                return None
         
     def garbage_thread(self):
         while True:
             now = datetime.now()
             with self.lock:
                 for executor in self.soft_cache_executors:
-                    while len(executor.process_cache) > 0:
-                        proc_rec = executor.process_cache[-1]
+                    dead_recs = []
+                    for proc_rec in executor.process_cache:
                         time_since_last_use = now - proc_rec.last_used_time
                         if time_since_last_use.seconds > 30:
                             proc_rec.kill()
-                            executor.process_cache.pop()
-                        else:
-                            break
+                            dead_recs.append(proc_rec)
+                    for dead_rec in dead_recs:
+                        proc_rec.remove(dead_rec)
             self.gc_thread_stop.wait(60)
             if self.gc_thread_stop.isSet():
                 with self.lock:

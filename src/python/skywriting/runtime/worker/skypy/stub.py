@@ -12,6 +12,8 @@ import simplejson
 import tempfile
 
 import skypy
+import soft_cache
+
 from shared.rpc_helper import RpcHelper, ShutdownException
 from file_outputs import FileOutputRecords
 
@@ -111,7 +113,7 @@ while True:
                     else:
                         pickle.dump(skypy.current_task.script_return_val, out_fp)
                 skypy.ref_from_maybe_file(out_fp, 0)
-            out_message = ("exit", {"keep_process": "may_keep"})
+            out_message = ("exit", {"keep_process": "may_keep", "soft_cache_keys": soft_cache.get_cache_keys()})
         write_framed_json(out_message, write_fp)
         if skypy.current_task.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
             sys.exit(0)

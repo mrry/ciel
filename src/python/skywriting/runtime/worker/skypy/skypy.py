@@ -120,9 +120,9 @@ def deref_json(ref):
     current_task.ref_cache[ref.id] = obj
     return obj
 
-def deref(ref):
+def deref(ref, make_sweetheart=False):
 
-    runtime_response = try_fetch_ref(ref, "open_ref")
+    runtime_response = try_fetch_ref(ref, "open_ref", make_sweetheart=make_sweetheart)
     try:
         obj = pickle.loads(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
@@ -185,15 +185,15 @@ def package_lookup(key):
         raise PackageKeyError(key)
     return retval
 
-def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864):
+def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864, make_sweetheart=False):
     if not may_stream:
-        runtime_response = try_fetch_ref(ref, "open_ref")
+        runtime_response = try_fetch_ref(ref, "open_ref", make_sweetheart=make_sweetheart)
         try:
             return closing(StringIO(decode_datavalue_string(runtime_response["strdata"])))
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
-        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer)
+        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer, make_sweetheart=make_sweetheart)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:

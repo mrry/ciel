@@ -254,13 +254,14 @@ class BaseExecutor:
 
 class OngoingFetch:
 
-    def __init__(self, ref, chunk_size, sole_consumer):
+    def __init__(self, ref, chunk_size, sole_consumer, make_sweetheart):
         self.lock = threading.Lock()
         self.condvar = threading.Condition(self.lock)
         self.bytes = 0
         self.ref = ref
         self.chunk_size = chunk_size
         self.sole_consumer = sole_consumer
+        self.make_sweetheart = make_sweetheart
         self.done = False
         self.success = None
         self.filename = None
@@ -439,7 +440,6 @@ class ProcExecutor(BaseExecutor):
 
         if process_record_id is not None:
             task_descriptor["task_private"]["id"] = process_record_id
-        print "Extra dependencies!", extra_dependencies
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
@@ -485,7 +485,7 @@ class ProcExecutor(BaseExecutor):
             id = task_private['id']
             self.process_record = self.process_pool.get_process_record(id)
         else:
-            self.process_record = self.process_pool.get_soft_cache_process(self.__class__)
+            self.process_record = self.process_pool.get_soft_cache_process(self.__class__, task_descriptor["dependencies"])
             if self.process_record is None:
                 self.process_record = self.process_pool.create_process_record(None, "json")
                 command = self.get_command()
@@ -522,7 +522,7 @@ class ProcExecutor(BaseExecutor):
             self.process_pool.delete_process_record(self.process_record)
         
         elif finished == PROC_MAY_KEEP:
-            self.process_pool.soft_cache_process(self.process_record, self.__class__)    
+            self.process_pool.soft_cache_process(self.process_record, self.__class__, self.soft_cache_keys)    
         
         elif finished == PROC_MUST_KEEP:
             pass
@@ -556,21 +556,33 @@ class ProcExecutor(BaseExecutor):
         If reference is unavailable, raises a ReferenceUnavailableException."""
         ref = self.task_record.retrieve_ref(ref)
         if not accept_string:   
-            ctx = {"filename": retrieve_filename_for_ref(ref, return_ctx=True)}
+            ctx = retrieve_filename_for_ref(ref, return_ctx=True)
         else:
-            ctx = retrieve_file_or_string_for_ref(ref).to_safe_dict()
+            ctx = retrieve_file_or_string_for_ref(ref)
         if ctx.completed_ref is not None:
             if make_sweetheart:
                 ctx.completed_ref = SW2_SweetheartReference(ctx.completed_ref.id, [get_own_netloc()], ctx.completed_ref.size_hint, ctx.completed_ref.netlocs)
             self.task_record.publish_ref(ctx.completed_ref)
+        return ctx.to_safe_dict()
         
-    def open_ref_async(self, ref, chunk_size, sole_consumer=False):
+    def publish_fetched_ref(self, fetch):
+        completed_ref = fetch.get_completed_ref()
+        if completed_ref is None:
+            ciel.log("Cancelling async fetch %s (chunk %d)" % (fetch.ref.id, fetch.chunk_size), "EXEC", logging.INFO)
+        else:
+            if fetch.make_sweetheart:
+                completed_ref = SW2_SweetheartReference(completed_ref.id, [get_own_netloc()], completed_ref.size_hint, completed_ref.netlocs)
+            self.task_record.publish_ref(completed_ref)
+        
+    def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False):
         real_ref = self.task_record.retrieve_ref(ref)
-        new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer)
+        new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer, make_sweetheart)
         filename, file_blocking = new_fetch.get_filename()
         if not new_fetch.done:
             self.context_manager.add_context(new_fetch)
             self.ongoing_fetches.append(new_fetch)
+        else:
+            self.publish_fetched_ref(new_fetch)
         # Definitions here: "done" means we're already certain that the producer has completed successfully.
         # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
         ret = {"filename": filename, "done": new_fetch.done, "blocking": file_blocking, "size": new_fetch.bytes}
@@ -581,18 +593,12 @@ class ProcExecutor(BaseExecutor):
                 ret["error"] = "EFAILED"
         return ret
     
-    def close_async_file(self, id, chunk_size, make_sweetheart=False):
+    def close_async_file(self, id, chunk_size):
         for fetch in self.ongoing_fetches:
             if fetch.ref.id == id and fetch.chunk_size == chunk_size:
+                self.publish_fetched_ref(fetch)
                 self.context_manager.remove_context(fetch)
                 self.ongoing_fetches.remove(fetch)
-                completed_ref = fetch.get_completed_ref()
-                if completed_ref is None:
-                    ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "EXEC", logging.INFO)
-                else:
-                    if make_sweetheart:
-                        completed_ref = SW2_SweetheartReference(completed_ref.id, [get_own_netloc()], completed_ref.size_hint, completed_ref.netlocs)
-                    self.task_record.publish_ref(completed_ref)
                 return
         ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "EXEC", logging.WARNING)
 
@@ -705,8 +711,6 @@ class ProcExecutor(BaseExecutor):
             ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
             response = None
             
-            print args
-        
             try:
                 if method == 'open_ref':
                     
@@ -739,8 +743,6 @@ class ProcExecutor(BaseExecutor):
                 elif method == 'spawn':
                     
                     response = self.spawn(args)
-                    
-                    print "@@@@@@@@@@@@@@@@@@@ spawn response:", response 
                                         
                 elif method == 'tail_spawn':
                     
@@ -819,6 +821,7 @@ class ProcExecutor(BaseExecutor):
                     if args["keep_process"] == "must_keep":
                         return PROC_MUST_KEEP
                     elif args["keep_process"] == "may_keep":
+                        self.soft_cache_keys = args["soft_cache_keys"]
                         return PROC_MAY_KEEP
                     elif args["keep_process"] == "no":
                         return PROC_EXITED
@@ -848,7 +851,7 @@ class SkyPyExecutor(ProcExecutor):
 
     handler_name = "skypy"
     skypybase = os.getenv("CIEL_SKYPY_BASE", None)
-    process_cache = []
+    process_cache = set()
     
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)
@@ -959,7 +962,7 @@ class SkywritingExecutor(ProcExecutor):
     handler_name = "swi"
     stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
     sw_interpreter_base = os.getenv("CIEL_SW_BASE", None)
-    process_cache = []
+    process_cache = set()
 
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)

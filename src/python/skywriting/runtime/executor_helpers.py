@@ -150,7 +150,7 @@ def retrieve_filenames_for_refs(refs, return_ctx=False):
         
     ctxs = sync_retrieve_refs(refs, accept_string=False)
     if return_ctx:
-        return ctxs
+        return [FileOrString(None, ctx.filename, ctx.completed_ref) for ctx in ctxs]
     else:
         return [x.filename for x in ctxs]
 
@@ -177,7 +177,7 @@ def ref_from_safe_string(string, id):
     if len(string) < 1024:
         return SWDataValue(id, value=string)
     else:
-        return ref_from_string(decode_datavalue_string(string))
+        return ref_from_string(decode_datavalue_string(string), id)
 
 def ref_from_string(string, id):
     if len(string) < 1024:
