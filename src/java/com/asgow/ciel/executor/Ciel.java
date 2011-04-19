@@ -2,7 +2,10 @@ package com.asgow.ciel.executor;
 
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
 import java.io.Serializable;
+import java.nio.charset.Charset;
 
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
@@ -35,6 +38,8 @@ public final class Ciel {
 	 * This is the argument vector that may be supplied for externally-invoked tasks.
 	 */
 	public static String[] args = null;
+	
+	private static Charset CHARSET = Charset.forName("UTF-8");
 	
 	public static Reference[] spawn(FirstClassJavaTask taskObject, String[] args, int numOutputs) throws IOException {
 		WritableReference objOut = Ciel.RPC.getNewObjectFilename("obj");
@@ -82,6 +87,19 @@ public final class Ciel {
 		ObjectOutputStream oos = new ObjectOutputStream(retOut.open());
 		oos.write(value);
 		oos.close();
+		Ciel.RPC.closeOutput(index);
+	}
+
+	
+	public static void returnPlainString(String value) throws IOException {
+		Ciel.returnPlainString(value, 0);
+	}
+	
+	public static void returnPlainString(String value, int index) throws IOException {
+		WritableReference retOut = Ciel.RPC.getOutputFilename(index);
+		PrintWriter pw = new PrintWriter(new OutputStreamWriter(retOut.open(), Ciel.CHARSET));
+		pw.print(value);
+		pw.close();
 		Ciel.RPC.closeOutput(index);
 	}
 	

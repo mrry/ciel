@@ -25,7 +25,7 @@ public class InitTailTest implements FirstClassJavaTask {
 			System.out.println(filename);
 		}
 		
-		Ciel.returnInt(512);
+		Ciel.returnPlainString("Hello world!");
 		
 	}
 
