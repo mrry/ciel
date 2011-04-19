@@ -1,4 +1,4 @@
-package tests;
+package skywriting.examples.tests;
 
 
 import uk.co.mrry.mercator.task.Task;

@@ -16,12 +16,14 @@
 
 package com.asgow.ciel.references;
 
+import java.io.Serializable;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 
-public abstract class Reference {
+public abstract class Reference implements Serializable {
 
 	private String id;
 	
