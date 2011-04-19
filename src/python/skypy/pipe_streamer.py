@@ -7,7 +7,7 @@ def stream_producer(chunk_size, chunks_to_produce, use_direct_pipes):
 
     bytes_written = 0
 
-    with skypy.open_output(skypy.extra_outputs[0], may_pipe=use_direct_pipes) as file_out:
+    with skypy.open_output(skypy.get_extra_output_indices()[0], may_stream=True, may_pipe=use_direct_pipes) as file_out:
         while bytes_written < (chunk_size * chunks_to_produce):
             file_out.write("Have some bytes!")
             bytes_written += 16
@@ -19,7 +19,7 @@ def stream_link(chunk_size, input_ref, use_direct_pipes):
     bytes_written = 0
 
     # Convoluted structure to avoid blocking on a ref whilst we've got an output in progress
-    with skypy.open_output(skypy.extra_outputs[0], may_pipe=use_direct_pipes) as out_file:
+    with skypy.open_output(skypy.get_extra_output_indices()[0], may_stream=True, may_pipe=use_direct_pipes) as out_file:
         with skypy.deref_as_raw_file(input_ref, may_stream=True, sole_consumer=True, chunk_size=chunk_size) as in_file:
             while True:
                 buf = in_file.read(4096)

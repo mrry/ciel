@@ -20,7 +20,7 @@ def stream_consumer(chunk_size, in_ref):
 
     bytes_read = 0
 
-    with skypy.deref_as_raw_file(in_ref, may_stream=True, chunk_size=chunk_size) as in_file:
+    with skypy.deref_as_raw_file(in_ref, may_stream=True, sole_consumer=True, chunk_size=chunk_size) as in_file:
         while True:
             str = in_file.read(4096)
             bytes_read += len(str)

@@ -84,7 +84,7 @@ class ExecutionFeatures:
                                                            CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
                                                            Java2Executor, ProcExecutor]])
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
-        cacheable_executors = [SkywritingExecutor]
+        cacheable_executors = [SkywritingExecutor, SkyPyExecutor]
         self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
 
     def all_features(self):

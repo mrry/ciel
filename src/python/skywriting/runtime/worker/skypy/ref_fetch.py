@@ -15,7 +15,7 @@ class CompleteFile:
     def close(self):
         self.fp.close()
         if self.must_close:
-            self.message_helper.send_message("close_stream", {"id": self.ref.id, "chunk_size": self.chunk_size})            
+            skypy.current_task.message_helper.send_message("close_stream", {"id": self.ref.id, "chunk_size": self.chunk_size})            
         skypy.remove_ref_dependency(self.ref)
 
     def __enter__(self):
@@ -66,7 +66,7 @@ class StreamingFile:
     def close(self):
         self.closed = True
         self.fp.close()
-        self.message_helper.send_message("close_stream", {"id": self.ref.id, "chunk_size": self.chunk_size})
+        skypy.current_task.message_helper.send_message("close_stream", {"id": self.ref.id, "chunk_size": self.chunk_size})
         skypy.remove_ref_dependency(self.ref)
 
     def __exit__(self, exnt, exnv, exnbt):
@@ -75,7 +75,7 @@ class StreamingFile:
     def wait(self, **kwargs):
         out_dict = {"id": self.ref.id}
         out_dict.update(kwargs)
-        runtime_response = self.message_helper.synchronous_request("wait_stream", out_dict)
+        runtime_response = skypy.current_task.message_helper.synchronous_request("wait_stream", out_dict)
         if not runtime_response["success"]:
             raise Exception("File transfer failed before EOF")
         else:

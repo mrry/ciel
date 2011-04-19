@@ -143,7 +143,6 @@ class ProcessPool:
                     while len(executor.process_cache) > 0:
                         proc_rec = executor.process_cache[-1]
                         time_since_last_use = now - proc_rec.last_used_time
-                        print proc_rec.last_used_time, now, time_since_last_use
                         if time_since_last_use.seconds > 30:
                             proc_rec.kill()
                             executor.process_cache.pop()
