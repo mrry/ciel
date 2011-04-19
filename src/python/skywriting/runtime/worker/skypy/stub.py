@@ -9,14 +9,17 @@ import pickle
 import imp
 import sys
 import simplejson
+import tempfile
 
 import skypy
 from shared.rpc_helper import RpcHelper, ShutdownException
 from file_outputs import FileOutputRecords
 
 from shared.io_helpers import MaybeFile, write_framed_json
-from shared.references import SW2_FutureReference
+from shared.references import SW2_FutureReference, decode_datavalue_string
 import traceback
+
+from StringIO import StringIO
 
 parser = optparse.OptionParser()
 parser.add_option("-v", "--version", action="store_true", dest="version", default=False, help="Display version info")
@@ -50,21 +53,31 @@ while True:
         print >>sys.stderr, "SkyPy: Awaiting task"
         entry_dict = message_helper.await_message("start_task")
 
-        with skypy.deref_as_raw_file(entry_dict["py_ref"]) as py_file:
-            source_filename = py_file.filename
+        runtime_response = skypy.fetch_ref(entry_dict["py_ref"], "open_ref", message_helper)
+        if "strdata" in runtime_response:
+            fp, source_filename = tempfile.mkstemp(prefix="skypy-py-file-")
+            fp.write(decode_datavalue_string(runtime_response["strdata"]))
+            fp.close()
+        else:
+            source_filename = runtime_response["filename"]
+            
         user_script_namespace = imp.load_source("user_script_namespace", source_filename)
 
         if "coro_ref" in entry_dict:
             print >>sys.stderr, "SkyPy: Resuming"
-            with skypy.deref_as_raw_file(entry_dict["coro_ref"]) as resume_fp:
-                resume_state = pickle.load(resume_fp)
+            runtime_response = skypy.fetch_ref(entry_dict["coro_ref"], "open_ref", message_helper)
+            if "strdata" in runtime_response:
+                fp = StringIO(decode_datavalue_string(runtime_response["strdata"]))
+            else:
+                fp = open(runtime_response["filename"], "r")
+            with fp:
+                resume_state = pickle.load(fp)
             user_coro = resume_state.coro
         else:
             print >>sys.stderr, "Entering at", entry_dict["entry_point"], "args", entry_dict["entry_args"]
             persistent_state = skypy.PersistentState(export_json=entry_dict["export_json"],
                                                      extra_outputs=entry_dict["extra_outputs"],
                                                      py_ref=entry_dict["py_ref"])
-            resume_state.persistent_state = persistent_state
             user_coro = stackless.coroutine()
             user_coro.bind(skypy.start_script, user_script_namespace.__dict__[entry_dict["entry_point"]], entry_dict["entry_args"])
             resume_state = skypy.ResumeState(persistent_state, user_coro)
@@ -79,7 +92,6 @@ while True:
         if skypy.current_task.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
             report = "User script exception %s\n%s" % (str(skypy.current_task.script_return_val), skypy.current_task.script_backtrace)
             out_message = ("error", {"report": report})
-            sys.exit(0)
         else:
             if skypy.current_task.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
                 coro_ref = skypy.save_state(resume_state)
@@ -101,6 +113,8 @@ while True:
                 skypy.ref_from_maybe_file(out_fp, 0)
             out_message = ("exit", {"keep_process": "may_keep"})
         write_framed_json(out_message, write_fp)
+        if skypy.current_task.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
+            sys.exit(0)
         skypy.current_task = None
     except ShutdownException, e:
         print >>sys.stderr, "SkyPy: killed by Ciel (reason: '%s')" % e.reason

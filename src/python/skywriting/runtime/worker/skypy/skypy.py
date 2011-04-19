@@ -48,26 +48,22 @@ def describe_maybe_file(output_fp, out_dict):
     else:
         out_dict["strdata"] = encode_datavalue(output_fp.str)
         
-def ref_from_maybe_file(output_fp, refidx, message_helper):
+def ref_from_maybe_file(output_fp, refidx):
     if output_fp.real_fp is not None:
         return output_fp.real_fp.get_completed_ref()
     else:
         args = {"index": refidx, "str": encode_datavalue(output_fp.str)}
-        return message_helper.synchronous_request("publish_string", args)["ref"]
+        return current_task.message_helper.synchronous_request("publish_string", args)["ref"]
     
 def start_script(entry_point, entry_args):
 
-    global halt_reason
-    global script_return_val
-    global script_backtrace
-
     try:
-        script_return_val = entry_point(*entry_args)
-        halt_reason = HALT_DONE
+        current_task.script_return_val = entry_point(*entry_args)
+        current_task.halt_reason = HALT_DONE
     except Exception, e:
-        script_return_val = e
-        script_backtrace = traceback.format_exc()
-        halt_reason = HALT_RUNTIME_EXCEPTION
+        current_task.script_return_val = e
+        current_task.script_backtrace = traceback.format_exc()
+        current_task.halt_reason = HALT_RUNTIME_EXCEPTION
         
     current_task.main_coro.switch()
     
@@ -88,16 +84,20 @@ class SkyPyTask:
         self.script_backtrace = None
         self.halt_reason = 0
 
-def fetch_ref(ref, verb, **kwargs):
+def fetch_ref(ref, verb, message_helper, **kwargs):
+
+    send_dict = {"ref": ref}
+    send_dict.update(kwargs)
+    return message_helper.synchronous_request(verb, send_dict)
+
+def try_fetch_ref(ref, verb, **kwargs):
 
     if ref.id in current_task.ref_cache:
         return current_task.ref_cache[ref.id]
     else:
         for tries in range(2):
             add_ref_dependency(ref)
-            send_dict = {"ref": ref}
-            send_dict.update(kwargs)
-            runtime_response = current_task.message_helper.synchronous_request(verb, send_dict)
+            runtime_response = fetch_ref(ref, verb, current_task.message_helper, **kwargs)
             if "error" in runtime_response:
                 if tries == 0:
                     current_task.halt_reason = HALT_REFERENCE_UNAVAILABLE
@@ -111,7 +111,7 @@ def fetch_ref(ref, verb, **kwargs):
 
 def deref_json(ref):
     
-    runtime_response = fetch_ref(ref, "open_ref")
+    runtime_response = try_fetch_ref(ref, "open_ref")
     try:
         obj = simplejson.loads(decode_datavalue_string(runtime_response["strdata"]), object_hook=json_decode_object_hook)
     except KeyError:
@@ -122,7 +122,7 @@ def deref_json(ref):
 
 def deref(ref):
 
-    runtime_response = fetch_ref(ref, "open_ref")
+    runtime_response = try_fetch_ref(ref, "open_ref")
     try:
         obj = pickle.loads(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
@@ -150,14 +150,15 @@ def save_state(state):
     state_fp = MaybeFile(open_callback=lambda: open_output(state_index))
     with state_fp:
         pickle.dump(state, state_fp)
-    return ref_from_maybe_file(state_fp, state_index, current_task.message_helper)
+    return ref_from_maybe_file(state_fp, state_index)
 
 def spawn(spawn_callable, *pargs, **kwargs):
     
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
+    n_extra_outputs = kwargs.get("n_extra_outputs", 0)
     new_state = PersistentState(export_json=False, 
-                                extra_outputs = kwargs.get("extra_outputs", 0),
+                                extra_outputs = range(1, n_extra_outputs + 1),
                                 py_ref=current_task.persistent_state.py_ref)
     save_obj = ResumeState(new_state, new_coro)
     coro_ref = save_state(save_obj)
@@ -186,13 +187,13 @@ def package_lookup(key):
 
 def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864):
     if not may_stream:
-        runtime_response = fetch_ref(ref, "open_ref")
+        runtime_response = try_fetch_ref(ref, "open_ref")
         try:
             return closing(StringIO(decode_datavalue_string(runtime_response["strdata"])))
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
-        runtime_response = fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer)
+        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:
@@ -204,17 +205,17 @@ def get_fresh_output_index(prefix=""):
     runtime_response = current_task.message_helper.synchronous_request("allocate_output", {"prefix": prefix})
     return runtime_response["index"]
 
-def open_output(index, may_pipe=False):
+def open_output(index, may_stream=False, may_pipe=False):
     new_output = OutputFile(current_task.message_helper, current_task.file_outputs, index)
-    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_pipe": may_pipe})
+    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_stream": may_stream, "may_pipe": may_pipe})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 
-def get_ret_output_index(self):
+def get_ret_output_index():
     return 0
 
-def get_other_output_indices(self):
-    return current_task.persistent_state.other_outputs
+def get_extra_output_indices():
+    return current_task.persistent_state.extra_outputs
     
 class RequiredRefs():
     def __init__(self, refs):
@@ -222,10 +223,10 @@ class RequiredRefs():
 
     def __enter__(self):
         for ref in self.refs:
-            current_task.add_ref_dependency(ref)
+            add_ref_dependency(ref)
 
     def __exit__(self, x, y, z):
         for ref in self.refs:
-            current_task.remove_ref_dependency(ref)
+            remove_ref_dependency(ref)
 
     
