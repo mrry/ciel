@@ -83,6 +83,8 @@ class ExecutionFeatures:
                                                            CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
                                                            Java2Executor, ProcExecutor]])
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
+        cacheable_executors = [SkywritingExecutor]
+        self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
 
     def all_features(self):
         return self.executors.keys()
@@ -478,13 +480,13 @@ class ProcExecutor(BaseExecutor):
             self.process_record = self.process_pool.get_soft_cache_process(self.__class__)
             if self.process_record is None:
                 self.process_record = self.process_pool.create_process_record(None, "json")
-            command = self.get_command()
-            command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
-                            "--read-fifo", self.process_record.get_write_fifo_name()])
-            new_proc_env = os.environ.copy()
-            new_proc_env.update(self.get_env())
-            new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
-            self.process_record.set_pid(new_proc.pid)
+                command = self.get_command()
+                command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
+                                "--read-fifo", self.process_record.get_write_fifo_name()])
+                new_proc_env = os.environ.copy()
+                new_proc_env.update(self.get_env())
+                new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
+                self.process_record.set_pid(new_proc.pid)
                
         # XXX: This will block until the attached process opens the pipes.
         reader = self.process_record.get_read_fifo()
@@ -818,6 +820,7 @@ class ProcExecutor(BaseExecutor):
         
         return True
     
+   
 class SkyPyExecutor(ProcExecutor):
 
     handler_name = "skypy"

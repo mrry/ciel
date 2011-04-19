@@ -49,10 +49,11 @@ while True:
         message_helper.send_message("exit", {"keep_process": "may_keep"})
         
     except ShutdownException as e:
-        print >>sys.stderr, "Skywriting: dying at Ciel's request. Given reason:", e.reason 
+        print >>sys.stderr, "Skywriting: dying at Ciel's request. Given reason:", e.reason
+        sys.exit(0) 
         
     except Exception as e:
         print >>sys.stderr, "Skywriting: dying due to exception at top level"
         message_helper.send_message("error", {"report": traceback.format_exc()})
-        sys.exit(0)
+        sys.exit(1)
 

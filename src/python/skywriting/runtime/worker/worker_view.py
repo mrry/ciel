@@ -11,7 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.executors import kill_all_running_children
+import skywriting.runtime.executors
 from skywriting.runtime.executor_helpers import ref_from_string
 
 '''
@@ -81,7 +81,7 @@ class KillRoot:
     
     @cherrypy.expose
     def index(self):
-        kill_all_running_children()
+        skywriting.runtime.executors.kill_all_running_children()
         sys.exit(0)
 
 class RegisterMasterRoot:

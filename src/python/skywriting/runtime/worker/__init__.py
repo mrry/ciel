@@ -88,7 +88,7 @@ class Worker(plugins.SimplePlugin):
         
         self.multiworker = MultiWorker(ciel.engine, self)
         self.multiworker.subscribe()
-        self.process_pool = ProcessPool(bus, self)
+        self.process_pool = ProcessPool(bus, self, self.execution_features.process_cacheing_executors)
         self.process_pool.subscribe()
         self.runnable_executors = self.execution_features.runnable_executors.keys()
         self.server_root = WorkerRoot(self)

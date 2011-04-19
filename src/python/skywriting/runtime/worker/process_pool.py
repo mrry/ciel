@@ -83,7 +83,7 @@ class ProcessRecord:
             ciel.log('Error cleaning up process %s, ignoring' % self.id, 'PROCESS', logging.WARN)
             
     def kill(self):
-        ciel.log("Garbage collecting process %s", self.id, "PROCESSPOOL", logging.INFO)
+        ciel.log("Garbage collecting process %s" % self.id, "PROCESSPOOL", logging.INFO)
         write_fp = self.get_write_fifo()
         write_framed_json(("die", {"reason": "Garbage collected"}), write_fp)
         self.cleanup()
@@ -101,15 +101,14 @@ class ProcessRecord:
 class ProcessPool:
     """Represents a collection of long-running processes attached to this worker."""
     
-    soft_cache_executors = []
-    
-    def __init__(self, bus, worker):
+    def __init__(self, bus, worker, soft_cache_executors):
         self.processes = {}
         self.bus = bus
         self.worker = worker
         self.lock = threading.Lock()
         self.gc_thread = None
         self.gc_thread_stop = threading.Event()
+        self.soft_cache_executors = soft_cache_executors
         
     def subscribe(self):
         self.bus.subscribe('start', self.start)
@@ -140,10 +139,11 @@ class ProcessPool:
         while True:
             now = datetime.now()
             with self.lock:
-                for executor in ProcessPool.soft_cache_executors:
+                for executor in self.soft_cache_executors:
                     while len(executor.process_cache) > 0:
                         proc_rec = executor.process_cache[-1]
                         time_since_last_use = now - proc_rec.last_used_time
+                        print proc_rec.last_used_time, now, time_since_last_use
                         if time_since_last_use.seconds > 30:
                             proc_rec.kill()
                             executor.process_cache.pop()
@@ -151,11 +151,19 @@ class ProcessPool:
                             break
             self.gc_thread_stop.wait(60)
             if self.gc_thread_stop.isSet():
+                with self.lock:
+                    for executor in self.soft_cache_executors:
+                        for proc_rec in executor.process_cache:
+                            try:
+                                proc_rec.kill()
+                            except Exception as e:
+                                ciel.log("Failed to shut a process down (%s)" % repr(e), "PROCESSPOOL", logging.WARNING)
                 ciel.log("Process pool garbage collector: terminating", "PROCESSPOOL", logging.INFO)
                 return
         
     def start(self):
         self.gc_thread = threading.Thread(target=self.garbage_thread)
+        self.gc_thread.start()
     
     def stop(self):
         self.gc_thread_stop.set()
