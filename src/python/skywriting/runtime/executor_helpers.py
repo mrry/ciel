@@ -48,11 +48,12 @@ class SynchronousTransfer:
         self.filename = None
         self.str = None
         self.success = None
+        self.completed_ref = None
         self.finished_event = threading.Event()
 
     def result(self, success, completed_ref):
         self.success = success
-        # Completed ref ignored... for now
+        self.completed_ref = completed_ref
         self.finished_event.set()
 
     def reset(self):
@@ -71,9 +72,10 @@ class SynchronousTransfer:
         
 class FileOrString:
     
-    def __init__(self, strdata=None, filename=None):
+    def __init__(self, strdata=None, filename=None, completed_ref=None):
         self.str = strdata
         self.filename = filename
+        self.completed_ref = completed_ref
             
     @staticmethod
     def from_dict(in_dict):
@@ -138,20 +140,23 @@ def sync_retrieve_refs(refs, accept_string=False):
 def retrieve_files_or_strings_for_refs(refs):
     
     ctxs = sync_retrieve_refs(refs, accept_string=True)
-    return [FileOrString(ctx.str, ctx.filename) for ctx in ctxs]
+    return [FileOrString(ctx.str, ctx.filename, ctx.completed_ref) for ctx in ctxs]
 
 def retrieve_file_or_string_for_ref(ref):
     
     return retrieve_files_or_strings_for_refs([ref])[0]
 
-def retrieve_filenames_for_refs(refs):
+def retrieve_filenames_for_refs(refs, return_ctx=False):
         
     ctxs = sync_retrieve_refs(refs, accept_string=False)
-    return [x.filename for x in ctxs]
+    if return_ctx:
+        return ctxs
+    else:
+        return [x.filename for x in ctxs]
 
-def retrieve_filename_for_ref(ref):
+def retrieve_filename_for_ref(ref, return_ctx=False):
 
-    return retrieve_filenames_for_refs([ref])[0]
+    return retrieve_filenames_for_refs([ref], return_ctx)[0]
 
 def retrieve_strings_for_refs(refs):
 

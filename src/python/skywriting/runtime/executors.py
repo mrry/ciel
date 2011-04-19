@@ -550,15 +550,19 @@ class ProcExecutor(BaseExecutor):
             else:
                 print 'Unrecognised command:', argv
         
-    def open_ref(self, ref, accept_string=False):
+    def open_ref(self, ref, accept_string=False, make_sweetheart=False):
         """Fetches a reference if it is available, and returns a filename for reading it.
         Options to do with eagerness, streaming, etc.
         If reference is unavailable, raises a ReferenceUnavailableException."""
         ref = self.task_record.retrieve_ref(ref)
         if not accept_string:   
-            return {"filename": retrieve_filename_for_ref(ref)}
+            ctx = {"filename": retrieve_filename_for_ref(ref, return_ctx=True)}
         else:
-            return retrieve_file_or_string_for_ref(ref).to_safe_dict()
+            ctx = retrieve_file_or_string_for_ref(ref).to_safe_dict()
+        if ctx.completed_ref is not None:
+            if make_sweetheart:
+                ctx.completed_ref = SW2_SweetheartReference(ctx.completed_ref.id, [get_own_netloc()], ctx.completed_ref.size_hint, ctx.completed_ref.netlocs)
+            self.task_record.publish_ref(ctx.completed_ref)
         
     def open_ref_async(self, ref, chunk_size, sole_consumer=False):
         real_ref = self.task_record.retrieve_ref(ref)
@@ -577,7 +581,7 @@ class ProcExecutor(BaseExecutor):
                 ret["error"] = "EFAILED"
         return ret
     
-    def close_async_file(self, id, chunk_size):
+    def close_async_file(self, id, chunk_size, make_sweetheart=False):
         for fetch in self.ongoing_fetches:
             if fetch.ref.id == id and fetch.chunk_size == chunk_size:
                 self.context_manager.remove_context(fetch)
@@ -586,6 +590,8 @@ class ProcExecutor(BaseExecutor):
                 if completed_ref is None:
                     ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "EXEC", logging.INFO)
                 else:
+                    if make_sweetheart:
+                        completed_ref = SW2_SweetheartReference(completed_ref.id, [get_own_netloc()], completed_ref.size_hint, completed_ref.netlocs)
                     self.task_record.publish_ref(completed_ref)
                 return
         ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "EXEC", logging.WARNING)
