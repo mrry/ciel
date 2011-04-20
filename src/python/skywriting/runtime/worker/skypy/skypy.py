@@ -109,27 +109,25 @@ def try_fetch_ref(ref, verb, **kwargs):
             # We're back -- the ref should be available now.
             return runtime_response
 
-def deref_json(ref):
+def deref_decode(ref, decode_string_callback, decode_file_callback, **kwargs):
     
-    runtime_response = try_fetch_ref(ref, "open_ref")
+    runtime_response = try_fetch_ref(ref, "open_ref", accept_string=True, **kwargs)
     try:
-        obj = simplejson.loads(decode_datavalue_string(runtime_response["strdata"]), object_hook=json_decode_object_hook)
+        obj = decode_string_callback(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
         with open(runtime_response["filename"], "r") as ref_fp:
-            obj = simplejson.load(ref_fp, object_hook=json_decode_object_hook)
+            obj = decode_file_callback(ref_fp)
     current_task.ref_cache[ref.id] = obj
     return obj
+
+
+def deref_json(ref, make_sweetheart=False):
+    return deref_decode(ref, lambda x: simplejson.loads(x, object_hook=json_decode_object_hook), 
+                            lambda x: simplejson.load(x, object_hook=json_decode_object_hook),
+                            make_sweetheart=make_sweetheart)
 
 def deref(ref, make_sweetheart=False):
-
-    runtime_response = try_fetch_ref(ref, "open_ref", make_sweetheart=make_sweetheart)
-    try:
-        obj = pickle.loads(decode_datavalue_string(runtime_response["strdata"]))
-    except KeyError:
-        with open(runtime_response["filename"], "r") as ref_fp:
-            obj = pickle.load(ref_fp)
-    current_task.ref_cache[ref.id] = obj
-    return obj
+    return deref_decode(ref, pickle.loads, pickle.load, make_sweetheart=make_sweetheart)
 
 def add_ref_dependency(ref):
     if not ref.is_consumable():

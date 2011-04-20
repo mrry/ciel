@@ -9,7 +9,6 @@ import pickle
 import imp
 import sys
 import simplejson
-import tempfile
 
 import skypy
 import soft_cache
@@ -58,12 +57,7 @@ while True:
         user_script_namespace = soft_cache.try_get_cache([entry_dict["py_ref"]], "pyfile")
         if user_script_namespace is None:
             runtime_response = skypy.fetch_ref(entry_dict["py_ref"], "open_ref", message_helper, make_sweetheart=True)
-            if "strdata" in runtime_response:
-                fp, source_filename = tempfile.mkstemp(prefix="skypy-py-file-")
-                fp.write(decode_datavalue_string(runtime_response["strdata"]))
-                fp.close()
-            else:
-                source_filename = runtime_response["filename"]
+            source_filename = runtime_response["filename"]
                 
             user_script_namespace = imp.load_source(str("user_namespace_%s" % entry_dict["py_ref"].id), source_filename)
             soft_cache.put_cache([entry_dict["py_ref"]], "pyfile", user_script_namespace)
