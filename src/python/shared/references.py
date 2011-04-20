@@ -12,7 +12,6 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-import codecs
 import simplejson
 import base64
 
@@ -138,6 +137,11 @@ class SW2_SweetheartReference(SW2_ConcreteReference):
     def __init__(self, id, sweetheart_netloc, size_hint=None, location_hints=None):
         SW2_ConcreteReference.__init__(self, id, size_hint, location_hints)
         self.sweetheart_netloc = sweetheart_netloc
+        
+    @staticmethod
+    def from_concrete(ref, sweet_netloc):
+        assert isinstance(ref, SW2_ConcreteReference)
+        return SW2_SweetheartReference(ref.id, sweet_netloc, ref.size_hint, ref.location_hints)
         
     def combine_with(self, ref):
         """Add the location hints from ref to this object."""

@@ -161,7 +161,7 @@ class ProcessPool:
                             proc_rec.kill()
                             dead_recs.append(proc_rec)
                     for dead_rec in dead_recs:
-                        proc_rec.remove(dead_rec)
+                        executor.process_cache.remove(dead_rec)
             self.gc_thread_stop.wait(60)
             if self.gc_thread_stop.isSet():
                 with self.lock:

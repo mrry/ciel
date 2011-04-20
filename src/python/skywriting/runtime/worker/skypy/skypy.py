@@ -144,10 +144,10 @@ def remove_ref_dependency(ref):
         if current_task.persistent_state.ref_dependencies[ref.id] == 0:
             del current_task.persistent_state.ref_dependencies[ref.id]
 
-def save_state(state):
+def save_state(state, make_local_sweetheart=False):
 
     state_index = get_fresh_output_index(prefix="coro")
-    state_fp = MaybeFile(open_callback=lambda: open_output(state_index))
+    state_fp = MaybeFile(open_callback=lambda: open_output(state_index, make_local_sweetheart=make_local_sweetheart))
     with state_fp:
         pickle.dump(state, state_fp)
     return ref_from_maybe_file(state_fp, state_index)
@@ -161,7 +161,7 @@ def spawn(spawn_callable, *pargs, **kwargs):
                                 extra_outputs = range(1, n_extra_outputs + 1),
                                 py_ref=current_task.persistent_state.py_ref)
     save_obj = ResumeState(new_state, new_coro)
-    coro_ref = save_state(save_obj)
+    coro_ref = save_state(save_obj, make_local_sweetheart=True)
     return do_spawn("skypy", False, pyfile_ref=current_task.persistent_state.py_ref, coro_ref=coro_ref, **kwargs)
 
 def do_spawn(executor_name, small_task, **args):
@@ -205,9 +205,9 @@ def get_fresh_output_index(prefix=""):
     runtime_response = current_task.message_helper.synchronous_request("allocate_output", {"prefix": prefix})
     return runtime_response["index"]
 
-def open_output(index, may_stream=False, may_pipe=False):
+def open_output(index, may_stream=False, may_pipe=False, make_local_sweetheart=False):
     new_output = OutputFile(current_task.message_helper, current_task.file_outputs, index)
-    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_stream": may_stream, "may_pipe": may_pipe})
+    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_stream": may_stream, "may_pipe": may_pipe, "make_local_sweetheart": make_local_sweetheart})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 

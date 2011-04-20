@@ -55,25 +55,34 @@ while True:
         print >>sys.stderr, "SkyPy: Awaiting task"
         entry_dict = message_helper.await_message("start_task")
 
-        runtime_response = skypy.fetch_ref(entry_dict["py_ref"], "open_ref", message_helper)
-        if "strdata" in runtime_response:
-            fp, source_filename = tempfile.mkstemp(prefix="skypy-py-file-")
-            fp.write(decode_datavalue_string(runtime_response["strdata"]))
-            fp.close()
+        user_script_namespace = soft_cache.try_get_cache([entry_dict["py_ref"]], "pyfile")
+        if user_script_namespace is None:
+            runtime_response = skypy.fetch_ref(entry_dict["py_ref"], "open_ref", message_helper, make_sweetheart=True)
+            if "strdata" in runtime_response:
+                fp, source_filename = tempfile.mkstemp(prefix="skypy-py-file-")
+                fp.write(decode_datavalue_string(runtime_response["strdata"]))
+                fp.close()
+            else:
+                source_filename = runtime_response["filename"]
+                
+            user_script_namespace = imp.load_source(str("user_namespace_%s" % entry_dict["py_ref"].id), source_filename)
+            soft_cache.put_cache([entry_dict["py_ref"]], "pyfile", user_script_namespace)
         else:
-            source_filename = runtime_response["filename"]
-            
-        user_script_namespace = imp.load_source("user_script_namespace", source_filename)
+            print >>sys.stderr, "SkyPy: Using pre-parsed .py file"
 
         if "coro_ref" in entry_dict:
             print >>sys.stderr, "SkyPy: Resuming"
-            runtime_response = skypy.fetch_ref(entry_dict["coro_ref"], "open_ref", message_helper)
-            if "strdata" in runtime_response:
-                fp = StringIO(decode_datavalue_string(runtime_response["strdata"]))
+            resume_state = soft_cache.try_get_cache([entry_dict["coro_ref"]], "coro")
+            if resume_state is not None:
+                print >>sys.stderr, "SkyPy: Resuming from soft-cached coroutine"
             else:
-                fp = open(runtime_response["filename"], "r")
-            with fp:
-                resume_state = pickle.load(fp)
+                runtime_response = skypy.fetch_ref(entry_dict["coro_ref"], "open_ref", message_helper, make_sweetheart=True)
+                if "strdata" in runtime_response:
+                    fp = StringIO(decode_datavalue_string(runtime_response["strdata"]))
+                else:
+                    fp = open(runtime_response["filename"], "r")
+                with fp:
+                    resume_state = pickle.load(fp)
             user_coro = resume_state.coro
         else:
             print >>sys.stderr, "Entering at", entry_dict["entry_point"], "args", entry_dict["entry_args"]
@@ -83,6 +92,8 @@ while True:
             user_coro = stackless.coroutine()
             user_coro.bind(skypy.start_script, user_script_namespace.__dict__[entry_dict["entry_point"]], entry_dict["entry_args"])
             resume_state = skypy.ResumeState(persistent_state, user_coro)
+
+        user_script_namespace = None
 
         skypy.current_task = skypy.SkyPyTask(main_coro, 
                                              resume_state.persistent_state,
@@ -96,7 +107,8 @@ while True:
             out_message = ("error", {"report": report})
         else:
             if skypy.current_task.halt_reason == skypy.HALT_REFERENCE_UNAVAILABLE:
-                coro_ref = skypy.save_state(resume_state)
+                coro_ref = skypy.save_state(resume_state, make_local_sweetheart=True)
+                soft_cache.put_cache([coro_ref], "coro", resume_state)
                 out_message = ("tail_spawn", 
                                 {"executor_name": "skypy",
                                  "pyfile_ref": skypy.current_task.persistent_state.py_ref,

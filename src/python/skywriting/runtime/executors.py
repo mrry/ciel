@@ -17,7 +17,7 @@ from __future__ import with_statement
 from shared.references import \
     SWRealReference, SW2_FutureReference, SWDataValue, \
     SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
-    SW2_FixedReference, SWReferenceJSONEncoder
+    SW2_FixedReference, SWReferenceJSONEncoder, SW2_ConcreteReference
 from shared.io_helpers import read_framed_json, write_framed_json
 from skywriting.runtime.exceptions import BlameUserException, MissingInputException, ReferenceUnavailableException,\
     RuntimeSkywritingError
@@ -353,9 +353,10 @@ class OngoingOutputWatch:
 
 class OngoingOutput:
 
-    def __init__(self, output_name, output_index, may_pipe, executor):
+    def __init__(self, output_name, output_index, may_pipe, make_local_sweetheart, executor):
         self.output_ctx = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
         self.may_pipe = may_pipe
+        self.make_local_sweetheart = make_local_sweetheart
         self.output_name = output_name
         self.output_index = output_index
         self.watch_chunk_size = None
@@ -389,7 +390,10 @@ class OngoingOutput:
         return self.output_ctx.get_stream_ref()
 
     def get_completed_ref(self):
-        return self.output_ctx.get_completed_ref()
+        completed_ref = self.output_ctx.get_completed_ref()
+        if isinstance(completed_ref, SW2_ConcreteReference) and self.make_local_sweetheart:
+            completed_ref = SW2_SweetheartReference.from_concrete(completed_ref, get_own_netloc())
+        return completed_ref
 
     def subscribe_output(self, _):
         return OngoingOutputWatch(self)
@@ -561,7 +565,7 @@ class ProcExecutor(BaseExecutor):
             ctx = retrieve_file_or_string_for_ref(ref)
         if ctx.completed_ref is not None:
             if make_sweetheart:
-                ctx.completed_ref = SW2_SweetheartReference(ctx.completed_ref.id, [get_own_netloc()], ctx.completed_ref.size_hint, ctx.completed_ref.netlocs)
+                ctx.completed_ref = SW2_SweetheartReference.from_concrete(ctx.completed_ref, get_own_netloc())
             self.task_record.publish_ref(ctx.completed_ref)
         return ctx.to_safe_dict()
         
@@ -571,7 +575,7 @@ class ProcExecutor(BaseExecutor):
             ciel.log("Cancelling async fetch %s (chunk %d)" % (fetch.ref.id, fetch.chunk_size), "EXEC", logging.INFO)
         else:
             if fetch.make_sweetheart:
-                completed_ref = SW2_SweetheartReference(completed_ref.id, [get_own_netloc()], completed_ref.size_hint, completed_ref.netlocs)
+                completed_ref = SW2_SweetheartReference.from_concrete(completed_ref, get_own_netloc())
             self.task_record.publish_ref(completed_ref)
         
     def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False):
@@ -653,13 +657,13 @@ class ProcExecutor(BaseExecutor):
         self.task_record.publish_ref(ref)
         return {"ref": ref}
 
-    def open_output(self, index, may_pipe=False, may_stream=False):
+    def open_output(self, index, may_pipe=False, may_stream=False, make_local_sweetheart=False):
         if may_pipe and not may_stream:
             raise Exception("Insane parameters: may_stream=False and may_pipe=True may well lead to deadlock")
         if index in self.ongoing_outputs:
             raise Exception("Tried to open output %d which was already open" % index)
         output_name = self.expected_outputs[index]
-        output_ctx = OngoingOutput(output_name, index, may_pipe, self)
+        output_ctx = OngoingOutput(output_name, index, may_pipe, make_local_sweetheart, self)
         self.ongoing_outputs[index] = output_ctx
         self.context_manager.add_context(output_ctx)
         if may_stream:
@@ -1210,7 +1214,7 @@ class AsyncPushThread:
                 
     def get_completed_ref(self, make_sweetheart):
         if make_sweetheart and self.completed_ref is not None:
-            return SW2_SweetheartReference(self.completed_ref.id, [get_own_netloc()], self.completed_ref.size_hint, self.completed_ref.netlocs)
+            return SW2_SweetheartReference.from_concrete(self.completed_ref, get_own_netloc())
         else:
             return self.completed_ref
 
