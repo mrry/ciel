@@ -47,6 +47,9 @@ main_coro = stackless.coroutine.getcurrent()
 while True:
 
     try:
+        
+        soft_cache.garbage_collect_cache()
+        
         file_outputs = FileOutputRecords()
         message_helper = RpcHelper(read_fp, write_fp, file_outputs)
         file_outputs.set_message_helper(message_helper)
@@ -130,6 +133,7 @@ while True:
     except Exception, e:
         print >>sys.stderr, "SkyPy: exception reached top level!"
         report = "Top-level exception %s\n%s" % (repr(e), traceback.format_exc())
+        print >>sys.stderr, report
         out_message = ("error", {"report": report})
         write_framed_json(out_message, write_fp)
         sys.exit(1)        
