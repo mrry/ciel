@@ -905,6 +905,7 @@ class SkyPyExecutor(ProcExecutor):
 class Java2Executor(ProcExecutor):
     
     handler_name = "java2"
+    process_cache = set()
     
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)

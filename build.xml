@@ -61,7 +61,8 @@
 	<target name="compile-bindings">
 		<mkdir dir="${dir.build}/bindings"/>
 		<javac srcdir="src/java"
-		destdir="${dir.build}/bindings" classpathref="bindingclasspath"/>
+		destdir="${dir.build}/bindings"
+		classpathref="bindingclasspath"/>
 	</target>
 
 	<target name="build-bindings" depends="compile-bindings">

@@ -204,7 +204,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	@Override
 	public void exit() {
 		JsonObject args = new JsonObject();
-		args.add("keep_process", new JsonPrimitive(false));
+		args.add("keep_process", new JsonPrimitive("no"));
 		this.sendMessage(EXIT, args);
 	}
 
