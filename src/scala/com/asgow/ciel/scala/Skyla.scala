@@ -29,7 +29,6 @@ package com.asgow.ciel.scala {
 	  shift { (cont : Unit => Unit) =>
 	    throw new BlockException(cont, this)
           }
-	  println("&&&&&&&&&&&&&&&&& Back in get, trying again..")
 	  get
         }
       }
@@ -51,7 +50,6 @@ package com.asgow.ciel.scala {
     override def setup = { }
 
     override def invoke = { 
-
       try {
 	reset {
 	  val result = run
@@ -59,13 +57,10 @@ package com.asgow.ciel.scala {
         }
       } catch {
 	case be: BlockException => {
-	  println("^^^ Blocking")
 	  val contTask = new SkylaContinuation(be.cont, Array(be.ref))
 	  Ciel.tailSpawn(contTask, null)
         }
       }
-      
-
     }
 
     override def getDependencies = Array()
@@ -79,18 +74,14 @@ package com.asgow.ciel.scala {
     override def setup = { }
 
     override def invoke = {
-      println("Invoking continuation!!!!!1!")
       try {
 	cont()
       } catch {
 	case be: BlockException => {
-	  println("^^^ Blocking")
 	  val contTask = new SkylaContinuation(be.cont, Array(be.ref))
 	  Ciel.tailSpawn(contTask, null)
         }
       }
-      println("Done with this continuation task.")
-
     }
 
     override def getDependencies = deps
