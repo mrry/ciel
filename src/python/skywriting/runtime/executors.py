@@ -643,6 +643,8 @@ class ProcExecutor(BaseExecutor):
     
     def tail_spawn(self, request_args):
         
+        if request_args.get("is_fixed", False):
+            request_args["process_record_id"] = self.process_record.id
         request_args["delegated_outputs"] = self.task_descriptor["expected_outputs"]
         self.spawn(request_args)
     
@@ -861,12 +863,12 @@ class SkyPyExecutor(ProcExecutor):
         ProcExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, is_tail_spawn=False, n_extra_outputs=0, **kwargs):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, run_fixed=False, is_tail_spawn=False, n_extra_outputs=0, **kwargs):
 
-        if pyfile_ref is None:
-            raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
-        if coro_ref is None and (entry_point is None or entry_args is None):
-            raise BlameUserException("All SkyPy invocations must specify either coro_ref or entry_point and entry_args")
+        if pyfile_ref is None and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref' or else reference a fixed process")
+        if coro_ref is None and (entry_point is None or entry_args is None) and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All SkyPy invocations must specify either coro_ref or entry_point and entry_args, or else reference a fixed process")
 
         if not is_tail_spawn:
             ret_output = "%s:retval" % task_descriptor["task_id"]
@@ -884,13 +886,15 @@ class SkyPyExecutor(ProcExecutor):
             task_descriptor["task_private"]["entry_args"] = entry_args
         if not is_tail_spawn:
             task_descriptor["task_private"]["export_json"] = export_json
+            task_descriptor["task_private"]["run_fixed"] = run_fixed
         task_descriptor["task_private"]["is_continuation"] = is_tail_spawn
-        task_descriptor["task_private"]["py_ref"] = pyfile_ref
-        task_descriptor["dependencies"].append(pyfile_ref)
+        if pyfile_ref is not None:
+            task_descriptor["task_private"]["py_ref"] = pyfile_ref
+            task_descriptor["dependencies"].append(pyfile_ref)
         add_package_dep(parent_task_record.package_ref, task_descriptor)
 
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record,  
-                                                    is_fixed=False, is_tail_spawn=is_tail_spawn, **kwargs)
+                                                    is_tail_spawn=is_tail_spawn, **kwargs)
 
     def get_command(self):
         return ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]

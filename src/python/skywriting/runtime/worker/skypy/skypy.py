@@ -5,6 +5,7 @@ import stackless
 import traceback
 import pickle
 import simplejson
+import pdb
 from contextlib import closing
 from StringIO import StringIO
 
@@ -24,10 +25,11 @@ HALT_RUNTIME_EXCEPTION = 3
 ### Helpers
 
 class PersistentState:
-    def __init__(self, export_json, extra_outputs, py_ref):
+    def __init__(self, export_json, extra_outputs, py_ref, is_fixed):
         self.export_json = export_json
         self.extra_outputs = extra_outputs
         self.py_ref = py_ref
+        self.is_fixed = is_fixed
         self.ref_dependencies = dict()
 
 class ResumeState:
@@ -65,6 +67,7 @@ def start_script(entry_point, entry_args):
         current_task.script_backtrace = traceback.format_exc()
         current_task.halt_reason = HALT_RUNTIME_EXCEPTION
         
+    current_task.really_switch_out = True
     current_task.main_coro.switch()
     
 ### Task state
@@ -80,6 +83,7 @@ class SkyPyTask:
         self.message_helper = message_helper
         self.file_outputs = file_outputs
         self.ref_cache = dict()
+        self.really_switch_out = False
         self.script_return_val = None
         self.script_backtrace = None
         self.halt_reason = 0
@@ -101,6 +105,7 @@ def try_fetch_ref(ref, verb, **kwargs):
             if "error" in runtime_response:
                 if tries == 0:
                     current_task.halt_reason = HALT_REFERENCE_UNAVAILABLE
+                    current_task.really_switch_out = True
                     current_task.main_coro.switch()
                     continue
                 else:
@@ -152,12 +157,14 @@ def save_state(state, make_local_sweetheart=False):
 
 def spawn(spawn_callable, *pargs, **kwargs):
     
+    current_task.main_coro.switch()
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
     n_extra_outputs = kwargs.get("n_extra_outputs", 0)
     new_state = PersistentState(export_json=False, 
                                 extra_outputs = range(1, n_extra_outputs + 1),
-                                py_ref=current_task.persistent_state.py_ref)
+                                py_ref=current_task.persistent_state.py_ref,
+                                is_fixed=kwargs.get("run_fixed", False))
     save_obj = ResumeState(new_state, new_coro)
     coro_ref = save_state(save_obj, make_local_sweetheart=True)
     return do_spawn("skypy", False, pyfile_ref=current_task.persistent_state.py_ref, coro_ref=coro_ref, **kwargs)
