@@ -4,6 +4,7 @@ import java.io.FileInputStream;
 import java.io.ObjectInputStream;
 
 import com.asgow.ciel.executor.Ciel;
+import com.asgow.ciel.rpc.ReferenceUnavailableException;
 
 public class CielFuture<T> extends FutureReference {
 
@@ -20,6 +21,8 @@ public class CielFuture<T> extends FutureReference {
 			FileInputStream fis = new FileInputStream(filename);
 			ObjectInputStream ois = new ObjectInputStream(fis);
 			return (T) ois.readObject();
+		} catch (ReferenceUnavailableException rue) { 
+			throw rue;
 		} catch (Exception e) {
 			System.err.println("Error getting value from future.");
 			e.printStackTrace();

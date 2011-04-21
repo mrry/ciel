@@ -16,19 +16,32 @@ class InitTailTest(deps : Array[CielFuture[Int]]) extends FirstClassJavaTask {
 
 }
 
-class ScalaInitTest extends FirstClassJavaTask {
+class ScalaInitTest extends SkylaThread[Int] {
 
-  override def setup = { }
+  override def run = {
+    val a = Skyla.spawn { _ => println("^^^^^^^^^^^^^ A"); 42 }
+    val b = Skyla.spawn { _ => println("^^^^^^^^^^^^^ B"); 16 }
+    val c = Skyla.spawn { _ => println("^^^^^^^^^^^^^ C"); 10 }
 
-  override def getDependencies = Array()
+    println("%%%%% SPAWNED 3 TASKS")
 
-  override def invoke = {
-    val a = Skyla.spawn { _ => 42 }
-    val b = Skyla.spawn { _ => 16 }
-    val c = Skyla.spawn { _ => 10 }
+    val realA = a.get
+    
+    println("%%%%% GOT REALA")
 
-    val tail = new InitTailTest(Array(a, b, c));
-    Ciel.tailSpawn(tail, Array());
+    val realB = b.get
+
+    println("%%%%% GOT REALB")
+
+    val realC = c.get
+
+    println("%%%%% GOT REALC")
+
+    println(realA)
+    println(realB)
+    println(realC)
+
+    realA + realB + realC
 
   }
 

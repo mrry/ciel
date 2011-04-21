@@ -83,6 +83,14 @@ public final class Ciel {
 		Ciel.RPC.tailSpawnTask(fcjti);
 	}
 	
+	public static <T> void returnObject(T result) throws IOException {
+		WritableReference out = Ciel.RPC.getOutputFilename(0);
+		ObjectOutputStream oos = new ObjectOutputStream(out.open());
+		oos.writeObject(result);
+		oos.close();
+		Ciel.RPC.closeOutput(0);
+	}
+	
 	public static void returnInt(int value) throws IOException {
 		Ciel.returnInt(value, 0);
 	}
