@@ -67,7 +67,6 @@ def start_script(entry_point, entry_args):
         current_task.script_backtrace = traceback.format_exc()
         current_task.halt_reason = HALT_RUNTIME_EXCEPTION
         
-    current_task.really_switch_out = True
     current_task.main_coro.switch()
     
 ### Task state
@@ -83,9 +82,10 @@ class SkyPyTask:
         self.message_helper = message_helper
         self.file_outputs = file_outputs
         self.ref_cache = dict()
-        self.really_switch_out = False
         self.script_return_val = None
         self.script_backtrace = None
+        self.main_coro_callback_response = None
+        self.main_coro_callback = None
         self.halt_reason = 0
 
 def fetch_ref(ref, verb, message_helper, **kwargs):
@@ -105,7 +105,6 @@ def try_fetch_ref(ref, verb, **kwargs):
             if "error" in runtime_response:
                 if tries == 0:
                     current_task.halt_reason = HALT_REFERENCE_UNAVAILABLE
-                    current_task.really_switch_out = True
                     current_task.main_coro.switch()
                     continue
                 else:
@@ -155,11 +154,22 @@ def save_state(state, make_local_sweetheart=False):
         pickle.dump(state, state_fp)
     return ref_from_maybe_file(state_fp, state_index)
 
-def spawn(spawn_callable, *pargs, **kwargs):
-    
+def do_from_main_coro(callable):
+    current_task.main_coro_callback = callable
     current_task.main_coro.switch()
+    ret = current_task.main_coro_callback_response
+    current_task.main_coro_callback_response = None
+    return ret
+
+def create_coroutine(spawn_callable, pargs):
+ 
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
+    return new_coro
+
+def spawn(spawn_callable, *pargs, **kwargs):
+    
+    new_coro = do_from_main_coro(lambda: create_coroutine(spawn_callable, pargs))
     n_extra_outputs = kwargs.get("n_extra_outputs", 0)
     new_state = PersistentState(export_json=False, 
                                 extra_outputs = range(1, n_extra_outputs + 1),

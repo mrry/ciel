@@ -103,8 +103,13 @@ while True:
             
             print >>sys.stderr, "SkyPy: continuing previous fixed task"
 
-        while not skypy.current_task.really_switch_out:
+        while True:
             user_coro.switch()
+            if skypy.current_task.main_coro_callback is not None:
+                skypy.current_task.main_coro_callback_response = skypy.current_task.main_coro_callback()
+                skypy.current_task.main_coro_callback = None
+            else:
+                break
         # We're back -- either the user script is done, or else it's stuck waiting on a reference.
         if skypy.current_task.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
             report = "User script exception %s\n%s" % (str(skypy.current_task.script_return_val), skypy.current_task.script_backtrace)
@@ -138,8 +143,6 @@ while True:
             sys.exit(0)
         if not skypy.current_task.persistent_state.is_fixed:
             skypy.current_task = None
-        else:
-            skypy.current_task.really_switch_out = False
     except ShutdownException, e:
         print >>sys.stderr, "SkyPy: killed by Ciel (reason: '%s')" % e.reason
         sys.exit(0)
