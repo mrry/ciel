@@ -138,6 +138,8 @@ while True:
             sys.exit(0)
         if not skypy.current_task.persistent_state.is_fixed:
             skypy.current_task = None
+        else:
+            skypy.current_task.really_switch_out = False
     except ShutdownException, e:
         print >>sys.stderr, "SkyPy: killed by Ciel (reason: '%s')" % e.reason
         sys.exit(0)
