@@ -41,6 +41,11 @@ public final class Ciel {
 	 */
 	public static String[] args = null;
 	
+	/**
+	 * The soft cache, for users to potentially persist useful objects derived of references.
+	 */
+	public static SoftCache softCache = null;
+	
 	private static Charset CHARSET = Charset.forName("UTF-8");
 	
 	public static Reference[] spawn(FirstClassJavaTask taskObject, String[] args, int numOutputs) throws IOException {

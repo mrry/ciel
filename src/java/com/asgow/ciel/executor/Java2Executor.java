@@ -25,10 +25,12 @@ public class Java2Executor {
 		String readFifoName = args[3];
 		
 		Ciel.RPC = new JsonPipeRpc(writeFifoName, readFifoName);
+		Ciel.softCache = new SoftCache();
 
 		while(true) {
 
 			FirstClassJavaTask task = null;
+			Ciel.softCache.sweepCache();
 			try {
 				task = Ciel.RPC.getTask();
 			} catch (ShutdownException e) {

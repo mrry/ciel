@@ -212,6 +212,7 @@ public class JsonPipeRpc implements WorkerRpc {
 		}
 		else {
 			args.add("keep_process", new JsonPrimitive("may_keep"));
+			args.add("soft_cache_keys", Ciel.softCache.getKeysAsJson());
 		}
 		this.sendMessage(EXIT, args);
 	}
