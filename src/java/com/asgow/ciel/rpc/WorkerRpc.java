@@ -7,7 +7,7 @@ import com.asgow.ciel.tasks.TaskInformation;
 
 public interface WorkerRpc {
 
-	FirstClassJavaTask getTask();
+	FirstClassJavaTask getTask() throws ShutdownException;
 	
 	Reference[] spawnTask(TaskInformation taskInfo);
 	

@@ -130,6 +130,8 @@ class ProcessPool:
                 proc_rec.soft_cache_refs.update(refids)
     
     def get_soft_cache_process(self, exec_cls, dependencies):
+        if not hasattr(exec_cls, "process_cache"):
+            return None
         with self.lock:
             best_proc = None
             ciel.log("Looking to re-use a process for class %s" % exec_cls.handler_name, "PROCESSPOOL", logging.INFO)

@@ -107,10 +107,18 @@ public class JsonPipeRpc implements WorkerRpc {
 	public static final JsonPrimitive ERROR = new JsonPrimitive("error");
 	
 	@SuppressWarnings("unchecked")
-	public FirstClassJavaTask getTask() {
+	public FirstClassJavaTask getTask() throws ShutdownException {
 		JsonArray initCommand = this.receiveMessage().getAsJsonArray();
 
-		assert initCommand.size() == 2 && initCommand.get(0).getAsString().equals("start_task");
+		assert initCommand.size() == 2;
+		String command_string = initCommand.get(0).getAsString();
+		
+		if(command_string.equals("die")) {
+			String reason = initCommand.get(1).getAsJsonObject().get("reason").getAsString();
+			throw new ShutdownException(reason);
+		}
+		
+		assert command_string.equals("start_task");
 		
 		JsonObject task = initCommand.get(1).getAsJsonObject();
 		
@@ -204,7 +212,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	@Override
 	public void exit() {
 		JsonObject args = new JsonObject();
-		args.add("keep_process", new JsonPrimitive(false));
+		args.add("keep_process", new JsonPrimitive("may_keep"));
 		this.sendMessage(EXIT, args);
 	}
 

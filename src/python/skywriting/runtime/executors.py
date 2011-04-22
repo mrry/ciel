@@ -84,7 +84,7 @@ class ExecutionFeatures:
                                                            CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
                                                            Java2Executor, ProcExecutor]])
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
-        cacheable_executors = [SkywritingExecutor, SkyPyExecutor]
+        cacheable_executors = [SkywritingExecutor, SkyPyExecutor, Java2Executor]
         self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
 
     def all_features(self):
@@ -913,6 +913,7 @@ class SkyPyExecutor(ProcExecutor):
 class Java2Executor(ProcExecutor):
     
     handler_name = "java2"
+    process_cache = set()
     
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)
