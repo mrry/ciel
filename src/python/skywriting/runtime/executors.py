@@ -926,14 +926,17 @@ class Java2Executor(ProcExecutor):
             raise BlameUserException("All Java2 invocations must specify a jar_lib")
             
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, jar_lib, args=None, class_name=None, object_ref=None, n_outputs=1, is_tail_spawn=False, **kwargs):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, jar_lib=None, args=None, class_name=None, object_ref=None, n_outputs=1, is_tail_spawn=False, **kwargs):
         # More good stuff goes here.
-        if class_name is None and object_ref is None:
-            raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref")
+        if jar_lib is None and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All Java2 invocations must either specify jar libs or an existing process ID")
+        if class_name is None and object_ref is None and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref, or else give a process ID")
         
-        task_descriptor["task_private"]["jar_lib"] = jar_lib
-        for jar_ref in jar_lib:
-            task_descriptor["dependencies"].append(jar_ref)
+        if jar_lib is not None:
+            task_descriptor["task_private"]["jar_lib"] = jar_lib
+            for jar_ref in jar_lib:
+                task_descriptor["dependencies"].append(jar_ref)
 
         if not is_tail_spawn:
             sha = hashlib.sha1()
@@ -952,7 +955,7 @@ class Java2Executor(ProcExecutor):
         if args is not None:
             task_descriptor["task_private"]["args"] = args
         
-        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, is_fixed=False, accept_ref_list_for_single=True, **kwargs)
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, accept_ref_list_for_single=True, **kwargs)
         
     def get_command(self):
         return ["java", "-cp", os.getenv('CLASSPATH'), "com.asgow.ciel.executor.Java2Executor"]

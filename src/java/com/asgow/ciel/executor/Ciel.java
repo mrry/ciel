@@ -111,7 +111,7 @@ public final class Ciel {
 			deps.add(ref.toJson());
 		}
 		JsonObject args = new JsonObject();
-		args.addProperty("executor", "java2");
+		args.addProperty("executor_name", "java2");
 		args.add("extra_dependencies", deps);
 		args.addProperty("is_fixed", true);
 		Ciel.RPC.tailSpawnRaw(args);
