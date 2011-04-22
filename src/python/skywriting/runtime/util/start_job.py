@@ -108,6 +108,38 @@ def await_job(jobid, master_uri):
         raise Exception("Job failure: %s" % completion_result["error"])
     else:
         return completion_result["result_ref"]
+    
+def recursive_decode(to_decode, template):
+    if isinstance(template, dict):
+        decode_method = template.get("__decode_ref__", None)
+        if decode_method is not None:
+            decoded_value = retrieve_object_for_ref(to_decode, decode_method)
+            recurse_template = template.get("value", None)
+            if recurse_template is None:
+                return decoded_value
+            else:
+                return recursive_decode(decoded_value, recurse_template)
+        else:
+            if not isinstance(to_decode, dict):
+                raise Exception("%s and %s: Type mismatch" % to_decode, template)
+            ret_dict = {}
+            for (k, v) in to_decode:
+                value_template = template.get(k, None)
+                if value_template is None:
+                    ret_dict[k] = v
+                else:
+                    ret_dict[k] = recursive_decode(v, value_template)
+            return ret_dict
+    elif isinstance(template, list):
+        if len(to_decode) != len(template):
+            raise Exception("%s and %s: length mismatch" % to_decode, template)
+        result_list = []
+        for (elem_decode, elem_template) in zip(to_decode, template):
+            if elem_template is None:
+                result_list.append(elem_decode)
+            else:
+                result_list.append(recursive_decode(elem_decode, elem_template))
+        return result_list
 
 def main():
 
@@ -146,8 +178,18 @@ def main():
 
     result = await_job(new_job['job_id'], master_uri)
 
-    reflist = retrieve_object_for_ref(result, "json")
-
     print "GOT_RESULT", now_as_timestamp()
-
-    return reflist
+    
+    reflist = retrieve_object_for_ref(result, "json")
+    
+    decode_template = job_dict.get("result", None)
+    if decode_template is None:
+        return reflist
+    else:
+        try:
+            decoded = recursive_decode(reflist, decode_template)
+            return decoded
+        except Exception as e:
+            print "Failed to decode due to exception", repr(e)
+            return reflist
+        
