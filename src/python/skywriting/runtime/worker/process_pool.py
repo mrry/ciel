@@ -125,6 +125,7 @@ class ProcessPool:
             exec_cls.process_cache.add(proc_rec)
             proc_rec.is_free = True
             proc_rec.last_used_time = datetime.now()
+            proc_rec.soft_cache_refs = set()
             for (refids, tag) in soft_cache_keys:
                 proc_rec.soft_cache_refs.update(refids)
     

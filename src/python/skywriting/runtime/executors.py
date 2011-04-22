@@ -827,7 +827,7 @@ class ProcExecutor(BaseExecutor):
                     if args["keep_process"] == "must_keep":
                         return PROC_MUST_KEEP
                     elif args["keep_process"] == "may_keep":
-                        self.soft_cache_keys = args["soft_cache_keys"]
+                        self.soft_cache_keys = args.get("soft_cache_keys", [])
                         return PROC_MAY_KEEP
                     elif args["keep_process"] == "no":
                         return PROC_EXITED
