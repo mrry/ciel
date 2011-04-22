@@ -171,19 +171,14 @@ public class JsonPipeRpc implements WorkerRpc {
 		
 	}
 	
-	@Override
-	public Reference[] blockOn(Reference... refs) {
-		JsonArray args = new JsonArray();
-		for (Reference ref : refs) {
-			args.add(ref.toJson());
-		}
-		JsonArray response = this.sendReceiveMessage(BLOCK, args).getAsJsonArray();
-		Reference[] ret = new Reference[response.size()];
-		int i = 0;
-		for (JsonElement elem : response) {
-			ret[i++] = Reference.fromJson(elem.getAsJsonObject());
-		}
-		return ret;
+	public void getFixedContinuationTask() {
+		
+		JsonArray initCommand = this.receiveMessage().getAsJsonArray();
+
+		assert initCommand.size() == 2;
+		String command_string = initCommand.get(0).getAsString();
+		assert command_string.equals("start_task");
+	
 	}
 
 	@Override
@@ -210,9 +205,14 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 
 	@Override
-	public void exit() {
+	public void exit(boolean fixed) {
 		JsonObject args = new JsonObject();
-		args.add("keep_process", new JsonPrimitive("may_keep"));
+		if(fixed) {
+			args.add("keep_process", new JsonPrimitive("must_keep"));
+		}
+		else {
+			args.add("keep_process", new JsonPrimitive("may_keep"));
+		}
 		this.sendMessage(EXIT, args);
 	}
 
@@ -258,10 +258,14 @@ public class JsonPipeRpc implements WorkerRpc {
 		}
 		return ret;
 	}
-
+	
 	@Override
 	public void tailSpawnTask(TaskInformation taskInfo) {
 		JsonObject args = taskInfo.toJson();
+		this.sendMessage(TAIL_SPAWN, args);
+	}
+	
+	public void tailSpawnRaw(JsonElement args) {
 		this.sendMessage(TAIL_SPAWN, args);
 	}
 	

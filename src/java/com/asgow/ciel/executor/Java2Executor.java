@@ -39,7 +39,7 @@ public class Java2Executor {
 			try {
 				task.setup();
 				task.invoke();
-				Ciel.RPC.exit();
+				Ciel.RPC.exit(false);
 			} catch (Exception e) {
 				e.printStackTrace();
 				Ciel.RPC.error(e.toString());

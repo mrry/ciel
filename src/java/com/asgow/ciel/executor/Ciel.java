@@ -13,6 +13,8 @@ import com.asgow.ciel.rpc.WorkerRpc;
 import com.asgow.ciel.tasks.FirstClassJavaTask;
 import com.asgow.ciel.tasks.FirstClassJavaTaskInformation;
 import com.asgow.ciel.tasks.SingleOutputTask;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 
 public final class Ciel {
 
@@ -102,5 +104,25 @@ public final class Ciel {
 		pw.close();
 		Ciel.RPC.closeOutput(index);
 	}
+	
+	public static void blockOn(Reference... refs) {
+		JsonArray deps = new JsonArray();
+		for (Reference ref : refs) {
+			deps.add(ref.toJson());
+		}
+		JsonObject args = new JsonObject();
+		args.addProperty("executor", "java2");
+		args.add("extra_dependencies", deps);
+		args.addProperty("is_fixed", true);
+		Ciel.RPC.tailSpawnRaw(args);
+		
+		args = new JsonObject();
+		args.addProperty("keep_process", "must_keep");
+		Ciel.RPC.exit(true);
+		
+		Ciel.RPC.getFixedContinuationTask();
+		
+	}
+
 	
 }
