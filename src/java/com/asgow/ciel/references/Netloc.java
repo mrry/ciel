@@ -16,7 +16,9 @@
 
 package com.asgow.ciel.references;
 
-public class Netloc implements Comparable<Netloc> {
+import java.io.Serializable;
+
+public class Netloc implements Comparable<Netloc>, Serializable {
 
 	private final String hostname;
 	private final short port;

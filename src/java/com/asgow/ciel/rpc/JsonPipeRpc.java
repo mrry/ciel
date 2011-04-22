@@ -183,10 +183,7 @@ public class JsonPipeRpc implements WorkerRpc {
 
 	@Override
 	public Reference closeNewObject(WritableReference wref) {
-		JsonObject args = new JsonObject();
-		args.add("filename", new JsonPrimitive(wref.getFilename()));
-		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonObject();
-		return Reference.fromJson(response.getAsJsonObject("ref"));
+		return closeOutput(wref.getIndex());
 	}
 
 	@Override

@@ -1,5 +1,7 @@
 package com.asgow.ciel.executor;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.OutputStreamWriter;
@@ -129,5 +131,33 @@ public final class Ciel {
 		
 	}
 
+	public static String stringOfRef(Reference ref) {
+		
+		String filename = Ciel.RPC.getFilenameForReference(ref);
+		FileInputStream stream = null;
+		try {
+			stream = new FileInputStream(filename);
+		}
+		catch(FileNotFoundException e) {
+			// Can't happen
+		}
+		
+		try {
+			byte[] buffer = new byte[1024];
+			StringBuilder builder = new StringBuilder();
+			int this_read;
+			while((this_read = stream.read(buffer)) != -1) {
+				String new_str = new String(buffer, 0, this_read);
+				builder.append(new_str);
+			}
+			
+			stream.close();
+			return builder.toString();
+		}
+		catch(Exception e) {
+			throw new RuntimeException(e);
+		}
+		
+	}
 	
 }
