@@ -82,7 +82,7 @@ class ExecutionFeatures:
         self.executors = dict([(x.handler_name, x) for x in [SkywritingExecutor, SkyPyExecutor, SWStdinoutExecutor, 
                                                            EnvironmentExecutor, JavaExecutor, DotNetExecutor, 
                                                            CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
-                                                           Java2Executor, ProcExecutor]])
+                                                           Java2Executor, OCamlExecutor, ProcExecutor]])
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
         cacheable_executors = [SkywritingExecutor, SkyPyExecutor]
         self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
@@ -957,6 +957,45 @@ class Java2Executor(ProcExecutor):
             return False
         else:
             return test_program(["java", "-cp", cp, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
+
+class OCamlExecutor(ProcExecutor):
+    
+    handler_name = "ocaml"
+    process_cache = set()
+    
+    def __init__(self, worker):
+        ProcExecutor.__init__(self, worker)
+
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
+        if "binary" not in args:
+            raise BlameUserException("All OCaml invocations must specify a binary")
+            
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, binary, args=None, n_outputs=1, is_tail_spawn=False, **kwargs):
+        if binary is None:
+            raise BlameUserException("All OCaml invocations must specify a binary")
+        
+        task_descriptor["task_private"]["binary"] = binary
+
+        if not is_tail_spawn:
+            sha = hashlib.sha1()
+            hash_update_with_structure(sha, [args, n_outputs])
+            hash_update_with_structure(sha, binary)
+            name_prefix = "ocaml:%s:" % (sha.hexdigest())
+            task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]            
+        
+        if args is not None:
+            task_descriptor["task_private"]["args"] = args
+        
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, is_fixed=False, accept_ref_list_for_single=True, **kwargs)
+        
+    def get_command(self):
+        return [binary]
+
+    @staticmethod
+    def can_run():
+        return test_program(["ocamlc", "-where"], "OCaml")
 
 class SkywritingExecutor(ProcExecutor):
 
