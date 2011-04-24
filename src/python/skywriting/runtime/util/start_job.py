@@ -123,7 +123,7 @@ def main():
     with open(args[0], "r") as package_file:
         job_dict = simplejson.load(package_file)
 
-    package_dict = job_dict["package"]
+    package_dict = job_dict.get("package",{})
     start_dict = job_dict["start"]
     start_handler = start_dict["handler"]
     start_args = start_dict["args"]
