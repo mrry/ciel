@@ -1,0 +1,9 @@
+{
+ "start": 
+ 	  { "handler": "ocaml",
+ 	    "args": {
+	    	    "binary" : "flyingcaml",
+		    "args" : [42],
+		    "n_outputs" : 1}
+	  }
+}
