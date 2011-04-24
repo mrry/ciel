@@ -9,6 +9,7 @@ import java.io.PrintWriter;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 
+import com.asgow.ciel.references.CielFuture;
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
 import com.asgow.ciel.rpc.WorkerRpc;
@@ -69,8 +70,12 @@ public final class Ciel {
 		return Ciel.RPC.spawnTask(fcjti);
 	}
 	
-	public static Reference spawn(Class<? extends SingleOutputTask<? extends Serializable>> taskClass, String[] args) {
-		return Ciel.spawn(taskClass, args, 1)[0];
+	public static <T> CielFuture<T> spawn(Class<? extends SingleOutputTask<T>> taskClass, String[] args) {
+		return new CielFuture<T>(Ciel.spawn(taskClass, args, 1)[0]);
+	}
+	
+	public static <T> CielFuture<T> spawnSingle(SingleOutputTask<T> taskObject) throws IOException {
+		return new CielFuture<T>(Ciel.spawn(taskObject, null, 1)[0]);
 	}
 
 	public static void tailSpawn(FirstClassJavaTask taskObject, String[] args) throws IOException {
@@ -85,6 +90,14 @@ public final class Ciel {
 			fcjti.addDependency(dependency);
 		}
 		Ciel.RPC.tailSpawnTask(fcjti);
+	}
+	
+	public static <T> void returnObject(T result) throws IOException {
+		WritableReference out = Ciel.RPC.getOutputFilename(0);
+		ObjectOutputStream oos = new ObjectOutputStream(out.open());
+		oos.writeObject(result);
+		oos.close();
+		Ciel.RPC.closeOutput(0);
 	}
 	
 	public static void returnInt(int value) throws IOException {

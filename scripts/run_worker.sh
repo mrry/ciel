@@ -11,7 +11,11 @@ MASTER=${MASTER_HOST:-http://`hostname -f`:8000}
 
 WORKER_PORT=${WORKER_PORT:-8001}
 
-export CLASSPATH=${BASE}/dist/skywriting.jar:${BASE}/ext/google-gson-1.6/gson-1.6.jar
+if [[ $SCALA_HOME != "" ]]; then
+    SCALA_CLASSPATH=$SCALA_HOME/lib/scala-library.jar
+fi
+
+export CLASSPATH=${BASE}/dist/skywriting.jar:${BASE}/ext/google-gson-1.6/gson-1.6.jar:${SCALA_CLASSPATH}
 export SW_MONO_LOADER_PATH=${BASE}/src/csharp/bin/loader.exe
 export SW_C_LOADER_PATH=${BASE}/src/c/src/loader
 export CIEL_SKYPY_BASE=${BASE}/src/python/skywriting/runtime/worker/skypy

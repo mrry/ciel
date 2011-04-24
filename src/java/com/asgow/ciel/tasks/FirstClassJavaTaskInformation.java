@@ -72,11 +72,13 @@ public class FirstClassJavaTaskInformation implements TaskInformation {
 		}
 		ret.add("extra_dependencies", jsonDependencies);
 		
-		JsonArray jsonArgs = new JsonArray();
-		for (String arg : args) {
-			jsonArgs.add(new JsonPrimitive(arg));
+		if (this.args != null) {
+			JsonArray jsonArgs = new JsonArray();
+			for (String arg : args) {
+				jsonArgs.add(new JsonPrimitive(arg));
+			}
+			ret.add("args", jsonArgs);
 		}
-		ret.add("args", jsonArgs);
 		
 		return ret;
 		
