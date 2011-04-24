@@ -20,7 +20,7 @@ class AsyncPushThread:
     def __init__(self, ref, read_filename, write_filename, fetch_ip):
         self.ref = ref
         self.fetch_ip = fetch_ip
-        self.next_threshold = self.chunk_size
+        self.next_threshold = fetch_ip.chunk_size
         self.success = None
         self.lock = threading.RLock()
         self.fetch_done = False
@@ -66,7 +66,8 @@ class AsyncPushThread:
                 return
             else:
                 self.stream_started = True
-        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
+        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.fetch_ip.chunk_size), "EXEC", logging.INFO)
+
         self.copy_loop()
 
     def copy_loop(self):
@@ -90,7 +91,7 @@ class AsyncPushThread:
                                 # EOF, for now.
                                 break
                         with self.lock:
-                            self.next_threshold = self.bytes_copied + self.chunk_size
+                            self.next_threshold = self.bytes_copied + self.fetch_ip.chunk_size
                             while self.bytes_available < self.next_threshold and not self.fetch_done:
                                 self.condvar.wait()
         except Exception as e:
@@ -139,7 +140,7 @@ class FetchInProgress:
         self.chunk_size = chunk_size
         self.may_pipe = may_pipe
         self.sole_consumer = sole_consumer
-        self.must_block = False
+        self.must_block = must_block
         self.pusher_thread = None
         self.ref = ref
         self.producer = None
@@ -265,7 +266,7 @@ class FetchInProgress:
 
     def set_filename(self, filename, is_pipe):
         self.started = True
-        if not is_pipe and self.must_block:
+        if (not is_pipe) and self.must_block:
             fifo_name = self.create_fifo()
             self.pusher_thread = AsyncPushThread(self.ref, filename, fifo_name, self)
             self.pusher_thread.start()

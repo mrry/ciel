@@ -48,6 +48,7 @@ from datetime import datetime
 from errno import EPIPE
 
 import ciel
+import traceback
 
 running_children = {}
 
@@ -306,7 +307,7 @@ class OngoingFetch:
 
     def get_filename(self):
         with self.lock:
-            while self.filename is None and self.success is None:
+            while self.filename is None and self.success is not False:
                 self.condvar.wait()
             if self.filename is not None:
                 return (self.filename, self.file_blocking)
@@ -1128,7 +1129,7 @@ class ProcessRunningExecutor(SimpleExecutor):
         self.context_mgr = None
 
     def _execute(self):
-        self.context_mgr = ContextManager()
+        self.context_mgr = ContextManager("Simple Task %s" % self.task_id)
         with self.context_mgr:
             self.guarded_execute()
 
@@ -1164,7 +1165,7 @@ class ProcessRunningExecutor(SimpleExecutor):
             file_inputs = retrieve_filenames_for_refs(self.input_refs)
         else:
             push_threads = [OngoingFetch(ref, chunk_size=67108864, must_block=True) for ref in self.input_refs]
-            for thread in self.push_threads:
+            for thread in push_threads:
                 self.context_mgr.add_context(thread)
 
         # TODO: Make these use OngoingOutputs and the context manager.                
@@ -1180,7 +1181,8 @@ class ProcessRunningExecutor(SimpleExecutor):
                 file_inputs = []
                 for thread in push_threads:
                     (filename, is_blocking) = thread.get_filename()
-                    assert is_blocking
+                    if is_blocking is not None:
+                        assert is_blocking is True
                     file_inputs.append(filename)
             
             file_outputs = [filename for (filename, is_fd) in (ctx.get_filename_or_fd() for ctx in out_file_contexts)]
