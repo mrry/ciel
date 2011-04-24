@@ -254,7 +254,7 @@ class BaseExecutor:
 
 class OngoingFetch:
 
-    def __init__(self, ref, chunk_size, sole_consumer, make_sweetheart):
+    def __init__(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False):
         self.lock = threading.Lock()
         self.condvar = threading.Condition(self.lock)
         self.bytes = 0
@@ -276,6 +276,7 @@ class OngoingFetch:
                                          start_filename_callback=self.set_filename,
                                          chunk_size=chunk_size,
                                          may_pipe=True,
+                                         must_block=must_block,
                                          sole_consumer=sole_consumer)
         
     def progress(self, bytes):
@@ -578,9 +579,9 @@ class ProcExecutor(BaseExecutor):
                 completed_ref = SW2_SweetheartReference.from_concrete(completed_ref, get_own_netloc())
             self.task_record.publish_ref(completed_ref)
         
-    def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False):
+    def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False):
         real_ref = self.task_record.retrieve_ref(ref)
-        new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer, make_sweetheart)
+        new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer, make_sweetheart, must_block)
         filename, file_blocking = new_fetch.get_filename()
         if not new_fetch.done:
             self.context_manager.add_context(new_fetch)
@@ -1117,222 +1118,6 @@ class SimpleExecutor(BaseExecutor):
     def _cleanup_task(self):
         pass
 
-class AsyncPushThread:
-
-    def __init__(self, ref, chunk_size=67108864):
-        self.ref = ref
-        self.chunk_size = chunk_size
-        self.next_threshold = self.chunk_size
-        self.success = None
-        self.lock = threading.RLock()
-        self.fetch_done = False
-        self.stream_done = False
-        self.stream_started = False
-        self.bytes_copied = 0
-        self.bytes_available = 0
-        self.completed_ref = None
-        self.condvar = threading.Condition(self.lock)
-        self.thread = None
-        self.read_filename = None
-        self.filename = None
-
-    def _check_completion(self):
-        if self.success is False:
-            ciel.log("Fetch for %s failed" % self.ref, "EXEC", logging.INFO)
-            return True
-        elif self.success is True:
-            ciel.log("Fetch for %s completed; using file directly" % self.ref, "EXEC", logging.INFO)
-            return True
-        elif self.filename is not None and self.file_blocking:
-            ciel.log("Fetch for %s yielded a blocking-readable file; using directly" % self.ref, "EXEC", logging.INFO)
-            return True
-        else:
-            return False
-
-    def check_completion(self):
-        ret = self._check_completion()
-        if ret:
-            with self.lock:
-                self.filename = self.read_filename
-                self.stream_done = True
-                self.condvar.notify_all()
-        return ret
-
-    def start(self, fifos_dir):
-        self.fifos_dir = fifos_dir
-        self.file_fetch = fetch_ref_async(self.ref,
-                                          chunk_size=self.chunk_size,
-                                          result_callback=self.result, 
-                                          reset_callback=self.reset, 
-                                          progress_callback=self.progress,
-                                          start_filename_callback=self.set_filename)
-        if not self.check_completion():
-            self.thread = threading.Thread(target=self.thread_main)
-            self.thread.start()
-
-    def thread_main(self):
-
-        with self.lock:
-            while self.read_filename is None and not self.fetch_done:
-                self.condvar.wait()
-            if self.check_completion():
-                return
-            while self.bytes_available < self.next_threshold and not self.fetch_done:
-                self.condvar.wait()
-            if self.check_completion():
-                return
-            else:
-                self.stream_started = True
-        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
-        self.copy_loop()
-
-    def copy_loop(self):
-        
-        try:
-            fifo_name = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
-            os.mkfifo(fifo_name)
-            with self.lock:
-                self.filename = fifo_name
-                self.condvar.notify_all()
-            with open(self.read_filename, "r") as input_fp:
-                with open(fifo_name, "w") as output_fp:
-                    while True:
-                        while True:
-                            buf = input_fp.read(4096)
-                            output_fp.write(buf)
-                            self.bytes_copied += len(buf)
-                            with self.lock:
-                                if self.success is False or (self.bytes_copied == self.bytes_available and self.fetch_done):
-                                    self.stream_done = True
-                                    self.condvar.notify_all()
-                                    ciel.log("FIFO-push for %s complete (success: %s)" % (self.ref, self.success), "EXEC", logging.INFO)
-                                    return
-                            if len(buf) < 4096:
-                                # EOF, for now.
-                                break
-                        with self.lock:
-                            self.next_threshold = self.bytes_copied + self.chunk_size
-                            while self.bytes_available < self.next_threshold and not self.fetch_done:
-                                self.condvar.wait()
-        except Exception as e:
-            ciel.log("Push thread for %s died with exception %s" % (self.read_filename, e), "EXEC", logging.WARNING)
-            with self.lock:
-                self.stream_done = True
-                self.condvar.notify_all()
-                
-    def get_completed_ref(self, make_sweetheart):
-        if make_sweetheart and self.completed_ref is not None:
-            return SW2_SweetheartReference.from_concrete(self.completed_ref, get_own_netloc())
-        else:
-            return self.completed_ref
-
-    def result(self, success, completed_ref):
-        with self.lock:
-            if self.success is None:
-                self.success = success
-                self.completed_ref = completed_ref
-                self.fetch_done = True
-                self.condvar.notify_all()
-            # Else we've already failed due to a reset.
-
-    def progress(self, bytes_downloaded):
-        with self.lock:
-            self.bytes_available = bytes_downloaded
-            if self.bytes_available >= self.next_threshold:
-                self.condvar.notify_all()
-
-    def reset(self):
-        ciel.log("Reset of streamed fetch for %s!" % self.ref, "EXEC", logging.WARNING)
-        should_cancel = False
-        with self.lock:
-            if self.stream_started:
-                should_cancel = True
-        if should_cancel:
-            ciel.log("FIFO-stream had begun: failing transfer", "EXEC", logging.ERROR)
-            self.file_fetch.cancel()
-
-    def set_filename(self, filename, file_blocking):
-        with self.lock:
-            self.read_filename, self.file_blocking = filename, file_blocking
-            self.condvar.notify_all()
-
-    def get_filename(self):
-        with self.lock:
-            while self.filename is None and self.success is not False:
-                self.condvar.wait()
-            if self.filename is not None:
-                return self.filename
-            else:
-                raise Exception("Transfer for fetch thread %s failed" % self.ref)
-
-    def cancel(self):
-        self.file_fetch.cancel()
-
-    def wait(self):
-        with self.lock:
-            while (not self.stream_done) or (self.success is None):
-                self.condvar.wait()
-
-class AsyncPushGroup:
-
-    def __init__(self, threads, sweethearts, task_record):
-        self.threads = threads
-        self.sweethearts = sweethearts
-        self.task_record = task_record
-
-    def __enter__(self):
-        self.fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
-        for thread in self.threads:
-            thread.start(self.fifos_dir)
-        return self
-
-    def __exit__(self, exnt, exnv, exnbt):
-        if exnt is not None:
-            ciel.log("AsyncPushGroup exiting with exception %s: cancelling threads..." % repr(exnv), "EXEC", logging.WARNING)
-            for thread in self.threads:
-                thread.cancel()
-        ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
-        for thread in self.threads:
-            thread.wait()
-        shutil.rmtree(self.fifos_dir)
-        failed_threads = filter(lambda t: not t.success, self.threads)
-        failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
-        if len(failure_bindings) > 0:
-            for fail in failure_bindings:
-                ciel.log("Failed fetch: %s" % fail, "EXEC", logging.WARNING)
-            if exnt is not None:
-                ciel.log("Transfers have failed: replacing old exception with MissingInputException", "EXEC", logging.WARNING)
-            raise MissingInputException(failure_bindings)
-        else:
-            extra_publishes = [t.get_completed_ref(t.ref.id in self.sweethearts) for t in self.threads]
-            extra_publishes = filter(lambda x: x is not None, extra_publishes)
-            if len(extra_publishes) > 0:
-                self.task_record.prepublish_refs(extra_publishes)
-
-        return False
-
-class DummyPushThread:
-
-    def __init__(self, filename):
-        self.filename = filename
-        
-    def get_filename(self):
-        return self.filename
-
-    def wait(self):
-        pass
-
-class DummyPushGroup:
-
-    def __init__(self, dummys):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exnt, exnv, exnbt):
-        return False
-
 class ProcessRunningExecutor(SimpleExecutor):
 
     def __init__(self, worker):
@@ -1340,8 +1125,14 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         self._lock = threading.Lock()
         self.proc = None
+        self.context_mgr = None
 
     def _execute(self):
+        self.context_mgr = ContextManager()
+        with self.context_mgr:
+            self.guarded_execute()
+
+    def guarded_execute(self):
         try:
             self.input_refs = self.args['inputs']
         except KeyError:
@@ -1366,40 +1157,47 @@ class ProcessRunningExecutor(SimpleExecutor):
         except KeyError:
             self.make_sweetheart = []
 
+        file_inputs = None
+        push_threads = None
+
         if self.eager_fetch:
-            push_threads = [DummyPushThread(x) for x in retrieve_filenames_for_refs(self.input_refs)]
-            push_ctx = DummyPushGroup(push_threads)
+            file_inputs = retrieve_filenames_for_refs(self.input_refs)
         else:
-            push_threads = [AsyncPushThread(ref) for ref in self.input_refs]
-            push_ctx = AsyncPushGroup(push_threads, self.make_sweetheart, self.task_record)
+            push_threads = [OngoingFetch(ref, chunk_size=67108864, must_block=True) for ref in self.input_refs]
+            for thread in self.push_threads:
+                self.context_mgr.add_context(thread)
 
-        with push_ctx:
+        # TODO: Make these use OngoingOutputs and the context manager.                
+        with list_with([make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
+
+            if self.stream_output:
+       
+                stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
+                self.task_record.prepublish_refs(stream_refs)
+
+            # We do these last, as these are the calls which can lead to stalls whilst we await a stream's beginning or end.
+            if file_inputs is None:
+                file_inputs = []
+                for thread in push_threads:
+                    (filename, is_blocking) = thread.get_filename()
+                    assert is_blocking
+                    file_inputs.append(filename)
             
-            with list_with([make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
+            file_outputs = [filename for (filename, is_fd) in (ctx.get_filename_or_fd() for ctx in out_file_contexts)]
+            
+            self.proc = self.start_process(file_inputs, file_outputs)
+            add_running_child(self.proc)
 
-                if self.stream_output:
-           
-                    stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
-                    self.task_record.prepublish_refs(stream_refs)
+            rc = self.await_process(file_inputs, file_outputs)
+            remove_running_child(self.proc)
 
-                # We do these last, as these are the calls which can lead to stalls whilst we await a stream's beginning or end.
-                file_inputs = [push_thread.get_filename() for push_thread in push_threads]
-                
-                file_outputs = [filename for (filename, is_fd) in (ctx.get_filename_or_fd() for ctx in out_file_contexts)]
-                
-                self.proc = self.start_process(file_inputs, file_outputs)
-                add_running_child(self.proc)
+            self.proc = None
 
-                rc = self.await_process(file_inputs, file_outputs)
-                remove_running_child(self.proc)
+            #        if "trace_io" in self.debug_opts:
+            #            transfer_ctx.log_traces()
 
-                self.proc = None
-
-                #        if "trace_io" in self.debug_opts:
-                #            transfer_ctx.log_traces()
-
-                if rc != 0:
-                    raise OSError()
+            if rc != 0:
+                raise OSError()
 
         for i, output in enumerate(out_file_contexts):
             self.output_refs[i] = output.get_completed_ref()
