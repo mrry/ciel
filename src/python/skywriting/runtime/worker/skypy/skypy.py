@@ -202,7 +202,7 @@ def package_lookup(key):
         raise PackageKeyError(key)
     return retval
 
-def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864, make_sweetheart=False):
+def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864, make_sweetheart=False, must_block=False):
     if not may_stream:
         runtime_response = try_fetch_ref(ref, "open_ref", make_sweetheart=make_sweetheart)
         try:
@@ -210,7 +210,7 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
-        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer, make_sweetheart=make_sweetheart)
+        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer, make_sweetheart=make_sweetheart, must_block=must_block)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:
