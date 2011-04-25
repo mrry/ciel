@@ -5,7 +5,6 @@ import stackless
 import traceback
 import pickle
 import simplejson
-import pdb
 from contextlib import closing
 from StringIO import StringIO
 
@@ -62,13 +61,16 @@ def start_script(entry_point, entry_args):
     try:
         current_task.script_return_val = entry_point(*entry_args)
         current_task.halt_reason = HALT_DONE
+    except CoroutineExit:
+        # This coroutine is garbage; swallow this quietly
+        return
     except Exception, e:
         current_task.script_return_val = e
         current_task.script_backtrace = traceback.format_exc()
         current_task.halt_reason = HALT_RUNTIME_EXCEPTION
         
     current_task.main_coro.switch()
-    
+
 ### Task state
 
 current_task = None
@@ -241,7 +243,9 @@ class RequiredRefs():
             add_ref_dependency(ref)
 
     def __exit__(self, x, y, z):
-        for ref in self.refs:
-            remove_ref_dependency(ref)
+        if x is not CoroutineExit:
+            for ref in self.refs:
+                remove_ref_dependency(ref)
+        return False
 
     
