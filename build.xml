@@ -47,7 +47,7 @@
 	</path>
 
 	<path id="bindingclasspath">
-	  <pathelement location="ext/google-gson-1.6/gson-1.6.jar"/>
+	  <pathelement location="ext/google-gson-1.7.1/gson-1.7.1.jar"/>
 	</path>
 
 	<macrodef name="compileExampleJar">
