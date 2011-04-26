@@ -44,14 +44,14 @@ def stream_link(chunk_size, input_ref, may_stream, producer_pipe, consumer_pipe,
 
     return "Read/wrote %d bytes" % bytes_written
 
-def stream_consumer(chunk_size, in_ref, may_stream, use_direct_pipes, must_block):
+def stream_consumer(chunk_size, in_ref, may_stream, use_direct_pipes, must_block, do_log):
 
     bytes_read = 0
     
     events = []
     events.append(("STARTED", datetime.now()))
 
-    with skypy.deref_as_raw_file(in_ref, may_stream=may_stream, sole_consumer=use_direct_pipes, chunk_size=chunk_size, must_block=must_block, debug_log=True) as in_file:
+    with skypy.deref_as_raw_file(in_ref, may_stream=may_stream, sole_consumer=use_direct_pipes, chunk_size=chunk_size, must_block=must_block, debug_log=do_log) as in_file:
 
         events.append(("START_READ", datetime.now()))
     
@@ -72,7 +72,7 @@ def stream_consumer(chunk_size, in_ref, may_stream, use_direct_pipes, must_block
 
     return "Read %d bytes" % bytes_read
 
-def skypy_main(n_links, n_chunks, mode):
+def skypy_main(n_links, n_chunks, mode, do_log):
 
     if mode == "sync":
         producer_pipe = False
@@ -101,6 +101,13 @@ def skypy_main(n_links, n_chunks, mode):
         may_stream = True
     else:
         raise Exception("pipe_streamer.py: bad mode %s" % mode)
+    
+    if do_log == "true":
+        do_log = True
+    elif do_log == "false":
+        do_log = False
+    else:
+        raise Exception("pipe_streamer.py: Argument 4 must be boolean (got %s)" % do_log)
 
     n_links = int(n_links)
     n_chunks = int(n_chunks)
@@ -124,8 +131,7 @@ def skypy_main(n_links, n_chunks, mode):
     else:
         extra_dependencies = []
     run_fixed = not may_stream
-    consumer_out = skypy.spawn(stream_consumer, 67108864, consumer_input, may_stream, consumer_pipe, consumer_must_block, n_extra_outputs=1, extra_dependencies=extra_dependencies, run_fixed=run_fixed)
-
+    consumer_out = skypy.spawn(stream_consumer, 67108864, consumer_input, may_stream, consumer_pipe, consumer_must_block, do_log, n_extra_outputs=1, extra_dependencies=extra_dependencies, run_fixed=run_fixed)
     ret_outs = [producer[0]]
     ret_outs.extend([x[0] for x in links_out])
     ret_outs.append(consumer_out[0])
