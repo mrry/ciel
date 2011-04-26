@@ -2,6 +2,7 @@
 import skypy
 import os
 import select
+import fcntl
 
 from datetime import datetime
 from errno import EAGAIN
@@ -17,7 +18,9 @@ class InstrumentedCompleteFile:
         if self.debug:
             self.debug_log = []
         self.offset = 0
-        self.fd = os.open(filename, os.O_RDONLY | os.O_NONBLOCK)
+        self.fd = os.open(filename, os.O_RDONLY)
+        flags = fcntl.fcntl(self.fd, fcntl.F_GETFL)
+        fcntl.fcntl(self.fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         self.closed = False
         skypy.add_ref_dependency(self.ref)
         
@@ -28,7 +31,7 @@ class InstrumentedCompleteFile:
             skypy.current_task.message_helper.send_message("close_stream", {"id": self.ref.id, "chunk_size": self.chunk_size})            
         skypy.remove_ref_dependency(self.ref)
 
-    def read(*pargs):
+    def read(self, *pargs):
         if len(pargs) > 0:
             limit = pargs[0]
         else:
