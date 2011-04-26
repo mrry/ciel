@@ -214,7 +214,10 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:
-            return CompleteFile(ref, runtime_response["filename"], chunk_size=chunk_size, must_close=True)
+            if debug_log:
+                return InstrumentedCompleteFile(ref, runtime_response["filename"], chunk_size=chunk_size, must_close=True, debug_log=True)
+            else:
+                return CompleteFile(ref, runtime_response["filename"], chunk_size=chunk_size, must_close=True)
         else:
             return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size, debug_log=debug_log)
 
