@@ -53,7 +53,6 @@ class InstrumentedCompleteFile:
                     bytes_read += len(this_str)
                 except OSError, e:
                     assert e.errno == EAGAIN
-                    print "Breaking due to EAGAIN", datetime.now()
                     break
             if limit is not None and bytes_read == limit:
                 break
