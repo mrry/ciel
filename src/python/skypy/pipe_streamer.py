@@ -1,19 +1,32 @@
 
 from __future__ import with_statement
+from datetime import datetime 
+import pickle
 
 import skypy
 
 def stream_producer(chunk_size, chunks_to_produce, may_stream, use_direct_pipes):
 
-    bytes_written = 0
+    chunks_written = 0
     write_string = "A" * 4096
-
+    events = []
+    
+    events.append(("STARTED", datetime.now()))
     with skypy.open_output(skypy.get_extra_output_indices()[0], may_stream=may_stream, may_pipe=use_direct_pipes) as file_out:
-        while bytes_written < (chunk_size * chunks_to_produce):
-            file_out.write(write_string)
-            bytes_written += 4096
+        while chunks_written < chunks_to_produce:
+            bytes_written = 0
+            while bytes_written < chunk_size:
+                file_out.write(write_string)
+                bytes_written += 4096
+            chunks_written += 1
+            events.append(("WROTE_CHUNK", datetime.now()))
 
-    return "Wrote %d bytes" % bytes_written
+    events.append(("FINISHED", datetime.now()))
+    
+    with skypy.open_output(skypy.get_extra_output_indices()[1]) as log_out:
+        pickle.dump(events, log_out)
+
+    return "Wrote %d bytes" % (chunk_size * chunks_to_produce)
 
 def stream_link(chunk_size, input_ref, may_stream, producer_pipe, consumer_pipe, must_block):
 
@@ -34,13 +47,28 @@ def stream_link(chunk_size, input_ref, may_stream, producer_pipe, consumer_pipe,
 def stream_consumer(chunk_size, in_ref, may_stream, use_direct_pipes, must_block):
 
     bytes_read = 0
+    
+    events = []
+    events.append(("STARTED", datetime.now()))
 
-    with skypy.deref_as_raw_file(in_ref, may_stream=may_stream, sole_consumer=use_direct_pipes, chunk_size=chunk_size, must_block=must_block) as in_file:
+    with skypy.deref_as_raw_file(in_ref, may_stream=may_stream, sole_consumer=use_direct_pipes, chunk_size=chunk_size, must_block=must_block, debug_log=True) as in_file:
+
+        events.append(("START_READ", datetime.now()))
+    
         while True:
             str = in_file.read(4096)
             bytes_read += len(str)
             if len(str) == 0:
                 break
+        try:
+            events.extend(in_file.debug_log)
+        except:
+            pass
+        
+    events.append(("FINISHED", datetime.now()))
+    
+    with skypy.open_output(skypy.get_extra_output_indices()[0]) as log_out:
+        pickle.dump(events, log_out)
 
     return "Read %d bytes" % bytes_read
 
@@ -77,7 +105,7 @@ def skypy_main(n_links, n_chunks, mode):
     n_links = int(n_links)
     n_chunks = int(n_chunks)
 
-    producer = skypy.spawn(stream_producer, 67108864, n_chunks, may_stream, producer_pipe, n_extra_outputs=1)
+    producer = skypy.spawn(stream_producer, 67108864, n_chunks, may_stream, producer_pipe, n_extra_outputs=2)
 
     links_out = []
     for i in range(n_links):
@@ -91,13 +119,18 @@ def skypy_main(n_links, n_chunks, mode):
         consumer_input = producer[1]
     else:
         consumer_input = links_out[-1][1]
-    consumer_out = skypy.spawn(stream_consumer, 67108864, consumer_input, may_stream, consumer_pipe, consumer_must_block, extra_dependencies=[consumer_input])
+    if may_stream:
+        extra_dependencies = [consumer_input]
+    else:
+        extra_dependencies = []
+    run_fixed = not may_stream
+    consumer_out = skypy.spawn(stream_consumer, 67108864, consumer_input, may_stream, consumer_pipe, consumer_must_block, n_extra_outputs=1, extra_dependencies=extra_dependencies, run_fixed=run_fixed)
 
     ret_outs = [producer[0]]
     ret_outs.extend([x[0] for x in links_out])
-    ret_outs.append(consumer_out)
+    ret_outs.append(consumer_out[0])
     
     with skypy.RequiredRefs(ret_outs):
         results = [skypy.deref(x) for x in ret_outs]
 
-    return "The %d streamers' reports are: %s\n" % (n_links + 2, results)
+    return ["The %d streamers' reports are: %s\n" % (n_links + 2, results), producer[2], consumer_out[1]]

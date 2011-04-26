@@ -114,7 +114,8 @@ class Job:
                     self.assign_scheduling_class_to_task(task)
                     worker = self.select_worker_for_task(task)
                     self.workers[worker].queue_task(task)
-                    self.push_task_on_global_queue(task)
+                    if task.get_constrained_location() is None:
+                        self.push_task_on_global_queue(task)
                 except Queue.Empty:
                     break
             
@@ -142,7 +143,6 @@ class Job:
                 num_global_assigned = 0
                 while num_global_assigned < deficit:
                     task = self.pop_task_from_global_queue(scheduling_class)
-                    print task
                     if task is None:
                         break
                     elif task.state not in (TASK_QUEUED, TASK_QUEUED_STREAMING):
@@ -179,9 +179,9 @@ class Job:
         class_queue.append(task)
         
     def select_worker_for_task(self, task):
-        if task.has_constrained_location():
-            fixed_netloc = task.get_constrained_location()
-            worker = self.job_pool.worker_pool.get_worker_at_netloc(fixed_netloc)
+        constrained_location = task.get_constrained_location()
+        if constrained_location is not None:
+            worker = self.job_pool.worker_pool.get_worker_at_netloc(constrained_location)
         elif task.state in (TASK_QUEUED_STREAMING, TASK_QUEUED):
             worker, _ = self.scheduling_policy.select_worker_for_task(task, self.job_pool.worker_pool)
         else:

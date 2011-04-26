@@ -8,5 +8,5 @@
 		  "entry_args": [{"__args__": 0}, {"__args__": 1}, {"__args__": 2}]
 		  }
 	},
- "result": [{"__decode_ref__": "pickle"}]
+ "result": [{"__decode_ref__": "pickle", "value": [null, {"__decode_ref__": "pickle"}, {"__decode_ref__": "pickle"}]}]
 }

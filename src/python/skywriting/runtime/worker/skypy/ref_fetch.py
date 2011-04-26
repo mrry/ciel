@@ -2,6 +2,8 @@
 import skypy
 import os
 
+from datetime import datetime
+
 class CompleteFile:
 
     def __init__(self, ref, filename, chunk_size=None, must_close=False):
@@ -49,7 +51,7 @@ class CompleteFile:
 
 class StreamingFile:
     
-    def __init__(self, ref, filename, initial_size, chunk_size):
+    def __init__(self, ref, filename, initial_size, chunk_size, debug_log=False):
         self.ref = ref
         self.filename = filename
         self.chunk_size = chunk_size
@@ -58,6 +60,8 @@ class StreamingFile:
         self.fp = open(self.filename, "r")
         self.closed = False
         self.softspace = False
+        self.debug = debug_log
+        self.debug_log = []
         skypy.add_ref_dependency(self.ref)
 
     def __enter__(self):
@@ -75,7 +79,14 @@ class StreamingFile:
     def wait(self, **kwargs):
         out_dict = {"id": self.ref.id}
         out_dict.update(kwargs)
+        if self.debug:
+            if "eof" in kwargs:
+                self.debug_log.append(("START_WAIT EOF", datetime.now()))
+            else:
+                self.debug_log.append(("START_WAIT %d" % self.fp.tell(), datetime.now()))
         runtime_response = skypy.current_task.message_helper.synchronous_request("wait_stream", out_dict)
+        if self.debug:
+            self.debug_log.append(("END_WAIT", datetime.now()))
         if not runtime_response["success"]:
             raise Exception("File transfer failed before EOF")
         else:

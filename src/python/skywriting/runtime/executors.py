@@ -449,7 +449,7 @@ class ProcExecutor(BaseExecutor):
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
-        if is_fixed:     
+        if is_fixed:
             task_private_ref = SW2_FixedReference(task_private_id, get_own_netloc())
             write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
         else:

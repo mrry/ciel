@@ -42,6 +42,7 @@ class ControlRoot:
         self.shutdown = ShutdownRoot(worker_pool)
         self.browse = WebBrowserRoot(job_pool)
         self.backup = BackupMasterRoot(backup_sender)
+        self.ref = RefRoot(job_pool)
 
     @cherrypy.expose
     def index(self):
@@ -303,3 +304,23 @@ class BackupMasterRoot:
             standby_url = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             self.backup_sender.register_standby_url(standby_url)
             return 'Registered a hot standby'
+        
+class RefRoot:
+    
+    def __init__(self, job_pool):
+        self.job_pool = job_pool
+
+    @cherrypy.expose         
+    def default(self, job_id, ref_id):
+        
+        try:
+            job = self.job_pool.get_job_by_id(job_id)
+        except KeyError:
+            raise HTTPError(404)
+        
+        try:
+            ref = job.task_graph.get_reference_info(ref_id).ref
+        except KeyError:
+            raise HTTPError(404)
+
+        return simplejson.dumps(ref, cls=SWReferenceJSONEncoder)

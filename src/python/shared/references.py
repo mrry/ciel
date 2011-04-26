@@ -14,6 +14,7 @@
 
 import simplejson
 import base64
+import re
 
 class SWRealReference:
     
@@ -326,6 +327,12 @@ def decode_datavalue(ref):
 def decode_datavalue_string(str):
     return base64.b64decode(str)
 
+control_chars = ''.join(map(unichr, range(0,32) + range(127,160)))
+control_char_re = re.compile('[%s]' % re.escape(control_chars))
+
+def remove_control_chars(s):
+    return control_char_re.sub(lambda match: "[%d]" % ord(match.group(0)), s)
+
 class SWDataValue(SWRealReference):
     """
     This is akin to a SW2_ConcreteReference which encapsulates its own data.
@@ -351,7 +358,7 @@ class SWDataValue(SWRealReference):
         if len(self.value) < 20:
             string_repr = '"' + decode_datavalue_string(self.value) + '"'
         else:
-            string_repr = "%d Base64 chars inline, starting with '%s'" % (len(self.value), decode_datavalue_string(self.value)[:20])
+            string_repr = "%d Base64 chars inline, starting with '%s'" % (len(self.value), remove_control_chars(decode_datavalue_string(self.value)[:20]))
         return "<DataValue: %s...: %s>" % (self.id[:10], string_repr)
 
     def __repr__(self):
