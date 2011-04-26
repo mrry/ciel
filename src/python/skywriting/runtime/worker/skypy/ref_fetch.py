@@ -46,7 +46,6 @@ class InstrumentedCompleteFile:
                     read_amount = min(4096, limit - bytes_read)
                 try:
                     this_str = os.read(self.fd, read_amount)
-                    print "TRIED TO READ", read_amount, "GOT", len(this_str)
                     if len(this_str) == 0:
                         # EOF
                         return read_str
@@ -54,8 +53,9 @@ class InstrumentedCompleteFile:
                     bytes_read += len(this_str)
                 except OSError, e:
                     assert e.errno == EAGAIN
+                    print "Breaking due to EAGAIN", datetime.now()
                     break
-            if bytes_read == limit:
+            if limit is not None and bytes_read == limit:
                 break
             self.debug_log.append(("START_WAIT", datetime.now()))
             while True:
