@@ -23,7 +23,7 @@ import com.google.gson.JsonPrimitive;
  * @author dgm36
  *
  */
-public final class FutureReference extends Reference {
+public class FutureReference extends Reference {
 
 	public FutureReference(String id) {
 		super(id);

@@ -8,5 +8,6 @@
 		  "entry_args": [],
 		  "n_extra_outputs": 5
 		  }
-	}
+	},
+ "result": [{"__decode_ref__": "pickle"}, {"__decode_ref__": "noop"},{"__decode_ref__": "noop"},{"__decode_ref__": "noop"},{"__decode_ref__": "noop"},{"__decode_ref__": "noop"}]
 }

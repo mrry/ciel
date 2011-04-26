@@ -1,13 +1,12 @@
 package com.asgow.ciel.tasks;
 
 import java.io.ObjectOutputStream;
-import java.io.Serializable;
 
 import com.asgow.ciel.executor.Ciel;
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
 
-public abstract class SingleOutputTask<T extends Serializable> implements FirstClassJavaTask {
+public abstract class SingleOutputTask<T> implements FirstClassJavaTask {
 
 	private static final long serialVersionUID = 2685291728220990030L;
 

@@ -5,7 +5,6 @@ import stackless
 import traceback
 import pickle
 import simplejson
-import pdb
 from contextlib import closing
 from StringIO import StringIO
 
@@ -62,14 +61,16 @@ def start_script(entry_point, entry_args):
     try:
         current_task.script_return_val = entry_point(*entry_args)
         current_task.halt_reason = HALT_DONE
+    except CoroutineExit:
+        # This coroutine is garbage; swallow this quietly
+        return
     except Exception, e:
         current_task.script_return_val = e
         current_task.script_backtrace = traceback.format_exc()
         current_task.halt_reason = HALT_RUNTIME_EXCEPTION
         
-    current_task.really_switch_out = True
     current_task.main_coro.switch()
-    
+
 ### Task state
 
 current_task = None
@@ -83,9 +84,10 @@ class SkyPyTask:
         self.message_helper = message_helper
         self.file_outputs = file_outputs
         self.ref_cache = dict()
-        self.really_switch_out = False
         self.script_return_val = None
         self.script_backtrace = None
+        self.main_coro_callback_response = None
+        self.main_coro_callback = None
         self.halt_reason = 0
 
 def fetch_ref(ref, verb, message_helper, **kwargs):
@@ -105,7 +107,6 @@ def try_fetch_ref(ref, verb, **kwargs):
             if "error" in runtime_response:
                 if tries == 0:
                     current_task.halt_reason = HALT_REFERENCE_UNAVAILABLE
-                    current_task.really_switch_out = True
                     current_task.main_coro.switch()
                     continue
                 else:
@@ -155,11 +156,22 @@ def save_state(state, make_local_sweetheart=False):
         pickle.dump(state, state_fp)
     return ref_from_maybe_file(state_fp, state_index)
 
-def spawn(spawn_callable, *pargs, **kwargs):
-    
+def do_from_main_coro(callable):
+    current_task.main_coro_callback = callable
     current_task.main_coro.switch()
+    ret = current_task.main_coro_callback_response
+    current_task.main_coro_callback_response = None
+    return ret
+
+def create_coroutine(spawn_callable, pargs):
+ 
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
+    return new_coro
+
+def spawn(spawn_callable, *pargs, **kwargs):
+    
+    new_coro = do_from_main_coro(lambda: create_coroutine(spawn_callable, pargs))
     n_extra_outputs = kwargs.get("n_extra_outputs", 0)
     new_state = PersistentState(export_json=False, 
                                 extra_outputs = range(1, n_extra_outputs + 1),
@@ -190,7 +202,7 @@ def package_lookup(key):
         raise PackageKeyError(key)
     return retval
 
-def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864, make_sweetheart=False):
+def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864, make_sweetheart=False, must_block=False):
     if not may_stream:
         runtime_response = try_fetch_ref(ref, "open_ref", make_sweetheart=make_sweetheart)
         try:
@@ -198,7 +210,7 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
-        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer, make_sweetheart=make_sweetheart)
+        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer, make_sweetheart=make_sweetheart, must_block=must_block)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:
@@ -231,7 +243,9 @@ class RequiredRefs():
             add_ref_dependency(ref)
 
     def __exit__(self, x, y, z):
-        for ref in self.refs:
-            remove_ref_dependency(ref)
+        if x is not CoroutineExit:
+            for ref in self.refs:
+                remove_ref_dependency(ref)
+        return False
 
     

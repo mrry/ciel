@@ -1,5 +1,7 @@
 package com.asgow.ciel.executor;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.OutputStreamWriter;
@@ -7,12 +9,15 @@ import java.io.PrintWriter;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 
+import com.asgow.ciel.references.CielFuture;
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
 import com.asgow.ciel.rpc.WorkerRpc;
 import com.asgow.ciel.tasks.FirstClassJavaTask;
 import com.asgow.ciel.tasks.FirstClassJavaTaskInformation;
 import com.asgow.ciel.tasks.SingleOutputTask;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 
 public final class Ciel {
 
@@ -39,6 +44,11 @@ public final class Ciel {
 	 */
 	public static String[] args = null;
 	
+	/**
+	 * The soft cache, for users to potentially persist useful objects derived of references.
+	 */
+	public static SoftCache softCache = null;
+	
 	private static Charset CHARSET = Charset.forName("UTF-8");
 	
 	public static Reference[] spawn(FirstClassJavaTask taskObject, String[] args, int numOutputs) throws IOException {
@@ -60,8 +70,12 @@ public final class Ciel {
 		return Ciel.RPC.spawnTask(fcjti);
 	}
 	
-	public static Reference spawn(Class<? extends SingleOutputTask<? extends Serializable>> taskClass, String[] args) {
-		return Ciel.spawn(taskClass, args, 1)[0];
+	public static <T> CielFuture<T> spawn(Class<? extends SingleOutputTask<T>> taskClass, String[] args) {
+		return new CielFuture<T>(Ciel.spawn(taskClass, args, 1)[0]);
+	}
+	
+	public static <T> CielFuture<T> spawnSingle(SingleOutputTask<T> taskObject) throws IOException {
+		return new CielFuture<T>(Ciel.spawn(taskObject, null, 1)[0]);
 	}
 
 	public static void tailSpawn(FirstClassJavaTask taskObject, String[] args) throws IOException {
@@ -76,6 +90,14 @@ public final class Ciel {
 			fcjti.addDependency(dependency);
 		}
 		Ciel.RPC.tailSpawnTask(fcjti);
+	}
+	
+	public static <T> void returnObject(T result) throws IOException {
+		WritableReference out = Ciel.RPC.getOutputFilename(0);
+		ObjectOutputStream oos = new ObjectOutputStream(out.open());
+		oos.writeObject(result);
+		oos.close();
+		Ciel.RPC.closeOutput(0);
 	}
 	
 	public static void returnInt(int value) throws IOException {
@@ -101,6 +123,54 @@ public final class Ciel {
 		pw.print(value);
 		pw.close();
 		Ciel.RPC.closeOutput(index);
+	}
+	
+	public static void blockOn(Reference... refs) {
+		JsonArray deps = new JsonArray();
+		for (Reference ref : refs) {
+			deps.add(ref.toJson());
+		}
+		JsonObject args = new JsonObject();
+		args.addProperty("executor_name", "java2");
+		args.add("extra_dependencies", deps);
+		args.addProperty("is_fixed", true);
+		Ciel.RPC.tailSpawnRaw(args);
+		
+		args = new JsonObject();
+		args.addProperty("keep_process", "must_keep");
+		Ciel.RPC.exit(true);
+		
+		Ciel.RPC.getFixedContinuationTask();
+		
+	}
+
+	public static String stringOfRef(Reference ref) {
+		
+		String filename = Ciel.RPC.getFilenameForReference(ref);
+		FileInputStream stream = null;
+		try {
+			stream = new FileInputStream(filename);
+		}
+		catch(FileNotFoundException e) {
+			// Can't happen
+		}
+		
+		try {
+			byte[] buffer = new byte[1024];
+			StringBuilder builder = new StringBuilder();
+			int this_read;
+			while((this_read = stream.read(buffer)) != -1) {
+				String new_str = new String(buffer, 0, this_read);
+				builder.append(new_str);
+			}
+			
+			stream.close();
+			return builder.toString();
+		}
+		catch(Exception e) {
+			throw new RuntimeException(e);
+		}
+		
 	}
 	
 }

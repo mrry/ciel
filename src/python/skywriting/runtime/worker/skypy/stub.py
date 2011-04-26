@@ -42,6 +42,8 @@ write_fp = open(options.write_fifo, "w")
 read_fp = open(options.read_fifo, "r", 0)
 # Unbuffered so we can use select() on its FD for IO mux
 
+user_script_namespaces = dict()
+
 main_coro = stackless.coroutine.getcurrent()
 
 while True:
@@ -59,13 +61,13 @@ while True:
 
         if skypy.current_task is None: # Otherwise we're in fixed mode -- this new task continues the old one
             
-            user_script_namespace = soft_cache.try_get_cache([entry_dict["py_ref"]], "pyfile")
+            user_script_namespace = user_script_namespaces.get(entry_dict["py_ref"].id, None)
             if user_script_namespace is None:
                 runtime_response = skypy.fetch_ref(entry_dict["py_ref"], "open_ref", message_helper, make_sweetheart=True)
                 source_filename = runtime_response["filename"]
                     
                 user_script_namespace = imp.load_source(str("user_namespace_%s" % entry_dict["py_ref"].id), source_filename)
-                soft_cache.put_cache([entry_dict["py_ref"]], "pyfile", user_script_namespace)
+                user_script_namespaces[entry_dict["py_ref"].id] = user_script_namespace
             else:
                 print >>sys.stderr, "SkyPy: Using pre-parsed .py file"
     
@@ -103,8 +105,13 @@ while True:
             
             print >>sys.stderr, "SkyPy: continuing previous fixed task"
 
-        while not skypy.current_task.really_switch_out:
+        while True:
             user_coro.switch()
+            if skypy.current_task.main_coro_callback is not None:
+                skypy.current_task.main_coro_callback_response = skypy.current_task.main_coro_callback()
+                skypy.current_task.main_coro_callback = None
+            else:
+                break
         # We're back -- either the user script is done, or else it's stuck waiting on a reference.
         if skypy.current_task.halt_reason == skypy.HALT_RUNTIME_EXCEPTION:
             report = "User script exception %s\n%s" % (str(skypy.current_task.script_return_val), skypy.current_task.script_backtrace)

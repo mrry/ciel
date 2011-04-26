@@ -5,5 +5,6 @@
  "start":
 	{"handler": "swi",
 	 "args": {"sw_file_ref": {"__package__": "swmain"}}
-	}
+	},
+  "result": [{"__decode_ref__": "json", "value": {"__decode_ref__": "noop"}}]
 }

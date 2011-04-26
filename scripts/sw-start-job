@@ -6,14 +6,5 @@ import sys
 
 result = skywriting.runtime.util.start_job.main()
 
-if isinstance(result, SWErrorReference):
-    retcode=1
-    print >> sys.stderr, result
-elif isinstance(result, SWDataValue):
-    retcode=0
-    print result.value
-else:
-    retcode=2
-    print >> sys.stderr, result
-
-exit(retcode)
+print "========"
+print "Script result:", result
