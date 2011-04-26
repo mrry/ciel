@@ -13,7 +13,7 @@ from shared.references import encode_datavalue, decode_datavalue_string,\
     json_decode_object_hook
 
 from file_outputs import OutputFile
-from ref_fetch import CompleteFile, StreamingFile
+from ref_fetch import CompleteFile, InstrumentedCompleteFile, StreamingFile
 
 ### Constants
 
