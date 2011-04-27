@@ -29,6 +29,7 @@ function run_parallel {
   time bash -c "$cmd"
 }
 
+run_parallel "./binomial-python"
 run_parallel "./binomial-c"
 run_parallel "./binomial-ocaml"
 
