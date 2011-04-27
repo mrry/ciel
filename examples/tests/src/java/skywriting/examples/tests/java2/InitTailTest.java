@@ -27,6 +27,7 @@ public class InitTailTest implements FirstClassJavaTask {
 		
 		Ciel.returnPlainString("Hello world!");
 		
+		Ciel.log("Finished InitTailTest!");
 	}
 
 	@Override

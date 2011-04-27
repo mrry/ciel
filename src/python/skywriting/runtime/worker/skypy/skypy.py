@@ -237,6 +237,9 @@ def get_ret_output_index():
 def get_extra_output_indices():
     return current_task.persistent_state.extra_outputs
     
+def log(message):
+    current_task.send_message("log", {"message" : message})
+    
 class RequiredRefs():
     def __init__(self, refs):
         self.refs = refs
