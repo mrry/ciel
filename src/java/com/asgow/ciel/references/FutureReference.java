@@ -15,8 +15,6 @@
  */
 package com.asgow.ciel.references;
 
-import com.asgow.ciel.protocol.CielProtos.Reference.Builder;
-import com.asgow.ciel.protocol.CielProtos.Reference.ReferenceType;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -25,14 +23,10 @@ import com.google.gson.JsonPrimitive;
  * @author dgm36
  *
  */
-public final class FutureReference extends Reference {
+public class FutureReference extends Reference {
 
 	public FutureReference(String id) {
 		super(id);
-	}
-	
-	public FutureReference(com.asgow.ciel.protocol.CielProtos.Reference ref) {
-		super(ref);
 	}
 
 	public FutureReference(JsonArray refTuple) {
@@ -42,11 +36,6 @@ public final class FutureReference extends Reference {
 	@Override
 	public boolean isConsumable() {
 		return false;
-	}
-
-	@Override
-	public Builder buildProtoBuf(Builder builder) {
-		return builder.setType(ReferenceType.FUTURE);
 	}
 
 	public static JsonPrimitive IDENTIFIER = new JsonPrimitive("f2");

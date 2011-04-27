@@ -1,5 +1,4 @@
-import httplib2
-import simplejson
+
 import threading
 import os
 import ciel
@@ -63,7 +62,7 @@ class FileWatch:
 
     def __init__(self, output_ctx, thread):
         self.id = output_ctx.refid
-        self.filename = thread.block_store.streaming_filename(self.id)
+        self.filename = thread.block_store.producer_filename(self.id)
         self.thread = thread
         self.output_ctx = output_ctx
 
@@ -90,3 +89,6 @@ def create_watcher_thread(bus, block_store):
 
 def get_watcher_thread():
     return singleton_watcher
+
+def create_watch(output):
+    return singleton_watcher.create_watch(output)

@@ -26,7 +26,6 @@ import logging
 import tempfile
 import cherrypy
 import skywriting
-import httplib2
 import os
 import socket
 import urlparse
@@ -36,6 +35,9 @@ from threading import Lock, Condition
 from datetime import datetime
 from skywriting.runtime.lighttpd import LighttpdAdapter
 from skywriting.runtime.worker.process_pool import ProcessPool
+from skywriting.runtime.worker.multiworker import MultiWorker
+from skywriting.runtime.pycurl_thread import create_pycurl_thread
+from skywriting.runtime.tcp_server import create_tcp_server
 
 class WorkerState:
     pass
@@ -47,6 +49,11 @@ class Worker(plugins.SimplePlugin):
     
     def __init__(self, bus, port, options):
         plugins.SimplePlugin.__init__(self, bus)
+
+        create_pycurl_thread(bus)
+        if options.aux_port is not None:
+            create_tcp_server(options.aux_port)
+
         self.id = None
         self.port = port
         self.master_url = options.master
@@ -66,8 +73,7 @@ class Worker(plugins.SimplePlugin):
             os.mkdir(block_store_dir)
         except:
             pass
-        self.block_store = BlockStore(ciel.engine, self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
-        self.block_store.subscribe()
+        self.block_store = BlockStore(self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.build_pin_set()
         self.block_store.check_local_blocks()
         create_watcher_thread(bus, self.block_store)
@@ -75,9 +81,14 @@ class Worker(plugins.SimplePlugin):
         self.upload_deferred_work.subscribe()
         self.upload_manager = UploadManager(self.block_store, self.upload_deferred_work)
         self.execution_features = ExecutionFeatures()
-        self.task_executor = TaskExecutorPlugin(bus, self, self.master_proxy, self.execution_features, 1)
-        self.task_executor.subscribe()
-        self.process_pool = ProcessPool(bus, self)
+        #self.task_executor = TaskExecutorPlugin(bus, self, self.master_proxy, self.execution_features, 1)
+        #self.task_executor.subscribe()
+        
+        self.scheduling_classes = parse_scheduling_class_option(options.scheduling_classes, options.num_threads)
+        
+        self.multiworker = MultiWorker(ciel.engine, self)
+        self.multiworker.subscribe()
+        self.process_pool = ProcessPool(bus, self, self.execution_features.process_cacheing_executors)
         self.process_pool.subscribe()
         self.runnable_executors = self.execution_features.runnable_executors.keys()
         self.server_root = WorkerRoot(self)
@@ -111,7 +122,7 @@ class Worker(plugins.SimplePlugin):
         return '%s:%d' % (self.hostname, self.port)
 
     def as_descriptor(self):
-        return {'netloc': self.netloc(), 'features': self.runnable_executors, 'has_blocks': not self.block_store.is_empty()}
+        return {'netloc': self.netloc(), 'features': self.runnable_executors, 'has_blocks': not self.block_store.is_empty(), 'scheduling_classes': self.scheduling_classes}
 
     def set_master(self, master_details):
         self.master_url = master_details['master']
@@ -170,6 +181,23 @@ class Worker(plugins.SimplePlugin):
                 self.log_condition.wait()
             if self.stopping:
                 raise Exception("Worker stopping")
+
+def parse_scheduling_class_option(scheduling_classes, num_threads):
+    """Parse the command-line option for scheduling classes, which are formatted as:
+    CLASS1,N1;CLASS2,N2;..."""
+    
+    # By default, we use the number of threads (-n option (default=1)).
+    if scheduling_classes is None:
+        scheduling_classes = '*,%d' % num_threads
+        return {'*' : num_threads}
+    
+    ret = {}
+    class_strings = scheduling_classes.split(';')
+    for class_string in class_strings:
+        scheduling_class, capacity_string = class_string.split(',')
+        capacity = int(capacity_string)
+        ret[scheduling_class] = capacity
+    return ret
 
 def worker_main(options):
     local_port = cherrypy.config.get('server.socket_port')

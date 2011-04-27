@@ -15,8 +15,6 @@
  */
 package com.asgow.ciel.references;
 
-import com.asgow.ciel.protocol.CielProtos.Reference.Builder;
-import com.asgow.ciel.protocol.CielProtos.Reference.ReferenceType;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -33,10 +31,6 @@ public final class StreamReference extends Reference {
 		super(id);
 		this.location = location;
 	}
-	
-	public StreamReference(com.asgow.ciel.protocol.CielProtos.Reference ref) {
-		this(ref.getId(), new Netloc(ref.getLocationHints(0)));
-	}
 
 	public StreamReference(JsonArray refTuple) {
 		this(refTuple.get(1).getAsString(), new Netloc(refTuple.get(2).getAsJsonArray().get(0).getAsString()));
@@ -49,11 +43,6 @@ public final class StreamReference extends Reference {
 	
 	public Netloc getNetloc() {
 		return this.location;
-	}
-
-	@Override
-	public Builder buildProtoBuf(Builder builder) {
-		return builder.setType(ReferenceType.STREAM).addLocationHints(this.location.asProtoBuf());
 	}
 	
 	public static final JsonPrimitive IDENTIFIER = new JsonPrimitive("s2");

@@ -16,7 +16,7 @@ from Queue import Queue
 from cherrypy.process import plugins
 from skywriting.runtime.master.job_pool import Job
 from shared.references import SW2_FutureReference, \
-    SW2_ConcreteReference, SWErrorReference, combine_references, SW2_StreamReference
+    SWErrorReference, combine_references, SW2_StreamReference
 from skywriting.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
     TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED, TASK_QUEUED_STREAMING
 from threading import Lock
@@ -240,7 +240,6 @@ class LazyTaskPool(plugins.SimplePlugin):
     def notify_task_of_reference(self, task, id, ref):
         if ref.is_consumable():
             was_queued_streaming = task.is_queued_streaming()
-            was_assigned_streaming = task.is_assigned_streaming()
             was_blocked = task.is_blocked()
             task.notify_reference_changed(id, ref, self)
             if was_blocked and not task.is_blocked():
@@ -415,8 +414,9 @@ class LazyTaskPoolAdapter:
             task_id = task_descriptor['task_id']
         except:
             task_id = self.generate_task_id()
+            task_descriptor['task_id'] = task_id
         
-        task = build_taskpool_task_from_descriptor(task_id, task_descriptor, self, parent_task)
+        task = build_taskpool_task_from_descriptor(task_descriptor, parent_task)
         task.job = job
         
         self.lazy_task_pool.add_task(task, parent_task is None, may_reduce)

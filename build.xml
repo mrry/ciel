@@ -25,6 +25,7 @@
 	<path id="examplesourcepath">
 	  <pathelement location="src/java"/>
 	  <pathelement location="examples/Grep/src"/>
+	  <pathelement location="examples/tests/src"/>
 	  <pathelement location="examples/Mandelbrot/src"/>
 	  <pathelement location="examples/Pi/src"/>
 	  <pathelement location="examples/skydoop/src"/>
@@ -46,8 +47,7 @@
 	</path>
 
 	<path id="bindingclasspath">
-	  <pathelement location="/usr/share/java/protobuf.jar"/>
-	  <pathelement location="ext/google-gson-1.6/gson-1.6.jar"/>
+	  <pathelement location="ext/google-gson-1.7.1/gson-1.7.1.jar"/>
 	</path>
 
 	<macrodef name="compileExampleJar">
@@ -61,7 +61,8 @@
 	<target name="compile-bindings">
 		<mkdir dir="${dir.build}/bindings"/>
 		<javac srcdir="src/java"
-		destdir="${dir.build}/bindings" classpathref="bindingclasspath"/>
+		destdir="${dir.build}/bindings"
+		classpathref="bindingclasspath"/>
 	</target>
 
 	<target name="build-bindings" depends="compile-bindings">
@@ -90,6 +91,7 @@
 
 	<target name="compile-examples">
 	  <mkdir dir="${dir.build}/examples"/>
+	  <compileExampleJar example="tests"/>
 	  <compileExampleJar example="SmithWaterman"/>
 	  <compileExampleJar example="Mandelbrot"/>
 	  <compileExampleJar example="Pi"/>
@@ -97,17 +99,21 @@
 	  <compileExampleJar example="Grep"/>
 	  <compileExampleJar example="skyhout"/>
 	  <compileExampleJar example="TeraSort"/>
+	  <compileExampleJar example="kmeans"/>
 	</target>
 	
 	<target name="build-examples" depends="build-bindings, compile-examples">
 		<mkdir dir="${dir.dist}"/>
+		<exampleJar exampledir="tests" examplepackage="tests"/>
 		<exampleJar exampledir="SmithWaterman" examplepackage="smithwaterman"/>
 		<exampleJar exampledir="Mandelbrot" examplepackage="mandelbrot"/>
 		<exampleJar exampledir="Pi" examplepackage="pi"/>
 		<exampleJar exampledir="WordCount" examplepackage="wordcount"/>
 		<exampleJar exampledir="Grep" examplepackage="grep"/>
 		<exampleJar exampledir="skyhout" examplepackage="skyhout"/>
-		<exampleJar exampledir="TeraSort" examplepackage="terasort"/>
+		<exampleJar exampledir="TeraSort"
+		examplepackage="terasort"/>
+		<exampleJar exampledir="kmeans" examplepackage="kmeans"/>
 	</target>
 
 	<target name="clean">

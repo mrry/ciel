@@ -19,6 +19,8 @@ import socket
 import cherrypy
 import sys
 import os
+import logging
+import ciel
 
 def set_port(port):
     cherrypy.config.update({'server.socket_port': port})
@@ -28,7 +30,7 @@ def set_config(filename):
 
 def main(default_role=None):
 
-    print "Ciel started with args", sys.argv
+    ciel.log("CIEL started with args: %s" % " ".join(sys.argv), "STARTUP", logging.INFO)
 
     cherrypy.config.update({'server.socket_host': '0.0.0.0'})
     
@@ -47,11 +49,13 @@ def main(default_role=None):
     parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
     parser.add_option("-l", "--lib", action="store", dest="lib", help="Path to standard library of Skywriting scripts (for workers)", metavar="PATH", default=os.path.join(os.path.dirname(__file__), '../../sw/stdlib'))
     parser.add_option("-x", "--ignore-blocks", action="store_true", dest="ignore_blocks", help="Flag to instruct the workers not to send existing blocks", default=False)
-    parser.add_option("-n", "--num-workers", action="store", dest="num_workers", help="Number of worker threads to create (for all-in-one)", type="int", default=1)
+    parser.add_option("-n", "--num-threads", action="store", dest="num_threads", help="Number of worker threads to create (for worker/all-in-one)", type="int", default=1)
     parser.add_option("-L", "--lighttpd-conf", action="store", dest="lighty_conf", help="Lighttpd configuration template to use instead of CherryPy builtin server", default=None)
     parser.add_option("-D", "--daemonise", action="store_true", dest="daemonise", help="Run as a daemon", default=False)
     parser.add_option("-o", "--logfile", action="store", dest="logfile", help="If daemonised, log to FILE", default="/dev/null", metavar="FILE")
     parser.add_option("-T", "--process-tag", action="store", dest="tag", help="Ignored, for tagging the process", metavar="STRING")
+    parser.add_option("-C", "--scheduling-classes", action="store", dest="scheduling_classes", help="List of semicolon-delimited scheduling classes", metavar="CLASS,N;CLASS,N;...", default=None)
+    parser.add_option("-P", "--auxiliary-port", action="store", dest="aux_port", type="int", help="Listen port for auxiliary TCP connections (for workers)", metavar="PORT", default=None)
     (options, args) = parser.parse_args()
 
     if options.daemonise:
@@ -67,7 +71,7 @@ def main(default_role=None):
         from skywriting.runtime.worker import worker_main
         if not cherrypy.config.get('server.socket_port'):
             parser.print_help()
-            print >> sys.stderr, "Must specify port for worker with --port\n"
+            ciel.log("Must specify port for worker with --port", "STARTUP", logging.ERROR) 
             sys.exit(1)
         worker_main(options)
     elif options.role == 'allinone':

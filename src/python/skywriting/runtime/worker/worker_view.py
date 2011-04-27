@@ -11,10 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.executors import kill_all_running_children
-from shared.references import SW2_FetchReference, SW2_ConcreteReference
-import logging
-import StringIO
+import skywriting.runtime.executors
+from skywriting.runtime.executor_helpers import ref_from_string
 
 '''
 Created on 8 Feb 2010
@@ -22,15 +20,14 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-from skywriting.runtime.block_store import json_decode_object_hook,\
+from shared.references import json_decode_object_hook,\
     SWReferenceJSONEncoder
+from skywriting.runtime.remote_stat import receive_stream_advertisment
+from skywriting.runtime.producer_stat import subscribe_output, unsubscribe_output
 import sys
 import simplejson
 import cherrypy
 import os
-import time
-import ciel
-import logging
 
 class WorkerRoot:
     
@@ -46,7 +43,7 @@ class ControlRoot:
         self.master = RegisterMasterRoot(worker)
         self.task = TaskRoot(worker)
         self.data = DataRoot(worker.block_store)
-        self.streamstat = StreamStatRoot(worker.block_store)
+        self.streamstat = StreamStatRoot()
         self.features = FeaturesRoot(worker.execution_features)
         self.kill = KillRoot()
         self.log = LogRoot(worker)
@@ -54,6 +51,7 @@ class ControlRoot:
         self.admin = ManageRoot(worker.block_store)
         self.fetch = FetchRoot(worker.upload_manager)
         self.process = ProcessRoot(worker.process_pool)
+        self.abort = AbortRoot(worker)
     
     @cherrypy.expose
     def index(self):
@@ -61,19 +59,16 @@ class ControlRoot:
 
 class StreamStatRoot:
 
-    def __init__(self, block_store):
-        self.block_store = block_store
-
     @cherrypy.expose
     def default(self, id, op):
         if cherrypy.request.method == "POST":
             payload = simplejson.loads(cherrypy.request.body.read())
             if op == "subscribe":
-                self.block_store.subscribe_to_stream(payload["netloc"], payload["chunk_size"], id)
+                subscribe_output(payload["netloc"], payload["chunk_size"], id)
             elif op == "unsubscribe":
-                self.block_store.unsubscribe_from_stream(payload["netloc"], id)
+                unsubscribe_output(payload["netloc"], id)
             elif op == "advert":
-                self.block_store.receive_stream_advertisment(id, **payload)
+                receive_stream_advertisment(id, **payload)
             else:
                 raise cherrypy.HTTPError(404)
         else:
@@ -86,7 +81,7 @@ class KillRoot:
     
     @cherrypy.expose
     def index(self):
-        kill_all_running_children()
+        skywriting.runtime.executors.kill_all_running_children()
         sys.exit(0)
 
 class RegisterMasterRoot:
@@ -114,26 +109,34 @@ class TaskRoot:
         if cherrypy.request.method == 'POST':
             task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
-                self.worker.submit_task(task_descriptor)
+                self.worker.multiworker.create_and_queue_taskset(task_descriptor)
                 return
         raise cherrypy.HTTPError(405)
-    
-    @cherrypy.expose
-    def default(self, task_id, action):
-        real_id = task_id
-        if action == 'abort':
-            if cherrypy.request.method == 'POST':
-                self.worker.abort_task(real_id)
-            else:
-                raise cherrypy.HTTPError(405)
-        else:
-            raise cherrypy.HTTPError(404)
     
     # TODO: Add some way of checking up on the status of a running task.
     #       This should grow to include a way of getting the present activity of the task
     #       and a way of setting breakpoints.
     #       ...and a way of killing the task.
     #       Ideally, we should create a task view (Root) for each running task.    
+
+class AbortRoot:
+    
+    def __init__(self, worker):
+        self.worker = worker
+    
+    @cherrypy.expose
+    def default(self, job_id, task_id=None):
+        
+        try:
+            job = self.worker.multiworker.get_job_by_id(job_id)
+        except KeyError:
+            return
+            
+        if task_id is None:
+            job.abort_all_active_tasksets()
+        else:
+            job.abort_taskset_with_id(task_id)
+            
 
 class LogRoot:
 
@@ -161,49 +164,32 @@ class LogRoot:
 
 class DataRoot:
     
-    def __init__(self, block_store, backup_sender=None, task_pool=None):
+    def __init__(self, block_store, backup_sender=None):
         self.block_store = block_store
         self.backup_sender = backup_sender
-        self.task_pool = task_pool
         
     @cherrypy.expose
     def default(self, id):
         safe_id = id
         if cherrypy.request.method == 'GET':
-            is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-            if is_streaming:
-                cherrypy.response.headers['Pragma'] = 'streaming'
+            filename = self.block_store.filename(safe_id)
             try:
                 response_body = serve_file(filename)
                 return response_body
             except cherrypy.HTTPError as he:
-                # The streaming file might have been deleted between calls to maybe_streaming_filename
-                # and serve_file. Try again, because this time the non-streaming filename should be
-                # available.
                 if he.status == 404:
-                    if not is_streaming:
-                        raise
-                    cherrypy.response.headers.pop('Pragma', None)
-                    is_streaming, filename = self.block_store.maybe_streaming_filename(safe_id)
-                    try:
-                        serve_file(filename)
-                    except cherrypy.HTTPError as he:
-                        if he.status == 416:
-                            raise cherrypy.HTTPError(418)
-                        else:
-                            raise
-                elif he.status == 416:
-                    raise cherrypy.HTTPError(418)
+                    response_body = serve_file(self.block_store.producer_filename(safe_id))
+                    return response_body
                 else:
                     raise
                 
         elif cherrypy.request.method == 'POST':
             request_body = cherrypy.request.body.read()
-            new_ref = self.block_store.ref_from_string(request_body, safe_id)
+            new_ref = ref_from_string(request_body, safe_id)
             if self.backup_sender is not None:
                 self.backup_sender.add_data(safe_id, request_body)
-            if self.task_pool is not None:
-                self.task_pool.publish_refs({safe_id : new_ref})
+            #if self.task_pool is not None:
+            #    self.task_pool.publish_refs({safe_id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
         
         elif cherrypy.request.method == 'HEAD':
@@ -220,11 +206,11 @@ class DataRoot:
         if cherrypy.request.method == 'POST':
             id = self.block_store.allocate_new_id()
             request_body = cherrypy.request.body.read()
-            new_ref = self.block_store.ref_from_string(request_body, id)
+            new_ref = ref_from_string(request_body, id)
             if self.backup_sender is not None:
                 self.backup_sender.add_data(id, request_body)
-            if self.task_pool is not None:
-                self.task_pool.publish_refs({id : new_ref})
+            #if self.task_pool is not None:
+            #    self.task_pool.publish_refs({id : new_ref})
             return simplejson.dumps(new_ref, cls=SWReferenceJSONEncoder)
         elif cherrypy.request.method == 'GET':
             return serve_file(self.block_store.generate_block_list_file())

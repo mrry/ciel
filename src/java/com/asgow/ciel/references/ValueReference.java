@@ -3,9 +3,6 @@ package com.asgow.ciel.references;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
-
-import com.asgow.ciel.protocol.CielProtos.Reference.Builder;
-import com.asgow.ciel.protocol.CielProtos.Reference.ReferenceType;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -17,10 +14,6 @@ public class ValueReference extends Reference {
 	public ValueReference(String id, byte[] value) {
 		super(id);
 		this.value = value;
-	}
-	
-	public ValueReference(com.asgow.ciel.protocol.CielProtos.Reference ref) {
-		this(ref.getId(), ref.getValue().getBytes());
 	}
 	
 	public ValueReference(JsonArray refTuple) {
@@ -41,11 +34,6 @@ public class ValueReference extends Reference {
 
 	public boolean isConsumable() {
 		return true;
-	}
-
-	@Override
-	public Builder buildProtoBuf(Builder builder) {
-		return builder.setType(ReferenceType.VALUE).setValue(new String(this.value));
 	}
 
 	public static final JsonPrimitive IDENTIFIER = new JsonPrimitive("val");

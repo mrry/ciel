@@ -19,15 +19,15 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 from urlparse import urljoin
-from skywriting.runtime.block_store import SWReferenceJSONEncoder,\
-    json_decode_object_hook
+from shared.references import SWReferenceJSONEncoder
 from skywriting.runtime.exceptions import MasterNotRespondingException,\
-    WorkerShutdownException, RuntimeSkywritingError
+    WorkerShutdownException
 import logging
 import random
 import cherrypy
 import socket
 import httplib2
+from skywriting.runtime.pycurl_rpc import post_string, post_string_noreturn, get_string
 from threading import Event
 
 import simplejson
@@ -47,7 +47,6 @@ class MasterProxy:
         # Stopping is high-priority
         self.bus.subscribe("stop", self.handle_shutdown, 10)
 
-
     def unsubscribe(self):
         self.bus.unsubscribe("stop", self.handle_shutdown)
 
@@ -60,20 +59,26 @@ class MasterProxy:
     def handle_shutdown(self):
         self.stop_event.set()
     
-    def backoff_request(self, url, method, payload=None, num_attempts=1, initial_wait=0):
+    def backoff_request(self, url, method, payload=None, num_attempts=1, initial_wait=0, need_result=True):
         initial_wait = 5
         for _ in range(0, num_attempts):
             if self.stop_event.is_set():
                 break
             try:
-                # This sucks: httplib2 doesn't have any sort of cancellation method, so if the worker
-                # is shutting down we must wait for this request to fail or time out.
-                response, content = httplib2.Http().request(url, method, payload)
-                if response.status == 200:
-                    return response, content
-                else:
-                    ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, False)
-                    ciel.log.error("Response was: %s" % str(response), "MSTRPRXY", logging.WARN, False)
+                try:
+                    if method == "POST":
+                        if need_result or num_attempts > 1:
+                            content = post_string(url, payload)
+                        else:
+                            post_string_noreturn(url, payload, result_callback=self.master_post_result_callback)
+                            return
+                    elif method == "GET":
+                        content = get_string(url)
+                    else:
+                        raise Exception("Invalid method %s" % method)
+                    return 200, content
+                except Exception as e:
+                    ciel.log("Backoff-request failed with exception %s; re-raising MasterNotResponding" % e, "MASTER_PROXY", logging.ERROR)
                     raise MasterNotRespondingException()
             except:
                 ciel.log.error("Error contacting master", "MSTRPRXY", logging.WARN, True)
@@ -86,8 +91,10 @@ class MasterProxy:
             raise MasterNotRespondingException()
 
     def get_public_hostname(self):
+        # Performed with httplib2 because this happens before the cURL thread is up.
         message_url = urljoin(self.master_url, "control/gethostname/")
-        _, result = self.backoff_request(message_url, 'GET')
+        h = httplib2.Http()
+        _, result = h.request(message_url, "GET")
         return simplejson.loads(result)
 
     def register_as_worker(self):
@@ -96,39 +103,26 @@ class MasterProxy:
         _, result = self.backoff_request(message_url, 'POST', message_payload)
         self.worker.id = simplejson.loads(result)
     
-    def publish_refs(self, task_id, refs):
+    def publish_refs(self, job_id, task_id, refs):
         message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'control/task/%s/publish' % (task_id, ))
-        self.backoff_request(message_url, "POST", message_payload)
-        
-    def spawn_tasks(self, parent_task_id, tasks):
-        message_payload = simplejson.dumps(tasks, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'control/task/%s/spawn' % (str(parent_task_id), ))
-        self.backoff_request(message_url, "POST", message_payload)
+        message_url = urljoin(self.master_url, 'control/task/%s/%s/publish' % (job_id, task_id))
+        self.backoff_request(message_url, "POST", message_payload, need_result=False)
 
-    def report_tasks(self, report):
-        message_payload = simplejson.dumps(report, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'control/task/report')
-        self.backoff_request(message_url, "POST", message_payload)
-    
-    def commit_task(self, task_id, bindings, saved_continuation_uri=None, replay_uuid_list=None):
-        serializable_bindings = {}
-        for (id, binding) in bindings.items():
-            serializable_bindings[str(id)] = binding
-        payload_dict = {'bindings' : serializable_bindings}
-        if saved_continuation_uri is not None:
-            payload_dict['saved_continuation_uri'] = saved_continuation_uri
-        if replay_uuid_list is not None:
-            payload_dict['replay_uuids'] = map(str, replay_uuid_list)
-        message_payload = simplejson.dumps(payload_dict, cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'control/task/%s/commit' % (str(task_id), ))
-        self.backoff_request(message_url, "POST", message_payload)
-        
-    def failed_task(self, task_id, reason=None, details=None, bindings={}):
+    def report_tasks(self, job_id, root_task_id, report):
+        message_payload = simplejson.dumps({'worker' : self.worker.id, 'report' : report}, cls=SWReferenceJSONEncoder)
+        message_url = urljoin(self.master_url, 'control/task/%s/%s/report' % (job_id, root_task_id))
+        self.backoff_request(message_url, "POST", message_payload, need_result=False)
+
+    def failed_task(self, job_id, task_id, reason=None, details=None, bindings={}):
         message_payload = simplejson.dumps((reason, details, bindings), cls=SWReferenceJSONEncoder)
-        message_url = urljoin(self.master_url, 'control/task/%s/failed' % (str(task_id), ))
-        self.backoff_request(message_url, "POST", message_payload)
+        message_url = urljoin(self.master_url, 'control/task/%s/%s/failed' % (job_id, task_id))
+        self.backoff_request(message_url, "POST", message_payload, need_result=False)
 
     def ping(self):
         message_url = urljoin(self.master_url, 'control/worker/%s/ping/' % (str(self.worker.id), ))
-        self.backoff_request(message_url, "POST", "PING", 1, 0)
+        self.backoff_request(message_url, "POST", "PING", 1, 0, need_result=False)
+
+    def master_post_result_callback(self, success, url):
+        if not success:
+            ciel.log("Failed to async-post to %s!" % url, "MASTER_PROXY", logging.ERROR)
+

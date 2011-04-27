@@ -16,9 +16,9 @@
 
 package com.asgow.ciel.references;
 
-import com.asgow.ciel.protocol.CielProtos.NetworkLocation;
+import java.io.Serializable;
 
-public class Netloc implements Comparable<Netloc> {
+public class Netloc implements Comparable<Netloc>, Serializable {
 
 	private final String hostname;
 	private final short port;
@@ -26,11 +26,6 @@ public class Netloc implements Comparable<Netloc> {
 	public Netloc(String hostname, short port) {
 		this.hostname = hostname;
 		this.port = port;
-	}
-	
-	public Netloc(NetworkLocation netloc) {
-		this.hostname = netloc.getHostname();
-		this.port = (short) netloc.getPort();
 	}
 	
 	public Netloc(String hostnameAndPort) {
@@ -51,10 +46,6 @@ public class Netloc implements Comparable<Netloc> {
 	
 	public short getPort() {
 		return this.port;
-	}
-	
-	public NetworkLocation asProtoBuf() {
-		return NetworkLocation.newBuilder().setHostname(this.hostname).setPort(this.port).build();
 	}
 	
 	public int hashCode() {

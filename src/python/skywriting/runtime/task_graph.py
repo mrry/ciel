@@ -104,8 +104,10 @@ class DynamicTaskGraph:
         """Updates the information held about a reference. Returns the updated
         reference table entry for the reference."""
         try:
+            
             ref_table_entry = self.get_reference_info(reference.id)
-            ref_table_entry.update_producing_task(producing_task)
+            if producing_task is not None:
+                ref_table_entry.update_producing_task(producing_task)
             ref_table_entry.combine_references(reference)
             
             if ref_table_entry.has_consumers():
@@ -139,17 +141,10 @@ class DynamicTaskGraph:
     def notify_task_of_reference(self, task, ref_table_entry):
         if ref_table_entry.ref.is_consumable():
             was_queued_streaming = task.is_queued_streaming()
-            was_assigned_streaming = task.is_assigned_streaming()
             was_blocked = task.is_blocked()
             task.notify_ref_table_updated(ref_table_entry)
             if was_blocked and not task.is_blocked():
                 self.task_runnable(task)
-            elif was_assigned_streaming and not task.is_assigned_streaming():
-                # All input streams have finished; poke the task for prompt finish
-                # XXX: Want to remove dependency on the worker pool.
-                # FIXME: Add this as a method on Task.
-                #self.worker_pool.notify_task_streams_done(task.worker, task)
-                pass
             elif was_queued_streaming and not task.is_queued_streaming():
                 # Submit this to the scheduler again
                 self.task_runnable(task)
@@ -194,8 +189,6 @@ class DynamicTaskGraph:
                 except KeyError:
                     ref_table_entry = ReferenceTableEntry(ref, None)
                     self.references[ref.id] = ref_table_entry
-                except Exception, e:
-                    print e
 
                 if ref_table_entry.ref.is_consumable():
                     conc_ref = ref_table_entry.ref

@@ -9,7 +9,7 @@
 	{"handler": "swi",
 	 "args": {
 	 	 "sw_file_ref": {"__package__": "swmain"},
-		 "start_env": {"NUM_ROWS": {"__env__": "NUM_ROWS", "default": "10"}, "NUM_COLS": {"__env__": "NUM_COLS", "default": "10"}}
+		 "start_env": {"NUM_ROWS": {"__env__": "NUM_ROWS", "default": "10"}, "NUM_COLS": {"__env__": "NUM_COLS", "default": "10"}, "pipe_output": {"__args__": 0, "default": "false"}}
 		 }
 	}
 }

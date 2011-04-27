@@ -16,35 +16,35 @@ from cherrypy._cperror import HTTPError
 from skywriting.runtime.task import TASK_STATES, TASK_STATE_NAMES
 import cherrypy
 import time
-from shared.references import SWDataValue
+from shared.references import SWDataValue, decode_datavalue
 
-def table_row(key, value):
-    return '<tr><td><b>%s</b></td><td>%s</td></tr>' % (key, str(value))
+def table_row(key, *args):
+    return '<tr><td><b>%s</b></td>' % key + ''.join(['<td>%s</td>' % str(x) for x in args]) + '</tr>'
         
-def span_row(heading):
-    return '<tr><td colspan="2" bgcolor="#cccccc" align="center">%s</td></tr>' % heading
+def span_row(heading, cols=2):
+    return '<tr><td colspan="%d" bgcolor="#cccccc" align="center">%s</td></tr>' % (cols, heading)
         
 def job_link(job):
     return '<a href="/control/browse/job/%s">%s</a>' % (job.id, job.id)
 
-def ref_link(ref):
-    return '<a href="/control/browse/ref/%s">%s</a>' % (ref.id, ref.id)
+def ref_link(job, ref):
+    return '<a href="/control/browse/ref/%s/%s">%s</a>' % (job.id, ref.id, ref.id)
 
-def ref_id_link(ref_id):
-    return '<a href="/control/browse/ref/%s">%s</a>' % (ref_id, ref_id)
+def ref_id_link(job, ref_id):
+    return '<a href="/control/browse/ref/%s/%s">%s</a>' % (job.id, ref_id, ref_id)
 
-def task_link(task):
-    return '<a href="/control/browse/task/%s">%s</a>' % (task.task_id, task.task_id)
+def task_link(job, task):
+    return '<a href="/control/browse/task/%s/%s">%s</a>' % (job.id, task.task_id, task.task_id)
 
 def swbs_link(netloc, ref_id):
     return '<a href="http://%s/data/%s">Link</a>' % (netloc, ref_id)
 
 class WebBrowserRoot:
     
-    def __init__(self, job_pool, task_pool):
+    def __init__(self, job_pool):
         self.job = JobBrowserRoot(job_pool)
-        self.task = TaskBrowserRoot(task_pool)
-        self.ref = RefBrowserRoot(task_pool)
+        self.task = TaskBrowserRoot(job_pool)
+        self.ref = RefBrowserRoot(job_pool)
         
 class JobBrowserRoot:
 
@@ -56,8 +56,9 @@ class JobBrowserRoot:
         jobs = self.job_pool.get_all_job_ids()
         job_string = '<html><head><title>Job Browser</title></head>'
         job_string += '<body><table>'
-        for job in jobs:
-            job_string += table_row('Job', job_link(self.job_pool.get_job_by_id(job)))
+        for job_id in jobs:
+            job = self.job_pool.get_job_by_id(job_id)
+            job_string += table_row('Job', job_link(job), JOB_STATE_NAMES[job.state])
         job_string += '</table></body></html>'
         return job_string
         
@@ -71,27 +72,37 @@ class JobBrowserRoot:
         job_string = '<html><head><title>Job Browser</title></head>'
         job_string += '<body><table>'
         job_string += table_row('ID', job.id)
-        job_string += table_row('Root task', task_link(job.root_task))
+        job_string += table_row('Root task', task_link(job, job.root_task))
         job_string += table_row('State', JOB_STATE_NAMES[job.state])
-        job_string += table_row('Output ref', ref_id_link(job.root_task.expected_outputs[0]))
+        job_string += table_row('Output ref', ref_id_link(job, job.root_task.expected_outputs[0]))
         job_string += span_row('Task states')
         for name, state in TASK_STATES.items():
             try:
                 job_string += table_row('Tasks ' + name, job.task_state_counts[state])
             except KeyError:
                 job_string += table_row('Tasks ' + name, 0)
+        job_string += span_row('Task type/duration', 5)
+        job_string += table_row('*', str(job.all_tasks.get()), str(job.all_tasks.min), str(job.all_tasks.max), str(job.all_tasks.count))
+        for type, avg in job.all_tasks_by_type.items():
+            job_string += table_row(type, str(avg.get()), str(avg.min), str(avg.max), str(avg.count))
         job_string += '</table></body></html>'
         return job_string
 
 class TaskBrowserRoot:
     
-    def __init__(self, task_pool):
-        self.task_pool = task_pool
+    def __init__(self, job_pool):
+        self.job_pool = job_pool
         
     @cherrypy.expose
-    def default(self, task_id):
+    def default(self, job_id, task_id):
+        
         try:
-            task = self.task_pool.get_task_by_id(task_id)
+            job = self.job_pool.get_job_by_id(job_id)
+        except KeyError:
+            raise HTTPError(404)
+        
+        try:
+            task = job.task_graph.get_task(task_id)
         except KeyError:
             raise HTTPError(404)
         
@@ -99,33 +110,39 @@ class TaskBrowserRoot:
         task_string += '<body><table>'
         task_string += table_row('ID', task.task_id)
         task_string += table_row('State', TASK_STATE_NAMES[task.state])
-        if task.worker is not None:
-            task_string += table_row('Worker', task.worker.netloc)
+        for worker in task.get_workers():
+            task_string += table_row('Worker', worker.netloc)
         task_string += span_row('Dependencies')
         for local_id, ref in task.dependencies.items():
-            task_string += table_row(local_id, ref_link(ref))
+            task_string += table_row(local_id, ref_link(job, ref))
         task_string += span_row('Outputs')
         for i, output_id in enumerate(task.expected_outputs):
-            task_string += table_row(i, ref_id_link(output_id))
+            task_string += table_row(i, ref_id_link(job, output_id))
         task_string += span_row('History')
         for t, name in task.history:
             task_string += table_row(time.mktime(t.timetuple()) + t.microsecond / 1e6, name)
         if len(task.children) > 0:
             task_string += span_row('Children')
             for i, child in enumerate(task.children):
-                task_string += table_row(i, '%s</td><td>%s</td><td>%s' % (task_link(child), child.handler, TASK_STATE_NAMES[child.state]))
+                task_string += table_row(i, '%s</td><td>%s</td><td>%s' % (task_link(job, child), child.handler, TASK_STATE_NAMES[child.state]))
         task_string += '</table></body></html>'
         return task_string
 
 class RefBrowserRoot:
     
-    def __init__(self, task_pool):
-        self.task_pool = task_pool
+    def __init__(self, job_pool):
+        self.job_pool = job_pool
 
     @cherrypy.expose         
-    def default(self, ref_id):
+    def default(self, job_id, ref_id):
+        
         try:
-            ref = self.task_pool.get_ref_by_id(ref_id)
+            job = self.job_pool.get_job_by_id(job_id)
+        except KeyError:
+            raise HTTPError(404)
+        
+        try:
+            ref = job.task_graph.get_reference_info(ref_id).ref
         except KeyError:
             raise HTTPError(404)
 
@@ -134,7 +151,7 @@ class RefBrowserRoot:
         ref_string += table_row('ID', ref_id)
         ref_string += table_row('Ref type', ref.__class__.__name__)
         if isinstance(ref, SWDataValue):
-            ref_string += table_row('Value', repr(ref.value))
+            ref_string += table_row('Value', decode_datavalue(ref))
         elif hasattr(ref, 'location_hints'):
             ref_string += span_row('Locations')
             for netloc in ref.location_hints:

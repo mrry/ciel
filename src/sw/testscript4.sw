@@ -2,7 +2,7 @@
 include "grab";
 
 foo = function (file_ref) {
-	return exec("stdinout", {"inputs": [file_ref], "command_line": ["wc", "-w"]}, 1);
+	return *(exec("stdinout", {"inputs": [file_ref], "command_line": ["wc", "-w"]}, 1)[0]);
 };
 
 input_url = "file:///usr/share/dict/words";

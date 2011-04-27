@@ -15,15 +15,24 @@
 from __future__ import with_statement
 
 from shared.references import \
-    SWRealReference, SW2_FutureReference, SW2_ConcreteReference,\
-    SWDataValue, SW2_StreamReference, SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
-    SW2_FixedReference
-from skywriting.runtime.references import SWReferenceJSONEncoder
-from skywriting.runtime.exceptions import FeatureUnavailableException,\
-    BlameUserException, MissingInputException
+    SWRealReference, SW2_FutureReference, SWDataValue, \
+    SWErrorReference, SW2_SweetheartReference, SW2_TombstoneReference,\
+    SW2_FixedReference, SWReferenceJSONEncoder, SW2_ConcreteReference
+from shared.io_helpers import read_framed_json, write_framed_json
+from skywriting.runtime.exceptions import BlameUserException, MissingInputException, ReferenceUnavailableException,\
+    RuntimeSkywritingError
+from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
+    retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
+    retrieve_file_or_string_for_ref, ref_from_safe_string,\
+    write_fixed_ref_string
+from skywriting.runtime.block_store import get_own_netloc
+
+from skywriting.runtime.producer import make_local_output
+from skywriting.runtime.fetcher import fetch_ref_async
+from skywriting.runtime.object_cache import retrieve_object_for_ref, ref_from_object,\
+    cache_object
 
 import hashlib
-import urlparse
 import simplejson
 import logging
 import shutil
@@ -33,20 +42,13 @@ import os.path
 import threading
 import pickle
 import time
-import codecs
 from subprocess import PIPE
 from datetime import datetime
-from skywriting.runtime.block_store import STREAM_RETRY, json_decode_object_hook
+
 from errno import EPIPE
 
 import ciel
-import struct
-
-try:
-    from shared.generated.ciel.protoc_pb2 import Task
-    from shared.generated.java2.protoc_pb2 import Java2TaskPrivate
-except:
-    pass
+import traceback
 
 running_children = {}
 
@@ -83,6 +85,8 @@ class ExecutionFeatures:
                                                            CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
                                                            Java2Executor, ProcExecutor]])
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
+        cacheable_executors = [SkywritingExecutor, SkyPyExecutor, Java2Executor]
+        self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
 
     def all_features(self):
         return self.executors.keys()
@@ -111,7 +115,7 @@ class ExecutionFeatures:
         return self.executors[name]
 
 # Helper functions
-def spawn_other(task_record, executor_name, small_task, **executor_args):
+def spawn_task_helper(task_record, executor_name, small_task=False, delegated_outputs=None, scheduling_class=None, scheduling_type=None, **executor_args):
 
     new_task_descriptor = {"handler": executor_name}
     if small_task:
@@ -121,14 +125,19 @@ def spawn_other(task_record, executor_name, small_task, **executor_args):
             worker_private = {}
             new_task_descriptor["worker_private"] = worker_private
         worker_private["hint"] = "small_task"
-    task_record.spawn_task(new_task_descriptor, **executor_args)
-    return [SW2_FutureReference(id) for id in new_task_descriptor["expected_outputs"]]
+    if scheduling_class is not None:
+        new_task_descriptor["scheduling_class"] = scheduling_class
+    if scheduling_type is not None:
+        new_task_descriptor["scheduling_type"] = scheduling_type
+    if delegated_outputs is not None:
+        new_task_descriptor["expected_outputs"] = delegated_outputs
+    return task_record.spawn_task(new_task_descriptor, is_tail_spawn=(delegated_outputs is not None), **executor_args)
 
 def package_lookup(task_record, block_store, key):
     if task_record.package_ref is None:
         ciel.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
         return None
-    package_dict = block_store.retrieve_object_for_ref(task_record.package_ref, "pickle")
+    package_dict = retrieve_object_for_ref(task_record.package_ref, "pickle")
     try:
         return package_dict[key]
     except KeyError:
@@ -188,23 +197,6 @@ def hash_update_with_structure(hash, value):
     else:
         hash.update(str(value))
 
-def map_leaf_values(f, value):
-    """
-    Recurses over a data structure containing lists, dicts and primitive leaves), 
-    and returns a new structure with the leaves mapped as specified.
-    """
-    if isinstance(value, list):
-        return map(lambda x: map_leaf_values(f, x), value)
-    elif isinstance(value, dict):
-        ret = {}
-        for (dict_key, dict_value) in value.items():
-            key = map_leaf_values(f, dict_key)
-            value = map_leaf_values(f, dict_value)
-            ret[key] = value
-        return ret
-    else:
-        return f(value)
-
 def accumulate_leaf_values(f, value):
 
     def flatten_lofl(ls):
@@ -224,35 +216,6 @@ def accumulate_leaf_values(f, value):
     else:
         return [f(value)]
 
-# Helper class for SkyPy
-class FileOrString:
-    
-    def __init__(self, in_dict, block_store):
-        self.block_store = block_store
-        if "outstr" in in_dict:
-            self.str = in_dict["outstr"]
-            self.filename = None
-        else:
-            self.str = None
-            self.filename = in_dict["filename"]
-
-    def toref(self, refid):
-        if self.str is not None:
-            ref = self.block_store.ref_from_string(self.str, refid)
-        else:
-            ref = self.block_store.ref_from_external_file(self.filename, refid)
-        return ref
-
-    def tostr(self):
-        if self.str is not None:
-            return pickle.loads(self.str)
-        else:
-            with open(self.filename, "r") as f:
-                return pickle.load(f)
-
-    def toobj(self):
-        return self.tostr()
-
 class BaseExecutor:
     
     TASK_PRIVATE_ENCODING = 'pickle'
@@ -265,47 +228,68 @@ class BaseExecutor:
         # XXX: This is braindead, considering that we just stashed task_private
         #      in here during prepare().
         self._run(task_descriptor["task_private"], task_descriptor, task_record)
+    
+    def abort(self):
+        self._abort()    
+    
+    def cleanup(self):
+        pass
         
     @classmethod
     def prepare_task_descriptor_for_execute(cls, task_descriptor, block_store):
         # Convert task_private from a reference to an object in here.
         try:
-            task_descriptor["task_private"] = block_store.retrieve_object_for_ref(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING)
+            task_descriptor["task_private"] = retrieve_object_for_ref(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING)
         except:
             ciel.log('Error retrieving task_private reference from task', 'BASE_EXECUTOR', logging.WARN, True)
             raise
         
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record):
         # Convert task_private to a reference in here. 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
-        task_private_ref = block_store.ref_from_object(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING, task_private_id)
+        task_private_ref = ref_from_object(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING, task_private_id)
         parent_task_record.publish_ref(task_private_ref)
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
 
-class AsyncFetchCallbackCatcher:
+class OngoingFetch:
 
-    def __init__(self, ref, chunk_size):
+    def __init__(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False):
         self.lock = threading.Lock()
         self.condvar = threading.Condition(self.lock)
         self.bytes = 0
         self.ref = ref
         self.chunk_size = chunk_size
+        self.sole_consumer = sole_consumer
+        self.make_sweetheart = make_sweetheart
         self.done = False
-
-    def set_fetch_client(self, client):
-        self.client = client
-
+        self.success = None
+        self.filename = None
+        self.completed_ref = None
+        self.file_blocking = None
+        # may_pipe = True because this class is only used for async operations.
+        # The only current danger of pipes is that waiting for a transfer to complete might deadlock.
+        self.fetch_ctx = fetch_ref_async(ref, 
+                                         result_callback=self.result,
+                                         progress_callback=self.progress, 
+                                         reset_callback=self.reset,
+                                         start_filename_callback=self.set_filename,
+                                         chunk_size=chunk_size,
+                                         may_pipe=True,
+                                         must_block=must_block,
+                                         sole_consumer=sole_consumer)
+        
     def progress(self, bytes):
         with self.lock:
             self.bytes = bytes
             self.condvar.notify_all()
 
-    def result(self, success):
+    def result(self, success, completed_ref):
         with self.lock:
             self.done = True
             self.success = success
+            self.completed_ref = completed_ref
             self.condvar.notify_all()
 
     def reset(self):
@@ -314,6 +298,24 @@ class AsyncFetchCallbackCatcher:
             self.success = False
             self.condvar.notify_all()
         self.client.cancel()
+
+    def set_filename(self, filename, is_blocking):
+        with self.lock:
+            self.filename = filename
+            self.file_blocking = is_blocking
+            self.condvar.notify_all()
+
+    def get_filename(self):
+        with self.lock:
+            while self.filename is None and self.success is not False:
+                self.condvar.wait()
+            if self.filename is not None:
+                return (self.filename, self.file_blocking)
+            else:
+                return (None, None)
+
+    def get_completed_ref(self):
+        return self.completed_ref
 
     def wait_bytes(self, bytes):
         with self.lock:
@@ -326,347 +328,195 @@ class AsyncFetchCallbackCatcher:
                 self.condvar.wait()
 
     def cancel(self):
-        self.client.cancel()
-
-class FetchCallbackCleanup:
-    def __init__(self, cleanup_list):
-        self.cleanup_list = cleanup_list
+        self.fetch_ctx.cancel()
 
     def __enter__(self):
         return self
 
     def __exit__(self, exnt, exnv, exnbt):
-        if exnt is not None:
-            ciel.log("Run exiting with exception %s" % repr(exnv), "SKYPY", logging.WARNING)
-        if len(self.cleanup_list) > 0:
-            ciel.log("At least one fetch was not terminated: cancelling...", "SKYPY", logging.INFO)
-            for transfer in self.cleanup_list:
-                ciel.log("Cancelling fetch %s" % transfer.ref, "SKYPY", logging.INFO)
-                transfer.cancel()
+        if not self.done:
+            ciel.log("Cancelling async fetch for %s" % self.ref, "EXEC", logging.WARNING)
+            self.cancel()
         return False
 
-class SkyPyExecutor(BaseExecutor):
-
-    handler_name = "skypy"
+class OngoingOutputWatch:
     
-    def __init__(self, worker):
-        BaseExecutor.__init__(self, worker)
-        self.skypybase = os.getenv("CIEL_SKYPY_BASE")
-
-    def cleanup(self):
-        pass
+    def __init__(self, ongoing_output):
+        self.ongoing_output = ongoing_output
         
-    @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, pyfile_ref=None, coro_data=None, entry_point=None, entry_args=None, export_json=False):
-
-        if pyfile_ref is None:
-            raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref'")
-        if coro_data is not None:
-            if "task_id" not in task_descriptor:
-                raise Exception("Can't spawn SkyPy tasks from coroutines without a task id")
-            coro_ref = coro_data.toref("%s:coro" % task_descriptor["task_id"])
-            parent_task_record.publish_ref(coro_ref)
-            task_descriptor["task_private"]["coro_ref"] = coro_ref
-            task_descriptor["dependencies"].append(coro_ref)
-        else:
-            task_descriptor["task_private"]["entry_point"] = entry_point
-            task_descriptor["task_private"]["entry_args"] = entry_args
-        task_descriptor["task_private"]["py_ref"] = pyfile_ref
-        task_descriptor["dependencies"].append(pyfile_ref)
-        task_descriptor["task_private"]["export_json"] = export_json
-        if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
-            task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
-        add_package_dep(parent_task_record.package_ref, task_descriptor)
-
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
-
-    @staticmethod
-    def can_run():
-        if "CIEL_SKYPY_BASE" not in os.environ:
-            ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
-            return False
-        else:
-            return test_program(["pypy", os.getenv("CIEL_SKYPY_BASE") + "/stub.py", "--version"], "PyPy")
-
-    def _run(self, task_private, task_descriptor, task_record):
+    def start(self):
+        self.ongoing_output.start_watch()
         
-        self.ongoing_fetches = []
-        with FetchCallbackCleanup(self.ongoing_fetches):
-            self._guarded_run(task_private, task_descriptor, task_record)
+    def set_chunk_size(self, new_size):
+        return self.ongoing_output.set_watch_chunk_size(new_size)
+    
+    def cancel(self):
+        return self.ongoing_output.cancel_watch()
 
-    def _guarded_run(self, task_private, task_descriptor, task_record):
+class OngoingOutput:
 
-        self.task_descriptor = task_descriptor
-        self.task_record = task_record
-        halt_dependencies = []
-        skypy_private = task_private
+    def __init__(self, output_name, output_index, may_pipe, make_local_sweetheart, executor):
+        self.output_ctx = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
+        self.may_pipe = may_pipe
+        self.make_local_sweetheart = make_local_sweetheart
+        self.output_name = output_name
+        self.output_index = output_index
+        self.watch_chunk_size = None
+        self.executor = executor
+        self.filename = None
 
-        pyfile_ref = self.task_record.retrieve_ref(skypy_private["py_ref"])
-        self.pyfile_ref = pyfile_ref
-        rq_list = [pyfile_ref]
-        if "coro_ref" in skypy_private:
-            coroutine_ref = self.task_record.retrieve_ref(skypy_private["coro_ref"])
-            rq_list.append(coroutine_ref)
+    def __enter__(self):
+        return self
 
-        filenames = self.block_store.retrieve_filenames_for_refs(rq_list)
+    def size_update(self, new_size):
+        self.output_ctx.size_update(new_size)
 
-        py_source_filename = filenames[0]
-        if "coro_ref" in skypy_private:
-            coroutine_filename = filenames[1]
-            ciel.log.error('Fetched coroutine image to %s, .py source to %s' 
-                               % (coroutine_filename, py_source_filename), 'SKYPY', logging.INFO)
-        else:
-            ciel.log.error("Fetched .py source to %s; starting from entry point %s, args %s"
-                               % (py_source_filename, skypy_private["entry_point"], skypy_private["entry_args"]))
+    def close(self):
+        self.output_ctx.close()
 
-        pypy_env = os.environ.copy()
-        pypy_env["PYTHONPATH"] = self.skypybase + ":" + pypy_env["PYTHONPATH"]
+    def rollback(self):
+        self.output_ctx.rollback()
 
-        pypy_args = ["pypy", 
-                     self.skypybase + "/stub.py", 
-                     "--source", py_source_filename]
-
-        if "coro_ref" in skypy_private:
-            pypy_args.extend(["--resume_state", coroutine_filename])
-        else:
-            pypy_args.append("--await_entry_point")
-            
-        pypy_process = subprocess.Popen(pypy_args, env=pypy_env, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
-
-        if "coro_ref" not in skypy_private:
-            pickle.dump({"entry_point": skypy_private["entry_point"], "entry_args": skypy_private["entry_args"]}, pypy_process.stdin)
-
-        while True:
-            
-            request_args = pickle.load(pypy_process.stdout)
-            request = request_args["request"]
-            del request_args["request"]
-            ciel.log.error("Request: %s" % request, "SKYPY", logging.DEBUG)
-            # The key difference between deref and deref_json is that the JSON variant MUST be decoded locally
-            # This is a hack around the fact that the simplejson library hasn't been ported to pypy.
-            if request == "deref":
-                try:
-                    ret = self.deref_func(**request_args)
-                except ReferenceUnavailableException:
-                    halt_dependencies.append(request_args["ref"])
-                    ret = {"success": False}
-                pickle.dump(ret, pypy_process.stdin)
-            elif request == "deref_json":
-                try:
-                    ret = self.deref_json(**request_args)
-                except ReferenceUnavailableException:
-                    halt_dependencies.append(request_args["ref"])
-                    ret = {"success": False}
-                pickle.dump(ret, pypy_process.stdin)
-            elif request == "deref_async":
-                try:
-                    ret = self.deref_async(**request_args)
-                except ReferenceUnavailableException:
-                    halt_dependencies.append(request_args["ref"])
-                    ret = {"success": False}
-                pickle.dump(ret, pypy_process.stdin)
-            elif request == "wait_stream":
-                ret = self.wait_async_file(**request_args)
-                pickle.dump(ret, pypy_process.stdin)
-            elif request == "close_stream":
-                self.close_async_file(request_args["id"], request_args["chunk_size"])
-            elif request == "spawn":
-                out_ref = self.spawn_func(**request_args)
-                pickle.dump({"output": out_ref}, pypy_process.stdin)
-            elif request == "exec":
-                out_refs = spawn_other(self.task_record, **request_args)
-                pickle.dump({"outputs": out_refs}, pypy_process.stdin)
-            elif request == "package_lookup":
-                pickle.dump({"value": package_lookup(self.task_record, self.block_store, request_args["key"])}, pypy_process.stdin)
-            elif request == "freeze":
-                # The interpreter is stopping because it needed a reference that wasn't ready yet.
-                coro_data = FileOrString(request_args, self.block_store)
-                cont_deps = halt_dependencies
-                cont_deps.extend(request_args["additional_deps"])
-                self.task_record.spawn_task({"handler": "skypy",
-                                               "expected_outputs": task_descriptor["expected_outputs"], 
-                                               "dependencies": cont_deps,
-                                               "task_private": {"hint": "small_task"}},
-                                              coro_data=coro_data,
-                                              pyfile_ref=pyfile_ref,
-                                              export_json=skypy_private["export_json"])
-                return
-            elif request == "done":
-                # The interpreter is stopping because the function has completed
-                result = FileOrString(request_args, self.block_store)
-                if skypy_private["export_json"]:
-                    result_ref = self.block_store.ref_from_object(result.toobj(), "json", task_descriptor["expected_outputs"][0])
-                else:
-                    result_ref = result.toref(task_descriptor["expected_outputs"][0])
-                self.task_record.publish_ref(result_ref)
-                return
-            elif request == "exception":
-                report_text = FileOrString(request_args, self.block_store).tostr()
-                raise Exception("Fatal pypy exception: %s" % report_text)
-            else:
-                raise Exception("Pypy requested bad operation: %s / %s" % (request, request_args))
-
-    # Note this is not the same as an external spawn -- it could e.g. spawn an anonymous lambda
-    def spawn_func(self, **otherargs):
-
-        new_task_descriptor = {"handler": "skypy"}
-        coro_data = FileOrString(otherargs, self.block_store)
-        self.task_record.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
-        return SW2_FutureReference(new_task_descriptor["expected_outputs"][0])
+    def get_filename(self):
+        if self.filename is None:
+            (self.filename, is_fd) = self.output_ctx.get_filename_or_fd()
+            assert not is_fd
+        return self.filename
+    
+    def get_size(self):
+        assert not self.may_pipe
+        assert self.filename is not None
+        return os.stat(self.filename)
         
-    def deref_func(self, ref):
-        ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
-        real_ref = self.task_record.retrieve_ref(ref)
-        if isinstance(real_ref, SWDataValue):
-            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
+    def get_stream_ref(self):
+        return self.output_ctx.get_stream_ref()
+
+    def get_completed_ref(self):
+        completed_ref = self.output_ctx.get_completed_ref()
+        if isinstance(completed_ref, SW2_ConcreteReference) and self.make_local_sweetheart:
+            completed_ref = SW2_SweetheartReference.from_concrete(completed_ref, get_own_netloc())
+        return completed_ref
+
+    def subscribe_output(self, _):
+        return OngoingOutputWatch(self)
+
+    def start_watch(self):
+        self.executor._subscribe_output(self.output_index, self.watch_chunk_size)
+        
+    def set_watch_chunk_size(self, new_chunk_size):
+        if self.watch_chunk_size is not None:
+            self.executor._subscribe_output(self.output_index, new_chunk_size)
+        self.watch_chunk_size = new_chunk_size
+
+    def cancel_watch(self):
+        self.watch_chunk_size = None
+        self.executor._unsubscribe_output(self.output_index)
+
+    def __exit__(self, exnt, exnv, exnbt):
+        if exnt is not None:
+            self.rollback()
         else:
-            filenames = self.block_store.retrieve_filenames_for_refs([real_ref])
-            return {"success": True, "filename": filenames[0]}
-
-    def deref_json(self, ref):
-        real_ref = self.task_record.retrieve_ref(ref)
-        return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
-
-    def deref_async(self, ref, chunk_size):
-        new_catcher = AsyncFetchCallbackCatcher(ref, chunk_size)
-        real_ref = self.task_record.retrieve_ref(ref)
-        new_fetch = self.block_store.fetch_ref_async(real_ref, 
-                                                     result_callback=new_catcher.result,
-                                                     progress_callback=new_catcher.progress, 
-                                                     reset_callback=new_catcher.reset,
-                                                     chunk_size=chunk_size)
-        new_catcher.set_fetch_client(new_fetch)
-        self.ongoing_fetches.append(new_catcher)
-        ret = {"filename": new_fetch.get_filename(), "done": new_catcher.done, "size": new_catcher.bytes}
-        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s" % (real_ref, chunk_size, ret["size"], ret["done"]), "SKYPY", logging.INFO)
-        if new_catcher.done:
-            if not new_catcher.success:
-                ciel.log("Async fetch %s failed early" % ref, "SKYPY", logging.WARNING)
-            ret["success"] = new_catcher.success
-        else:
-            ret["success"] = True
-        return ret
-
-    def close_async_file(self, id, chunk_size):
-        for catcher in self.ongoing_fetches:
-            if catcher.ref.id == id and catcher.chunk_size == chunk_size:
-                catcher.cancel()
-                self.ongoing_fetches.remove(catcher)
-                ciel.log("Cancelling async fetch %s (chunk %d)" % (id, chunk_size), "SKYPY", logging.INFO)
-                return
-        ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "SKYPY", logging.WARNING)
-
-    def wait_async_file(self, id, eof=None, bytes=None):
-        the_catcher = None
-        for catcher in self.ongoing_fetches:
-            if catcher.ref.id == id:
-                the_catcher = catcher
-                break
-        if the_catcher is None:
-            ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "SKYPY", logging.WARNING)
-            return {"success": False}
-        if eof is not None:
-            ciel.log("Waiting for fetch %s to complete" % id, "SKYPY", logging.INFO)
-            the_catcher.wait_eof()
-        else:
-            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "SKYPY", logging.INFO)
-            the_catcher.wait_bytes(bytes)
-        if the_catcher.done and not the_catcher.success:
-            ciel.log("Wait %s complete: transfer has failed" % id, "SKYPY", logging.WARNING)
-            return {"success": False}
-        else:
-            ret = {"size": the_catcher.bytes, "done": the_catcher.done, "success": True}
-            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "SKYPY", logging.INFO)
-            return ret
-
+            self.close()
 
 # Return states for proc task termination.
 PROC_EXITED = 0
-PROC_BLOCKED = 1
-PROC_ERROR = 2
+PROC_MUST_KEEP = 1
+PROC_MAY_KEEP = 2
+PROC_ERROR = 3
 
 class ProcExecutor(BaseExecutor):
-    """Executor for running long-lived legacy processes."""
+    """Executor for running generic processes."""
     
     handler_name = "proc"
     
     def __init__(self, worker):
         BaseExecutor.__init__(self, worker)
         self.process_pool = worker.process_pool
+        self.ongoing_fetches = []
+        self.ongoing_outputs = dict()
+        self.transmit_lock = threading.Lock()
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, process_record_id, blocking_refs, current_outputs, output_mask):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, 
+                              process_record_id=None, is_fixed=False,
+                              n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False, accept_ref_list_for_single=False):
 
-        task_descriptor["task_private"]["id"] = process_record_id
-        task_descriptor["task_private"]["blocking_refs"] = blocking_refs
-        task_descriptor["dependencies"].extend(blocking_refs)
+        #if process_record_id is None and start_command is None:
+        #    raise BlameUserException("ProcExecutor tasks must specify either process_record_id or start_command")
 
-        task_descriptor["expected_outputs"] = []
+        if process_record_id is not None:
+            task_descriptor["task_private"]["id"] = process_record_id
+        task_descriptor["dependencies"].extend(extra_dependencies)
 
-        for i, id in enumerate(current_outputs):
-            if i not in output_mask:
-                task_descriptor["expected_outputs"].append(id)
-
-        task_private_id = ("%s:_private" % task_descriptor["task_id"])        
-        task_private_ref = SW2_FixedReference(task_private_id, block_store.netloc)
-        block_store.write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
+        task_private_id = ("%s:_private" % task_descriptor["task_id"])
+        if is_fixed:
+            task_private_ref = SW2_FixedReference(task_private_id, get_own_netloc())
+            write_fixed_ref_string(pickle.dumps(task_descriptor["task_private"]), task_private_ref)
+        else:
+            task_private_ref = ref_from_string(pickle.dumps(task_descriptor["task_private"]), task_private_id)
         parent_task_record.publish_ref(task_private_ref)
         
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
+        
+        if not is_tail_spawn:
+            if len(task_descriptor["expected_outputs"]) == 1 and not accept_ref_list_for_single:
+                return SW2_FutureReference(task_descriptor["expected_outputs"][0])
+            else:
+                return [SW2_FutureReference(refid) for refid in task_descriptor["expected_outputs"]]
+
+    def get_command(self):
+        raise RuntimeSkywritingError("Attempted to get_command() for an executor that does not define this.")
+    
+    def get_env(self):
+        return {}
 
     @staticmethod
     def can_run():
-        ciel.log('proc executor enabled', 'PROC', logging.INFO)
         return True
     
     def _run(self, task_private, task_descriptor, task_record):
         
-        print task_private
-        
-        id = task_private['id']
-        self.process_record = self.process_pool.get_process_record(id)
+        with ContextManager("Task %s" % task_descriptor["task_id"]) as manager:
+            self.context_manager = manager
+            self._guarded_run(task_private, task_descriptor, task_record)
+            
+    def _guarded_run(self, task_private, task_descriptor, task_record):
         
         self.task_record = task_record
         self.task_descriptor = task_descriptor
-        
         self.expected_outputs = self.task_descriptor['expected_outputs']
         
-        # Stores the indices of expected outputs that have been produced.
-        self.open_output_contexts = {}
-        self.expected_output_mask = set()
-        
+        if "id" in task_private:
+            id = task_private['id']
+            self.process_record = self.process_pool.get_process_record(id)
+        else:
+            self.process_record = self.process_pool.get_soft_cache_process(self.__class__, task_descriptor["dependencies"])
+            if self.process_record is None:
+                self.process_record = self.process_pool.create_process_record(None, "json")
+                command = self.get_command()
+                command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
+                                "--read-fifo", self.process_record.get_write_fifo_name()])
+                new_proc_env = os.environ.copy()
+                new_proc_env.update(self.get_env())
+                new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
+                self.process_record.set_pid(new_proc.pid)
+               
         # XXX: This will block until the attached process opens the pipes.
         reader = self.process_record.get_read_fifo()
         writer = self.process_record.get_write_fifo()
+        self.reader = reader
+        self.writer = writer
         
         ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
-        
-        try:
-            # If we are resuming, we need to unblock the process by replying to the block RPC.
-            prev_block_refs = task_private['blocking_refs']
-            assert self.process_record.protocol == 'json'
-            reply_refs = [self.task_record.retrieve_ref(x) for x in prev_block_refs]
 
-            response_string = simplejson.dumps(reply_refs, cls=SWReferenceJSONEncoder)
-            ciel.log('Writing %d bytes response to blocking RPC' % len(response_string), 'PROC', logging.INFO)
-            writer.write(struct.pack('!I', len(response_string)))
-            writer.write(response_string)
-            writer.flush()
-            
-        except:
-            pass
-        
-        
+        write_framed_json(("start_task", task_private), writer)
+
         try:
             if self.process_record.protocol == 'line':
                 finished = self.line_event_loop(reader, writer)
             elif self.process_record.protocol == 'json':
                 finished = self.json_event_loop(reader, writer)
-            elif self.process_record.protocol == 'pickle':
-                finished = self.pickle_event_loop(reader, writer)
-            elif self.process_record.protocol == 'protobuf':
-                finished = self.protobuf_event_loop(reader, writer)
             else:
                 raise BlameUserException('Unsupported protocol: %s' % self.process_record.protocol)
         except:
@@ -675,17 +525,12 @@ class ProcExecutor(BaseExecutor):
         
         if finished == PROC_EXITED:
             
-            if len(self.expected_output_mask) != len(self.expected_outputs):
-                # Not all outputs have been produced, but we have exited.
-                # So let's publish error references for those.
-                for i, id in enumerate(self.expected_outputs):
-                    if i not in self.expected_output_mask:
-                        ciel.log('No output written for output[%d] = %s' % (i, id), 'PROC', logging.ERROR)
-                        task_record.publish_ref(SWErrorReference(id, 'OUTPUT_NOT_WRITTEN', str(i))) 
-                            
             self.process_pool.delete_process_record(self.process_record)
-            
-        elif finished == PROC_BLOCKED:
+        
+        elif finished == PROC_MAY_KEEP:
+            self.process_pool.soft_cache_process(self.process_record, self.__class__, self.soft_cache_keys)    
+        
+        elif finished == PROC_MUST_KEEP:
             pass
         elif finished == PROC_ERROR:
             ciel.log('Task died with an error', 'PROC', logging.ERROR)
@@ -711,12 +556,80 @@ class ProcExecutor(BaseExecutor):
             else:
                 print 'Unrecognised command:', argv
         
-    def open_ref(self, ref):
+    def open_ref(self, ref, accept_string=False, make_sweetheart=False):
         """Fetches a reference if it is available, and returns a filename for reading it.
         Options to do with eagerness, streaming, etc.
         If reference is unavailable, raises a ReferenceUnavailableException."""
         ref = self.task_record.retrieve_ref(ref)
-        return self.block_store.retrieve_filename_for_ref(ref)
+        if not accept_string:   
+            ctx = retrieve_filename_for_ref(ref, return_ctx=True)
+        else:
+            ctx = retrieve_file_or_string_for_ref(ref)
+        if ctx.completed_ref is not None:
+            if make_sweetheart:
+                ctx.completed_ref = SW2_SweetheartReference.from_concrete(ctx.completed_ref, get_own_netloc())
+            self.task_record.publish_ref(ctx.completed_ref)
+        return ctx.to_safe_dict()
+        
+    def publish_fetched_ref(self, fetch):
+        completed_ref = fetch.get_completed_ref()
+        if completed_ref is None:
+            ciel.log("Cancelling async fetch %s (chunk %d)" % (fetch.ref.id, fetch.chunk_size), "EXEC", logging.INFO)
+        else:
+            if fetch.make_sweetheart:
+                completed_ref = SW2_SweetheartReference.from_concrete(completed_ref, get_own_netloc())
+            self.task_record.publish_ref(completed_ref)
+        
+    def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False):
+        real_ref = self.task_record.retrieve_ref(ref)
+        new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer, make_sweetheart, must_block)
+        filename, file_blocking = new_fetch.get_filename()
+        if not new_fetch.done:
+            self.context_manager.add_context(new_fetch)
+            self.ongoing_fetches.append(new_fetch)
+        else:
+            self.publish_fetched_ref(new_fetch)
+        # Definitions here: "done" means we're already certain that the producer has completed successfully.
+        # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
+        ret = {"filename": filename, "done": new_fetch.done, "blocking": file_blocking, "size": new_fetch.bytes}
+        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"]), "EXEC", logging.INFO)
+        if new_fetch.done:
+            if not new_fetch.success:
+                ciel.log("Async fetch %s failed early" % ref, "EXEC", logging.WARNING)
+                ret["error"] = "EFAILED"
+        return ret
+    
+    def close_async_file(self, id, chunk_size):
+        for fetch in self.ongoing_fetches:
+            if fetch.ref.id == id and fetch.chunk_size == chunk_size:
+                self.publish_fetched_ref(fetch)
+                self.context_manager.remove_context(fetch)
+                self.ongoing_fetches.remove(fetch)
+                return
+        ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "EXEC", logging.WARNING)
+
+    def wait_async_file(self, id, eof=None, bytes=None):
+        the_fetch = None
+        for fetch in self.ongoing_fetches:
+            if fetch.ref.id == id:
+                the_fetch = fetch
+                break
+        if the_fetch is None:
+            ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "EXEC", logging.WARNING)
+            return {"success": False}
+        if eof is not None:
+            ciel.log("Waiting for fetch %s to complete" % id, "EXEC", logging.INFO)
+            the_fetch.wait_eof()
+        else:
+            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "EXEC", logging.INFO)
+            the_fetch.wait_bytes(bytes)
+        if the_fetch.done and not the_fetch.success:
+            ciel.log("Wait %s complete: transfer has failed" % id, "EXEC", logging.WARNING)
+            return {"success": False}
+        else:
+            ret = {"size": the_fetch.bytes, "done": the_fetch.done, "success": True}
+            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "EXEC", logging.INFO)
+            return ret
         
     def spawn(self, request_args):
         """Spawns a child task. Arguments define a task_private structure. Returns a list
@@ -725,165 +638,203 @@ class ProcExecutor(BaseExecutor):
         # Args dict arrives from sw with unicode keys :(
         str_args = dict([(str(k), v) for (k, v) in request_args.items()])
         
-        try:
-            small_task = str_args['small_task']
-        except KeyError:
+        if "small_task" not in str_args:
             str_args['small_task'] = False
         
-        return spawn_other(self.task_record, **str_args)
+        return spawn_task_helper(self.task_record, **str_args)
     
-    def create_ref_inline(self, content):
-        """Creates a new reference, with the given string contents."""
-        ref = self.block_store.ref_from_string(content, self.task_record.create_published_output_name())
+    def tail_spawn(self, request_args):
+        
+        if request_args.get("is_fixed", False):
+            request_args["process_record_id"] = self.process_record.id
+        request_args["delegated_outputs"] = self.task_descriptor["expected_outputs"]
+        self.spawn(request_args)
+    
+    def allocate_output(self, prefix=""):
+        new_output_name = self.task_record.create_published_output_name(prefix)
+        self.expected_outputs.append(new_output_name)
+        return {"index": len(self.expected_outputs) - 1}
+    
+    def publish_string(self, index, str):
+        """Defines a reference with the given string contents."""
+        ref = ref_from_safe_string(str, self.expected_outputs[index])
         self.task_record.publish_ref(ref)
-        return ref
-    
-    def create_ref_file(self):
-        """Creates a new reference, and returns a filename for writing it.
-        Also, can supply a string and create the new reference inline.
-        Also, can specify what output is being created.
-        Returns the created reference to the object, and (if necessary) filename."""
-        pass
-    
-    def write_output_inline(self, index, content):
-        """Creates a concrete object for the output with the given index, having the given string contents."""
-        self.expected_output_mask.add(index)
-        ref = self.block_store.ref_from_string(content, self.task_descriptor['expected_outputs'][index])
-        self.task_record.publish_ref(ref)
-        return ref
-    
-    def write_output_file(self, index):
-        """Creates a file for the output with the given index, and returns the filename."""
-        ctx = self.block_store.make_local_output(self.expected_outputs[index])
-        self.open_output_contexts[index] = ctx
-        return ctx.get_filename()
+        return {"ref": ref}
 
-    def close_ref(self, filename):
-        """Closes the open file for a constructed reference."""
-        pass
-    
-    def close_output(self, index):
-        """Closes the open file for an output."""
-        ctx = self.open_output_contexts.pop(index)
-        self.expected_output_mask.add(index)
-        ctx.close()
-        ref = ctx.get_completed_ref()
-        self.task_record.publish_ref(ref)
-        return ref
-    
-    def block_on_refs(self, refs):
-        """Creates a continuation task for blocking on the given references."""
-        
-        task_descriptor = {"handler" : "proc"}
-        spawn_other(self.task_record, "proc", False, process_record_id=self.process_record.id, blocking_refs=refs, current_outputs=self.expected_outputs, output_mask=self.expected_output_mask)
-        
-    
+    def open_output(self, index, may_pipe=False, may_stream=False, make_local_sweetheart=False):
+        if may_pipe and not may_stream:
+            raise Exception("Insane parameters: may_stream=False and may_pipe=True may well lead to deadlock")
+        if index in self.ongoing_outputs:
+            raise Exception("Tried to open output %d which was already open" % index)
+        output_name = self.expected_outputs[index]
+        output_ctx = OngoingOutput(output_name, index, may_pipe, make_local_sweetheart, self)
+        self.ongoing_outputs[index] = output_ctx
+        self.context_manager.add_context(output_ctx)
+        if may_stream:
+            ref = output_ctx.get_stream_ref()
+            self.task_record.prepublish_refs([ref])
+        filename = output_ctx.get_filename()
+        return {"filename": filename}
+
+    def stop_output(self, index):
+        self.context_manager.remove_context(self.ongoing_outputs[index])
+        del self.ongoing_outputs[index]
+
+    def close_output(self, index, size=None):
+        output = self.ongoing_outputs[index]
+        if size is None:
+            size = output.get_size()
+        output.size_update(size)
+        self.stop_output(index)
+        ret_ref = output.get_completed_ref()
+        self.task_record.publish_ref(ret_ref)
+        return {"ref": ret_ref}
+
+    def rollback_output(self, index):
+        self.ongoing_outputs[index].rollback()
+        self.stop_output(index)
+
+    def output_size_update(self, index, size):
+        self.ongoing_outputs[index].size_update(size)
+
+    def _subscribe_output(self, index, chunk_size):
+        message = ("subscribe", {"index": index, "chunk_size": chunk_size})
+        with self.transmit_lock:
+            write_framed_json(message, self.writer)
+
+    def _unsubscribe_output(self, index):
+        message = ("unsubscribe", {"index": index})
+        with self.transmit_lock:
+            write_framed_json(message, self.writer)
+           
     def json_event_loop(self, reader, writer):
-        print 'In json_event_loop'
         while True:
+
             try:
-                request_len, = struct.unpack_from('!I', reader.read(4))
-                ciel.log('Reading %d bytes request' % request_len, 'PROC', logging.INFO)
-                request_string = reader.read(request_len)
+                (method, args) = read_framed_json(reader)
             except:
                 ciel.log('Error reading in JSON event loop', 'PROC', logging.WARN, True)
                 return PROC_ERROR
-        
-            try:
-                (method, args) = simplejson.loads(request_string, object_hook=json_decode_object_hook)
-            except:
-                ciel.log('Error parsing JSON request', 'PROC', logging.WARN, True)
-                return PROC_ERROR
-        
+                
             ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
-        
+            response = None
+            
             try:
                 if method == 'open_ref':
                     
-                    try:
-                        ref = args['ref']
-                    except KeyError:
+                    if "ref" not in args:
                         ciel.log('Missing required argument key: ref', 'PROC', logging.ERROR, False)
                         return PROC_ERROR
                     
                     try:
-                        response = {'filename' : self.open_ref(ref)}
+                        response = self.open_ref(**args)
                     except ReferenceUnavailableException:
                         response = {'error' : 'EWOULDBLOCK'}
+                        
+                elif method == "open_ref_async":
+                    
+                    if "ref" not in args or "chunk_size" not in args:
+                        ciel.log("Missing required argument key: open_ref_async needs both 'ref' and 'chunk_size'", "PROC", logging.ERROR, False)
+                        return PROC_ERROR
+            
+                    try:
+                        response = self.open_ref_async(**args)
+                    except ReferenceUnavailableException:
+                        response = {"error": "EWOULDBLOCK"}
+                        
+                elif method == "wait_stream":
+                    response = self.wait_async_file(**args)
+                    
+                elif method == "close_stream":
+                    self.close_async_file(args["id"], args["chunk_size"])
                     
                 elif method == 'spawn':
                     
                     response = self.spawn(args)
+                                        
+                elif method == 'tail_spawn':
                     
-                elif method == 'create_ref':
+                    response = self.tail_spawn(args)
+                    
+                elif method == 'allocate_output':
+                    
+                    response = self.allocate_output(**args)
+                    
+                elif method == 'publish_string':
+                    
+                    response = self.publish_string(**args)
+
+                elif method == 'open_output':
                     
                     try:
-                        # Create ref for inline string.
-                        response = {'ref' : self.create_ref_inline(args['inline'])}
-                    except KeyError:
-                        # Create ref and return filename for writing.
-                        ref, filename = self.create_ref_file()
-                        response = {'ref' : ref, 'filename' : filename}
-                        
-                elif method == 'write_output':
-                    
-                    try:
-                        index = int(args['i'])
-                        if index < 0 or index > len(self.task_descriptor['expected_outputs']):
-                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.task_descriptor['expected_outputs'], 'PROC', logging.ERROR, False)
+                        index = int(args['index'])
+                        if index < 0 or index > len(self.expected_outputs):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                     except KeyError:
                         if len(self.task_descriptor['expected_outputs']) == 1:
-                            index = 0
+                            args["index"] = 0
                         else:
                             ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
                             return PROC_ERROR
-                        
-                    try:
-                        # Write output with inline string.
-                        response = {'ref' : self.write_output_inline(index, args['inline'])}
-                    except KeyError:
-                        # Return filename for writing.
-                        response = {'filename' : self.write_output_file(index)}
-                        
-                elif method == 'close_ref':
                     
-                    try:
-                        ref = args['filename']
-                    except KeyError:
-                        ciel.log('Missing required argument: ref', 'PROC', logging.ERROR, False)
-                        return PROC_ERROR
-                    
-                    self.close_ref(args)
+                    response = self.open_output(**args)
                         
                 elif method == 'close_output':
     
                     try:
-                        index = int(args['i'])
-                        if index < 0 or index > len(self.task_descriptor['expected_outputs']):
-                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.task_descriptor['expected_outputs'], 'PROC', logging.ERROR, False)
+                        index = int(args['index'])
+                        if index < 0 or index > len(self.expected_outputs):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                     except KeyError:
                         if len(self.task_descriptor['expected_outputs']) == 1:
-                            index = 0
+                            args["index"] = 0
                         else:
                             ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
                             return PROC_ERROR
                         
-                    response = {'ref' : self.close_output(index)}
-    
-                elif method == 'block':
+                    response = self.close_output(**args)
                     
-                    self.block_on_refs(args)
-                    return PROC_BLOCKED
+                elif method == 'rollback_output':
+    
+                    try:
+                        index = int(args['index'])
+                        if index < 0 or index > len(self.expected_outputs):
+                            ciel.log('Invalid argument value: i (index) out of bounds [0, %s)' % self.expected_outputs, 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                    except KeyError:
+                        if len(self.task_descriptor['expected_outputs']) == 1:
+                            args["index"] = 0
+                        else:
+                            ciel.log('Missing argument key: i (index), and >1 expected output so could not infer index', 'PROC', logging.ERROR, False)
+                            return PROC_ERROR
+                        
+                    response = {'ref' : self.rollback_output(**args)}
+                    
+                elif method == "advert":
+                    
+                    self.output_size_update(**args)
+    
+                elif method == "package_lookup":
+                    
+                    response = {"value": package_lookup(self.task_record, self.block_store, args["key"])}
     
                 elif method == 'error':
-                    ciel.log('Got error from task: %s' % args, 'PROC', logging.ERROR, False)
+                    ciel.log('Got error from task: %s' % args["report"], 'PROC', logging.ERROR, False)
                     return PROC_ERROR
     
                 elif method == 'exit':
                     
-                    return PROC_EXITED
+                    if args["keep_process"] == "must_keep":
+                        return PROC_MUST_KEEP
+                    elif args["keep_process"] == "may_keep":
+                        self.soft_cache_keys = args.get("soft_cache_keys", [])
+                        return PROC_MAY_KEEP
+                    elif args["keep_process"] == "no":
+                        return PROC_EXITED
+                    else:
+                        ciel.log("Bad exit status from task: %s" % args, "PROC", logging.ERROR)
                 
                 else:
                     ciel.log('Invalid method: %s' % method, 'PROC', logging.WARN, False)
@@ -894,39 +845,125 @@ class ProcExecutor(BaseExecutor):
                 return PROC_ERROR
         
             try:
-                response_string = simplejson.dumps(response, cls=SWReferenceJSONEncoder)
-                ciel.log('Writing %d bytes response' % len(response_string), 'PROC', logging.INFO)
-                writer.write(struct.pack('!I', len(response_string)))
-                writer.write(response_string)
-                writer.flush()
+                if response is not None:
+                    with self.transmit_lock:
+                        write_framed_json((method, response), writer)
             except:
                 ciel.log('Error writing response in JSON event loop', 'PROC', logging.WARN, True)
                 return PROC_ERROR
         
         return True
     
-    def pickle_event_loop(self, reader, writer):
-        """Could be on the SkyPy event loop, above"""
-        return PROC_ERROR
-    
-    def protobuf_event_loop(self, reader, writer):
-        return PROC_ERROR
-        
-class Java2Executor(BaseExecutor):
-    
-    handler_name = "java2"
+   
+class SkyPyExecutor(ProcExecutor):
+
+    handler_name = "skypy"
+    skypybase = os.getenv("CIEL_SKYPY_BASE", None)
+    process_cache = set()
     
     def __init__(self, worker):
-        BaseExecutor.__init__(self, worker)
+        ProcExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store):
-        # More good stuff goes here.
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, pyfile_ref=None, coro_ref=None, entry_point=None, entry_args=None, export_json=False, run_fixed=False, is_tail_spawn=False, n_extra_outputs=0, **kwargs):
+
+        if pyfile_ref is None and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All SkyPy invocations must specify a .py file reference as 'pyfile_ref' or else reference a fixed process")
+        if coro_ref is None and (entry_point is None or entry_args is None) and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All SkyPy invocations must specify either coro_ref or entry_point and entry_args, or else reference a fixed process")
+
+        if not is_tail_spawn:
+            ret_output = "%s:retval" % task_descriptor["task_id"]
+            task_descriptor["expected_outputs"].append(ret_output)
+            task_descriptor["task_private"]["ret_output"] = 0
+            extra_outputs = ["%s:out:%d" % (task_descriptor["task_id"], i) for i in range(n_extra_outputs)]
+            task_descriptor["expected_outputs"].extend(extra_outputs)
+            task_descriptor["task_private"]["extra_outputs"] = range(1, n_extra_outputs + 1)
+        
+        if coro_ref is not None:
+            task_descriptor["task_private"]["coro_ref"] = coro_ref
+            task_descriptor["dependencies"].append(coro_ref)
+        else:
+            task_descriptor["task_private"]["entry_point"] = entry_point
+            task_descriptor["task_private"]["entry_args"] = entry_args
+        if not is_tail_spawn:
+            task_descriptor["task_private"]["export_json"] = export_json
+            task_descriptor["task_private"]["run_fixed"] = run_fixed
+        task_descriptor["task_private"]["is_continuation"] = is_tail_spawn
+        if pyfile_ref is not None:
+            task_descriptor["task_private"]["py_ref"] = pyfile_ref
+            task_descriptor["dependencies"].append(pyfile_ref)
+        add_package_dep(parent_task_record.package_ref, task_descriptor)
+
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record,  
+                                                    is_tail_spawn=is_tail_spawn, **kwargs)
+
+    def get_command(self):
+        return ["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py")]
+        
+    def get_env(self):
+        return {"PYTHONPATH": SkyPyExecutor.skypybase + ":" + os.environ["PYTHONPATH"]}
 
     @staticmethod
     def can_run():
-        return False
+        if SkyPyExecutor.skypybase is None:
+            ciel.log.error("Can't run SkyPy: CIEL_SKYPY_BASE not in environment", "SKYPY", logging.WARNING)
+            return False
+        else:
+            return test_program(["pypy", os.path.join(SkyPyExecutor.skypybase, "stub.py"), "--version"], "PyPy")
+   
+class Java2Executor(ProcExecutor):
+    
+    handler_name = "java2"
+    process_cache = set()
+    
+    def __init__(self, worker):
+        ProcExecutor.__init__(self, worker)
+
+    @classmethod
+    def check_args_valid(cls, args, n_outputs):
+        if "class_name" not in args and "object_ref" not in args:
+            raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref")
+        if "jar_lib" not in args:
+            raise BlameUserException("All Java2 invocations must specify a jar_lib")
+            
+    @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, jar_lib=None, args=None, class_name=None, object_ref=None, n_outputs=1, is_tail_spawn=False, **kwargs):
+        # More good stuff goes here.
+        if jar_lib is None and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All Java2 invocations must either specify jar libs or an existing process ID")
+        if class_name is None and object_ref is None and kwargs.get("process_record_id", None) is None:
+            raise BlameUserException("All Java2 invocations must specify either a class_name or an object_ref, or else give a process ID")
+        
+        if jar_lib is not None:
+            task_descriptor["task_private"]["jar_lib"] = jar_lib
+            for jar_ref in jar_lib:
+                task_descriptor["dependencies"].append(jar_ref)
+
+        if not is_tail_spawn:
+            sha = hashlib.sha1()
+            hash_update_with_structure(sha, [args, n_outputs])
+            hash_update_with_structure(sha, class_name)
+            hash_update_with_structure(sha, object_ref)
+            hash_update_with_structure(sha, jar_lib)
+            name_prefix = "java2:%s:" % (sha.hexdigest())
+            task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]            
+        
+        if class_name is not None:
+            task_descriptor["task_private"]["class_name"] = class_name
+        if object_ref is not None:
+            task_descriptor["task_private"]["object_ref"] = object_ref
+            task_descriptor["dependencies"].append(object_ref)
+        if args is not None:
+            task_descriptor["task_private"]["args"] = args
+        
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, accept_ref_list_for_single=True, **kwargs)
+        
+    def get_command(self):
+        return ["java", "-cp", os.getenv('CLASSPATH'), "com.asgow.ciel.executor.Java2Executor"]
+
+    @staticmethod
+    def can_run():
         cp = os.getenv("CLASSPATH")
         if cp is None:
             ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
@@ -934,104 +971,31 @@ class Java2Executor(BaseExecutor):
         else:
             return test_program(["java", "-cp", cp, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
 
-    def _run(self, task_private, task_descriptor, task_record):
-        
-        # 1. Convert the task descriptor and task-private data to a protobuf.
-        
-        # 2. Run the JVM, passing in the task protobuf on stdin.
-        
-        # 3. Read from standard output to get any messages (in protobuf format) from the executor.
-        
-        # 4. If we get a non-zero exit code, write SWErrorReferences to all of the task's expected outputs.
-        
-        # 5. Communicate the report back to the master.
-        
-        pass
-
-    def spawn_func(self, **otherargs):
-        private_data = FileOrString(otherargs, self.block_store)
-        new_task_descriptor = {"handler": "skypy",
-                               "task_private": private_data}
-        
-        self.task_record.spawn_task(new_task_descriptor)
-
-        new_task_descriptor = {"handler": "skypy"}
-        coro_data = FileOrString(otherargs, self.block_store)
-        self.task_record.spawn_task(new_task_descriptor, coro_data=coro_data, pyfile_ref=self.pyfile_ref)
-        return SW2_FutureReference(new_task_descriptor["expected_outputs"][0])
-        
-    def deref_func(self, ref):
-        ciel.log.error("Deref: %s" % ref.id, "SKYPY", logging.INFO)
-        real_ref = self.task_record.retrieve_ref(ref)
-        if isinstance(real_ref, SWDataValue):
-            return {"success": True, "strdata": self.block_store.retrieve_object_for_ref(real_ref, "noop")}
-        else:
-            filenames = self.block_store.retrieve_filenames_for_refs_eager([real_ref])
-            return {"success": True, "filename": filenames[0]}
-
-    def deref_json(self, ref):
-        real_ref = self.task_record.retrieve_ref(ref)
-        return {"success": True, "obj": self.block_store.retrieve_object_for_ref(ref, "json")}
-
-
-
-# Imports for Skywriting
-
-from skywriting.runtime.exceptions import ReferenceUnavailableException,\
-    BlameUserException, MissingInputException, ExecutionInterruption
-from skywriting.lang.context import SimpleContext, TaskContext,\
-    LambdaFunction
-from skywriting.lang.visitors import \
-    StatementExecutorVisitor, SWDereferenceWrapper
-from skywriting.lang import ast
-from skywriting.lang.parser import \
-    SWScriptParser
-
-# Helpers for Skywriting
-
-class SWContinuation:
-    
-    def __init__(self, task_stmt, context):
-        self.task_stmt = task_stmt
-        self.current_local_id_index = 0
-        self.stack = []
-        self.context = context
-      
-    def __repr__(self):
-        return "SWContinuation(task_stmt=%s, current_local_id_index=%s, stack=%s, context=%s)" % (repr(self.task_stmt), repr(self.current_local_id_index), repr(self.stack), repr(self.context))
-
-class SafeLambdaFunction(LambdaFunction):
-    
-    def __init__(self, function, interpreter):
-        LambdaFunction.__init__(self, function)
-        self.interpreter = interpreter
-
-    def call(self, args_list, stack, stack_base, context):
-        safe_args = self.interpreter.do_eager_thunks(args_list)
-        return LambdaFunction.call(self, safe_args, stack, stack_base, context)
-
-class SkywritingExecutor(BaseExecutor):
+class SkywritingExecutor(ProcExecutor):
 
     handler_name = "swi"
+    stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
+    sw_interpreter_base = os.getenv("CIEL_SW_BASE", None)
+    process_cache = set()
 
     def __init__(self, worker):
-        BaseExecutor.__init__(self, worker)
-        self.stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
-
-    def cleanup(self):
-        pass
+        ProcExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, sw_file_ref=None, start_env=None, start_args=None, cont=None):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, sw_file_ref=None, start_env=None, start_args=None, cont_ref=None, n_extra_outputs=0, is_tail_spawn=False, **kwargs):
 
-        if "expected_outputs" not in task_descriptor and "task_id" in task_descriptor:
+        if sw_file_ref is None and cont_ref is None:
+            raise BlameUserException("Skywriting tasks must specify either a continuation object or a .sw file")
+        if n_extra_outputs > 0:
+            raise BlameUserException("Skywriting can't deal with extra outputs")
+
+        if not is_tail_spawn:
             task_descriptor["expected_outputs"] = ["%s:retval" % task_descriptor["task_id"]]
-        if cont is not None:
-            cont_id = "%s:cont" % task_descriptor["task_id"]
-            spawned_cont_ref = block_store.ref_from_object(cont, "pickle", cont_id)
-            parent_task_record.publish_ref(spawned_cont_ref)
-            task_descriptor["task_private"]["cont"] = spawned_cont_ref
-            task_descriptor["dependencies"].append(spawned_cont_ref)
+            task_descriptor["task_private"]["ret_output"] = 0
+
+        if cont_ref is not None:
+            task_descriptor["task_private"]["cont"] = cont_ref
+            task_descriptor["dependencies"].append(cont_ref)
         else:
             # External call: SW file should be started from the beginning.
             task_descriptor["task_private"]["swfile_ref"] = sw_file_ref
@@ -1040,160 +1004,22 @@ class SkywritingExecutor(BaseExecutor):
             task_descriptor["task_private"]["start_args"] = start_args
         add_package_dep(parent_task_record.package_ref, task_descriptor)
         
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+        return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, 
+                                                  is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
 
-    def start_sw_script(self, swref, args, env):
-
-        sw_file = self.block_store.retrieve_filename_for_ref(swref)
-        parser = SWScriptParser()
-        with open(sw_file, "r") as sw_fp:
-            script = parser.parse(sw_fp.read())
-
-        if script is None:
-            raise Exception("Couldn't parse %s" % swref)
-    
-        cont = SWContinuation(script, SimpleContext())
-        if env is not None:
-            cont.context.bind_identifier('env', env)
-        if args is not None:
-            cont.context.bind_identifier('argv', args)
-        return cont
+    def get_command(self):
+        command = ["python", os.path.join(SkywritingExecutor.sw_interpreter_base, "interpreter_main.py")]
+        if SkywritingExecutor.stdlibbase is not None:
+            command.extend(["--stdlib-base", SkywritingExecutor.stdlibbase])
+        return command
 
     @staticmethod
     def can_run():
-        return True
-
-    def _run(self, task_private, task_descriptor, task_record):
-
-        sw_private = task_private
-        self.task_id = task_descriptor["task_id"]
-        self.task_record = task_record
-
-        try:
-            save_continuation = task_descriptor["save_continuation"]
-        except KeyError:
-            save_continuation = False
-
-        self.lazy_derefs = set()
-        self.continuation = None
-        self.result = None
-
-        if "cont" in sw_private:
-            self.continuation = self.block_store.retrieve_object_for_ref(sw_private["cont"], 'pickle')
+        if SkywritingExecutor.sw_interpreter_base is None:
+            ciel.log.error("Can't run Skywriting: CIEL_SW_BASE not in environment", "SKYWRITING", logging.WARNING)
+            return False
         else:
-            self.continuation = self.start_sw_script(sw_private["swfile_ref"], sw_private["start_args"], sw_private["start_env"])
-
-        self.continuation.context.restart()
-        task_context = TaskContext(self.continuation.context, self)
-        
-        task_context.bind_tasklocal_identifier("spawn", LambdaFunction(lambda x: self.spawn_func(x[0], x[1])))
-        task_context.bind_tasklocal_identifier("spawn_exec", LambdaFunction(lambda x: self.spawn_exec_func(x[0], x[1], x[2])))
-        task_context.bind_tasklocal_identifier("spawn_other", LambdaFunction(lambda x: self.spawn_other(x[0], x[1])))
-        task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
-        task_context.bind_tasklocal_identifier("int", SafeLambdaFunction(lambda x: int(x[0]), self))
-        task_context.bind_tasklocal_identifier("range", SafeLambdaFunction(lambda x: range(*x), self))
-        task_context.bind_tasklocal_identifier("len", SafeLambdaFunction(lambda x: len(x[0]), self))
-        task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0], self))
-        task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
-        task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
-        task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: package_lookup(self.task_record, self.block_store, x[0])))
-
-        visitor = StatementExecutorVisitor(task_context)
-        
-        try:
-            result = visitor.visit(self.continuation.task_stmt, self.continuation.stack, 0)
-
-            # The script finished successfully
-
-            # XXX: This is for the unusual case that we have a task fragment that runs 
-            # to completion without returning anything.
-            # Could maybe use an ErrorRef here, but this might not be erroneous if, 
-            # e.g. the interactive shell is used.
-            if result is None:
-                result = SWErrorReference('NO_RETURN_VALUE', 'null')
-
-            result_ref = self.block_store.ref_from_object(result, "json", task_descriptor["expected_outputs"][0])
-            self.task_record.publish_ref(result_ref)
-            
-        except ExecutionInterruption, ei:
-           
-            self.task_record.spawn_task({"handler": "swi", 
-                                           "expected_outputs": task_descriptor["expected_outputs"],
-                                           "dependencies": list(self.lazy_derefs),
-                                           "task_private": { "hint": "small_task" }},
-                                          cont=self.continuation)
-
-# TODO: Fix this?
-#        if "save_continuation" in task_descriptor and task_descriptor["save_continuation"]:
-#            self.save_cont_uri, _ = self.block_store.store_object(self.continuation, 
-#                                                                  'pickle', 
-#                                                                  "%s:saved_cont" % task_descriptor["task_id"])
-            
-    def spawn_func(self, spawn_expr, args):
-
-        args = self.do_eager_thunks(args)
-        spawned_task_stmt = ast.Return(ast.SpawnedFunction(spawn_expr, args))
-        cont = SWContinuation(spawned_task_stmt, SimpleContext())
-        new_task = self.task_record.spawn_task({"handler": "swi"}, cont=cont)
-
-        # Return new future reference to the interpreter
-        return SW2_FutureReference(new_task["expected_outputs"][0])
-
-    def do_eager_thunks(self, args):
-
-        def resolve_thunks_mapper(leaf):
-            if isinstance(leaf, SWDereferenceWrapper):
-                return self.eager_dereference(leaf.ref)
-            else:
-                return leaf
-
-        return map_leaf_values(resolve_thunks_mapper, args)
-
-    def spawn_other(self, executor_name, executor_args_dict):
-        # Args dict arrives from sw with unicode keys :(
-        str_args = dict([(str(k), v) for (k, v) in executor_args_dict.items()])
-        try:
-            small_task = str_args.pop("small_task")
-        except:
-            small_task = False
-        return spawn_other(self.task_record, executor_name, small_task, **str_args)
-
-    def spawn_exec_func(self, executor_name, args, num_outputs):
-        return spawn_other(self.task_record, executor_name, False, args=args, n_outputs=num_outputs)
-
-    def exec_func(self, executor_name, args, num_outputs):
-        return spawn_other(self.task_record, executor_name, True, args=args, n_outputs=num_outputs)        
-
-    def lazy_dereference(self, ref):
-        self.lazy_derefs.add(ref)
-        return SWDereferenceWrapper(ref)
-
-    def eager_dereference(self, ref):
-        # For SWI, all decodes are JSON
-        real_ref = self.task_record.retrieve_ref(ref)
-        ret = self.block_store.retrieve_object_for_ref(real_ref, "json")
-        self.lazy_derefs.discard(ref)
-        return ret
-
-    def include_script(self, target_expr):
-        if isinstance(target_expr, basestring):
-            # Name may be relative to the local stdlib.
-            if not target_expr.startswith('http'):
-                target_url = 'file://%s' % os.path.join(self.stdlibbase, target_expr)
-            else:
-                target_url = target_expr
-            target_ref = self.block_store.get_ref_for_url(target_url, 0, self.task_id)
-        elif isinstance(target_expr, SWRealReference):    
-            target_ref = target_expr
-        else:
-            raise BlameUserException('Invalid object %s passed as the argument of include', 'INCLUDE', logging.ERROR)
-
-        try:
-            script = self.block_store.retrieve_object_for_ref(target_ref, 'script')
-        except:
-            ciel.log.error('Error parsing included script', 'INCLUDE', logging.ERROR, True)
-            raise BlameUserException('The included script did not parse successfully')
-        return script
+            return test_program(["python", os.path.join(SkywritingExecutor.sw_interpreter_base, "interpreter_main.py"), "--version"], "Skywriting")
 
 class SimpleExecutor(BaseExecutor):
 
@@ -1201,7 +1027,10 @@ class SimpleExecutor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, block_store, args, n_outputs):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, args, n_outputs, is_tail_spawn=False):
+
+        if is_tail_spawn and len(task_descriptor["expected_outputs"]) != n_outputs:
+            raise BlameUserException("SimpleExecutor being built with delegated outputs %s but n_outputs=%d" % (task_descriptor["expected_outputs"], n_outputs))
 
         # Throw early if the args are bad
         cls.check_args_valid(args, n_outputs)
@@ -1215,17 +1044,22 @@ class SimpleExecutor(BaseExecutor):
         name_prefix = "%s:%s:" % (cls.handler_name, sha.hexdigest())
 
         # Name our outputs
-        if "expected_outputs" not in task_descriptor:
+        if not is_tail_spawn:
             task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]
 
         # Add the args dict
         args_name = "%ssimple_exec_args" % name_prefix
-        args_ref = block_store.ref_from_object(args, "pickle", args_name)
+        args_ref = ref_from_object(args, "pickle", args_name)
         parent_task_record.publish_ref(args_ref)
         task_descriptor["dependencies"].append(args_ref)
         task_descriptor["task_private"]["simple_exec_args"] = args_ref
         
-        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record, block_store)
+        BaseExecutor.build_task_descriptor(task_descriptor, parent_task_record)
+
+        if is_tail_spawn:
+            return None
+        else:
+            return [SW2_FutureReference(x) for x in task_descriptor["expected_outputs"]]
         
     def resolve_required_refs(self, args):
         try:
@@ -1258,7 +1092,7 @@ class SimpleExecutor(BaseExecutor):
         self.output_ids = task_descriptor["expected_outputs"]
         self.output_refs = [None for i in range(len(self.output_ids))]
         self.succeeded = False
-        self.args = self.block_store.retrieve_object_for_ref(task_private["simple_exec_args"], "pickle")
+        self.args = retrieve_object_for_ref(task_private["simple_exec_args"], "pickle")
 
         try:
             self.debug_opts = self.args['debug_options']
@@ -1285,208 +1119,6 @@ class SimpleExecutor(BaseExecutor):
     def _cleanup_task(self):
         pass
 
-    def cleanup(self):
-        pass
-    
-    def abort(self):
-        self._abort()
-        
-    def _abort(self):
-        pass
-
-class AsyncPushThread:
-
-    def __init__(self, block_store, ref, chunk_size=67108864):
-        self.block_store = block_store
-        self.ref = ref
-        self.chunk_size = chunk_size
-        self.next_threshold = self.chunk_size
-        self.success = None
-        self.lock = threading.Lock()
-        self.fetch_done = False
-        self.stream_done = False
-        self.stream_started = False
-        self.bytes_copied = 0
-        self.bytes_available = 0
-        self.condvar = threading.Condition(self.lock)
-        self.thread = None
-        self.filename = None
-
-    def start(self, fifos_dir):
-        self.fifos_dir = fifos_dir
-        self.file_fetch = self.block_store.fetch_ref_async(self.ref,
-                                                           chunk_size=self.chunk_size,
-                                                           result_callback=self.result, 
-                                                           reset_callback=self.reset, 
-                                                           progress_callback=self.progress)
-        if not self.fetch_done:
-            self.thread = threading.Thread(target=self.thread_main)
-            self.thread.start()
-        else:
-            ciel.log("Fetch for %s completed before first read; using file directly" % self.ref, "EXEC", logging.INFO)
-            with self.lock:
-                self.filename = self.file_fetch.get_filename()
-                self.stream_done = True
-                self.condvar.notify_all()
-
-    def thread_main(self):
-
-        with self.lock:
-            while self.bytes_available < self.next_threshold and not self.fetch_done:
-                self.condvar.wait()
-            if self.fetch_done:
-                ciel.log("Fetch for %s completed before we got %d bytes: using file directly" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
-                self.stream_done = True
-                self.filename = self.file_fetch.get_filename()
-                self.condvar.notify_all()
-                return
-            else:
-                self.stream_started = True
-        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.chunk_size), "EXEC", logging.INFO)
-        self.copy_loop()
-
-    def copy_loop(self):
-        
-        try:
-            read_filename = self.file_fetch.get_filename()
-            fifo_name = os.path.join(self.fifos_dir, "fifo-%s" % self.ref.id)
-            os.mkfifo(fifo_name)
-            with self.lock:
-                self.filename = fifo_name
-                self.condvar.notify_all()
-            with open(read_filename, "r") as input_fp:
-                with open(fifo_name, "w") as output_fp:
-                    while True:
-                        while True:
-                            buf = input_fp.read(4096)
-                            output_fp.write(buf)
-                            self.bytes_copied += len(buf)
-                            with self.lock:
-                                if self.success is False or (self.bytes_copied == self.bytes_available and self.fetch_done):
-                                    self.stream_done = True
-                                    self.condvar.notify_all()
-                                    ciel.log("FIFO-push for %s complete (success: %s)" % (self.ref, self.success), "EXEC", logging.INFO)
-                                    return
-                            if len(buf) < 4096:
-                                # EOF, for now.
-                                break
-                        with self.lock:
-                            self.next_threshold = self.bytes_copied + self.chunk_size
-                            while self.bytes_available < self.next_threshold and not self.fetch_done:
-                                self.condvar.wait()
-        except Exception as e:
-            ciel.log("Push thread for %s died with exception %s" % (read_filename, e), "EXEC", logging.WARNING)
-            with self.lock:
-                self.stream_done = True
-                self.condvar.notify_all()
-                
-    def get_completed_ref(self, is_sweetheart):
-        return self.file_fetch.get_completed_ref(is_sweetheart)
-
-    def result(self, success):
-        with self.lock:
-            if self.success is None:
-                self.success = success
-                self.fetch_done = True
-                self.condvar.notify_all()
-            # Else we've already failed due to a reset.
-
-    def progress(self, bytes_downloaded):
-        with self.lock:
-            self.bytes_available = bytes_downloaded
-            if self.bytes_available >= self.next_threshold:
-                self.condvar.notify_all()
-
-    def reset(self):
-        ciel.log("Reset of streamed fetch for %s!" % self.ref, "EXEC", logging.WARNING)
-        should_cancel = False
-        with self.lock:
-            if self.stream_started:
-                should_cancel = True
-        if should_cancel:
-            ciel.log("FIFO-stream had begun: failing transfer", "EXEC", logging.ERROR)
-            self.file_fetch.cancel()
-
-    def get_filename(self):
-        with self.lock:
-            while self.filename is None and self.success is not False:
-                self.condvar.wait()
-            if self.filename is not None:
-                return self.filename
-            else:
-                raise Exception("Transfer for fetch thread %s failed" % self.ref)
-
-    def cancel(self):
-        self.file_fetch.cancel()
-
-    def wait(self):
-        with self.lock:
-            while not self.stream_done:
-                self.condvar.wait()
-
-class AsyncPushGroup:
-
-    def __init__(self, threads, sweethearts, task_record):
-        self.threads = threads
-        self.sweethearts = sweethearts
-        self.task_record = task_record
-
-    def __enter__(self):
-        self.fifos_dir = tempfile.mkdtemp(prefix="ciel-fetch-fifos-")
-        for thread in self.threads:
-            thread.start(self.fifos_dir)
-        return self
-
-    def __exit__(self, exnt, exnv, exnbt):
-        if exnt is not None:
-            ciel.log("AsyncPushGroup exiting with exception %s: cancelling threads..." % repr(exnv), "EXEC", logging.WARNING)
-            for thread in self.threads:
-                thread.cancel()
-        ciel.log("Waiting for push threads to complete", "EXEC", logging.INFO)
-        for thread in self.threads:
-            thread.wait()
-        shutil.rmtree(self.fifos_dir)
-        failed_threads = filter(lambda t: not t.success, self.threads)
-        failure_bindings = dict([(ft.ref.id, SW2_TombstoneReference(ft.ref.id, ft.ref.location_hints)) for ft in failed_threads])
-        if len(failure_bindings) > 0:
-            for fail in failure_bindings:
-                ciel.log("Failed fetch: %s" % fail, "EXEC", logging.WARNING)
-            if exnt is not None:
-                ciel.log("Transfers have failed: replacing old exception with MissingInputException", "EXEC", logging.WARNING)
-            raise MissingInputException(failure_bindings)
-        else:
-            extra_publishes = {}
-            for t in self.threads:
-                new_ref = t.get_completed_ref(t.ref.id in self.sweethearts)
-                if new_ref is not None:
-                    extra_publishes[new_ref.id] = new_ref
-            if len(extra_publishes) > 0:
-                self.task_record.prepublish_refs(extra_publishes)
-
-        return False
-
-class DummyPushThread:
-
-    def __init__(self, filename):
-        self.filename = filename
-        
-    def get_filename(self):
-        return self.filename
-
-    def wait(self):
-        pass
-
-class DummyPushGroup:
-
-    def __init__(self, dummys):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exnt, exnv, exnbt):
-        return False
-
 class ProcessRunningExecutor(SimpleExecutor):
 
     def __init__(self, worker):
@@ -1494,8 +1126,14 @@ class ProcessRunningExecutor(SimpleExecutor):
 
         self._lock = threading.Lock()
         self.proc = None
+        self.context_mgr = None
 
     def _execute(self):
+        self.context_mgr = ContextManager("Simple Task %s" % self.task_id)
+        with self.context_mgr:
+            self.guarded_execute()
+
+    def guarded_execute(self):
         try:
             self.input_refs = self.args['inputs']
         except KeyError:
@@ -1504,6 +1142,10 @@ class ProcessRunningExecutor(SimpleExecutor):
             self.stream_output = self.args['stream_output']
         except KeyError:
             self.stream_output = False
+        try:
+            self.pipe_output = self.args['pipe_output']
+        except KeyError:
+            self.pipe_output = False
         try:
             self.eager_fetch = self.args['eager_fetch']
         except KeyError:
@@ -1516,40 +1158,48 @@ class ProcessRunningExecutor(SimpleExecutor):
         except KeyError:
             self.make_sweetheart = []
 
+        file_inputs = None
+        push_threads = None
+
         if self.eager_fetch:
-            push_threads = [DummyPushThread(x) for x in self.block_store.retrieve_filenames_for_refs(self.input_refs)]
-            push_ctx = DummyPushGroup(push_threads)
+            file_inputs = retrieve_filenames_for_refs(self.input_refs)
         else:
-            push_threads = [AsyncPushThread(self.block_store, ref) for ref in self.input_refs]
-            push_ctx = AsyncPushGroup(push_threads, self.make_sweetheart, self.task_record)
+            push_threads = [OngoingFetch(ref, chunk_size=67108864, must_block=True) for ref in self.input_refs]
+            for thread in push_threads:
+                self.context_mgr.add_context(thread)
 
-        with push_ctx:
+        # TODO: Make these use OngoingOutputs and the context manager.                
+        with list_with([make_local_output(id, may_pipe=self.pipe_output) for id in self.output_ids]) as out_file_contexts:
 
-            file_inputs = [push_thread.get_filename() for push_thread in push_threads]
-        
-            with list_with([self.block_store.make_local_output(id) for id in self.output_ids]) as out_file_contexts:
+            if self.stream_output:
+       
+                stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
+                self.task_record.prepublish_refs(stream_refs)
 
-                file_outputs = [ctx.get_filename() for ctx in out_file_contexts]
-        
-                if self.stream_output:
-           
-                    stream_refs = [ctx.get_stream_ref() for ctx in out_file_contexts]
-                    to_publish = dict([(ref.id, ref) for ref in stream_refs])
-                    self.task_record.prepublish_refs(to_publish)
+            # We do these last, as these are the calls which can lead to stalls whilst we await a stream's beginning or end.
+            if file_inputs is None:
+                file_inputs = []
+                for thread in push_threads:
+                    (filename, is_blocking) = thread.get_filename()
+                    if is_blocking is not None:
+                        assert is_blocking is True
+                    file_inputs.append(filename)
+            
+            file_outputs = [filename for (filename, is_fd) in (ctx.get_filename_or_fd() for ctx in out_file_contexts)]
+            
+            self.proc = self.start_process(file_inputs, file_outputs)
+            add_running_child(self.proc)
 
-                self.proc = self.start_process(file_inputs, file_outputs)
-                add_running_child(self.proc)
+            rc = self.await_process(file_inputs, file_outputs)
+            remove_running_child(self.proc)
 
-                rc = self.await_process(file_inputs, file_outputs)
-                remove_running_child(self.proc)
+            self.proc = None
 
-                self.proc = None
+            #        if "trace_io" in self.debug_opts:
+            #            transfer_ctx.log_traces()
 
-                #        if "trace_io" in self.debug_opts:
-                #            transfer_ctx.log_traces()
-
-                if rc != 0:
-                    raise OSError()
+            if rc != 0:
+                raise OSError()
 
         for i, output in enumerate(out_file_contexts):
             self.output_refs[i] = output.get_completed_ref()
@@ -1565,7 +1215,7 @@ class ProcessRunningExecutor(SimpleExecutor):
 
     def _cleanup_task(self):
         pass
-        
+
     def _abort(self):
         if self.proc is not None:
             self.proc.kill()
@@ -1741,8 +1391,8 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                         anything_read = True
                     if c == ",":
                         if message[0] == "C":
-                           timestamp = float(message[1:])
-                           ciel.engine.publish("worker_event", "Process log %f Computing" % timestamp)
+                            timestamp = float(message[1:])
+                            ciel.engine.publish("worker_event", "Process log %f Computing" % timestamp)
                         elif message[0] == "I":
                             try:
                                 params = message[1:].split("|")
@@ -1810,7 +1460,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         ciel.engine.publish("worker_event", "Java: fetching JAR")
 
-        self.jar_filenames = self.block_store.retrieve_filenames_for_refs(self.jar_refs)
+        self.jar_filenames = retrieve_filenames_for_refs(self.jar_refs)
 
     def get_process_args(self):
         cp = os.getenv('CLASSPATH')
@@ -1850,7 +1500,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
-        self.dll_filenames = self.block_store.retrieve_filenames_for_refs(self.dll_refs)
+        self.dll_filenames = retrieve_filenames_for_refs(self.dll_refs)
 
     def get_process_args(self):
 
@@ -1887,7 +1537,7 @@ class CExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         ciel.engine.publish("worker_event", "C-exec: fetching SOs")
-        self.so_filenames = self.retrieve_filenames_for_refs(self.so_refs)
+        self.so_filenames = retrieve_filenames_for_refs(self.so_refs)
 
     def get_process_args(self):
 
@@ -1918,10 +1568,10 @@ class GrabURLExecutor(SimpleExecutor):
         ciel.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
         
         for i, url in enumerate(urls):
-            ref = self.block_store.get_ref_for_url(url, version, self.task_id)
+            ref = get_ref_for_url(url, version, self.task_id)
             self.task_record.publish_ref(ref)
             out_str = simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
-            self.block_store.cache_object(ref, "json", self.output_ids[i])
+            cache_object(ref, "json", self.output_ids[i])
             self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
 
         ciel.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
@@ -1941,7 +1591,7 @@ class SyncExecutor(SimpleExecutor):
 
     def _execute(self):
         reflist = [self.task_record.retrieve_ref(x) for x in self.args["inputs"]]
-        self.output_refs[0] = self.block_store.ref_from_object(reflist, "json", self.output_ids[0])
+        self.output_refs[0] = ref_from_object(reflist, "json", self.output_ids[0])
 
 # XXX: Passing ref_of_string to get round a circular import. Should really move ref_of_string() to
 #      a nice utility package.
@@ -1976,16 +1626,12 @@ class InitExecutor(BaseExecutor):
         args_dict = task_private["start_args"]
         # Some versions of simplejson make these ascii keys into unicode objects :(
         args_dict = dict([(str(k), v) for (k, v) in args_dict.items()])
-        initial_task_out_refs = spawn_other(task_record,
-                                            task_private["start_handler"], 
-                                            True,
-                                            **args_dict)
-
-        # Spawn this one manually so I can delegate my output
-        final_task_descriptor = {"handler": "sync",
-                                 "expected_outputs": task_descriptor["expected_outputs"],
-                                 "task_private": {"hint": "small_task"}}
-        task_record.spawn_task(final_task_descriptor, args={"inputs": initial_task_out_refs}, n_outputs=1)
-
-    def cleanup(self):
-        pass
+        initial_task_out_obj = spawn_task_helper(task_record,
+                                                 task_private["start_handler"], 
+                                                 True,
+                                                 **args_dict)
+        if isinstance(initial_task_out_obj, SWRealReference):
+            initial_task_out_refs = [initial_task_out_obj]
+        else:
+            initial_task_out_refs = list(initial_task_out_obj)
+        spawn_task_helper(task_record, "sync", True, delegated_outputs = task_descriptor["expected_outputs"], args = {"inputs": initial_task_out_refs}, n_outputs=1)

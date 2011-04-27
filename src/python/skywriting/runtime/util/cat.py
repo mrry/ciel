@@ -13,7 +13,8 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from optparse import OptionParser
-from skywriting.runtime.block_store import BlockStore, SWReferenceJSONEncoder,\
+from skywriting.runtime.object_cache import retrieve_object_for_ref
+from shared.references import SWReferenceJSONEncoder,\
     json_decode_object_hook
 import sys
 import os
@@ -29,10 +30,6 @@ def main():
     parser.add_option("-j", "--json", action="store_true", dest="json", help="Set this option to use JSON pretty printing", default=False)
     (options, args) = parser.parse_args()
     
-    # Retrieves should work anyway; the arguments are mainly needed for storing
-    # stuff.
-    bs = BlockStore("dummy_hostname", "0", None)
-    
     if options.refs:
         ref_ids = args
         
@@ -45,11 +42,11 @@ def main():
             ref = ref_info['ref']
             
             if options.json:
-                obj = bs.retrieve_object_for_ref(ref, 'json')
+                obj = retrieve_object_for_ref(ref, 'json')
                 simplejson.dump(obj, sys.stdout, cls=SWReferenceJSONEncoder, indent=4)
                 print
             else:
-                fh = bs.retrieve_object_for_ref(ref, 'handle')
+                fh = retrieve_object_for_ref(ref, 'handle')
                 for line in fh:
                     sys.stdout.write(line)
                 fh.close()
@@ -59,11 +56,11 @@ def main():
         
         for url in urls:
             if options.json:
-                obj = bs.retrieve_object_for_ref(SWURLReference([url]), 'json')
+                obj = retrieve_object_for_ref(SWURLReference([url]), 'json')
                 simplejson.dump(obj, sys.stdout, cls=SWReferenceJSONEncoder, indent=4)
                 print
             else:
-                fh = bs.retrieve_object_for_ref(SWURLReference([url]), 'handle')
+                fh = retrieve_object_for_ref(SWURLReference([url]), 'handle')
                 print fh
                 for line in fh:
                     sys.stdout.write(line)

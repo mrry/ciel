@@ -14,13 +14,13 @@
 from urlparse import urljoin
 import httplib2
 import logging
-import cherrypy
 import simplejson
 
 from cherrypy.process import plugins
 from Queue import Queue, Empty
 from skywriting.runtime.plugins import THREAD_TERMINATOR
 import threading
+import ciel
     
 class PingerPoker:
     pass
@@ -96,10 +96,10 @@ class MasterRecoveryMonitor(plugins.SimplePlugin):
         try:
             response, _ = h.request(self.master_url, 'GET')
         except:
-            cherrypy.log('Error contacting primary master', 'MONITOR', logging.WARN, True)
+            ciel.log('Error contacting primary master', 'MONITOR', logging.WARN, True)
             return False
         if response['status'] != '200':
-            cherrypy.log('Got unusual status from primary master: %s' % response['status'], 'MONITOR', logging.WARN)
+            ciel.log('Got unusual status from primary master: %s' % response['status'], 'MONITOR', logging.WARN)
             return False
         return True
     
@@ -112,13 +112,13 @@ class MasterRecoveryMonitor(plugins.SimplePlugin):
         with self._lock:
             for netloc in self.workers:
                 h = httplib2.Http()
-                cherrypy.log('Notifying worker: %s' % netloc, 'MONITOR', logging.INFO)
+                ciel.log('Notifying worker: %s' % netloc, 'MONITOR', logging.INFO)
                 try:
                     response, _ = h.request('http://%s/master/' % netloc, 'POST', master_details)
                     if response['status'] != '200':
-                        cherrypy.log('Error %s when notifying worker of new master: %s' % (response['status'], netloc), 'MONITOR', logging.WARN, True)
+                        ciel.log('Error %s when notifying worker of new master: %s' % (response['status'], netloc), 'MONITOR', logging.WARN, True)
                 except:
-                    cherrypy.log('Error notifying worker of new master: %s' % netloc, 'MONITOR', logging.WARN, True)
+                    ciel.log('Error notifying worker of new master: %s' % netloc, 'MONITOR', logging.WARN, True)
     
     def thread_main(self):
         
@@ -127,11 +127,11 @@ class MasterRecoveryMonitor(plugins.SimplePlugin):
         
             try:    
                 self.register_as_backup()
-                cherrypy.log('Registered as backup master for %s' % self.master_url, 'MONITOR', logging.INFO)
+                ciel.log('Registered as backup master for %s' % self.master_url, 'MONITOR', logging.INFO)
                 self.is_connected = True
                 break
             except:
-                cherrypy.log('Unable to register with master', 'MONITOR', logging.WARN, True)
+                ciel.log('Unable to register with master', 'MONITOR', logging.WARN, True)
                 pass
         
             try:
@@ -180,17 +180,7 @@ class BackupSender:
     def register_standby_url(self, url):
         self.is_logging = True
         self.queue.put(('U', url))
-        
-    def spawn_tasks(self, parent_id, task_descriptor):
-        if not self.is_logging:
-            return
-        self.queue.put(('S', parent_id, task_descriptor))
-        
-    def commit_task(self, task_id, commit_bindings):
-        if not self.is_logging:
-            return
-        self.queue.put(('C', task_id, commit_bindings))
-        
+
     def publish_refs(self, task_id, ref):
         if not self.is_logging:
             return
@@ -210,18 +200,6 @@ class BackupSender:
         if not self.is_logging:
             return
         self.queue.put(('D', id, data))
-        
-    def do_spawn_tasks(self, parent_id, task_descriptor):
-        for url in self.standby_urls:
-            spawn_url = urljoin(url, '/task/%s/spawn' % parent_id)
-            h = httplib2.Http()
-            h.request(spawn_url, 'POST', task_descriptor)
-        
-    def do_commit_task(self, task_id, commit_bindings):
-        for url in self.standby_urls:
-            spawn_url = urljoin(url, '/task/%s/commit' % task_id)
-            h = httplib2.Http()
-            h.request(spawn_url, 'POST', commit_bindings)
 
     def do_publish_refs(self, task_id, ref):
         for url in self.standby_urls:
@@ -287,10 +265,6 @@ class BackupSender:
                 try:
                     if log_entry[0] == 'U':
                         self.standby_urls.add(log_entry[1])
-                    elif log_entry[0] == 'S':
-                        self.do_spawn_tasks(log_entry[1], log_entry[2])
-                    elif log_entry[0] == 'C':
-                        self.do_commit_task(log_entry[1], log_entry[2])
                     elif log_entry[0] == 'P':
                         self.do_publish_refs(log_entry[1], log_entry[2])
                     elif log_entry[0] == 'W':
@@ -302,4 +276,4 @@ class BackupSender:
                     else:
                         raise
                 except:
-                    cherrypy.log('Error passing log to backup master.', 'BACKUP_SENDER', logging.WARN, True)
+                    ciel.log('Error passing log to backup master.', 'BACKUP_SENDER', logging.WARN, True)

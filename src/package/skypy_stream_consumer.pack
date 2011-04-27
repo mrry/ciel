@@ -6,7 +6,7 @@
 	{"handler": "skypy",
 	 "args": {"pyfile_ref": {"__package__": "skypy_main"}, 
 	 	  "entry_point": "skypy_main", 
-		  "entry_args": [{"__args__": 0, "default": "10"}, {"__args__": 1, "default": "false"}]
+		  "entry_args": [{"__args__": 0, "default": "10"}, {"__args__": 1, "default": "false"}, {"__args__": 2, "default": "false"}]
 		  }
 	}
 }

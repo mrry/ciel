@@ -85,8 +85,8 @@ public class PiMapper implements Task {
 		/**
 		 * args: (int) number of samples, (int) initial offset.
 		 */
-		int numSamples = Integer.parseInt(args[0]);
-		int offset = Integer.parseInt(args[1]);
+		long numSamples = Long.parseLong(args[0]);
+		long offset = Long.parseLong(args[1]);
 		final HaltonSequence haltonsequence = new HaltonSequence(offset);
 		long numInside = 0L;
 		long numOutside = 0L;

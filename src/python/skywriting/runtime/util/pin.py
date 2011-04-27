@@ -12,11 +12,11 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.block_store import sw_to_external_url,\
-    json_decode_object_hook, get_netloc_for_sw_url, get_id_for_sw_url
+    get_netloc_for_sw_url, get_id_for_sw_url
 import sys
 import httplib2
 import simplejson
-from shared.references import SW2_ConcreteReference
+from shared.references import SW2_ConcreteReference, json_decode_object_hook
 from optparse import OptionParser
 
 def main():

@@ -18,8 +18,7 @@ import httplib2
 import os
 import sys
 import simplejson
-from skywriting.runtime.block_store import json_decode_object_hook,\
-    SWReferenceJSONEncoder
+from shared.references import SWReferenceJSONEncoder, json_decode_object_hook
 import uuid
 
 def main():

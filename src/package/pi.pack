@@ -4,6 +4,10 @@
 	},
  "start":
 	{"handler": "swi",
-	 "args": {"sw_file_ref": {"__package__": "pi-sw"}}
-	}
+	 "args": {"sw_file_ref": {"__package__": "pi-sw"},
+	 "start_env": {"NUM_MAPPERS": {"__env__": "NUM_MAPPERS", "default": "100"},
+	 	       "NUM_SAMPLES": {"__env__": "NUM_SAMPLES", "default": "10000000"}}}
+	},
+ "options":
+	{"scheduler": "tworandom"}
 }

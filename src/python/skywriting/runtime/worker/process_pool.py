@@ -17,13 +17,16 @@ import uuid
 import ciel
 import logging
 import simplejson
+from datetime import datetime
 from shared.references import SW2_FixedReference
-import httplib2
 import urlparse
-from skywriting.runtime.references import SWReferenceJSONEncoder
+from shared.references import SWReferenceJSONEncoder
 import pickle
-import fcntl
 import threading
+from skywriting.runtime.pycurl_rpc import post_string
+from skywriting.runtime.executor_helpers import write_fixed_ref_string
+from skywriting.runtime.block_store import is_ref_local
+from shared.io_helpers import write_framed_json
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""
@@ -33,6 +36,9 @@ class ProcessRecord:
         self.pid = pid
         self.protocol = protocol
         self.job_id = None
+        self.is_free = False
+        self.last_used_time = None
+        self.soft_cache_refs = set()
         
         # The worker communicates with the process using a pair of named pipes.
         self.fifos_dir = tempfile.mkdtemp(prefix="ciel-ipc-fifos-")
@@ -47,11 +53,17 @@ class ProcessRecord:
         
         self._lock = threading.Lock()
         
+    def set_pid(self, pid):
+        self.pid = pid
+        
     def get_read_fifo(self):
         with self._lock:
             if self.from_process_fifo is None:
                 self.from_process_fifo = open(self.from_process_fifo_name, "r")
             return self.from_process_fifo
+        
+    def get_read_fifo_name(self):
+        return self.from_process_fifo_name
         
     def get_write_fifo(self):
         with self._lock:
@@ -59,14 +71,23 @@ class ProcessRecord:
                 self.to_process_fifo = open(self.to_process_fifo_name, "w")
             return self.to_process_fifo
         
+    def get_write_fifo_name(self):
+        return self.to_process_fifo_name
+        
     def cleanup(self):
         try:
             if self.from_process_fifo is not None: 
-                os.close(self.from_process_fifo)
+                self.from_process_fifo.close()
             if self.to_process_fifo is not None:
-                os.close(self.to_process_fifo)
+                self.to_process_fifo.close()
         except:
             ciel.log('Error cleaning up process %s, ignoring' % self.id, 'PROCESS', logging.WARN)
+            
+    def kill(self):
+        ciel.log("Garbage collecting process %s" % self.id, "PROCESSPOOL", logging.INFO)
+        write_fp = self.get_write_fifo()
+        write_framed_json(("die", {"reason": "Garbage collected"}), write_fp)
+        self.cleanup()
         
     def as_descriptor(self):
         return {'id' : self.id,
@@ -80,11 +101,15 @@ class ProcessRecord:
 
 class ProcessPool:
     """Represents a collection of long-running processes attached to this worker."""
-
-    def __init__(self, bus, worker):
+    
+    def __init__(self, bus, worker, soft_cache_executors):
         self.processes = {}
         self.bus = bus
         self.worker = worker
+        self.lock = threading.Lock()
+        self.gc_thread = None
+        self.gc_thread_stop = threading.Event()
+        self.soft_cache_executors = soft_cache_executors
         
     def subscribe(self):
         self.bus.subscribe('start', self.start)
@@ -94,17 +119,77 @@ class ProcessPool:
         self.bus.unsubscribe('start', self.start)
         self.bus.unsubscribe('stop', self.stop)
         
+    def soft_cache_process(self, proc_rec, exec_cls, soft_cache_keys):
+        with self.lock:
+            ciel.log("Caching process %s" % proc_rec.id, "PROCESSPOOL", logging.INFO)
+            exec_cls.process_cache.add(proc_rec)
+            proc_rec.is_free = True
+            proc_rec.last_used_time = datetime.now()
+            proc_rec.soft_cache_refs = set()
+            for (refids, tag) in soft_cache_keys:
+                proc_rec.soft_cache_refs.update(refids)
+    
+    def get_soft_cache_process(self, exec_cls, dependencies):
+        if not hasattr(exec_cls, "process_cache"):
+            return None
+        with self.lock:
+            best_proc = None
+            ciel.log("Looking to re-use a process for class %s" % exec_cls.handler_name, "PROCESSPOOL", logging.INFO)
+            for proc in exec_cls.process_cache:
+                hits = 0
+                for ref in dependencies:
+                    if ref.id in proc.soft_cache_refs:
+                        hits += 1
+                ciel.log("Process %s: has %d/%d cached" % (proc.id, hits, len(dependencies)), "PROCESSPOOL", logging.INFO)
+                if best_proc is None or best_proc[1] < hits:
+                    best_proc = (proc, hits)
+            if best_proc is None:
+                return None
+            else:
+                proc = best_proc[0]
+                ciel.log("Re-using process %s" % proc.id, "PROCESSPOOL", logging.INFO)
+                exec_cls.process_cache.remove(proc)
+                proc.is_free = False
+                return proc
+        
+    def garbage_thread(self):
+        while True:
+            now = datetime.now()
+            with self.lock:
+                for executor in self.soft_cache_executors:
+                    dead_recs = []
+                    for proc_rec in executor.process_cache:
+                        time_since_last_use = now - proc_rec.last_used_time
+                        if time_since_last_use.seconds > 30:
+                            proc_rec.kill()
+                            dead_recs.append(proc_rec)
+                    for dead_rec in dead_recs:
+                        executor.process_cache.remove(dead_rec)
+            self.gc_thread_stop.wait(60)
+            if self.gc_thread_stop.isSet():
+                with self.lock:
+                    for executor in self.soft_cache_executors:
+                        for proc_rec in executor.process_cache:
+                            try:
+                                proc_rec.kill()
+                            except Exception as e:
+                                ciel.log("Failed to shut a process down (%s)" % repr(e), "PROCESSPOOL", logging.WARNING)
+                ciel.log("Process pool garbage collector: terminating", "PROCESSPOOL", logging.INFO)
+                return
+        
     def start(self):
-        pass
+        self.gc_thread = threading.Thread(target=self.garbage_thread)
+        self.gc_thread.start()
     
     def stop(self):
+        self.gc_thread_stop.set()
         for record in self.processes.values():
             record.cleanup()
         
     def get_reference_for_process(self, record):
         ref = SW2_FixedReference(record.id, self.worker.block_store.netloc)
-        if not self.worker.block_store.is_ref_local(ref):
-            self.worker.block_store.write_fixed_ref_string(pickle.dumps(record.as_descriptor()), ref)
+        if not is_ref_local(ref):
+            write_fixed_ref_string(pickle.dumps(record.as_descriptor()), ref)
         return ref
         
     def create_job_for_process(self, record):
@@ -116,15 +201,11 @@ class ProcessPool:
         master_task_submit_uri = urlparse.urljoin(self.worker.master_url, "control/job/")
         
         try:
-            http = httplib2.Http()
-            (response, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(root_task_descriptor, cls=SWReferenceJSONEncoder))
+            message = simplejson.dumps(root_task_descriptor, cls=SWReferenceJSONEncoder)
+            content = post_string(master_task_submit_uri, message)
         except Exception, e:
             ciel.log('Network error submitting process job to master', 'PROCESSPOOL', logging.WARN)
             raise e
-
-        if response['status'] != '200':
-            ciel.log('HTTP error submitting process job to master: %s' % response['status'], 'PROCESSPOOL', logging.WARN)
-            raise
 
         job_descriptor = simplejson.loads(content)
         record.job_id = job_descriptor['job_id']

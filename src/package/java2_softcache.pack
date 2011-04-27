@@ -1,0 +1,12 @@
+{"package": 
+	    {"tests-jar": {"filename": "../../dist/sky-eg-tests.jar"}},
+ "start": 
+ 	  { "handler": "java2",
+ 	    "args": {
+	    	    "class_name" : "skywriting.examples.tests.java2.SoftCacheTest",
+	    	    "jar_lib" : [{"__package__": "tests-jar"}],
+		    "args" : [42],
+		    "n_outputs" : 1}
+	  },
+ "result": [{"__decode_ref__": "noop"}]
+}

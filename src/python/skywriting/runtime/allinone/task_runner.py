@@ -13,8 +13,6 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from skywriting.runtime.task_graph import DynamicTaskGraph, TaskGraphUpdate
 import threading
-import Queue
-from skywriting.runtime.task_executor import TaskExecutorPlugin
 from skywriting.runtime.executors import ExecutionFeatures
 from skywriting.runtime.task import build_taskpool_task_from_descriptor,\
     TASK_COMMITTED
@@ -23,11 +21,13 @@ import logging
 import multiprocessing
 from skywriting.runtime.block_store import BlockStore
 import sys
+from skywriting.runtime.task_executor import TaskExecutorPlugin
 
 ACTION_SPAWN = 0
 ACTION_PUBLISH = 1
 ACTION_COMPLETE = 2
 ACTION_STOP = 3
+ACTION_REPORT = 4
 
 class ThreadTerminator:
     pass
@@ -40,8 +40,6 @@ class AllInOneJobOutput:
         self.result = None
    
     def is_queued_streaming(self):
-        return False
-    def is_assigned_streaming(self):
         return False
     def is_blocked(self):
         return True
@@ -71,11 +69,8 @@ class QueueMasterProxy:
     def publish_refs(self, task_id, refs):
         self.response_queue.put((ACTION_PUBLISH, (task_id, refs)))
      
-    def spawn_tasks(self, parent_task_id, tasks):
-        self.response_queue.put(((ACTION_SPAWN), (parent_task_id, tasks)))
-
-    def commit_task(self, task_id, bindings, saved_continuation_uri=None, replay_uuid_list=None):
-        self.response_queue.put((ACTION_COMPLETE, (task_id, bindings)))
+    def report_tasks(self, job_id, root_task_id, report):
+        self.response_queue.put((ACTION_REPORT, (report, root_task_id)))
         
 class AllInOneMasterProxy:
     
@@ -96,7 +91,7 @@ class AllInOneMasterProxy:
         tx = TaskGraphUpdate()
         
         for task_descriptor in tasks:
-            task_object = build_taskpool_task_from_descriptor(task_descriptor['task_id'], task_descriptor, None, parent_task)
+            task_object = build_taskpool_task_from_descriptor(task_descriptor, None, parent_task)
             tx.spawn(task_object)
         
         tx.commit(self.task_graph)
@@ -112,6 +107,35 @@ class AllInOneMasterProxy:
         tx.commit(self.task_graph)
 
         task.state = TASK_COMMITTED
+        
+    def report_tasks(self, report, toplevel_task_id):
+
+        task = self.task_graph.get_task(toplevel_task_id)
+
+        tx = TaskGraphUpdate()
+        
+        for (parent_id, success, payload) in report:
+            parent_task = self.task_graph.get_task(parent_id)
+            if success:
+                (spawned, published) = payload
+                
+                for child in spawned:
+                    child_task = build_taskpool_task_from_descriptor(child, parent_task)
+                    tx.spawn(child_task)
+                    parent_task.children.append(child_task)
+                
+                for ref in published:
+                    tx.publish(ref, parent_task)
+            
+            else:
+                # Only one failed task per-report, at the moment.
+                self.investigate_task_failure(parent_task, payload)
+                self.lazy_task_pool.worker_pool.worker_idle(toplevel_task_id.worker)
+                ciel.engine.publish('schedule')
+                return
+                
+        tx.commit(self.task_graph)
+        #self.task_graph.reduce_graph_for_references(toplevel_task.expected_outputs)
         
     def failed_task(self, task_id, reason=None, details=None, bindings={}):
         raise
@@ -136,7 +160,7 @@ class TaskRunner:
         self.options = options
 
         self.is_running = False
-        self.num_workers = options.num_workers
+        self.num_workers = options.num_threads
         self.workers = None
 
     def run(self):
@@ -150,7 +174,7 @@ class TaskRunner:
         ciel.log('Starting %d worker threads.' % self.num_workers, 'TASKRUNNER', logging.INFO)        
         for _ in range(self.num_workers):
             try:
-                self.workers.append(multiprocessing.Process(target=worker_process_main, args=(self.options.skypybase, self.options.lib, self.options.blockstore, self.task_queue, self.response_queue)))
+                self.workers.append(multiprocessing.Process(target=worker_process_main, args=(self.options.blockstore, self.task_queue, self.response_queue)))
             except:
                 print sys.exc_info()
 
@@ -185,17 +209,24 @@ class TaskRunner:
                 self.master_proxy.publish_refs(*args)
             elif action == ACTION_COMPLETE:
                 self.master_proxy.commit_task(*args)
+            elif action == ACTION_REPORT:
+                self.master_proxy.report_tasks(*args)
             elif action == ACTION_STOP:
                 return
+  
+class PseudoWorker:
     
-def worker_process_main(skypybase, lib, base_dir, task_queue, response_queue):
+    def __init__(self, block_store):
+        self.block_store = block_store
+    
+def worker_process_main(base_dir, task_queue, response_queue):
     
     master_proxy = QueueMasterProxy(response_queue)
     execution_features = ExecutionFeatures()
     block_store = BlockStore(ciel.engine, 'localhost', 8000, base_dir, True)
     
     # XXX: Broken because we now need a pseudoworker in place of a block_store.
-    thread_task_executor = TaskExecutorPlugin(ciel.engine, skypybase, lib, worker, master_proxy, execution_features, 1)
+    thread_task_executor = TaskExecutorPlugin(ciel.engine, PseudoWorker(block_store), master_proxy, execution_features, 1)
    
     while True:
         
