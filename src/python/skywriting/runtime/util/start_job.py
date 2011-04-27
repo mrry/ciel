@@ -10,9 +10,13 @@ import datetime
 import os.path
 from skywriting.runtime.util.sw_pprint import sw_pprint
 
-from shared.references import SWReferenceJSONEncoder,json_decode_object_hook
-from skywriting.runtime.object_cache import retrieve_object_for_ref
+from shared.references import SWReferenceJSONEncoder,json_decode_object_hook,\
+    SW2_FutureReference, SWDataValue, SWErrorReference,\
+    SW2_SocketStreamReference, SW2_StreamReference, SW2_ConcreteReference
+from skywriting.runtime.object_cache import retrieve_object_for_ref, decoders
 from optparse import OptionParser
+from skywriting.runtime.block_store import get_fetch_urls_for_ref
+from StringIO import StringIO
 
 http = httplib2.Http()
 
@@ -108,6 +112,59 @@ def await_job(jobid, master_uri):
         raise Exception("Job failure: %s" % completion_result["error"])
     else:
         return completion_result["result_ref"]
+    
+def external_get_real_ref(ref, jobid, master_uri):
+    fetch_url = urlparse.urljoin(master_uri, "control/ref/%s/%s" % (jobid, ref.id))
+    _, content = httplib2.Http().request(fetch_url)
+    real_ref = simplejson.loads(content, object_hook=json_decode_object_hook)
+    print "Resolved", ref, "-->", real_ref
+    return real_ref 
+    
+def simple_retrieve_object_for_ref(ref, decoder, jobid, master_uri):
+    if isinstance(ref, SWErrorReference):
+        raise Exception("Can't decode %s" % ref)
+    if isinstance(ref, SW2_FutureReference) or isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_SocketStreamReference):
+        ref = external_get_real_ref(ref, jobid, master_uri)
+    if isinstance(ref, SWDataValue):
+        return retrieve_object_for_ref(ref, decoder)
+    elif isinstance(ref, SW2_ConcreteReference):
+        urls = get_fetch_urls_for_ref(ref)
+        _, content = httplib2.Http().request(urls[0])
+        return decoders[decoder](StringIO(content))
+    else:
+        raise Exception("Don't know how to retrieve a %s" % ref)
+    
+def recursive_decode(to_decode, template, jobid, master_uri):
+    if isinstance(template, dict):
+        decode_method = template.get("__decode_ref__", None)
+        if decode_method is not None:
+            decoded_value = simple_retrieve_object_for_ref(to_decode, decode_method, jobid, master_uri)
+            recurse_template = template.get("value", None)
+            if recurse_template is None:
+                return decoded_value
+            else:
+                return recursive_decode(decoded_value, recurse_template, jobid, master_uri)
+        else:
+            if not isinstance(to_decode, dict):
+                raise Exception("%s and %s: Type mismatch" % to_decode, template)
+            ret_dict = {}
+            for (k, v) in to_decode:
+                value_template = template.get(k, None)
+                if value_template is None:
+                    ret_dict[k] = v
+                else:
+                    ret_dict[k] = recursive_decode(v, value_template, jobid, master_uri)
+            return ret_dict
+    elif isinstance(template, list):
+        if len(to_decode) != len(template):
+            raise Exception("%s and %s: length mismatch" % to_decode, template)
+        result_list = []
+        for (elem_decode, elem_template) in zip(to_decode, template):
+            if elem_template is None:
+                result_list.append(elem_decode)
+            else:
+                result_list.append(recursive_decode(elem_decode, elem_template, jobid, master_uri))
+        return result_list
 
 def main():
 
@@ -146,8 +203,18 @@ def main():
 
     result = await_job(new_job['job_id'], master_uri)
 
-    reflist = retrieve_object_for_ref(result, "json")
-
     print "GOT_RESULT", now_as_timestamp()
-
-    return reflist
+    
+    reflist = simple_retrieve_object_for_ref(result, "json", new_job['job_id'], master_uri)
+    
+    decode_template = job_dict.get("result", None)
+    if decode_template is None:
+        return reflist
+    else:
+        try:
+            decoded = recursive_decode(reflist, decode_template, new_job['job_id'], master_uri)
+            return decoded
+        except Exception as e:
+            print "Failed to decode due to exception", repr(e)
+            return reflist
+        

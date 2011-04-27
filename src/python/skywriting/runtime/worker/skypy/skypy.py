@@ -13,7 +13,7 @@ from shared.references import encode_datavalue, decode_datavalue_string,\
     json_decode_object_hook
 
 from file_outputs import OutputFile
-from ref_fetch import CompleteFile, StreamingFile
+from ref_fetch import CompleteFile, InstrumentedCompleteFile, StreamingFile
 
 ### Constants
 
@@ -24,10 +24,11 @@ HALT_RUNTIME_EXCEPTION = 3
 ### Helpers
 
 class PersistentState:
-    def __init__(self, export_json, extra_outputs, py_ref):
+    def __init__(self, export_json, extra_outputs, py_ref, is_fixed):
         self.export_json = export_json
         self.extra_outputs = extra_outputs
         self.py_ref = py_ref
+        self.is_fixed = is_fixed
         self.ref_dependencies = dict()
 
 class ResumeState:
@@ -60,13 +61,16 @@ def start_script(entry_point, entry_args):
     try:
         current_task.script_return_val = entry_point(*entry_args)
         current_task.halt_reason = HALT_DONE
+    except CoroutineExit:
+        # This coroutine is garbage; swallow this quietly
+        return
     except Exception, e:
         current_task.script_return_val = e
         current_task.script_backtrace = traceback.format_exc()
         current_task.halt_reason = HALT_RUNTIME_EXCEPTION
         
     current_task.main_coro.switch()
-    
+
 ### Task state
 
 current_task = None
@@ -82,6 +86,8 @@ class SkyPyTask:
         self.ref_cache = dict()
         self.script_return_val = None
         self.script_backtrace = None
+        self.main_coro_callback_response = None
+        self.main_coro_callback = None
         self.halt_reason = 0
 
 def fetch_ref(ref, verb, message_helper, **kwargs):
@@ -109,27 +115,25 @@ def try_fetch_ref(ref, verb, **kwargs):
             # We're back -- the ref should be available now.
             return runtime_response
 
-def deref_json(ref):
+def deref_decode(ref, decode_string_callback, decode_file_callback, **kwargs):
     
-    runtime_response = try_fetch_ref(ref, "open_ref")
+    runtime_response = try_fetch_ref(ref, "open_ref", accept_string=True, **kwargs)
     try:
-        obj = simplejson.loads(decode_datavalue_string(runtime_response["strdata"]), object_hook=json_decode_object_hook)
+        obj = decode_string_callback(decode_datavalue_string(runtime_response["strdata"]))
     except KeyError:
         with open(runtime_response["filename"], "r") as ref_fp:
-            obj = simplejson.load(ref_fp, object_hook=json_decode_object_hook)
+            obj = decode_file_callback(ref_fp)
     current_task.ref_cache[ref.id] = obj
     return obj
+
+
+def deref_json(ref, make_sweetheart=False):
+    return deref_decode(ref, lambda x: simplejson.loads(x, object_hook=json_decode_object_hook), 
+                            lambda x: simplejson.load(x, object_hook=json_decode_object_hook),
+                            make_sweetheart=make_sweetheart)
 
 def deref(ref, make_sweetheart=False):
-
-    runtime_response = try_fetch_ref(ref, "open_ref", make_sweetheart=make_sweetheart)
-    try:
-        obj = pickle.loads(decode_datavalue_string(runtime_response["strdata"]))
-    except KeyError:
-        with open(runtime_response["filename"], "r") as ref_fp:
-            obj = pickle.load(ref_fp)
-    current_task.ref_cache[ref.id] = obj
-    return obj
+    return deref_decode(ref, pickle.loads, pickle.load, make_sweetheart=make_sweetheart)
 
 def add_ref_dependency(ref):
     if not ref.is_consumable():
@@ -144,24 +148,37 @@ def remove_ref_dependency(ref):
         if current_task.persistent_state.ref_dependencies[ref.id] == 0:
             del current_task.persistent_state.ref_dependencies[ref.id]
 
-def save_state(state):
+def save_state(state, make_local_sweetheart=False):
 
     state_index = get_fresh_output_index(prefix="coro")
-    state_fp = MaybeFile(open_callback=lambda: open_output(state_index))
+    state_fp = MaybeFile(open_callback=lambda: open_output(state_index, make_local_sweetheart=make_local_sweetheart))
     with state_fp:
         pickle.dump(state, state_fp)
     return ref_from_maybe_file(state_fp, state_index)
 
-def spawn(spawn_callable, *pargs, **kwargs):
-    
+def do_from_main_coro(callable):
+    current_task.main_coro_callback = callable
+    current_task.main_coro.switch()
+    ret = current_task.main_coro_callback_response
+    current_task.main_coro_callback_response = None
+    return ret
+
+def create_coroutine(spawn_callable, pargs):
+ 
     new_coro = stackless.coroutine()
     new_coro.bind(start_script, spawn_callable, pargs)
+    return new_coro
+
+def spawn(spawn_callable, *pargs, **kwargs):
+    
+    new_coro = do_from_main_coro(lambda: create_coroutine(spawn_callable, pargs))
     n_extra_outputs = kwargs.get("n_extra_outputs", 0)
     new_state = PersistentState(export_json=False, 
                                 extra_outputs = range(1, n_extra_outputs + 1),
-                                py_ref=current_task.persistent_state.py_ref)
+                                py_ref=current_task.persistent_state.py_ref,
+                                is_fixed=kwargs.get("run_fixed", False))
     save_obj = ResumeState(new_state, new_coro)
-    coro_ref = save_state(save_obj)
+    coro_ref = save_state(save_obj, make_local_sweetheart=True)
     return do_spawn("skypy", False, pyfile_ref=current_task.persistent_state.py_ref, coro_ref=coro_ref, **kwargs)
 
 def do_spawn(executor_name, small_task, **args):
@@ -185,7 +202,7 @@ def package_lookup(key):
         raise PackageKeyError(key)
     return retval
 
-def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864, make_sweetheart=False):
+def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=67108864, make_sweetheart=False, must_block=False, debug_log=False):
     if not may_stream:
         runtime_response = try_fetch_ref(ref, "open_ref", make_sweetheart=make_sweetheart)
         try:
@@ -193,21 +210,24 @@ def deref_as_raw_file(ref, may_stream=False, sole_consumer=False, chunk_size=671
         except KeyError:
             return CompleteFile(ref, runtime_response["filename"])
     else:
-        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer, make_sweetheart=make_sweetheart)
+        runtime_response = try_fetch_ref(ref, "open_ref_async", chunk_size=chunk_size, sole_consumer=sole_consumer, make_sweetheart=make_sweetheart, must_block=must_block)
         if runtime_response["done"]:
             return CompleteFile(ref, runtime_response["filename"])
         elif runtime_response["blocking"]:
-            return CompleteFile(ref, runtime_response["filename"], chunk_size=chunk_size, must_close=True)
+            if debug_log:
+                return InstrumentedCompleteFile(ref, runtime_response["filename"], chunk_size=chunk_size, must_close=True, debug_log=True)
+            else:
+                return CompleteFile(ref, runtime_response["filename"], chunk_size=chunk_size, must_close=True)
         else:
-            return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size)
+            return StreamingFile(ref, runtime_response["filename"], runtime_response["size"], chunk_size, debug_log=debug_log)
 
 def get_fresh_output_index(prefix=""):
     runtime_response = current_task.message_helper.synchronous_request("allocate_output", {"prefix": prefix})
     return runtime_response["index"]
 
-def open_output(index, may_stream=False, may_pipe=False):
+def open_output(index, may_stream=False, may_pipe=False, make_local_sweetheart=False):
     new_output = OutputFile(current_task.message_helper, current_task.file_outputs, index)
-    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_stream": may_stream, "may_pipe": may_pipe})
+    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_stream": may_stream, "may_pipe": may_pipe, "make_local_sweetheart": make_local_sweetheart})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 
@@ -226,7 +246,9 @@ class RequiredRefs():
             add_ref_dependency(ref)
 
     def __exit__(self, x, y, z):
-        for ref in self.refs:
-            remove_ref_dependency(ref)
+        if x is not CoroutineExit:
+            for ref in self.refs:
+                remove_ref_dependency(ref)
+        return False
 
     

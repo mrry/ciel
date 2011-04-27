@@ -4,16 +4,19 @@ import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
 import com.asgow.ciel.tasks.FirstClassJavaTask;
 import com.asgow.ciel.tasks.TaskInformation;
+import com.google.gson.JsonElement;
 
 public interface WorkerRpc {
 
-	FirstClassJavaTask getTask();
+	FirstClassJavaTask getTask() throws ShutdownException;
+	
+	void getFixedContinuationTask();
 	
 	Reference[] spawnTask(TaskInformation taskInfo);
 	
 	void tailSpawnTask(TaskInformation taskInfo);
 	
-	Reference[] blockOn(Reference... refs);
+	void tailSpawnRaw(JsonElement e);
 	
 	String getFilenameForReference(Reference ref);
 	
@@ -27,6 +30,6 @@ public interface WorkerRpc {
 
 	void error(String errorMessage);
 	
-	void exit();
+	void exit(boolean fixed);
 	
 }

@@ -47,7 +47,7 @@
 	</path>
 
 	<path id="bindingclasspath">
-	  <pathelement location="ext/google-gson-1.6/gson-1.6.jar"/>
+	  <pathelement location="ext/google-gson-1.7.1/gson-1.7.1.jar"/>
 	</path>
 
 	<macrodef name="compileExampleJar">
@@ -99,6 +99,7 @@
 	  <compileExampleJar example="Grep"/>
 	  <compileExampleJar example="skyhout"/>
 	  <compileExampleJar example="TeraSort"/>
+	  <compileExampleJar example="kmeans"/>
 	</target>
 	
 	<target name="build-examples" depends="build-bindings, compile-examples">
@@ -110,7 +111,9 @@
 		<exampleJar exampledir="WordCount" examplepackage="wordcount"/>
 		<exampleJar exampledir="Grep" examplepackage="grep"/>
 		<exampleJar exampledir="skyhout" examplepackage="skyhout"/>
-		<exampleJar exampledir="TeraSort" examplepackage="terasort"/>
+		<exampleJar exampledir="TeraSort"
+		examplepackage="terasort"/>
+		<exampleJar exampledir="kmeans" examplepackage="kmeans"/>
 	</target>
 
 	<target name="clean">

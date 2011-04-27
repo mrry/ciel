@@ -12,9 +12,9 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-import codecs
 import simplejson
 import base64
+import re
 
 class SWRealReference:
     
@@ -138,6 +138,11 @@ class SW2_SweetheartReference(SW2_ConcreteReference):
     def __init__(self, id, sweetheart_netloc, size_hint=None, location_hints=None):
         SW2_ConcreteReference.__init__(self, id, size_hint, location_hints)
         self.sweetheart_netloc = sweetheart_netloc
+        
+    @staticmethod
+    def from_concrete(ref, sweet_netloc):
+        assert isinstance(ref, SW2_ConcreteReference)
+        return SW2_SweetheartReference(ref.id, sweet_netloc, ref.size_hint, ref.location_hints)
         
     def combine_with(self, ref):
         """Add the location hints from ref to this object."""
@@ -322,6 +327,12 @@ def decode_datavalue(ref):
 def decode_datavalue_string(str):
     return base64.b64decode(str)
 
+control_chars = ''.join(map(unichr, range(0,32) + range(127,160)))
+control_char_re = re.compile('[%s]' % re.escape(control_chars))
+
+def remove_control_chars(s):
+    return control_char_re.sub(lambda match: "[%d]" % ord(match.group(0)), s)
+
 class SWDataValue(SWRealReference):
     """
     This is akin to a SW2_ConcreteReference which encapsulates its own data.
@@ -347,7 +358,7 @@ class SWDataValue(SWRealReference):
         if len(self.value) < 20:
             string_repr = '"' + decode_datavalue_string(self.value) + '"'
         else:
-            string_repr = "%d Base64 chars inline, starting with '%s'" % (len(self.value), decode_datavalue_string(self.value)[:20])
+            string_repr = "%d Base64 chars inline, starting with '%s'" % (len(self.value), remove_control_chars(decode_datavalue_string(self.value)[:20]))
         return "<DataValue: %s...: %s>" % (self.id[:10], string_repr)
 
     def __repr__(self):

@@ -125,10 +125,13 @@ class ProcessPool:
             exec_cls.process_cache.add(proc_rec)
             proc_rec.is_free = True
             proc_rec.last_used_time = datetime.now()
+            proc_rec.soft_cache_refs = set()
             for (refids, tag) in soft_cache_keys:
                 proc_rec.soft_cache_refs.update(refids)
     
     def get_soft_cache_process(self, exec_cls, dependencies):
+        if not hasattr(exec_cls, "process_cache"):
+            return None
         with self.lock:
             best_proc = None
             ciel.log("Looking to re-use a process for class %s" % exec_cls.handler_name, "PROCESSPOOL", logging.INFO)
@@ -161,7 +164,7 @@ class ProcessPool:
                             proc_rec.kill()
                             dead_recs.append(proc_rec)
                     for dead_rec in dead_recs:
-                        proc_rec.remove(dead_rec)
+                        executor.process_cache.remove(dead_rec)
             self.gc_thread_stop.wait(60)
             if self.gc_thread_stop.isSet():
                 with self.lock:

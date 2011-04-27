@@ -168,7 +168,7 @@ def retrieve_string_for_ref(ref):
     return retrieve_strings_for_refs([ref])[0]
 
 def write_fixed_ref_string(string, fixed_ref):
-    output_ctx = make_local_output(id)
+    output_ctx = make_local_output(fixed_ref.id)
     with open(filename_for_ref(fixed_ref), "w") as fp:
         fp.write(string)
     output_ctx.close()
