@@ -661,7 +661,7 @@ class ProcExecutor(BaseExecutor):
         self.task_record.publish_ref(ref)
         return {"ref": ref}
 
-    def open_output(self, index, may_pipe=False, may_stream=False, make_local_sweetheart=False):
+    def open_output(self, index, may_pipe=False, may_stream=False, make_local_sweetheart=False, can_smart_subscribe=False):
         if may_pipe and not may_stream:
             raise Exception("Insane parameters: may_stream=False and may_pipe=True may well lead to deadlock")
         if index in self.ongoing_outputs:

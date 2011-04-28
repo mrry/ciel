@@ -12,6 +12,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 
 import com.asgow.ciel.executor.Ciel;
+import com.asgow.ciel.io.CielInputStream;
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
 import com.asgow.ciel.tasks.FirstClassJavaTask;
@@ -96,6 +97,9 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 	
 	public static final JsonPrimitive OPEN_REF = new JsonPrimitive("open_ref");
+	public static final JsonPrimitive OPEN_REF_ASYNC = new JsonPrimitive("open_ref_async");
+	public static final JsonPrimitive CLOSE_STREAM = new JsonPrimitive("close_stream");
+	public static final JsonPrimitive WAIT_STREAM = new JsonPrimitive("wait_stream");	
 	public static final JsonPrimitive ALLOCATE_OUTPUT = new JsonPrimitive("allocate_output");
 	public static final JsonPrimitive OPEN_OUTPUT = new JsonPrimitive("open_output");
 	public static final JsonPrimitive EXIT = new JsonPrimitive("exit");
@@ -227,6 +231,59 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 	
 	@Override
+	public InputStream getStreamForReference(Reference ref, int chunk_size, boolean sole_consumer, boolean make_sweetheart, boolean must_block) throws IOException {
+		JsonObject args = new JsonObject();
+		args.add("ref", ref.toJson());
+		args.addProperty("chunk_size", chunk_size);
+		args.addProperty("sole_consumer", sole_consumer);
+		args.addProperty("make_sweetheart", make_sweetheart);
+		args.addProperty("must_block", must_block);
+		JsonObject response = this.sendReceiveMessage(OPEN_REF_ASYNC, args).getAsJsonArray().get(1).getAsJsonObject();
+		JsonElement respError = response.get("error");
+		if(respError != null) {
+			throw new IOException("Failed to open " + ref + ": " + respError.getAsString());
+		}
+		return new CielInputStream(ref, chunk_size, response.get("filename").getAsString(), response.get("done").getAsBoolean(), response.get("blocking").getAsBoolean(), response.get("size").getAsInt());
+		
+	}
+	
+	@Override
+	public InputStream getStreamForReference(Reference ref, int chunk_size) throws IOException {
+		return getStreamForReference(ref, chunk_size, false, false, false);
+	}
+	
+	@Override
+	public InputStream getStreamForReference(Reference ref) throws IOException {
+		// 64M chunks suit everybody... right?
+		return getStreamForReference(ref, 1024*1024*64, false, false, false);
+	}
+	
+	@Override
+	public void closeAsyncInput(String id, int chunk_size) {
+		JsonObject args = new JsonObject();
+		args.addProperty("id", id);
+		args.addProperty("chunk_size", chunk_size);
+		this.sendMessage(CLOSE_STREAM, args);
+	}
+	
+	@Override
+	public WaitAsyncInputResponse waitAsyncInput(String refid, boolean eof, int bytes) {
+		JsonObject args = new JsonObject();
+		args.addProperty("id", refid);
+		if(eof) {
+			args.addProperty("eof", eof);
+		}
+		else {
+			args.addProperty("bytes", bytes);
+		}
+		JsonObject response = this.sendReceiveMessage(WAIT_STREAM, args).getAsJsonArray().get(1).getAsJsonObject();
+		int size = response.get("size").getAsInt();
+		boolean done = response.get("done").getAsBoolean();
+		boolean success = response.get("success").getAsBoolean();
+		return new WaitAsyncInputResponse(size, done, success);
+	}
+	
+	@Override
 	public WritableReference getNewObjectFilename(String refPrefix) {
 		JsonObject args = new JsonObject();
 		args.add("prefix", new JsonPrimitive(refPrefix));
@@ -238,11 +295,19 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 
 	@Override
-	public WritableReference getOutputFilename(int index) {
+	public WritableReference getOutputFilename(int index, boolean may_stream, boolean may_pipe, boolean make_local_sweetheart) {
 		JsonObject args = new JsonObject();
 		args.add("index", new JsonPrimitive(index));
+		args.addProperty("may_stream", may_stream);
+		args.addProperty("may_pipe", may_pipe);
+		args.addProperty("make_local_sweetheart", make_local_sweetheart);
 		JsonObject response = this.sendReceiveMessage(OPEN_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
 		return new WritableReference(response.get("filename").getAsString(), index);
+	}
+	
+	@Override
+	public WritableReference getOutputFilename(int index) {
+		return getOutputFilename(index, false, false, false);
 	}
 
 	@Override

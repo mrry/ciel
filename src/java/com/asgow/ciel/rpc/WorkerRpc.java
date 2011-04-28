@@ -1,5 +1,8 @@
 package com.asgow.ciel.rpc;
 
+import java.io.IOException;
+import java.io.InputStream;
+
 import com.asgow.ciel.references.Reference;
 import com.asgow.ciel.references.WritableReference;
 import com.asgow.ciel.tasks.FirstClassJavaTask;
@@ -31,5 +34,34 @@ public interface WorkerRpc {
 	void error(String errorMessage);
 	
 	void exit(boolean fixed);
+
+	InputStream getStreamForReference(Reference ref, int chunk_size,
+			boolean sole_consumer, boolean make_sweetheart, boolean must_block) throws IOException;
+
+	void closeAsyncInput(String id, int chunk_size);
+	
+	static class WaitAsyncInputResponse {
+		
+		public int size;
+		public boolean done;
+		public boolean success;
+		
+		public WaitAsyncInputResponse(int size, boolean done, boolean success) {
+			this.size = size;
+			this.done = done;
+			this.success = success;
+		}
+		
+	}
+	
+	WaitAsyncInputResponse waitAsyncInput(String refid, boolean eof, int bytes);
+
+	InputStream getStreamForReference(Reference ref, int chunk_size)
+			throws IOException;
+
+	InputStream getStreamForReference(Reference ref) throws IOException;
+
+	WritableReference getOutputFilename(int index, boolean may_stream,
+			boolean may_pipe, boolean make_local_sweetheart);
 	
 }
