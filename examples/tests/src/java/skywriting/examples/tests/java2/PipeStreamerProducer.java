@@ -44,7 +44,7 @@ public class PipeStreamerProducer implements FirstClassJavaTask {
 			}
 		}
 
-		Ciel.RPC.closeOutput(1);
+		out.close();
 		
 		Ciel.returnPlainString("Wrote " + bytes_written + " bytes");
 		

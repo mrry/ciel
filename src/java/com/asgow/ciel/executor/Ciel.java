@@ -56,7 +56,7 @@ public final class Ciel {
 		ObjectOutputStream oos = new ObjectOutputStream(objOut.open());
 		oos.writeObject(taskObject);
 		oos.close();
-		Reference objRef = Ciel.RPC.closeOutput(objOut.getIndex());
+		Reference objRef = objOut.getCompletedRef();
 		
 		FirstClassJavaTaskInformation fcjti = new FirstClassJavaTaskInformation(objRef, Ciel.jarLib, args, numOutputs);
 		for (Reference dependency : taskObject.getDependencies()) {
@@ -83,7 +83,7 @@ public final class Ciel {
 		ObjectOutputStream oos = new ObjectOutputStream(objOut.open());
 		oos.writeObject(taskObject);
 		oos.close();
-		Reference objRef = Ciel.RPC.closeOutput(objOut.getIndex());
+		Reference objRef = objOut.getCompletedRef();
 		
 		FirstClassJavaTaskInformation fcjti = new FirstClassJavaTaskInformation(objRef, Ciel.jarLib, args);
 		for (Reference dependency : taskObject.getDependencies()) {
@@ -97,7 +97,6 @@ public final class Ciel {
 		ObjectOutputStream oos = new ObjectOutputStream(out.open());
 		oos.writeObject(result);
 		oos.close();
-		Ciel.RPC.closeOutput(0);
 	}
 	
 	public static void returnInt(int value) throws IOException {
@@ -109,7 +108,6 @@ public final class Ciel {
 		ObjectOutputStream oos = new ObjectOutputStream(retOut.open());
 		oos.write(value);
 		oos.close();
-		Ciel.RPC.closeOutput(index);
 	}
 
 	
@@ -122,7 +120,6 @@ public final class Ciel {
 		PrintWriter pw = new PrintWriter(new OutputStreamWriter(retOut.open(), Ciel.CHARSET));
 		pw.print(value);
 		pw.close();
-		Ciel.RPC.closeOutput(index);
 	}
 	
 	public static void blockOn(Reference... refs) {

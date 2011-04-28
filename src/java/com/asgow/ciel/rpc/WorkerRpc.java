@@ -63,5 +63,7 @@ public interface WorkerRpc {
 
 	WritableReference getOutputFilename(int index, boolean may_stream,
 			boolean may_pipe, boolean make_local_sweetheart);
+
+	Reference closeOutput(int index, int final_size);
 	
 }

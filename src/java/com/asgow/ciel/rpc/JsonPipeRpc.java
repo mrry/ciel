@@ -199,6 +199,15 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 
 	@Override
+	public Reference closeOutput(int index, int final_size) {
+		JsonObject args = new JsonObject();
+		args.add("index", new JsonPrimitive(index));
+		args.addProperty("size", final_size);
+		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
+		return Reference.fromJson(response.getAsJsonObject("ref"));
+	}
+
+	@Override
 	public void error(String errorMessage) {
 		JsonObject args = new JsonObject();
 		args.add("report", new JsonPrimitive(errorMessage));
@@ -302,7 +311,9 @@ public class JsonPipeRpc implements WorkerRpc {
 		args.addProperty("may_pipe", may_pipe);
 		args.addProperty("make_local_sweetheart", make_local_sweetheart);
 		JsonObject response = this.sendReceiveMessage(OPEN_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		return new WritableReference(response.get("filename").getAsString(), index);
+		// !may_pipe indicates the writer only needs to specify the output size if this might be a pipe.
+		// Otherwise we're certainly writing to a file, and Ciel can figure the size out for itself.
+		return new WritableReference(response.get("filename").getAsString(), index, !may_pipe);
 	}
 	
 	@Override
