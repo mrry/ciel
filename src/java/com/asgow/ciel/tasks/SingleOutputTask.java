@@ -17,7 +17,6 @@ public abstract class SingleOutputTask<T> implements FirstClassJavaTask {
 		ObjectOutputStream oos = new ObjectOutputStream(out.open());
 		oos.writeObject(result);
 		oos.close();
-		Ciel.RPC.closeOutput(0);
 	}
 
 	@Override

@@ -13,6 +13,7 @@ def stream_producer(chunk_size, chunks_to_produce, may_stream, use_direct_pipes)
     
     events.append(("STARTED", datetime.now()))
     with skypy.open_output(skypy.get_extra_output_indices()[0], may_stream=may_stream, may_pipe=use_direct_pipes) as file_out:
+        events.append(("START_WRITE", datetime.now()))
         while chunks_written < chunks_to_produce:
             bytes_written = 0
             while bytes_written < chunk_size:
@@ -47,6 +48,7 @@ def stream_link(chunk_size, input_ref, may_stream, producer_pipe, consumer_pipe,
 def stream_consumer(chunk_size, in_ref, may_stream, use_direct_pipes, must_block, do_log):
 
     bytes_read = 0
+    next_threshold = chunk_size
     
     events = []
     events.append(("STARTED", datetime.now()))
@@ -60,6 +62,9 @@ def stream_consumer(chunk_size, in_ref, may_stream, use_direct_pipes, must_block
             bytes_read += len(str)
             if len(str) == 0:
                 break
+            if bytes_read >= next_threshold:
+                next_threshold += chunk_size
+                events.append(("READ_CHUNK", datetime.now()))
         try:
             events.extend(in_file.debug_log)
         except:

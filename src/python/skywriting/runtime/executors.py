@@ -355,8 +355,11 @@ class OngoingOutputWatch:
 
 class OngoingOutput:
 
-    def __init__(self, output_name, output_index, may_pipe, make_local_sweetheart, executor):
-        self.output_ctx = make_local_output(output_name, subscribe_callback=self.subscribe_output, may_pipe=may_pipe)
+    def __init__(self, output_name, output_index, can_smart_subscribe, may_pipe, make_local_sweetheart, executor):
+        kwargs = {"may_pipe": may_pipe}
+        if can_smart_subscribe:
+            kwargs["subscribe_callback"] = self.subscribe_output
+        self.output_ctx = make_local_output(output_name, **kwargs)
         self.may_pipe = may_pipe
         self.make_local_sweetheart = make_local_sweetheart
         self.output_name = output_name
@@ -386,7 +389,7 @@ class OngoingOutput:
     def get_size(self):
         assert not self.may_pipe
         assert self.filename is not None
-        return os.stat(self.filename)
+        return os.stat(self.filename).st_size
         
     def get_stream_ref(self):
         return self.output_ctx.get_stream_ref()
@@ -661,13 +664,13 @@ class ProcExecutor(BaseExecutor):
         self.task_record.publish_ref(ref)
         return {"ref": ref}
 
-    def open_output(self, index, may_pipe=False, may_stream=False, make_local_sweetheart=False):
+    def open_output(self, index, may_pipe=False, may_stream=False, make_local_sweetheart=False, can_smart_subscribe=False):
         if may_pipe and not may_stream:
             raise Exception("Insane parameters: may_stream=False and may_pipe=True may well lead to deadlock")
         if index in self.ongoing_outputs:
             raise Exception("Tried to open output %d which was already open" % index)
         output_name = self.expected_outputs[index]
-        output_ctx = OngoingOutput(output_name, index, may_pipe, make_local_sweetheart, self)
+        output_ctx = OngoingOutput(output_name, index, can_smart_subscribe, may_pipe, make_local_sweetheart, self)
         self.ongoing_outputs[index] = output_ctx
         self.context_manager.add_context(output_ctx)
         if may_stream:

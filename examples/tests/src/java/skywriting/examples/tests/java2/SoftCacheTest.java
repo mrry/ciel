@@ -23,7 +23,7 @@ public class SoftCacheTest implements FirstClassJavaTask {
 			o.write(i % 128);
 		}
 		o.close();
-		Reference out_ref = Ciel.RPC.closeNewObject(out_file);
+		Reference out_ref = out_file.getCompletedRef();
 		
 		FirstClassJavaTask child1 = new SoftCacheChild(out_ref);
 		FirstClassJavaTask child2 = new SoftCacheChild(out_ref);

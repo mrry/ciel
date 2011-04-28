@@ -45,7 +45,6 @@ public class EnvRpcTest {
 			OutputStreamWriter osw = (new OutputStreamWriter(outFile.open()));
 			osw.write("Hello world!");
 			osw.close();
-			rpc.closeOutput(0);
 			
 		} catch (IOException ioe) {
 			

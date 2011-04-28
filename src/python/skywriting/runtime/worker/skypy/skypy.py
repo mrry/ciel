@@ -227,7 +227,7 @@ def get_fresh_output_index(prefix=""):
 
 def open_output(index, may_stream=False, may_pipe=False, make_local_sweetheart=False):
     new_output = OutputFile(current_task.message_helper, current_task.file_outputs, index)
-    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_stream": may_stream, "may_pipe": may_pipe, "make_local_sweetheart": make_local_sweetheart})
+    runtime_response = current_task.message_helper.synchronous_request("open_output", {"index": index, "may_stream": may_stream, "may_pipe": may_pipe, "make_local_sweetheart": make_local_sweetheart, "can_smart_subscribe": True})
     new_output.set_filename(runtime_response["filename"])
     return new_output
 

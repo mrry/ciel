@@ -5,7 +5,8 @@ public enum JsonReferenceType {
 	FUTURE(FutureReference.IDENTIFIER.getAsString()),
 	STREAM(StreamReference.IDENTIFIER.getAsString()),
 	SWEETHEART(SweetheartReference.IDENTIFIER.getAsString()),
-	VALUE(ValueReference.IDENTIFIER.getAsString());
+	VALUE(ValueReference.IDENTIFIER.getAsString()),
+	COMPLETED(CompletedReference.IDENTIFIER.getAsString());
 
 	private final String representation;
 	
