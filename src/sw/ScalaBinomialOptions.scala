@@ -1,4 +1,4 @@
-object BinomialOptions {
+object ScalaBinomialOptions {
 
   private def init_vals(t:Double, v:Double, rf:Double, n:Int) : (Double,Double,Double,Double) = {
     var h = t / n
