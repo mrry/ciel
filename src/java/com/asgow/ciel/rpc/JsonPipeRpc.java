@@ -239,11 +239,11 @@ public class JsonPipeRpc implements WorkerRpc {
 		args.addProperty("make_sweetheart", make_sweetheart);
 		args.addProperty("must_block", must_block);
 		JsonObject response = this.sendReceiveMessage(OPEN_REF_ASYNC, args).getAsJsonArray().get(1).getAsJsonObject();
-		String respError = response.get("error").getAsString();
+		JsonElement respError = response.get("error");
 		if(respError != null) {
-			throw new IOException("Failed to open " + ref + ": " + respError);
+			throw new IOException("Failed to open " + ref + ": " + respError.getAsString());
 		}
-		return new CielInputStream(ref, chunk_size, response.get("filename").getAsString(), response.get("done").getAsBoolean(), response.get("file_blocking").getAsBoolean(), response.get("size").getAsInt());
+		return new CielInputStream(ref, chunk_size, response.get("filename").getAsString(), response.get("done").getAsBoolean(), response.get("blocking").getAsBoolean(), response.get("size").getAsInt());
 		
 	}
 	

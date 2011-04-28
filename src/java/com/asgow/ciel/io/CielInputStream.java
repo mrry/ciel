@@ -102,6 +102,7 @@ public class CielInputStream extends InputStream {
 				}
 			}
 			else {
+				bytes_read += ret;
 				return ret;
 			}
 		}
@@ -126,6 +127,7 @@ public class CielInputStream extends InputStream {
 				}
 			}
 			else {
+				bytes_read += ret;
 				return ret;
 			}
 		}

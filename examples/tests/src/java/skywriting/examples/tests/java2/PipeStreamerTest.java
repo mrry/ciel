@@ -26,31 +26,31 @@ public class PipeStreamerTest implements FirstClassJavaTask {
 		boolean consumer_must_block;
 		boolean may_stream;
 		
-	    if(mode == "sync") {
+	    if(mode.equals("sync")) {
 	        producer_pipe = false;
 	        consumer_pipe = false;
 	        consumer_must_block = false;
 	        may_stream = false;
 	    }
-	    else if(mode == "indirect_pipe") {
+	    else if(mode.equals("indirect_pipe")) {
 	        producer_pipe = false;
 	        consumer_pipe = false;
 	        consumer_must_block = true;
 	        may_stream = true;
 	    }
-	    else if(mode == "indirect") {
+	    else if(mode.equals("indirect")) {
 	        producer_pipe = false;
 	        consumer_pipe = false;
 	        consumer_must_block = false;
 	        may_stream = true;
 	    }
-	    else if(mode == "indirect_tcp") {
+	    else if(mode.equals("indirect_tcp")) {
 	        producer_pipe = false;
 	        consumer_pipe = true;
 	        consumer_must_block = false;
 	        may_stream = true;
 	    }
-	    else if (mode == "direct") {
+	    else if (mode.equals("direct")) {
 	        producer_pipe = true;
 	        consumer_pipe = true;
 	        consumer_must_block = false;
