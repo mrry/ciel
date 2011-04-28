@@ -51,6 +51,10 @@ public final class Ciel {
 	
 	private static Charset CHARSET = Charset.forName("UTF-8");
 	
+	public static void log(String logMessage) {
+		Ciel.RPC.log(logMessage);
+	}
+	
 	public static Reference[] spawn(FirstClassJavaTask taskObject, String[] args, int numOutputs) throws IOException {
 		WritableReference objOut = Ciel.RPC.getNewObjectFilename("obj");
 		ObjectOutputStream oos = new ObjectOutputStream(objOut.open());

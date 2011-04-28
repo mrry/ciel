@@ -13,6 +13,9 @@ public class InitSpawnTaskTest implements FirstClassJavaTask {
 
 	@Override
 	public void invoke() throws Exception {
+		
+		Ciel.log("In InitSpawnTaskTest!");
+		
 		Reference r1 = Ciel.spawn(InitTaskTest.class, new String[] { "42" });
 		Reference r2 = Ciel.spawn(InitTaskTest.class, new String[] { "16" });
 		Reference r3 = Ciel.spawn(InitTaskTest.class, new String[] { "10" });
