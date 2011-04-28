@@ -441,7 +441,7 @@ class ProcExecutor(BaseExecutor):
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, 
-                              process_record_id=None, is_fixed=False, command=None, command_extra_args=[], force_n_outputs=None,
+                              process_record_id=None, is_fixed=False, command=None, proc_pargs=[], proc_kwargs={}, force_n_outputs=None,
                               n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False, accept_ref_list_for_single=False):
 
         #if process_record_id is None and start_command is None:
@@ -451,7 +451,8 @@ class ProcExecutor(BaseExecutor):
             task_descriptor["task_private"]["id"] = process_record_id
         if command is not None:
             task_descriptor["task_private"]["command"] = command
-        task_descriptor["task_private"]["command_extra_args"] = command_extra_args
+        task_descriptor["task_private"]["proc_pargs"] = proc_pargs
+        task_descriptor["task_private"]["proc_kwargs"] = proc_kwargs
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
@@ -511,7 +512,6 @@ class ProcExecutor(BaseExecutor):
                     command = self.get_command()
                 command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
                                 "--read-fifo", self.process_record.get_write_fifo_name()])
-                command.extend(task_private["command_extra_args"])
                 new_proc_env = os.environ.copy()
                 new_proc_env.update(self.get_env())
                 new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)

@@ -25,6 +25,6 @@ void ciel_close_ref(struct ciel_input* ref);
 
 int ciel_read_ref(struct ciel_input* ref, char* buffer, int length);
 
-struct ciel_input* ciel_open_ref_async(char* refid, int chunk_size, int may_stream, int sole_consumer, int must_block);
+struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int may_stream, int sole_consumer, int must_block);
 
 void ciel_block_on_refs(int n_refs, ...);

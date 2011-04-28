@@ -217,18 +217,7 @@ json_t* ciel_get_task() {
 
 }
 
-// Temporary hack!
-json_t* ciel_fake_ref(char* id) {
-
-  json_error_t error_bucket;
-  json_t* ref_obj = json_pack_ex(&error_bucket, 0, "{s[ss]}", "__ref__", "f2", id);
-  if(!ref_obj)
-    ciel_json_error(0, &error_bucket);
-
-  return ref_obj;
-
-}
-
+// vargs: borrowed references
 void ciel_block_on_refs(int n_refs, ...) {
 
   json_error_t error_bucket;
@@ -238,7 +227,7 @@ void ciel_block_on_refs(int n_refs, ...) {
   json_t* ref_array = json_array();
 
   for(int i = 0; i < n_refs; i++) {
-    json_array_append_new(ref_array, ciel_fake_ref(va_arg(args, char*)));
+    json_array_append(ref_array, va_arg(args, json_t*));
   }
 
   va_end(args);
@@ -279,14 +268,13 @@ struct ciel_input {
 
 };
 
-struct ciel_input* ciel_open_ref_async(char* refid, int chunk_size, int may_stream, int sole_consumer, int must_block) {
+// ref: borrowed reference
+struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int may_stream, int sole_consumer, int must_block) {
 
   json_error_t error_bucket;
 
-  json_t* fake_ref = ciel_fake_ref(refid);
-
-  json_t* open_message = json_pack_ex(&error_bucket, 0, "[s{sosisbsbsb}]", "open_ref_async",
-				      "ref", fake_ref, "chunk_size", chunk_size, "sole_consumer", sole_consumer,
+  json_t* open_message = json_pack_ex(&error_bucket, 0, "[s{sOsisbsbsb}]", "open_ref_async",
+				      "ref", ref, "chunk_size", chunk_size, "sole_consumer", sole_consumer,
 				      "make_sweetheart", 0, "must_block", must_block);
   if(!open_message)
     ciel_json_error(0, &error_bucket);
@@ -313,10 +301,19 @@ struct ciel_input* ciel_open_ref_async(char* refid, int chunk_size, int may_stre
   new_input->chunk_size = chunk_size;
   new_input->is_blocking = is_blocking;
   new_input->must_close = !is_done;
-  new_input->refid = strdup(refid);
   new_input->eof = is_done;
 
   json_decref(response);
+
+  // Extract ref's ID from JSON: a dangerous assumption: the ref's ID is always in position 1 (see references.py::build_reference_from_tuple)
+
+  // Both these functions borrow references from their container.
+  json_t* ref_tuple = json_object_get(ref, "__ref__");
+  json_t* ref_id = json_array_get(ref_tuple, 1);
+
+  // Dup borrowed string
+  new_input->refid = strdup(json_string_value(ref_id));
+
   return new_input;
 
 }

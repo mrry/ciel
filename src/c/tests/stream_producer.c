@@ -11,8 +11,8 @@
 
 int main(int argc, char** argv) {
 
-  if(argc < 9) {
-    fprintf(stderr, "stream_producer needs at least 6 arguments\n");
+  if(argc < 5) {
+    fprintf(stderr, "stream_producer needs at least 4 arguments\n");
     exit(1);
   }
   
@@ -31,14 +31,19 @@ int main(int argc, char** argv) {
 
   printf("FIFOs open\n");
 
-  int n_chunks = atoi(argv[5]);
-  char* mode = argv[6];
-  
-  int may_stream = !strcmp(argv[7], "True");
-  int may_pipe = !strcmp(argv[8], "True");
-
   json_t* task_private = ciel_get_task();
-  // Don't care
+
+  int n_chunks;
+  int may_stream;
+  int may_pipe;
+  
+  json_error_t error_bucket;
+
+  if(json_unpack_ex(task_private, &error_bucket, 0, "{s[ibb]}", "proc_pargs", &n_chunks, &may_stream, &may_pipe)) {
+    ciel_json_error(0, &error_bucket);
+    exit(1);
+  }
+
   json_decref(task_private);
 
   char* filename = ciel_open_output(1, may_stream, may_pipe, 0);

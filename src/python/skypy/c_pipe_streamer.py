@@ -87,11 +87,11 @@ def skypy_main(n_chunks, mode, do_log):
 
     n_chunks = int(n_chunks)
     
-    producer = skypy.spawn_exec("proc", command="/local/scratch/cs448/skywriting/src/c/tests/stream_producer", force_n_outputs=2, command_extra_args=[str(n_chunks), mode, str(producer_may_stream), str(producer_pipe)])
+    producer = skypy.spawn_exec("proc", command="/local/scratch/cs448/skywriting/src/c/tests/stream_producer", force_n_outputs=2, proc_pargs=[n_chunks, producer_may_stream, producer_pipe])
 
     consumer_input = producer[1]
 
-    consumer_out = skypy.spawn_exec("proc", command="/local/scratch/cs448/skywriting/src/c/tests/stream_consumer", force_n_outputs=1, command_extra_args=[str(consumer_input.id), str(consumer_may_stream), str(consumer_pipe), str(consumer_must_block)])
+    consumer_out = skypy.spawn_exec("proc", command="/local/scratch/cs448/skywriting/src/c/tests/stream_consumer", force_n_outputs=1, proc_pargs=[consumer_input, consumer_may_stream, consumer_pipe, consumer_must_block])
     
     ret_outs = [consumer_out, producer[0]]
     

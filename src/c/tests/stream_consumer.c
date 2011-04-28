@@ -11,8 +11,8 @@
 
 int main(int argc, char** argv) {
 
-  if(argc < 9) {
-    fprintf(stderr, "stream_producer needs at least 6 arguments\n");
+  if(argc < 5) {
+    fprintf(stderr, "stream_producer needs at least 4 arguments\n");
     exit(1);
   }
   
@@ -31,18 +31,24 @@ int main(int argc, char** argv) {
 
   printf("FIFOs open\n");
 
-  char* ref_id = argv[5];
-  int may_stream = !strcmp(argv[6], "True");
-  int sole_consumer = !strcmp(argv[7], "True");
-  int must_block = !strcmp(argv[8], "True");
+  json_t* ref;
+  int may_stream;
+  int sole_consumer;
+  int must_block;
 
   json_t* task_private = ciel_get_task();
-  // Don't care
+  json_error_t error_bucket;
+
+  if(json_unpack_ex(task_private, &error_bucket, 0, "{s[Obbb]}", "proc_pargs", &ref, &may_stream, &sole_consumer, &must_block)) {
+    ciel_json_error(0, &error_bucket);
+    exit(1);
+  }
+
   json_decref(task_private);
 
-  ciel_block_on_refs(1, ref_id);
+  ciel_block_on_refs(1, ref);
 
-  struct ciel_input* input = ciel_open_ref_async(ref_id, 1024*1024*64, may_stream, sole_consumer, must_block);
+  struct ciel_input* input = ciel_open_ref_async(ref, 1024*1024*64, may_stream, sole_consumer, must_block);
 
   char read_buffer[4096];
   
