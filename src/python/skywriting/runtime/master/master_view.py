@@ -279,6 +279,12 @@ class MasterTaskRoot:
             self.backup_sender.publish_refs(task_id, refs)
             return
             
+        elif action == 'log':
+            # Message body is a JSON list containing UNIX timestamp in seconds and a message string.
+            request_body = cherrypy.request.body.read()
+            timestamp, message = simplejson.loads(request_body, object_hook=json_decode_object_hook)
+            ciel.log("%s %f %s" % (task_id, timestamp, message), 'TASK_LOG', logging.INFO)
+            
         elif action == 'abort':
             # FIXME (maybe): There is currently no abort method on Task.
             task.abort(task_id)
