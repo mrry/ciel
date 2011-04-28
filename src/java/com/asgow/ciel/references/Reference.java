@@ -52,6 +52,8 @@ public abstract class Reference implements Serializable {
 			return new SweetheartReference(refTuple);
 		case VALUE:
 			return new ValueReference(refTuple);
+		case COMPLETED:
+			return new CompletedReference(refTuple);
 		default:
 			throw new UnsupportedOperationException("Cannot handle references of type: " + refTuple.get(0).getAsString());
 		}
