@@ -1,3 +1,6 @@
+import java.io.DataOutputStream
+import java.io.DataInputStream
+
 object ScalaBinomialOptions {
 
   private def init_vals(t:Double, v:Double, rf:Double, n:Int) : (Double,Double,Double,Double) = {
@@ -15,18 +18,18 @@ object ScalaBinomialOptions {
     s * (scala.math.pow(u, (n-j))) * (scala.math.pow(d,j))
   }
 
-  private def gen_initial_optvals(n:Int, s:Double, u:Double, d:Double, k:Double, cp:Double) {
+  private def gen_initial_optvals(sout:DataOutputStream, n:Int, s:Double, u:Double, d:Double, k:Double, cp:Double) {
     for (j <- n.until(-1,-1)) {
       var stkval = c_stkval (n,s,u,d,j)
       var v = scala.math.max(0, (cp * (stkval - k)))
-      println(v)
+      sout.writeDouble(v)
     }
   }
 
   private def eqn(q:Double, drift:Double, a:Double, b:Double) =
    ((q * a) + (1.0 - q) * b) / drift
 
-  private def apply_column(v:Double ,v1:Double, acc:Array[Double], pos:Int ,chunk:Int, q:Double, drift:Double) = {
+  private def apply_column(sout:DataOutputStream, v:Double, v1:Double, acc:Array[Double], pos:Int ,chunk:Int, q:Double, drift:Double) = {
     var v1 = acc(0)
     acc(0) = v
     var maxcol = scala.math.min(chunk,pos)
@@ -36,17 +39,17 @@ object ScalaBinomialOptions {
       acc(idx) = nv1
     }
     if (maxcol == chunk)
-      println(acc(maxcol))
+      sout.writeDouble(acc(maxcol))
   }
 
-  private def process_rows(rowstart:Int, rowto:Int, q:Double, drift:Double) = {
-    println(rowto)
+  private def process_rows(sout:DataOutputStream, sin:DataInputStream, rowstart:Int, rowto:Int, q:Double, drift:Double) = {
+    sout.writeInt(rowto)
     var chunk = rowstart - rowto
     var acc = new Array[Double](chunk+1)
     var v1 = 0.0
     for (pos <- 0.until(rowstart+1)) {
-      var v = readLine.toDouble
-      apply_column(v, v1, acc, pos, chunk, q, drift)
+      var v = sin.readDouble
+      apply_column(sout, v, v1, acc, pos, chunk, q, drift)
     }
   }
 
@@ -61,21 +64,21 @@ object ScalaBinomialOptions {
     var chunk = args(7).toInt
     var start = args(8).toInt
     var (q,u,d,drift) = init_vals(t, v, rf, n)
+    var sout = new DataOutputStream(System.out)
+    var sin = new DataInputStream(System.in)
     start match {
       case 1 =>
-        println(n)
-        System.err.println(n)
-        gen_initial_optvals(n, s, u, d, k, cp)
+        sout.writeInt(n)
+        gen_initial_optvals(sout, n, s, u, d, k, cp)
       case _ =>
-        var rowstart = readLine.toInt
+        var rowstart = sin.readInt
         if (rowstart == 0) {
-          var r = readLine
+          var r = sin.readDouble()
           println(r)
         } else {
           var rowto = scala.math.max(0,(rowstart - chunk))
-          process_rows(rowstart, rowto, q, drift)
+          process_rows(sout, sin, rowstart, rowto, q, drift)
         }
     }
   }
 }
-

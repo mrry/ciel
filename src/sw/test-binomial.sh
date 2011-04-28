@@ -9,7 +9,7 @@ cp=-1
 n=50000
 chunk=10000
 
-ocamlopt -unsafe -nodynlink -inline 1000 -annot -w -8 binomial_parallel.ml -o binomial-ocaml
+ocamlopt -unsafe -nodynlink -inline 10000 -annot -w -8 binomial_parallel.ml -o binomial-ocaml
 gcc -ffast-math -std=c99 -o binomial-c -Wall -lm -O3 binomial-parallel.c
 scalac ScalaBinomialOptions.scala
 javac *.java
