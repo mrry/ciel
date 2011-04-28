@@ -83,27 +83,38 @@ def skypy_main(n_links, n_chunks, mode, do_log):
         producer_pipe = False
         consumer_pipe = False
         consumer_must_block = False
-        may_stream = False
+        producer_may_stream = False
+        consumer_may_stream = False
+    elif mode == "indirect_single_fetch":
+        producer_pipe = False
+        consumer_pipe = False
+        consumer_must_block = False
+        producer_may_stream = False
+        consumer_may_stream = True
     elif mode == "indirect_pipe":
         producer_pipe = False
         consumer_pipe = False
         consumer_must_block = True
-        may_stream = True
+        producer_may_stream = True
+        consumer_may_stream = True
     elif mode == "indirect":
         producer_pipe = False
         consumer_pipe = False
         consumer_must_block = False
-        may_stream = True
+        producer_may_stream = True
+        consumer_may_stream = True
     elif mode == "indirect_tcp":
         producer_pipe = False
         consumer_pipe = True
         consumer_must_block = False
-        may_stream = True
+        producer_may_stream = True
+        consumer_may_stream = True
     elif mode == "direct":
         producer_pipe = True
         consumer_pipe = True
         consumer_must_block = False
-        may_stream = True
+        producer_may_stream = True
+        consumer_may_stream = True
     else:
         raise Exception("pipe_streamer.py: bad mode %s" % mode)
     
@@ -117,7 +128,7 @@ def skypy_main(n_links, n_chunks, mode, do_log):
     n_links = int(n_links)
     n_chunks = int(n_chunks)
 
-    producer = skypy.spawn(stream_producer, 67108864, n_chunks, may_stream, producer_pipe, n_extra_outputs=2)
+    producer = skypy.spawn(stream_producer, 67108864, n_chunks, producer_may_stream, producer_pipe, n_extra_outputs=2)
 
     links_out = []
     for i in range(n_links):
@@ -125,18 +136,18 @@ def skypy_main(n_links, n_chunks, mode, do_log):
             input_ref = producer[1]
         else:
             input_ref = links_out[-1][1]
-        links_out.append(skypy.spawn(stream_link, 67108864, input_ref, may_stream, producer_pipe, consumer_pipe, consumer_must_block, extra_dependencies=[input_ref], n_extra_outputs=1))
+        links_out.append(skypy.spawn(stream_link, 67108864, input_ref, producer_may_stream, producer_pipe, consumer_pipe, consumer_must_block, extra_dependencies=[input_ref], n_extra_outputs=1))
 
     if n_links == 0:
         consumer_input = producer[1]
     else:
         consumer_input = links_out[-1][1]
-    if may_stream:
+    if producer_may_stream:
         extra_dependencies = [consumer_input]
     else:
         extra_dependencies = []
-    run_fixed = not may_stream
-    consumer_out = skypy.spawn(stream_consumer, 67108864, consumer_input, may_stream, consumer_pipe, consumer_must_block, do_log, n_extra_outputs=1, extra_dependencies=extra_dependencies, run_fixed=run_fixed)
+    run_fixed = not producer_may_stream
+    consumer_out = skypy.spawn(stream_consumer, 67108864, consumer_input, consumer_may_stream, consumer_pipe, consumer_must_block, do_log, n_extra_outputs=1, extra_dependencies=extra_dependencies, run_fixed=run_fixed)
     ret_outs = [producer[0]]
     ret_outs.extend([x[0] for x in links_out])
     ret_outs.append(consumer_out[0])

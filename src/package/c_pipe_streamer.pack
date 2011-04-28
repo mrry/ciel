@@ -1,0 +1,12 @@
+{"package": {
+	    "skypy_main": {"filename": "../python/skypy/c_pipe_streamer.py"}
+	    },
+ "start":
+	{"handler": "skypy",
+	 "args": {"pyfile_ref": {"__package__": "skypy_main"}, 
+	 	  "entry_point": "skypy_main", 
+		  "entry_args": [{"__args__": 0}, {"__args__": 1}, {"__args__": 2}]
+		  }
+	},
+ "result": [{"__decode_ref__": "pickle"}]
+}

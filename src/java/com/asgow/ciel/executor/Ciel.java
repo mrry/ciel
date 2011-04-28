@@ -133,8 +133,6 @@ public final class Ciel {
 		args.addProperty("is_fixed", true);
 		Ciel.RPC.tailSpawnRaw(args);
 		
-		args = new JsonObject();
-		args.addProperty("keep_process", "must_keep");
 		Ciel.RPC.exit(true);
 		
 		Ciel.RPC.getFixedContinuationTask();

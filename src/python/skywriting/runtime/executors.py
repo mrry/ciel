@@ -441,7 +441,7 @@ class ProcExecutor(BaseExecutor):
 
     @classmethod
     def build_task_descriptor(cls, task_descriptor, parent_task_record, 
-                              process_record_id=None, is_fixed=False,
+                              process_record_id=None, is_fixed=False, command=None, command_extra_args=[], force_n_outputs=None,
                               n_extra_outputs=0, extra_dependencies=[], is_tail_spawn=False, accept_ref_list_for_single=False):
 
         #if process_record_id is None and start_command is None:
@@ -449,6 +449,9 @@ class ProcExecutor(BaseExecutor):
 
         if process_record_id is not None:
             task_descriptor["task_private"]["id"] = process_record_id
+        if command is not None:
+            task_descriptor["task_private"]["command"] = command
+        task_descriptor["task_private"]["command_extra_args"] = command_extra_args
         task_descriptor["dependencies"].extend(extra_dependencies)
 
         task_private_id = ("%s:_private" % task_descriptor["task_id"])
@@ -461,6 +464,11 @@ class ProcExecutor(BaseExecutor):
         
         task_descriptor["task_private"] = task_private_ref
         task_descriptor["dependencies"].append(task_private_ref)
+
+        if force_n_outputs is not None:        
+            if "expected_outputs" in task_descriptor and len(task_descriptor["expected_outputs"]) > 0:
+                raise BlameUserException("Task already had outputs, but force_n_outputs is set")
+            task_descriptor["expected_outputs"] = ["%s:out:%d" % (task_descriptor["task_id"], i) for i in range(force_n_outputs)]
         
         if not is_tail_spawn:
             if len(task_descriptor["expected_outputs"]) == 1 and not accept_ref_list_for_single:
@@ -497,9 +505,13 @@ class ProcExecutor(BaseExecutor):
             self.process_record = self.process_pool.get_soft_cache_process(self.__class__, task_descriptor["dependencies"])
             if self.process_record is None:
                 self.process_record = self.process_pool.create_process_record(None, "json")
-                command = self.get_command()
+                if "command" in task_private:
+                    command = [task_private["command"]]
+                else:
+                    command = self.get_command()
                 command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
                                 "--read-fifo", self.process_record.get_write_fifo_name()])
+                command.extend(task_private["command_extra_args"])
                 new_proc_env = os.environ.copy()
                 new_proc_env.update(self.get_env())
                 new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
@@ -630,7 +642,7 @@ class ProcExecutor(BaseExecutor):
             ciel.log("Wait %s complete: transfer has failed" % id, "EXEC", logging.WARNING)
             return {"success": False}
         else:
-            ret = {"size": the_fetch.bytes, "done": the_fetch.done, "success": True}
+            ret = {"size": int(the_fetch.bytes), "done": the_fetch.done, "success": True}
             ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "EXEC", logging.INFO)
             return ret
         
