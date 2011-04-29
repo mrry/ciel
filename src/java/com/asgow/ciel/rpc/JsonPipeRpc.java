@@ -69,6 +69,7 @@ public class JsonPipeRpc implements WorkerRpc {
 			message.add(method);
 			message.add(args);
 			byte[] messageString = this.gson.toJson(message).getBytes();
+			System.err.println(new String(messageString));
 			System.err.println("Writing " + messageString.length + " bytes");
 			this.toWorkerPipe.writeInt(messageString.length);
 			this.toWorkerPipe.write(messageString);

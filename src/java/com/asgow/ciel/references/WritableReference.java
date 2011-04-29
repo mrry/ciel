@@ -12,15 +12,15 @@ public class WritableReference {
 
 	private final String filename;
 	private final int outputIndex;
-	private final boolean may_omit_size;
-	private Reference complete_ref;
-	private boolean is_closed;
+	private final boolean mayOmitSize;
+	private Reference completeRef;
+	private boolean isClosed;
 	
 	public WritableReference(String filename, int outputIndex, boolean may_omit_size) {
 		this.filename = filename;
 		this.outputIndex = outputIndex;
-		this.may_omit_size = may_omit_size;
-		this.is_closed = false;
+		this.mayOmitSize = may_omit_size;
+		this.isClosed = false;
 	}
 	
 	public String getFilename() {
@@ -28,24 +28,28 @@ public class WritableReference {
 	}
 	
 	public void close(long final_size) {
-		this.complete_ref = Ciel.RPC.closeOutput(this.outputIndex, final_size);
+		if (this.isClosed) {
+			throw new RuntimeException("Double close on output " + this.outputIndex);
+		}
+		this.isClosed = true;
+		this.completeRef = Ciel.RPC.closeOutput(this.outputIndex, final_size);
 	}
 	
-	public void close() throws Exception {
-		if(this.is_closed) {
-			throw new Exception("Double close on output " + this.outputIndex);
+	public void close() {
+		if(this.isClosed) {
+			throw new RuntimeException("Double close on output " + this.outputIndex);
 		}
-		this.is_closed = true;
-		if(!this.may_omit_size) {
-			throw new Exception("Must specify a size when closing WritableReference, as it was opened with may_pipe=true");
+		this.isClosed = true;
+		if(!this.mayOmitSize) {
+			throw new RuntimeException("Must specify a size when closing WritableReference, as it was opened with may_pipe=true");
 		}
 		else {
-			this.complete_ref = Ciel.RPC.closeOutput(this.outputIndex);
+			this.completeRef = Ciel.RPC.closeOutput(this.outputIndex);
 		}
 	}
 	
 	public Reference getCompletedRef() {
-		return this.complete_ref;
+		return this.completeRef;
 	}
 	
 	public int getIndex() {

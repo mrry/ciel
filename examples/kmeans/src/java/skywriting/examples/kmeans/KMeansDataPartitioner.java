@@ -54,7 +54,7 @@ public class KMeansDataPartitioner implements FirstClassJavaTask {
 		
 		for (int i = 0; i < this.numPartitions; ++i) {
 			outStreams[i].close();
-			Ciel.RPC.closeOutput(i);
+			//Ciel.RPC.closeOutput(i);
 		}
 		
 	}

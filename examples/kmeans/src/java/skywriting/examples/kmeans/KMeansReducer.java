@@ -82,7 +82,7 @@ public class KMeansReducer implements FirstClassJavaTask {
 			}
 			
 			dos.close();
-			Reference newClustersRef = Ciel.RPC.closeOutput(newClustersOut.getIndex());
+			Reference newClustersRef = newClustersOut.getCompletedRef();
 			
 			Reference[] newPartialSumsRefs = new Reference[this.dataPartitionsRefs.length];
 			
