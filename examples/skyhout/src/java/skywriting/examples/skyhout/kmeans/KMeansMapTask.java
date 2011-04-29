@@ -2,6 +2,7 @@ package skywriting.examples.skyhout.kmeans;
 
 import java.io.DataOutputStream;
 import java.io.EOFException;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -28,15 +29,28 @@ import org.apache.mahout.common.distance.SquaredEuclideanDistanceMeasure;
 import org.apache.mahout.math.Vector;
 import org.apache.mahout.math.VectorWritable;
 
+import com.asgow.ciel.executor.Ciel;
+import com.asgow.ciel.references.Reference;
+import com.asgow.ciel.references.WritableReference;
+import com.asgow.ciel.tasks.FirstClassJavaTask;
+
 import skywriting.examples.skyhout.common.PartialHashOutputCollector;
 import skywriting.examples.skyhout.common.SkywritingTaskFileSystem;
 import uk.co.mrry.mercator.task.JarTaskLoader;
 import uk.co.mrry.mercator.task.Task;
 
-public class KMeansMapTask implements Task {
+public class KMeansMapTask implements FirstClassJavaTask {
 
-	private DistanceMeasure measure;
+	private final Reference dataPartitionRef;
+	private final Reference clustersRef;
 	
+	private static final DistanceMeasure measure = new SquaredEuclideanDistanceMeasure();;
+	
+	public KMeansMapTask(Reference dataPartitionRef, Reference clustersRef) {
+		this.dataPartitionRef = dataPartitionRef;
+		this.clustersRef = clustersRef;
+	}
+
 	/**
 	 * Iterates over all clusters and identifies the one closes to the given point
 	. Distance measure used is
@@ -67,78 +81,79 @@ public class KMeansMapTask implements Task {
 	}
 	    
 	@Override
-	public void invoke(InputStream[] fis, OutputStream[] fos,
-			String[] args) {
+	public void invoke() throws Exception {
 		
-		this.measure = new SquaredEuclideanDistanceMeasure();
+		InputStream[] fis = new InputStream[] { new FileInputStream(Ciel.RPC.getFilenameForReference(this.dataPartitionRef)),
+												new FileInputStream(Ciel.RPC.getFilenameForReference(this.clustersRef)) };
 		
-		try {
+		WritableReference partialSumsOut = Ciel.RPC.getOutputFilename(0);
+		OutputStream[] fos = new OutputStream[] { partialSumsOut.open() };
+
+		Configuration conf = new Configuration();
+		conf.setClassLoader(Ciel.CLASSLOADER);
+		conf.setClass("io.serializations", WritableSerialization.class, Serialization.class);
+		new WritableSerialization();
+
+		SkywritingTaskFileSystem fs = new SkywritingTaskFileSystem(fis, fos, conf);
 		
-			Configuration conf = new Configuration();
-			conf.setClassLoader(JarTaskLoader.CLASSLOADER);
-			conf.setClass("io.serializations", WritableSerialization.class, Serialization.class);
-			new WritableSerialization();
-
-			SkywritingTaskFileSystem fs = new SkywritingTaskFileSystem(fis, fos, conf);
-
-			
-			
-			List<Cluster> clusters = new ArrayList<Cluster>();
-			Text currentClusterID = new Text();
-			
-			for (int i = 1; i < fis.length; ++i) {
-				SequenceFile.Reader clusterReader = new SequenceFile.Reader(fs, new Path("/in/" + i), conf);
-				Cluster currentCluster = new Cluster();
-				while (true) {
-					try {
-						boolean isMore = clusterReader.next(currentClusterID, currentCluster);
-						if (!isMore) break;
-					} catch (EOFException eofe) {
-						break;
-					}
-					clusters.add(currentCluster);
-					currentCluster = new Cluster();
-  				}
-				clusterReader.close();
-			}
-				
-			PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo, KMeansInfo> output = new PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo, KMeansInfo>(fs, conf, Text.class, KMeansInfo.class, Integer.MAX_VALUE, new skywriting.examples.skyhout.kmeans.KMeansCombiner());
-			
-			Text currentID = new Text();
-			
-			SequenceFile.Reader mapReader = new SequenceFile.Reader(fs, new Path("/in/0"), conf);
-			
-			VectorWritable currentVector = mapReader.getValueClass().asSubclass(VectorWritable.class).newInstance(); 
-
+		List<Cluster> clusters = new ArrayList<Cluster>();
+		Text currentClusterID = new Text();
+		
+		for (int i = 1; i < fis.length; ++i) {
+			SequenceFile.Reader clusterReader = new SequenceFile.Reader(fs, new Path("/in/" + i), conf);
+			Cluster currentCluster = new Cluster();
 			while (true) {
-				int i = 0;
 				try {
-					//System.err.println("About to read");
-					boolean isMore = mapReader.next(currentID, currentVector);
-					//System.err.println("Read");
+					boolean isMore = clusterReader.next(currentClusterID, currentCluster);
 					if (!isMore) break;
 				} catch (EOFException eofe) {
 					break;
 				}
-				//System.err.println(currentID);
-				//System.err.println("Done a point: " + i);
-				i++;
-				this.emitPointToNearestCluster(currentVector.get(), clusters, output);
+				clusters.add(currentCluster);
+				currentCluster = new Cluster();
 			}
-			mapReader.close();
-			output.flushAll();
-			output.closeWriters();
-					
-		} catch (IOException ioe) {
-			ioe.printStackTrace();
-			throw new RuntimeException(ioe);
-		} catch (InstantiationException e) {
-			e.printStackTrace();
-			throw new RuntimeException(e);
-		} catch (IllegalAccessException e) {
-			e.printStackTrace();
-			throw new RuntimeException(e);
+			clusterReader.close();
 		}
+			
+		PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo, KMeansInfo> output = new PartialHashOutputCollector<Text, KMeansInfo, KMeansInfo, KMeansInfo>(fs, conf, Text.class, KMeansInfo.class, Integer.MAX_VALUE, new skywriting.examples.skyhout.kmeans.KMeansCombiner());
+		
+		Text currentID = new Text();
+		
+		SequenceFile.Reader mapReader = new SequenceFile.Reader(fs, new Path("/in/0"), conf);
+		
+		VectorWritable currentVector = mapReader.getValueClass().asSubclass(VectorWritable.class).newInstance(); 
+
+		int i = 0;
+		while (true) {
+			try {
+				//System.err.println("About to read");
+				boolean isMore = mapReader.next(currentID, currentVector);
+				//System.err.println("Read");
+				if (!isMore) break;
+			} catch (EOFException eofe) {
+				break;
+			}
+			//System.err.println(currentID);
+			//System.err.println("Done a point: " + i);
+			i++;
+			//if (i % 1000 == 0) System.out.println(i);
+			this.emitPointToNearestCluster(currentVector.get(), clusters, output);
+			//System.out.println(i);
+		}
+		mapReader.close();
+		output.flushAll();
+		output.closeWriters();
+
+	}
+
+	@Override
+	public Reference[] getDependencies() {
+		return new Reference[] { this.dataPartitionRef, this.clustersRef };
+	}
+
+	@Override
+	public void setup() {
+		// TODO Auto-generated method stub
 		
 	}
 

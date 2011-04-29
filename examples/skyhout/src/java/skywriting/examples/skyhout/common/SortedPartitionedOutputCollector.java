@@ -52,6 +52,9 @@ public class SortedPartitionedOutputCollector<K, V, C, R> extends
 			dump(i);
 			map.clear();
 		}
+		for (SequenceFile.Writer writer : this.writers) {
+			writer.close();
+		}
 	}
 	
 }
