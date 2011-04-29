@@ -41,7 +41,7 @@ public class KMeansDataGenerator implements FirstClassJavaTask {
 		}
 
 		dos.close();
-		Ciel.RPC.closeOutput(0);
+		//Ciel.RPC.closeOutput(0);
 	}
 
 	@Override
