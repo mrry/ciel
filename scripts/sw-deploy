@@ -23,7 +23,7 @@
 KEY="sw-masterkey"
 SWUSER="root"
 SWROOT="/opt/skywriting"
-GITUSER="mrry"
+GITUSER="mrry/ciel"
 VERBOSE=0
 
 # ---------------------------------------------
@@ -81,8 +81,8 @@ do
       echo "             (defaults to '/opt/skywriting')"
       echo "-u|--swuser: the user name of the Skywriting user on the cluster"
       echo "             (defaults to 'root')"
-      echo "-g|--gituser: the git user whose repo should be cloned"
-      echo "             (defaults to 'mrry')"
+      echo "-g|--gituser: the github repo that should be cloned"
+      echo "             (defaults to 'mrry/ciel')"
       echo "-v: verbose mode (don't surpress output from remote machines)"
       shift 1
       exit 0

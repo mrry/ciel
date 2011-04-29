@@ -31,7 +31,7 @@ else
 fi
 
 if [[ $2 == '' ]]; then
-    GITUSER='mrry'
+    GITUSER='mrry/ciel'
 else
     GITUSER=$2
 fi
@@ -45,7 +45,7 @@ apt-get -qq -y update 1>&2 2>/dev/null
 apt-get -qq -y install git-core 1>&2 2>/dev/null
 
 # git checkout
-git clone -q http://github.com/$2/skywriting.git $1
+git clone -q http://github.com/$2.git $1
 
 cd $1
 ./scripts/install-deps-ubuntu.sh

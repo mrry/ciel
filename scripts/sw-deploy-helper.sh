@@ -47,7 +47,7 @@ else
 fi
 
 if [[ $5 == '' ]]; then
-    GITUSER='mrry'
+    GITUSER='mrry/ciel'
 else
     GITUSER=$5
 fi
