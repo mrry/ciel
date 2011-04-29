@@ -3,8 +3,79 @@ package skywriting.examples.tests.java2;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
-public class BinomialOptions {
+import com.asgow.ciel.executor.Ciel;
+import com.asgow.ciel.references.Reference;
+import com.asgow.ciel.references.WritableReference;
+import com.asgow.ciel.tasks.FirstClassJavaTask;
+
+public class BinomialOptions implements FirstClassJavaTask {
+	
+  private Reference input;
+  private double init_s;
+  private double init_k;
+  private double init_t;
+  private double init_v;
+  private double init_rf;
+  private double init_cp;
+  private int init_n;
+  private int init_chunk;
+  private boolean should_start;
+	
+  public BinomialOptions(Reference input, double s, double k, double t, double v, double rf, double cp, int n, int chunk, boolean start) {
+	  
+	this.input = input;
+	this.init_s = s;
+	this.init_k = k;
+	this.init_t = t;
+	this.init_v = v;
+	this.init_rf = rf;
+	this.init_cp = cp;
+	this.init_n = n;
+	this.init_chunk = chunk;
+	this.should_start = start;
+	  
+  }
+  
+  @Override
+  public void setup() {
+  	
+  }
+
+  @Override
+  public void invoke() throws Exception {
+	  
+	WritableReference out_ref = Ciel.RPC.getOutputFilename(1, true, true, false);
+	OutputStream out = out_ref.open();
+	DataOutputStream data_out = new DataOutputStream(out);
+	InputStream in = null;
+	DataInputStream data_in = null;
+	
+	if(this.input != null) {
+		in = Ciel.RPC.getStreamForReference(this.input, 1, true, false, false);
+		data_in = new DataInputStream(in);
+	}
+	
+	calculate(data_in, data_out, this.init_s, this.init_k, this.init_t, this.init_v, this.init_rf, this.init_cp, this.init_n, this.init_chunk, this.should_start);
+	
+	data_in.close();
+	data_out.close();
+	  
+  }
+
+  @Override
+  public Reference[] getDependencies() {
+	if(this.input != null) {
+		Reference[] refs = new Reference[1];
+		refs[0] = this.input;
+		return refs;
+	}
+	else {
+		return new Reference[0];
+	}
+  }
 
   private static double c_stkval(double n, double s, double u, double d, double j) {
     return ( s * (Math.pow(u, (n-j))) * (Math.pow(d,j)));
@@ -69,5 +140,6 @@ public class BinomialOptions {
     }
     return(0.0);
   }
+  
 }
 
