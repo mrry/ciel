@@ -64,7 +64,7 @@ public class KMeansReduceTask implements FirstClassJavaTask {
 		fis[fis.length - 1] = new FileInputStream(Ciel.RPC.getFilenameForReference(this.oldClustersRef));
 
 
-		WritableReference clustersOut = Ciel.RPC.getOutputFilename(0);
+		WritableReference clustersOut = Ciel.RPC.getNewObjectFilename("clusters");
 		OutputStream[] fos = new OutputStream[] { clustersOut.open() };
 		
 		SkywritingTaskFileSystem fs = new SkywritingTaskFileSystem(fis, fos, conf);
@@ -133,11 +133,11 @@ public class KMeansReduceTask implements FirstClassJavaTask {
 			Ciel.tailSpawn(new KMeansReduceTask(this.dataPartitionsRefs, newPartialSumsRefs, newClustersRef, this.iteration + 1, this.convergenceDelta), null);
 			
 			
-		}
+		} else {
 		
-		OutputStreamWriter convergedOutput = new OutputStreamWriter(fos[1]);
-		convergedOutput.write(Boolean.toString(kmrc.areAllConverged()));
-		convergedOutput.close();
+			Ciel.returnPlainString("Finished!");
+					
+		}
 		
 	}
 
