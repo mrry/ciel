@@ -1277,6 +1277,10 @@ class ProcessRunningExecutor(SimpleExecutor):
             self.eager_fetch = self.args['eager_fetch']
         except KeyError:
             self.eager_fetch = False
+        try:
+            self.stream_chunk_size = self.args['stream_chunk_size']
+        except KeyError:
+            self.stream_chunk_size = 67108864
 
         try:
             self.make_sweetheart = self.args['make_sweetheart']
@@ -1291,7 +1295,7 @@ class ProcessRunningExecutor(SimpleExecutor):
         if self.eager_fetch:
             file_inputs = retrieve_filenames_for_refs(self.input_refs)
         else:
-            push_threads = [OngoingFetch(ref, chunk_size=67108864, must_block=True) for ref in self.input_refs]
+            push_threads = [OngoingFetch(ref, chunk_size=self.stream_chunk_size, must_block=True) for ref in self.input_refs]
             for thread in push_threads:
                 self.context_mgr.add_context(thread)
 

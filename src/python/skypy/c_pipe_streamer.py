@@ -87,11 +87,11 @@ def skypy_main(n_chunks, mode, do_log):
 
     n_chunks = int(n_chunks)
 
-    #producer_path = "/opt/smowton-skywriting/src/c/tests/stream_producer"
-    #consumer_path = "/opt/smowton-skywriting/src/c/tests/stream_consumer"
+    producer_path = "/opt/smowton-skywriting/src/c/tests/stream_producer"
+    consumer_path = "/opt/smowton-skywriting/src/c/tests/stream_consumer"
 
-    producer_path = "/local/scratch/cs448/skywriting/src/c/tests/stream_producer"
-    consumer_path = "/local/scratch/cs448/skywriting/src/c/tests/stream_consumer"
+    #producer_path = "/local/scratch/cs448/skywriting/src/c/tests/stream_producer"
+    #consumer_path = "/local/scratch/cs448/skywriting/src/c/tests/stream_consumer"
     
     producer = skypy.spawn_exec("proc", command=producer_path, force_n_outputs=2, proc_pargs=[n_chunks, producer_may_stream, producer_pipe])
 

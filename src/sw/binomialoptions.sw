@@ -1,11 +1,11 @@
 function stdinout(input_refs, cmd_line) {
    f = int(env["FOO"]);
-	return spawn_exec("stdinout", {"inputs" : input_refs, "command_line" : cmd_line, "foo" : f }, 1)[0];
+	return spawn_exec("stdinout", {"inputs" : input_refs, "command_line" : cmd_line, "stream_chunk_size": 1, "foo" : f }, 1)[0];
 }
 
 function stdinout_stream(input_refs, cmd_line) {
    f = int(env["FOO"]);
-	return spawn_exec("stdinout", {"inputs" : input_refs, "command_line" : cmd_line, "stream_output" : true, "foo" : f }, 1)[0];
+	return spawn_exec("stdinout", {"inputs" : input_refs, "command_line" : cmd_line, "stream_chunk_size": 1, "stream_output" : true, "foo" : f }, 1)[0];
 }
 
 function jarrow_rudd(s, k, t, v, rf, cp, n, chunk) {
