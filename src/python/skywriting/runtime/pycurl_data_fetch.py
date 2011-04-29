@@ -1,7 +1,7 @@
 
 from skywriting.runtime.pycurl_thread import pycURLContext, do_from_curl_thread
 from skywriting.runtime.block_store import get_fetch_urls_for_ref, create_fetch_file_for_ref, get_own_netloc
-from shared.references import SW2_ConcreteReference
+from shared.references import SW2_ConcreteReference, SW2_FetchReference
 import skywriting.runtime.remote_stat as remote_stat
 
 import pycurl
@@ -281,7 +281,7 @@ class HttpTransferContext:
 
     def start_http_fetch(self):
         new_fetch = pycURLFetchInProgress(self.ref)
-        if isinstance(self.ref, SW2_ConcreteReference):
+        if isinstance(self.ref, SW2_ConcreteReference) or isinstance(self.ref, SW2_FetchReference):
             new_ctx = FileTransferContext(self.ref, new_fetch)
         else:
             new_ctx = StreamTransferContext(self.ref, new_fetch)

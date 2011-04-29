@@ -1,6 +1,7 @@
 
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference,\
-    SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue
+    SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue,\
+    SW2_FetchReference
 
 import tempfile
 import subprocess
@@ -156,6 +157,8 @@ class FetchInProgress:
         self.plans = []
         if isinstance(self.ref, SWDataValue):
             self.plans.append(self.resolve_dataval)
+        elif isinstance(self.ref, SW2_FetchReference):
+            self.plans.append(self.http_fetch)
         else:
             self.plans.append(self.use_local_file)
             self.plans.append(self.attach_local_producer)

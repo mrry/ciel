@@ -16,6 +16,8 @@ import logging
 import os
 import ciel
 from skywriting.runtime.producer import make_local_output
+from skywriting.runtime.executor_helpers import retrieve_filenames_for_refs,\
+    sync_retrieve_refs
 
 class UploadSession:
     
@@ -68,10 +70,11 @@ class UploadManager:
     def fetch_refs_deferred(self, session_id, refs):
         ciel.log.error('Fetching session %s' % session_id, 'UPLOAD', logging.INFO)
         try:
-            self.block_store.retrieve_filenames_for_refs_eager(refs)
+            sync_retrieve_refs(refs)
             self.current_fetches[session_id] = 200
             for ref in refs:
                 self.block_store.pin_ref_id(ref.id)
         except:
+            ciel.log.error('Exception during attempted fetch session %s' % session_id, 'UPLOAD', logging.WARNING, True)
             self.current_fetches[session_id] = 500
         ciel.log.error('Finished session %s, status = %d' % (session_id, self.current_fetches[session_id]), 'UPLOAD', logging.INFO)
