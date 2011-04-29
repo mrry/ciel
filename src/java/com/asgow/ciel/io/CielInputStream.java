@@ -17,7 +17,7 @@ public class CielInputStream extends InputStream {
 	private boolean blocking;
 	private boolean must_close;
 	private int size;
-	private int bytes_read;
+	private long bytes_read;
 	private Reference ref;
 	private int chunk_size;
 	
@@ -41,7 +41,7 @@ public class CielInputStream extends InputStream {
 	}
 
 	private void waitForMore() throws IOException {
-		int target_size = this.bytes_read + this.chunk_size;
+	        long target_size = this.bytes_read + this.chunk_size;
 		WaitAsyncInputResponse response = Ciel.RPC.waitAsyncInput(this.ref.getId(), false, target_size);
 		this.size = response.size;
 		this.done = response.done;

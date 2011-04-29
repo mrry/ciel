@@ -28,7 +28,9 @@ public interface WorkerRpc {
 	WritableReference getNewObjectFilename(String refPrefix);
 	
 	Reference closeOutput(int index);
-	
+
+	Reference closeOutput(int index, long final_size);
+
 	Reference closeNewObject(WritableReference wref);
 
 	void error(String errorMessage);
@@ -54,7 +56,7 @@ public interface WorkerRpc {
 		
 	}
 	
-	WaitAsyncInputResponse waitAsyncInput(String refid, boolean eof, int bytes);
+	WaitAsyncInputResponse waitAsyncInput(String refid, boolean eof, long bytes);
 
 	InputStream getStreamForReference(Reference ref, int chunk_size)
 			throws IOException;
@@ -64,6 +66,4 @@ public interface WorkerRpc {
 	WritableReference getOutputFilename(int index, boolean may_stream,
 			boolean may_pipe, boolean make_local_sweetheart);
 
-	Reference closeOutput(int index, int final_size);
-	
 }

@@ -25,7 +25,7 @@ public class WritableReference {
 		return this.filename;
 	}
 	
-	public void close(int final_size) {
+	public void close(long final_size) {
 		this.complete_ref = Ciel.RPC.closeOutput(this.outputIndex, final_size);
 	}
 	

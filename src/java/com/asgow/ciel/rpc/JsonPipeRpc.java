@@ -199,7 +199,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 
 	@Override
-	public Reference closeOutput(int index, int final_size) {
+	public Reference closeOutput(int index, long final_size) {
 		JsonObject args = new JsonObject();
 		args.add("index", new JsonPrimitive(index));
 		args.addProperty("size", final_size);
@@ -276,7 +276,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	}
 	
 	@Override
-	public WaitAsyncInputResponse waitAsyncInput(String refid, boolean eof, int bytes) {
+	public WaitAsyncInputResponse waitAsyncInput(String refid, boolean eof, long bytes) {
 		JsonObject args = new JsonObject();
 		args.addProperty("id", refid);
 		if(eof) {
