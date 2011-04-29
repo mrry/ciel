@@ -21,7 +21,7 @@ if [ "$LIGHTTPD_BIN" != "" ]; then
   EXTRA_CONF="${EXTRA_CONF} --lighttpd-conf $BASE/src/python/skywriting/runtime/lighttpd.conf"
 fi
 
-export CLASSPATH=${BASE}/dist/skywriting.jar:${BASE}/ext/google-gson-1.6/gson-1.6.jar:${SCALA_CLASSPATH}
+export CLASSPATH=${BASE}/dist/skywriting.jar:${BASE}/ext/google-gson-1.7.1/gson-1.7.1.jar:${SCALA_CLASSPATH}
 export SW_MONO_LOADER_PATH=${BASE}/src/csharp/bin/loader.exe
 export SW_C_LOADER_PATH=${BASE}/src/c/src/loader
 export CIEL_SKYPY_BASE=${BASE}/src/python/skywriting/runtime/worker/skypy
