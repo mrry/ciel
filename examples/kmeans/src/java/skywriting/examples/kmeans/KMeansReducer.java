@@ -70,7 +70,7 @@ public class KMeansReducer implements FirstClassJavaTask {
 		
 		Ciel.log("Iteration " + this.iteration + "; Error = " + error);
 		
-		if (error > this.epsilon) {
+		if (error > this.epsilon && this.iteration <= 20) {
 		
 			WritableReference newClustersOut = Ciel.RPC.getNewObjectFilename("clusters");
 			DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(newClustersOut.open(), 1048576));
