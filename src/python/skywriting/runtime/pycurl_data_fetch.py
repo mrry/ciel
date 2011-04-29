@@ -100,7 +100,8 @@ class StreamTransferContext:
         self.cancelled = False
         self.local_done = False
         self.current_chunk_size = None
-
+        self.subscribed_to_remote_adverts = True
+        
     def start_next_fetch(self):
         ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
         self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.result, self.progress, self.previous_fetches_bytes_downloaded)
@@ -111,6 +112,7 @@ class StreamTransferContext:
         self.start_next_fetch()
 
     def progress(self, bytes_downloaded):
+        self.fp.flush()
         self.callbacks.progress(self.previous_fetches_bytes_downloaded + bytes_downloaded)
 
     def consider_next_fetch(self):
@@ -148,7 +150,7 @@ class StreamTransferContext:
         if not self.local_done:
             self.local_done = True
             ciel.log("Stream-fetch %s: complete" % self.ref.id, "CURL_FETCH", logging.INFO)
-            remote_stat.unsubscribe_remote_output(self.ref.id)
+            self.unsubscribe_remote_output()
             self.fp.close() 
             self.callbacks.result(success)        
 
@@ -157,9 +159,15 @@ class StreamTransferContext:
         if not success:
             ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." 
                      % self.ref.id, "CURL_FETCH", logging.INFO)
+            self.subscribed_to_remote_adverts = False
             self.remote_failed = True
             if self.current_data_fetch is None:
                 self.complete(False)
+
+    def unsubscribe_remote_output(self):
+        if self.subscribed_to_remote_adverts:
+            remote_stat.unsubscribe_remote_output(self.ref.id)
+            self.subscribed_to_remote_adverts = False
 
     def subscribe_remote_output(self, chunk_size):
         ciel.log("Stream-fetch %s: change notification chunk size to %d" 
@@ -174,7 +182,6 @@ class StreamTransferContext:
     def cancel(self):
         ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
         self.cancelled = True
-        remote_stat.unsubscribe_remote_output(self.ref.id)
         if self.current_data_fetch is not None:
             self.current_data_fetch.cancel()
         self.complete(False)
@@ -182,6 +189,8 @@ class StreamTransferContext:
     def _advertisment(self, bytes=None, done=None, absent=None, failed=None):
         if self.cancelled:
             return
+        if done or absent or failed:
+            self.subscribed_to_remote_adverts = False
         if absent is True or failed is True:
             if absent is True:
                 ciel.log("Stream-fetch %s: advertisment subscription reported file absent" % self.ref.id, "CURL_FETCH", logging.WARNING)

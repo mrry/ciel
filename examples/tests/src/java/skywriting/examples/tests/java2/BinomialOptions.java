@@ -23,8 +23,9 @@ public class BinomialOptions implements FirstClassJavaTask {
   private int init_n;
   private int init_chunk;
   private boolean should_start;
+  private boolean use_direct_fifos;
 	
-  public BinomialOptions(Reference input, double s, double k, double t, double v, double rf, double cp, int n, int chunk, boolean start) {
+  public BinomialOptions(Reference input, double s, double k, double t, double v, double rf, double cp, int n, int chunk, boolean start, boolean direct_fifos) {
 	  
 	this.input = input;
 	this.init_s = s;
@@ -36,6 +37,7 @@ public class BinomialOptions implements FirstClassJavaTask {
 	this.init_n = n;
 	this.init_chunk = chunk;
 	this.should_start = start;
+	this.use_direct_fifos = direct_fifos;
 	  
   }
   
@@ -47,7 +49,7 @@ public class BinomialOptions implements FirstClassJavaTask {
   @Override
   public void invoke() throws Exception {
 	  
-	WritableReference out_ref = Ciel.RPC.getOutputFilename(1, true, true, false);
+	WritableReference out_ref = Ciel.RPC.getOutputFilename(0, true, this.use_direct_fifos, false);
 	OutputStream out = out_ref.open();
 	DataOutputStream data_out = new DataOutputStream(out);
 	InputStream in = null;
@@ -116,7 +118,7 @@ public class BinomialOptions implements FirstClassJavaTask {
     }
   }
 
-  static public double calculate(DataInputStream sin, DataOutputStream sout, double s, double k, double t, double v, double rf, double cp, int n, int chunk, boolean start) throws IOException {
+  static public void calculate(DataInputStream sin, DataOutputStream sout, double s, double k, double t, double v, double rf, double cp, int n, int chunk, boolean start) throws IOException {
     double h = t / n;
     double xd = (rf - 0.5 * (v * v)) * h;
     double xv = v * Math.sqrt(h);
@@ -132,13 +134,12 @@ public class BinomialOptions implements FirstClassJavaTask {
       int rowstart = sin.readInt();
       if (rowstart == 0) {
         double r = sin.readDouble();
-        return r;
+        sout.writeDouble(r);
       } else {
         int rowto = Math.max(0, rowstart - chunk);
         process_rows(sout, sin, rowstart, rowto, q, drift);
       }
     }
-    return(0.0);
   }
   
 }
