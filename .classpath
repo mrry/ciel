@@ -8,6 +8,7 @@
 	<classpathentry kind="src" path="examples/Grep/src"/>
 	<classpathentry kind="src" path="examples/TeraSort/src"/>
 	<classpathentry kind="src" path="examples/WordCount/src"/>
+	<classpathentry kind="src" path="examples/kmeans/src/java"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry kind="lib" path="ext/google-gson-1.6/gson-1.6.jar"/>
 	<classpathentry kind="lib" path="ext/mahout-0.3/lib/commons-logging-1.1.1.jar"/>
