@@ -62,7 +62,9 @@ public class BinomialOptions implements FirstClassJavaTask {
 	
 	calculate(data_in, data_out, this.init_s, this.init_k, this.init_t, this.init_v, this.init_rf, this.init_cp, this.init_n, this.init_chunk, this.should_start);
 	
-	data_in.close();
+	if(data_in != null) {
+		data_in.close();
+	}
 	data_out.close();
 	  
   }
