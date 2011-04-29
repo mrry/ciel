@@ -22,8 +22,8 @@ let gen_initial_optvals n s u d k cp =
 let eqn q drift a b =
   ((q *. a) +. (1.0 -. q) *. b) /. drift
 
-let apply_column v v' acc pos chunk q drift =
-  v' := acc.(0);
+let apply_column v acc pos chunk q drift = 
+  let v' = ref acc.(0) in
   acc.(0) <- v;
   let maxcol = min chunk pos in
   for idx = 1 to maxcol do
@@ -37,10 +37,9 @@ let process_rows rowstart rowto q drift =
   output_value stdout rowto;
   let chunk = rowstart - rowto in
   let acc = Array.create (chunk+1) 0.0 in
-  let v' = ref 0. in
   for pos = 0 to rowstart do
     let v = input_value stdin in
-    apply_column v v' acc pos chunk q drift;
+    apply_column v acc pos chunk q drift;
   done
 
 let _ = 
