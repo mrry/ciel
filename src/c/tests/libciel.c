@@ -368,7 +368,7 @@ struct ciel_input {
 
   FILE* fp;
   int chunk_size;
-  int bytes_read;
+  json_int_t bytes_read;
   int eof;
   int is_blocking;
   int must_close;
@@ -526,8 +526,8 @@ int ciel_read_ref(struct ciel_input* ref, char* buffer, int length) {
 	  return 0;
 	}
 	else {
-	  int threshold = ref->bytes_read + ref->chunk_size;
-	  json_t* wait_message = json_pack_ex(&error_bucket, 0, "[s{sssi}]", "wait_stream", "id", ref->refid, "bytes", threshold);
+	  json_int_t threshold = ref->bytes_read + ref->chunk_size;
+	  json_t* wait_message = json_pack_ex(&error_bucket, 0, "[s{sssI}]", "wait_stream", "id", ref->refid, "bytes", threshold);
 	  ciel_write_framed_json(wait_message, ciel_out);
 	  json_decref(wait_message);
 	  

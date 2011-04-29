@@ -63,7 +63,8 @@ int main(int argc, char** argv) {
   json_decref(out_ref);
   
   char* response_string;
-  asprintf(&response_string, "Producer wrote %ld bytes\n", ((long)4096)*((long)16384)*((long)n_chunks));
+  json_int_t bytes_written = ((json_int_t)4096)*((json_int_t)16384)*((json_int_t)n_chunks);
+  asprintf(&response_string, "Producer wrote %lld bytes\n", bytes_written);
   ciel_define_output_with_plain_string(0, response_string);
   free(response_string);
 

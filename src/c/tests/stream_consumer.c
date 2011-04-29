@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
 
   char read_buffer[4096];
   
-  long bytes_read = 0;
+  json_int_t bytes_read = 0;
 
   while(1) {
     int this_read = ciel_read_ref(input, read_buffer, 4096);
@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
   ciel_close_ref(input);
   
   char* response_string;
-  asprintf(&response_string, "Consumer read %ld bytes\n", bytes_read);
+  asprintf(&response_string, "Consumer read %lld bytes\n", bytes_read);
   ciel_define_output_with_plain_string(0, response_string);
   free(response_string);
 
