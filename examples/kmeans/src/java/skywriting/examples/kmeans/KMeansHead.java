@@ -37,7 +37,7 @@ public class KMeansHead implements FirstClassJavaTask {
 		}
 		dis.close();
 		dos.close();
-		Ciel.RPC.closeOutput(0);
+		//Ciel.RPC.closeOutput(0);
 	}
 
 	@Override
