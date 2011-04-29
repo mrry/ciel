@@ -96,8 +96,9 @@ if [[ $COMMAND == "" ]]; then
    exit 2
 fi
 
+exec 3<$SOURCE
 I=0
-cat $SOURCE | while myLine=`line`
+while read -u 3 myLine
 do
     echo -n "Updating instance $I: "
     if [[ $VERBOSE -eq 1 ]]; then
