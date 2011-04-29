@@ -1,6 +1,7 @@
 package skywriting.examples.kmeans;
 
 import java.io.DataOutputStream;
+import java.io.BufferedOutputStream;
 import java.util.Random;
 
 import com.asgow.ciel.executor.Ciel;
@@ -30,7 +31,7 @@ public class KMeansDataGenerator implements FirstClassJavaTask {
 		
 		WritableReference out = Ciel.RPC.getOutputFilename(0);
 		
-		DataOutputStream dos = new DataOutputStream(out.open());
+		DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(out.open(), 1048576));
 		
 		Random rand = new Random(1234);
 		
