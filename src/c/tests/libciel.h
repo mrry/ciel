@@ -7,9 +7,13 @@ void ciel_read_all(FILE* fin, int length, char* dest);
 
 void ciel_write_all(FILE* fout, char* buf, int len);
 
-char* ciel_open_output(int index, int may_stream, int may_pipe, int make_sweetheart);
+struct ciel_output;
 
-json_t* ciel_close_output(int index, int size);
+struct ciel_output* ciel_open_output(int index, int may_stream, int may_pipe, int make_sweetheart);
+
+int ciel_write_output(struct ciel_output*, char* buf, int len);
+
+json_t* ciel_close_output(struct ciel_output*);
 
 void ciel_exit();
 
@@ -25,6 +29,8 @@ void ciel_close_ref(struct ciel_input* ref);
 
 int ciel_read_ref(struct ciel_input* ref, char* buffer, int length);
 
-struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int may_stream, int sole_consumer, int must_block);
+struct ciel_input* ciel_open_ref(json_t* ref);
+
+struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_consumer, int must_block);
 
 void ciel_block_on_refs(int n_refs, ...);

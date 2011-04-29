@@ -16,10 +16,10 @@ stream_producer: stream_producer.o libciel.o
 	gcc stream_producer.o libciel.o -o stream_producer -ljansson
 
 stream_consumer.o: stream_consumer.c
-	gcc stream_consumer.c -std=gnu99 -c -o stream_consumer.o
+	gcc stream_consumer.c -std=gnu99 -c -o stream_consumer.o -D_FILE_OFFSET_BITS=64
 
 stream_producer.o: stream_producer.c
-	gcc stream_producer.c -std=gnu99 -c -o stream_producer.o
+	gcc stream_producer.c -std=gnu99 -c -o stream_producer.o -D_FILE_OFFSET_BITS=64
 
 libciel.o: libciel.c
-	gcc libciel.c -std=gnu99 -c -o libciel.o
+	gcc libciel.c -std=gnu99 -c -o libciel.o -D_FILE_OFFSET_BITS=64

@@ -48,7 +48,11 @@ int main(int argc, char** argv) {
 
   ciel_block_on_refs(1, ref);
 
-  struct ciel_input* input = ciel_open_ref_async(ref, 1024*1024*64, may_stream, sole_consumer, must_block);
+  struct ciel_input* input;
+  if(may_stream)
+    input = ciel_open_ref_async(ref, 1024*1024*64, sole_consumer, must_block);
+  else
+    input = ciel_open_ref(ref);
 
   char read_buffer[4096];
   

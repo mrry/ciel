@@ -46,9 +46,7 @@ int main(int argc, char** argv) {
 
   json_decref(task_private);
 
-  char* filename = ciel_open_output(1, may_stream, may_pipe, 0);
-  
-  FILE* fout = fopen(filename, "w");
+  struct ciel_output* out = ciel_open_output(1, may_stream, may_pipe, 0);
 
   char write_buffer[4096];
   for(int i = 0; i < 4096; i++)
@@ -56,19 +54,16 @@ int main(int argc, char** argv) {
   
   for(int i = 0; i < n_chunks; i++) {
     for(int j = 0; j < 16384; j++) {
-      ciel_write_all(fout, write_buffer, 4096);
+      ciel_write_output(out, write_buffer, 4096);
     }
   }
 
-  fflush(fout);
-  fclose(fout);
-  
-  long bytes_written = (long)(4096*16384)* (long)(n_chunks);
-  json_t* out_ref = ciel_close_output(1, bytes_written);
+  json_t* out_ref = ciel_close_output(out);
+
   json_decref(out_ref);
   
   char* response_string;
-  asprintf(&response_string, "Producer wrote %ld bytes\n", bytes_written);
+  asprintf(&response_string, "Producer wrote %ld bytes\n", ((long)4096)*((long)16384)*((long)n_chunks));
   ciel_define_output_with_plain_string(0, response_string);
   free(response_string);
 
