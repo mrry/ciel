@@ -57,8 +57,10 @@ public final class Ciel {
 	
 	public static Reference[] spawn(FirstClassJavaTask taskObject, String[] args, int numOutputs) throws IOException {
 		WritableReference objOut = Ciel.RPC.getNewObjectFilename("obj");
+		System.out.println("Spawn: create new output " + objOut.getIndex());
 		ObjectOutputStream oos = new ObjectOutputStream(objOut.open());
 		oos.writeObject(taskObject);
+		System.out.println("Spawn: closing new output " + objOut.getIndex());
 		oos.close();
 		Reference objRef = objOut.getCompletedRef();
 		
@@ -84,8 +86,10 @@ public final class Ciel {
 
 	public static void tailSpawn(FirstClassJavaTask taskObject, String[] args) throws IOException {
 		WritableReference objOut = Ciel.RPC.getNewObjectFilename("obj");
+		System.out.println("TailSpawn: opened new output " + objOut.getIndex());
 		ObjectOutputStream oos = new ObjectOutputStream(objOut.open());
 		oos.writeObject(taskObject);
+		System.out.println("TailSpawn: closing new output " + objOut.getIndex());
 		oos.close();
 		Reference objRef = objOut.getCompletedRef();
 		
@@ -97,6 +101,7 @@ public final class Ciel {
 	}
 	
 	public static <T> void returnObject(T result) throws IOException {
+		
 		WritableReference out = Ciel.RPC.getOutputFilename(0);
 		ObjectOutputStream oos = new ObjectOutputStream(out.open());
 		oos.writeObject(result);
