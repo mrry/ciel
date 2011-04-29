@@ -14,6 +14,10 @@ WORKER_PORT=${WORKER_PORT:-8001}
 
 if [[ $SCALA_HOME != "" ]]; then
     SCALA_CLASSPATH=$SCALA_HOME/lib/scala-library.jar
+    if [ ! -e "${SCALA_CLASSPATH}" ]; then
+      echo Not found: ${SCALA_CLASSPATH}
+      exit 1
+    fi
 fi
 
 LIGHTTPD_BIN=`which lighttpd`
@@ -21,7 +25,8 @@ if [ "$LIGHTTPD_BIN" != "" ]; then
   EXTRA_CONF="${EXTRA_CONF} --lighttpd-conf $BASE/src/python/skywriting/runtime/lighttpd.conf"
 fi
 
-export CLASSPATH=${BASE}/dist/skywriting.jar:${BASE}/ext/google-gson-1.7.1/gson-1.7.1.jar:${SCALA_CLASSPATH}
+GSON_VERSION=1.7.1
+export CLASSPATH=${BASE}/dist/skywriting.jar:${BASE}/ext/google-gson-${GSON_VERSION}/gson-${GSON_VERSION}.jar:${SCALA_CLASSPATH}
 export SW_MONO_LOADER_PATH=${BASE}/src/csharp/bin/loader.exe
 export SW_C_LOADER_PATH=${BASE}/src/c/src/loader
 export CIEL_SKYPY_BASE=${BASE}/src/python/skywriting/runtime/worker/skypy

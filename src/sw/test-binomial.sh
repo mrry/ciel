@@ -7,11 +7,12 @@ v=0.3
 rf=0.03
 cp=-1
 n=50000
-chunk=5000
+chunk=10000
 
-ocamlopt -unsafe -nodynlink -inline 1000 -annot -w -8 binomial_parallel.ml -o binomial-ocaml
+ocamlopt -unsafe -nodynlink -inline 10000 -annot -w -8 binomial_parallel.ml -o binomial-ocaml
 gcc -ffast-math -std=c99 -o binomial-c -Wall -lm -O3 binomial-parallel.c
-scalac BinomialOptions.scala
+scalac ScalaBinomialOptions.scala
+javac *.java
 
 # do serial version
 #echo "Running: ./binomial-serial.py"
@@ -30,7 +31,8 @@ function run_parallel {
   time bash -c "$cmd"
 }
 
-run_parallel "scala BinomialOptions"
+run_parallel "java BinomialRun"
+run_parallel "scala ScalaBinomialOptions"
 run_parallel "./binomial-c"
 run_parallel "./binomial-ocaml"
-run_parallel "./binomial-python"
+#run_parallel "./binomial-python"

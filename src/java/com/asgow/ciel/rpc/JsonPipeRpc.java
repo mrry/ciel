@@ -109,6 +109,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	public static final JsonPrimitive CLOSE_OUTPUT = new JsonPrimitive("close_output");
 	public static final JsonPrimitive BLOCK = new JsonPrimitive("block");
 	public static final JsonPrimitive ERROR = new JsonPrimitive("error");
+	public static final JsonPrimitive LOG = new JsonPrimitive("log");
 	
 	@SuppressWarnings("unchecked")
 	public FirstClassJavaTask getTask() throws ShutdownException {
@@ -341,6 +342,12 @@ public class JsonPipeRpc implements WorkerRpc {
 	
 	public void tailSpawnRaw(JsonElement args) {
 		this.sendMessage(TAIL_SPAWN, args);
+	}
+
+	public void log(String logMessage) {
+		JsonObject args = new JsonObject();
+		args.add("message", new JsonPrimitive(logMessage));
+		this.sendMessage(LOG, args);
 	}
 	
 }

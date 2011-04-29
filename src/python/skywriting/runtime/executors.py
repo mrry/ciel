@@ -705,6 +705,11 @@ class ProcExecutor(BaseExecutor):
         self.task_record.publish_ref(ret_ref)
         return {"ref": ret_ref}
 
+    def log(self, message):
+        t = datetime.now()
+        timestamp = time.mktime(t.timetuple()) + t.microsecond / 1e6
+        self.worker.master_proxy.log(self.task_descriptor["job"], self.task_descriptor["task_id"], timestamp, message)
+
     def rollback_output(self, index):
         self.ongoing_outputs[index].rollback()
         self.stop_output(index)
@@ -778,6 +783,10 @@ class ProcExecutor(BaseExecutor):
                 elif method == 'publish_string':
                     
                     response = self.publish_string(**args)
+
+                elif method == 'log':
+                    # No response.
+                    self.log(**args)
 
                 elif method == 'open_output':
                     

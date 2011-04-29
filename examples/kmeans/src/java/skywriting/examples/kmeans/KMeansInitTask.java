@@ -30,7 +30,7 @@ public class KMeansInitTask implements FirstClassJavaTask {
 			partialSumsRefs[i] = Ciel.spawn(new KMeansMapper(dataPartitions[i], initClusters, k, numDimensions), null, 1)[0];
 		}
 		
-		Ciel.tailSpawn(new KMeansReducer(partialSumsRefs, initClusters, k, numDimensions, epsilon, dataPartitions), null);
+		Ciel.tailSpawn(new KMeansReducer(partialSumsRefs, initClusters, k, numDimensions, epsilon, dataPartitions, 0), null);
 		
 	}
 

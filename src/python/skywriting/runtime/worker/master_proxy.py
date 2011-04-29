@@ -108,6 +108,11 @@ class MasterProxy:
         message_url = urljoin(self.master_url, 'control/task/%s/%s/publish' % (job_id, task_id))
         self.backoff_request(message_url, "POST", message_payload, need_result=False)
 
+    def log(self, job_id, task_id, timestamp, message):
+        message_payload = simplejson.dumps([timestamp, message], cls=SWReferenceJSONEncoder)
+        message_url = urljoin(self.master_url, 'control/task/%s/%s/log' % (job_id, task_id))
+        self.backoff_request(message_url, "POST", message_payload, need_result=False)
+
     def report_tasks(self, job_id, root_task_id, report):
         message_payload = simplejson.dumps({'worker' : self.worker.id, 'report' : report}, cls=SWReferenceJSONEncoder)
         message_url = urljoin(self.master_url, 'control/task/%s/%s/report' % (job_id, root_task_id))
