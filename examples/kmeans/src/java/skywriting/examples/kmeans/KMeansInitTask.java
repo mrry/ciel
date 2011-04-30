@@ -24,7 +24,7 @@ public class KMeansInitTask implements FirstClassJavaTask {
 		//Reference randomData = Ciel.spawn(new KMeansDataGenerator(numVectors, numDimensions), null, 1)[0];
 		Reference[] dataPartitions = new Reference[numPartitions];
 		for (int i = 0; i < numPartitions; ++i) {
-		    dataPartitions[i] = Ciel.spawn(new KMeansDataGenerator(numVectors / numPartitions, numDimensions), null, 1)[0];
+		    dataPartitions[i] = Ciel.spawn(new KMeansDataGenerator(numVectors / numPartitions, numDimensions, i), null, 1)[0];
 		}
 
 		Reference initClusters = Ciel.spawn(new KMeansHead(dataPartitions[0], k, numDimensions), null, 1)[0];

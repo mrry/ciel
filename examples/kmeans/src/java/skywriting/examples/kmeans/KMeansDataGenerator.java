@@ -13,10 +13,12 @@ public class KMeansDataGenerator implements FirstClassJavaTask {
 
 	private int numVectors;
 	private int numDimensions;
+	private int seed;
 	
-	public KMeansDataGenerator(int numVectors, int numDimensions) {
+	public KMeansDataGenerator(int numVectors, int numDimensions, int seed) {
 		this.numVectors = numVectors;
 		this.numDimensions = numDimensions;
+		this.seed = seed;
 	}
 	
 	@Override
@@ -33,7 +35,7 @@ public class KMeansDataGenerator implements FirstClassJavaTask {
 		
 		DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(out.open(), 1048576));
 		
-		Random rand = new Random(1234);
+		Random rand = new Random(this.seed);
 		
 		for (int i = 0; i < this.numVectors; ++i) {
 			for (int j = 0; j < this.numDimensions; ++j) {

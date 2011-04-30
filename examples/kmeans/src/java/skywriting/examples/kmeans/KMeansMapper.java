@@ -46,7 +46,7 @@ public class KMeansMapper implements FirstClassJavaTask {
 	@Override
 	public void invoke() throws Exception {
 		
-		DataInputStream clustersIn = new DataInputStream(new BufferedInputStream(Ciel.RPC.getStreamForReference(this.dataPartitionRef, 1048576, false, true, false), 1048576));
+		DataInputStream clustersIn = new DataInputStream(new BufferedInputStream(Ciel.RPC.getStreamForReference(this.clustersRef, 1048576, false, true, false), 1048576));
 	
 		double[][] clusters = new double[this.k][this.numDimensions];
 		
@@ -54,6 +54,7 @@ public class KMeansMapper implements FirstClassJavaTask {
 			for (int j = 0; j < this.numDimensions; ++j) {
 				clusters[i][j] = clustersIn.readDouble();
 			}
+			//System.err.println("Cluster " + i + " " + clusters[i][0] + " " + clusters[i][1]);
 		}
 		
 		clustersIn.close();
@@ -68,13 +69,11 @@ public class KMeansMapper implements FirstClassJavaTask {
 		if (this.doCache) {
 			vectors = (LinkedList<double[]>) Ciel.softCache.tryGetCache("fastkmeansin", this.dataPartitionRef);
 			if (vectors == null) {
-				System.err.println("!!!Cache miss!!!");
 				doRead = true;
 				vectors = new LinkedList<double[]>();
 				vectorIterator = null;
 				dataIn = new DataInputStream(new BufferedInputStream(new FileInputStream(Ciel.RPC.getFilenameForReference(this.dataPartitionRef, true)), 1048576));
 			} else {
-				System.err.println("!!!Cache hit!!!");
 				doRead = false;
 				dataIn = null;
 				vectorIterator = vectors.iterator();
@@ -122,6 +121,7 @@ public class KMeansMapper implements FirstClassJavaTask {
 				}
 				
 				++v;
+				//System.err.println("Vector " + currentVector[0] + " " + currentVector[1]);
 				result.add(nearestCluster, currentVector);
 				
 				if (doRead && doCache) {
@@ -138,7 +138,6 @@ public class KMeansMapper implements FirstClassJavaTask {
 		
 		if (doRead && doCache) {
 			Ciel.softCache.putCache(vectors, "fastkmeansin", this.dataPartitionRef);
-			System.out.println("!!!Cache put!!!");
 		}
 		
 		Ciel.returnObject(result);

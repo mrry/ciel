@@ -70,7 +70,7 @@ public class KMeansReducer implements FirstClassJavaTask {
 		
 		double error = result.error(oldClusters);
 		
-		Ciel.log("Iteration " + this.iteration + "; Error = " + error);
+		System.err.println("Iteration " + this.iteration + "; Error = " + error);
 		
 		if (error > this.epsilon && this.iteration <= 20) {
 		
@@ -79,7 +79,8 @@ public class KMeansReducer implements FirstClassJavaTask {
 			
 			for (int i = 0; i < this.k; ++i) {
 				for (int j = 0; j < result.sums[i].length; ++j) {
-					dos.writeDouble(result.sums[i][j] / result.counts[i]);
+					// result has been normalised.
+					dos.writeDouble(result.sums[i][j]);
 				}
 			}
 			
@@ -95,7 +96,9 @@ public class KMeansReducer implements FirstClassJavaTask {
 			Ciel.tailSpawn(new KMeansReducer(newPartialSumsRefs, newClustersRef, this.k, this.numDimensions, this.epsilon, this.dataPartitionsRefs, this.iteration + 1, this.doCache), null);
 			
 		} else {
-			Ciel.returnObject(result.sums);
+		
+			Ciel.returnPlainString("Finished!");
+			//Ciel.returnObject(result.sums);
 		}
 		
 	}
