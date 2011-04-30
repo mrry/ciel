@@ -96,11 +96,13 @@ public class KMeansMapTask implements FirstClassJavaTask {
 		if (doCache) {
 			Object obj = Ciel.softCache.tryGetCache("mapinput", this.dataPartitionRef);
 			if (obj != null) {
-				System.out.println(obj);
-				System.out.println(obj.getClass());
+				//System.out.println(obj);
+				//System.out.println(obj.getClass());
 				cachedReader = (CachingSequenceFileReader) obj;
+				System.out.println("!!! CACHE HIT !!!");
 			} else {
 				cachedReader = null;
+				System.out.println("!!! CACHE MISS !!!");
 			}
 		} else {
 			cachedReader = null;
@@ -194,6 +196,7 @@ public class KMeansMapTask implements FirstClassJavaTask {
 			reader.close();
 			if (doCache) {
 				cachingReader.cache();
+				System.out.println("!!! CACHE PUT !!! ");
 				Ciel.softCache.putCache(cachingReader, "mapinput", this.dataPartitionRef);
 			}
 		} else {
