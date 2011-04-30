@@ -30,7 +30,7 @@ public class Java2Executor {
 		while(true) {
 
 			FirstClassJavaTask task = null;
-			Ciel.softCache.sweepCache();
+			//Ciel.softCache.sweepCache();
 			try {
 				task = Ciel.RPC.getTask();
 			} catch (ShutdownException e) {
