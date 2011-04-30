@@ -69,8 +69,8 @@ public class JsonPipeRpc implements WorkerRpc {
 			message.add(method);
 			message.add(args);
 			byte[] messageString = this.gson.toJson(message).getBytes();
-			System.err.println(new String(messageString));
-			System.err.println("Writing " + messageString.length + " bytes");
+			//System.err.println(new String(messageString));
+			//System.err.println("Writing " + messageString.length + " bytes");
 			this.toWorkerPipe.writeInt(messageString.length);
 			this.toWorkerPipe.write(messageString);
 		} catch (IOException ioe) {
@@ -81,11 +81,11 @@ public class JsonPipeRpc implements WorkerRpc {
 	private JsonElement receiveMessage() {
 		try {
 			int responseLength = this.fromWorkerPipe.readInt();
-			System.err.println("Reading " + responseLength + " bytes");
+			//System.err.println("Reading " + responseLength + " bytes");
 			byte[] responseBuffer = new byte[responseLength];
 			this.fromWorkerPipe.readFully(responseBuffer);
 			String responseString = new String(responseBuffer);
-			System.out.println(responseString);
+			//System.out.println(responseString);
 			return this.jsonParser.parse(responseString);
 		} catch (IOException ioe) {
 			throw new RuntimeException(ioe);
@@ -137,11 +137,18 @@ public class JsonPipeRpc implements WorkerRpc {
 				refJarLib[i] = Reference.fromJson(jarLib.get(i).getAsJsonObject());
 				urls[i] = new URL("file://" + this.getFilenameForReference(refJarLib[i]));
 			}
-	
-			URLClassLoader urlcl = new URLClassLoader(urls);
-						
+
+			if (Ciel.CLASSLOADER == null) { 
+				URLClassLoader urlcl = new URLClassLoader(urls);
+				Ciel.CLASSLOADER = urlcl;
+			} else {
+				URLClassLoader urlcl = new URLClassLoader(urls, Ciel.CLASSLOADER);
+				Ciel.CLASSLOADER = urlcl;
+			}
+			
+			
+			
 			Ciel.jarLib = refJarLib;
-			Ciel.CLASSLOADER = urlcl;
 			
 			FirstClassJavaTask ret;
 			
@@ -164,7 +171,7 @@ public class JsonPipeRpc implements WorkerRpc {
 				assert task.has("class_name");
 				// This is an externally-created task.
 				String taskClassName = task.get("class_name").getAsString();
-				Class taskClass = urlcl.loadClass(taskClassName);
+				Class taskClass = Ciel.CLASSLOADER.loadClass(taskClassName);
 				ret = (FirstClassJavaTask) taskClass.newInstance();
 			}
 			
@@ -189,7 +196,7 @@ public class JsonPipeRpc implements WorkerRpc {
 
 	@Override
 	public Reference closeNewObject(WritableReference wref) {
-		System.out.println("Close new output");
+		//System.out.println("Close new output");
 		return closeOutput(wref.getIndex());
 	}
 
@@ -198,7 +205,7 @@ public class JsonPipeRpc implements WorkerRpc {
 		JsonObject args = new JsonObject();
 		args.add("index", new JsonPrimitive(index));
 		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		System.out.println("Close output " + index);
+		//System.out.println("Close output " + index);
 		return Reference.fromJson(response.getAsJsonObject("ref"));
 	}
 
@@ -208,7 +215,7 @@ public class JsonPipeRpc implements WorkerRpc {
 		args.add("index", new JsonPrimitive(index));
 		args.addProperty("size", final_size);
 		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		System.out.println("Close output " + index);
+		//System.out.println("Close output " + index);
 		return Reference.fromJson(response.getAsJsonObject("ref"));
 	}
 
@@ -311,7 +318,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	@Override
 	public WritableReference getOutputFilename(int index, boolean may_stream, boolean may_pipe, boolean make_local_sweetheart) {
 		JsonObject args = new JsonObject();
-		System.out.println("Open output " + index);
+		//System.out.println("Open output " + index);
 		args.add("index", new JsonPrimitive(index));
 		args.addProperty("may_stream", may_stream);
 		args.addProperty("may_pipe", may_pipe);
