@@ -523,7 +523,7 @@ class ProcExecutor(BaseExecutor):
         self.reader = reader
         self.writer = writer
         
-        ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
+        #ciel.log('Got reader and writer FIFOs', 'PROC', logging.INFO)
 
         write_framed_json(("start_task", task_private), writer)
 
@@ -607,7 +607,7 @@ class ProcExecutor(BaseExecutor):
         # Definitions here: "done" means we're already certain that the producer has completed successfully.
         # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
         ret = {"filename": filename, "done": new_fetch.done, "blocking": file_blocking, "size": new_fetch.bytes}
-        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"]), "EXEC", logging.INFO)
+        #ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"]), "EXEC", logging.INFO)
         if new_fetch.done:
             if not new_fetch.success:
                 ciel.log("Async fetch %s failed early" % ref, "EXEC", logging.WARNING)
@@ -621,7 +621,7 @@ class ProcExecutor(BaseExecutor):
                 self.context_manager.remove_context(fetch)
                 self.ongoing_fetches.remove(fetch)
                 return
-        ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "EXEC", logging.WARNING)
+        #ciel.log("Ignored cancel for async fetch %s (chunk %d): not in progress" % (id, chunk_size), "EXEC", logging.WARNING)
 
     def wait_async_file(self, id, eof=None, bytes=None):
         the_fetch = None
@@ -736,7 +736,7 @@ class ProcExecutor(BaseExecutor):
                 ciel.log('Error reading in JSON event loop', 'PROC', logging.WARN, True)
                 return PROC_ERROR
                 
-            ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
+            #ciel.log('Method is %s' % repr(method), 'PROC', logging.INFO)
             response = None
             
             try:

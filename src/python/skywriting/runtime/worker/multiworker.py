@@ -284,12 +284,12 @@ class QueueManager:
     def notify(self, scheduling_class):
         try:
             with self._cond[scheduling_class]:
-                ciel.log('Notifying Qmanager for class %s' % scheduling_class, 'LOTTERY', logging.INFO)
+                #ciel.log('Notifying Qmanager for class %s' % scheduling_class, 'LOTTERY', logging.INFO)
                 self._cond[scheduling_class].notify()
         except KeyError:
             try:
                 with self._cond['*']:
-                    ciel.log('Notifying Qmanager for class *', 'LOTTERY', logging.INFO)
+                    #ciel.log('Notifying Qmanager for class *', 'LOTTERY', logging.INFO)
                     self._cond['*'].notify()
             except:
                 assert False
@@ -318,17 +318,17 @@ class QueueManager:
                     total_tickets += job_tickets
                     ticket_list.append((job, job_tickets, candidate))
         
-                ciel.log('Total tickets in all runnable jobs is %d' % total_tickets, 'LOTTERY', logging.INFO)
+                #ciel.log('Total tickets in all runnable jobs is %d' % total_tickets, 'LOTTERY', logging.INFO)
                 
                 if total_tickets > 0:
                     chosen_ticket = random.randrange(total_tickets)
-                    ciel.log('Chose ticket: %d' % chosen_ticket, 'LOTTERY', logging.INFO)
+                    #ciel.log('Chose ticket: %d' % chosen_ticket, 'LOTTERY', logging.INFO)
                     
                     curr_ticket = 0
                     for job, job_tickets, current_head in ticket_list:
                         curr_ticket += job_tickets
                         if curr_ticket > chosen_ticket:
-                            ciel.log('Ticket corresponds to job: %s' % job.id, 'LOTTERY', logging.INFO)
+                            #ciel.log('Ticket corresponds to job: %s' % job.id, 'LOTTERY', logging.INFO)
                             # Choose the current head from this job.
                             del current_heads[job]
                             return current_head
