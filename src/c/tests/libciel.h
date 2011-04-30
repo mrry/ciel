@@ -15,6 +15,8 @@ int ciel_write_output(struct ciel_output*, char* buf, int len);
 
 json_t* ciel_close_output(struct ciel_output*);
 
+void ciel_set_output_unbuffered(struct ciel_output* out);
+
 void ciel_exit();
 
 void ciel_define_output_with_plain_string(int index, char* string);
@@ -26,6 +28,8 @@ json_t* ciel_get_task();
 struct ciel_input;
 
 void ciel_close_ref(struct ciel_input* ref);
+
+void ciel_set_input_unbuffered(struct ciel_input* in);
 
 int ciel_read_ref(struct ciel_input* ref, char* buffer, int length);
 

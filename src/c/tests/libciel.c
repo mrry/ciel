@@ -13,11 +13,11 @@
 #include <sys/types.h>
 #include <errno.h>
 
-FILE* ciel_out;
-FILE* ciel_in;
+static FILE* ciel_out;
+static FILE* ciel_in;
 
-char* ciel_socket_name;
-int ciel_socket_fd;
+static char* ciel_socket_name;
+static int ciel_socket_fd;
 
 void ciel_json_error(char* string, json_error_t* error) {
 
@@ -124,7 +124,7 @@ int ciel_receive_fd() {
   int sock_len = sizeof(otherend_addr);
   int rcv_sock = accept(ciel_socket_fd, &otherend_addr, &sock_len);
   if(rcv_sock == -1) {
-    fprintf(stderr, "Failed to accept receiving an FD in open_ref_async\n");
+    fprintf(stderr, "Failed to accept receiving an FD\n");
     return -1;
   }
   
@@ -235,6 +235,12 @@ struct ciel_output* ciel_open_output(int index, int may_stream, int may_pipe, in
 
   json_decref(open_response);
   return ret;
+
+}
+
+void ciel_set_output_unbuffered(struct ciel_output* out) {
+
+  setbuf(out->fp, 0);
 
 }
 
@@ -421,9 +427,9 @@ struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_con
   int is_done;
   int size;
 
-  if(json_unpack_ex(response_args, &error_bucket, 0, "{sbsbsbsi}", 
+  if(json_unpack_ex(response_args, &error_bucket, 0, "{sbsbsb}", 
 		    "sending_fd", &fd_coming, "blocking", &is_blocking, 
-		    "done", &is_done, "size", &size)) {
+		    "done", &is_done)) {
     fprintf(stderr, "Failed decoding open_ref_async object\n");
     ciel_json_error(0, &error_bucket);
     json_decref(response);
@@ -436,6 +442,7 @@ struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_con
   new_input->is_blocking = is_blocking;
   new_input->must_close = !is_done;
   new_input->eof = is_done;
+  new_input->bytes_read = 0;
 
   if(!fd_coming) {
     json_t* filename_obj = json_object_get(response_args, "filename");
@@ -507,6 +514,12 @@ struct ciel_input* ciel_open_ref(json_t* ref) {
   json_decref(response);
 
   return ret;
+
+}
+
+void ciel_set_input_unbuffered(struct ciel_input* ref) {
+
+  setbuf(ref->fp, 0);
 
 }
 

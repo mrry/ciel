@@ -21,5 +21,11 @@ stream_consumer.o: stream_consumer.c
 stream_producer.o: stream_producer.c
 	gcc stream_producer.c -std=gnu99 -c -o stream_producer.o -D_FILE_OFFSET_BITS=64
 
+binomial-fc: binomial-fc.o libciel.o
+	gcc binomial-fc.o libciel.o -o binomial-fc -ljansson -lm
+
+binomial-fc.o: binomial-fc.c
+	gcc binomial-fc.c -c -o binomial-fc.o -std=gnu99 -O3 -D_FILE_OFFSET_BITS=64
+
 libciel.o: libciel.c
 	gcc libciel.c -std=gnu99 -c -o libciel.o -D_FILE_OFFSET_BITS=64
