@@ -103,7 +103,7 @@ class LocalitySchedulingPolicy(SchedulingPolicy):
                     
         ranked_netlocs = [(saving, netloc) for (netloc, saving) in netlocs.items()]
         filtered_ranked_netlocs = filter(lambda (saving, netloc) : worker_pool.get_worker_at_netloc(netloc) is not None and saving > self.min_saving_threshold, ranked_netlocs)
-        filtered_ranked_netlocs.sort()
+        filtered_ranked_netlocs.sort(reverse=True)
         
         if len(filtered_ranked_netlocs) == 0:
             # If we have no preference for any worker, use the power of two random choices. [Azar et al. STOC 1994]
