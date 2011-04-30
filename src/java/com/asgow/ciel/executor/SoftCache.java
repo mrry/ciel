@@ -72,9 +72,11 @@ public class SoftCache {
 		String key = keyOfTagAndRefs(tag, refs);
 		CacheEntry hit = cache.get(key);
 		if(hit == null) {
+			System.err.println("&&&&&&&&&&&&&& Cached miss: " + refs[0].getId());
 			return null;
 		}
 		else {
+			System.err.println("&&&&&&&&&&&&&& Cached hit: " + refs[0].getId());
 			hit.lastUse = new Date();
 			return hit.value;
 		}
@@ -87,7 +89,7 @@ public class SoftCache {
 		String key = keyOfSortedTagAndRefs(tag, refs);
 		CacheEntry newEntry = new CacheEntry(obj, tag, refs);
 		cache.put(key, newEntry);
-		
+		System.err.println("&&&&&&&&&&&&&& Cached ref: " + refs[0].getId());
 	}
 	
 	public void sweepCache() {
