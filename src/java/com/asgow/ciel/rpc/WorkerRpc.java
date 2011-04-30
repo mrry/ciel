@@ -39,6 +39,8 @@ public interface WorkerRpc {
 	
 	void exit(boolean fixed);
 
+	public String getFilenameForReference(Reference ref, boolean makeSweetheart);
+	
 	InputStream getStreamForReference(Reference ref, int chunk_size,
 			boolean sole_consumer, boolean make_sweetheart, boolean must_block) throws IOException;
 

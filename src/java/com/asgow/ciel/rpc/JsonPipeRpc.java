@@ -241,8 +241,14 @@ public class JsonPipeRpc implements WorkerRpc {
 
 	@Override
 	public String getFilenameForReference(Reference ref) {
+		return this.getFilenameForReference(ref, false);
+	}
+
+	@Override
+	public String getFilenameForReference(Reference ref, boolean makeSweetheart) {
 		JsonObject args = new JsonObject();
 		args.add("ref", ref.toJson());
+		args.addProperty("make_sweetheart", makeSweetheart);
 		JsonObject response = this.sendReceiveMessage(OPEN_REF, args).getAsJsonArray().get(1).getAsJsonObject();
 		if (response.has("filename")) {
 			return response.get("filename").getAsString();

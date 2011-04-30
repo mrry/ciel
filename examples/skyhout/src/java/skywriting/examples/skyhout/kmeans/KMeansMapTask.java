@@ -115,7 +115,7 @@ public class KMeansMapTask implements FirstClassJavaTask {
 			fis = new InputStream[] { new FileInputStream(Ciel.RPC.getFilenameForReference(this.clustersRef)) };
 		} else {
 			fis = new InputStream[] { new FileInputStream(Ciel.RPC.getFilenameForReference(this.clustersRef)),
-					Ciel.RPC.getStreamForReference(this.dataPartitionRef, 1048576, false, true, false) } ;
+					new FileInputStream(Ciel.RPC.getFilenameForReference(this.dataPartitionRef, true)) };
 		}
 		
 		WritableReference partialSumsOut = Ciel.RPC.getOutputFilename(0);
