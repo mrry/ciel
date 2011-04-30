@@ -40,13 +40,15 @@ public class KMeansReduceTask implements FirstClassJavaTask {
 	private final Reference oldClustersRef;
 	private final int iteration;
 	private final double convergenceDelta;
+	private final boolean doCache;
 	
-	public KMeansReduceTask(Reference[] dataPartitionRefs, Reference[] partialSumsRefs, Reference oldClustersRef, int iteration, double convergenceDelta) {
+	public KMeansReduceTask(Reference[] dataPartitionRefs, Reference[] partialSumsRefs, Reference oldClustersRef, int iteration, double convergenceDelta, boolean doCache) {
 		this.dataPartitionsRefs = dataPartitionRefs;
 		this.partialSumsRefs = partialSumsRefs;
 		this.oldClustersRef = oldClustersRef;
 		this.iteration = iteration;
 		this.convergenceDelta = convergenceDelta;
+		this.doCache = doCache;
 	}
 	
 	@Override
@@ -118,7 +120,7 @@ public class KMeansReduceTask implements FirstClassJavaTask {
 		
 		inputCollector.close();
 		
-		if (!kmrc.areAllConverged() && this.iteration <= 20) {
+		if (!kmrc.areAllConverged() && this.iteration <= 10) {
 			
 			Reference newClustersRef = clustersOut.getCompletedRef();
 			
@@ -127,10 +129,10 @@ public class KMeansReduceTask implements FirstClassJavaTask {
 			for (int i = 0; i < newPartialSumsRefs.length; ++i) {
 				System.out.println("dpr[i]" + this.dataPartitionsRefs[i]);
 				System.out.println("ncr   " + newClustersRef);
-				newPartialSumsRefs[i] = Ciel.spawn(new KMeansMapTask(this.dataPartitionsRefs[i], newClustersRef), null, 1)[0];
+				newPartialSumsRefs[i] = Ciel.spawn(new KMeansMapTask(this.dataPartitionsRefs[i], newClustersRef, this.doCache), null, 1)[0];
 			}
 
-			Ciel.tailSpawn(new KMeansReduceTask(this.dataPartitionsRefs, newPartialSumsRefs, newClustersRef, this.iteration + 1, this.convergenceDelta), null);
+			Ciel.tailSpawn(new KMeansReduceTask(this.dataPartitionsRefs, newPartialSumsRefs, newClustersRef, this.iteration + 1, this.convergenceDelta, this.doCache), null);
 			
 			
 		} else {

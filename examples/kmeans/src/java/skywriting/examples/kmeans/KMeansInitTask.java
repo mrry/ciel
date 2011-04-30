@@ -19,6 +19,7 @@ public class KMeansInitTask implements FirstClassJavaTask {
 		int k = Integer.parseInt(Ciel.args[2]);
 		int numPartitions = Integer.parseInt(Ciel.args[3]);
 		double epsilon = Double.parseDouble(Ciel.args[4]);
+		boolean doCache = Boolean.parseBoolean(Ciel.args[5]);
 		
 		//Reference randomData = Ciel.spawn(new KMeansDataGenerator(numVectors, numDimensions), null, 1)[0];
 		Reference[] dataPartitions = new Reference[numPartitions];
@@ -30,10 +31,10 @@ public class KMeansInitTask implements FirstClassJavaTask {
 		
 		Reference[] partialSumsRefs = new Reference[numPartitions];
 		for (int i = 0; i < numPartitions; ++i) {
-			partialSumsRefs[i] = Ciel.spawn(new KMeansMapper(dataPartitions[i], initClusters, k, numDimensions), null, 1)[0];
+			partialSumsRefs[i] = Ciel.spawn(new KMeansMapper(dataPartitions[i], initClusters, k, numDimensions, doCache), null, 1)[0];
 		}
 		
-		Ciel.tailSpawn(new KMeansReducer(partialSumsRefs, initClusters, k, numDimensions, epsilon, dataPartitions, 0), null);
+		Ciel.tailSpawn(new KMeansReducer(partialSumsRefs, initClusters, k, numDimensions, epsilon, dataPartitions, 0, doCache), null);
 		
 	}
 

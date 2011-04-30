@@ -23,8 +23,9 @@ public class KMeansReducer implements FirstClassJavaTask {
 	private final double epsilon;
 	private final Reference[] dataPartitionsRefs;
 	private final int iteration;
+	private final boolean doCache;
 	
-	public KMeansReducer(Reference[] partialSumsRefs, Reference oldClustersRef, int k, int numDimensions, double epsilon, Reference[] dataPartitionsRefs, int iteration) {
+	public KMeansReducer(Reference[] partialSumsRefs, Reference oldClustersRef, int k, int numDimensions, double epsilon, Reference[] dataPartitionsRefs, int iteration, boolean doCache) {
 		this.partialSumsRefs = partialSumsRefs;
 		this.oldClustersRef = oldClustersRef;
 		this.k = k;
@@ -32,6 +33,7 @@ public class KMeansReducer implements FirstClassJavaTask {
 		this.epsilon = epsilon;
 		this.dataPartitionsRefs = dataPartitionsRefs;
 		this.iteration = iteration;
+		this.doCache = doCache;
 	}
 	
 	@Override
@@ -87,10 +89,10 @@ public class KMeansReducer implements FirstClassJavaTask {
 			Reference[] newPartialSumsRefs = new Reference[this.dataPartitionsRefs.length];
 			
 			for (int i = 0; i < newPartialSumsRefs.length; ++i) {
-				newPartialSumsRefs[i] = Ciel.spawn(new KMeansMapper(this.dataPartitionsRefs[i], newClustersRef, this.k, this.numDimensions), null, 1)[0];
+				newPartialSumsRefs[i] = Ciel.spawn(new KMeansMapper(this.dataPartitionsRefs[i], newClustersRef, this.k, this.numDimensions, this.doCache), null, 1)[0];
 			}
 
-			Ciel.tailSpawn(new KMeansReducer(newPartialSumsRefs, newClustersRef, this.k, this.numDimensions, this.epsilon, this.dataPartitionsRefs, this.iteration + 1), null);
+			Ciel.tailSpawn(new KMeansReducer(newPartialSumsRefs, newClustersRef, this.k, this.numDimensions, this.epsilon, this.dataPartitionsRefs, this.iteration + 1, this.doCache), null);
 			
 		} else {
 			Ciel.returnObject(result.sums);
