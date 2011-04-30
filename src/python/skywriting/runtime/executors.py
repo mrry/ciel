@@ -984,7 +984,7 @@ class Java2Executor(ProcExecutor):
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, accept_ref_list_for_single=True, **kwargs)
         
     def get_command(self):
-        return ["java", "-Xmx1024M", "-cp", os.getenv('CLASSPATH'), "com.asgow.ciel.executor.Java2Executor"]
+        return ["java", "-Xmx2048M", "-cp", os.getenv('CLASSPATH'), "com.asgow.ciel.executor.Java2Executor"]
 
     @staticmethod
     def can_run():
