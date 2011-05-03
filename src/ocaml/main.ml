@@ -17,25 +17,29 @@
 
 open Printf
 open Lwt
+open Yojson
 
-let read_fifo_t rfd =
-  let ic = Lwt_io.of_fd ~buffer_size:12000 ~mode:Lwt_io.input rfd in
-  let rec loop () =
-    try_lwt
-      lwt len = Lwt_io.BE.read_int32 ic in
-      let len = Int32.to_int len in
-      let buf = String.create len in
-      lwt () = Lwt_io.read_into_exactly ic buf 0 len in
-      printf "read raw: %s\n%!" buf;
-      let json = (Yojson.Basic.from_string buf :> Yojson.json) in
-      Yojson.pretty_to_channel ~std:true stdout json;
-      printf "read json\n%!";
-      loop ()
-    with exn ->  begin
-      printf "EXN %s\n%!" (Printexc.to_string exn);
-      loop ()
-    end
-  in loop () 
+let read_framed_json ic =
+  lwt len = Lwt_io.BE.read_int ic in
+  let buf = String.create len in
+  Lwt_io.read_into_exactly ic buf 0 len >>
+  (return (printf "read[%d]: %s\n%!" len buf)) >>
+  return (Basic.from_string buf :> json)
+ 
+let write_framed_json oc (json:json) () =
+  let buf = to_string json in
+  let len = String.length buf in
+  printf "write[%d]: %s\n%!" len buf;
+  Lwt_io.BE.write_int32 oc (Int32.of_int len) >>
+  Lwt_io.write_from_exactly oc buf 0 len 
+
+let fifo_t wfd rfd =
+  let ic = Lwt_io.(of_fd ~buffer_size:4000 ~mode:input rfd) in
+  let oc = Lwt_io.(of_fd ~buffer_size:4000 ~mode:output wfd) in
+  let ocm = Lwt_mutex.create () in
+  let write json = Lwt_mutex.with_lock ocm (write_framed_json oc json) in
+  let read () = read_framed_json ic in
+  Cmd.input write read
 
 let parse_args () =
   match Sys.argv with
@@ -43,18 +47,15 @@ let parse_args () =
     | [| _; "--read-fifo"; rf; "--write-fifo"; wf |] ->
       (rf, wf)
     | _ ->
-      failwith (Printf.sprintf "Unable to parse cmdline args: %s"
+      failwith (sprintf "Unable to parse cmdline args: %s"
         (String.concat " " (Array.to_list Sys.argv)))
 
 let main () =
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
-  eprintf "START ocamltest\n%!";
   let rf, wf = parse_args () in
-  eprintf "ARGS parsed ocamltest\n%!";
   lwt wfd = Lwt_unix.openfile wf [Unix.O_WRONLY] 0 in
   lwt rfd = Lwt_unix.openfile rf [Unix.O_RDONLY] 0 in
-  let read_t = read_fifo_t rfd in
-  return read_t
+  fifo_t wfd rfd
  
 let _ = 
   Lwt_main.run (main ())
