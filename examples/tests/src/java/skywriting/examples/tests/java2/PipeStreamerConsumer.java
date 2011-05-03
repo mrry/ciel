@@ -47,7 +47,7 @@ public class PipeStreamerConsumer implements FirstClassJavaTask {
 			in = Ciel.RPC.getStreamForReference(this.input_ref, this.chunk_size, this.sole_consumer, false, this.must_block);
 		}
 		byte[] inputBuffer = new byte[4096];
-		int bytes_read = 0;
+		long bytes_read = 0;
 		
 		while(true) {
 			int this_read = in.read(inputBuffer);
