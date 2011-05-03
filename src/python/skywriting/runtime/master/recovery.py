@@ -137,11 +137,13 @@ class RecoveryManager(plugins.SimplePlugin):
                 root_task = build_taskpool_task_from_descriptor(root_task_descriptor, None)
                 
                 # FIXME: Get the job pool to create this job, because it has access to the scheduler queue and task failure investigator.
-                job = Job(job_id, root_task, job_dir, JOB_RECOVERED, self.job_pool)
+                # FIXME: Store job options somewhere for recovered job.
+                job = Job(job_id, root_task, job_dir, JOB_RECOVERED, self.job_pool, {})
                 
                 root_task.job = job
                 if result is not None:
-                    job.completed(result)
+                    with job._lock:
+                        job.completed(result)
                 self.job_pool.add_job(job)
                 # Adding the job to the job pool should add the root task.
                 #self.task_pool.add_task(root_task)

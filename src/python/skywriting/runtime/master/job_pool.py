@@ -75,6 +75,10 @@ class Job:
 
         self.task_journal_fp = None
 
+        # Start journalling immediately to capture the root task.
+        if self.task_journal_fp is None and self.job_dir is not None:
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
+
         self.job_options = job_options
 
         self._lock = Lock()
@@ -234,8 +238,6 @@ class Job:
 
     def activated(self):
         self.set_state(JOB_ACTIVE)
-        if self.task_journal_fp is None and self.job_dir is not None:
-            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
         mjo = MasterJobOutput(self.root_task.expected_outputs, self)
         for output in self.root_task.expected_outputs:
             self.task_graph.subscribe(output, mjo)
