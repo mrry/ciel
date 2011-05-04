@@ -43,7 +43,6 @@ import threading
 import pickle
 import time
 import socket
-import sendmsg
 import struct
 from subprocess import PIPE
 from datetime import datetime
@@ -52,6 +51,12 @@ from errno import EPIPE
 
 import ciel
 import traceback
+
+try:
+    import sendmsg
+    sendmsg_enabled = True
+except ImportError:
+    sendmsg_enabled = False
 
 running_children = {}
 
@@ -637,6 +642,9 @@ class ProcExecutor(BaseExecutor):
         
     # Setting fd_socket_name implies you can accept a sendmsg'd FD.
     def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False, fd_socket_name=None):
+        if not sendmsg_enabled:
+            fd_socket_name = None
+            ciel.log("Not using FDs directly: module 'sendmsg' not available", "EXEC", logging.WARNING)
         real_ref = self.task_record.retrieve_ref(ref)
         new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer, make_sweetheart, must_block, can_accept_fd=(fd_socket_name is not None))
         ret = {"sending_fd": False}
@@ -733,6 +741,9 @@ class ProcExecutor(BaseExecutor):
             raise Exception("Insane parameters: may_stream=False and may_pipe=True may well lead to deadlock")
         if index in self.ongoing_outputs:
             raise Exception("Tried to open output %d which was already open" % index)
+        if not sendmsg_enabled:
+            ciel.log("Not using FDs directly: module 'sendmsg' not available", "EXEC", logging.WARNING)
+            fd_socket_name = None
         output_name = self.expected_outputs[index]
         can_accept_fd = (fd_socket_name is not None)
         output_ctx = OngoingOutput(output_name, index, can_smart_subscribe, may_pipe, make_local_sweetheart, can_accept_fd, self)

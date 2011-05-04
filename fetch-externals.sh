@@ -8,9 +8,37 @@ then
     touch -r mahout-0.3.tar.bz2 mahout-timestamp
 fi
 
-wget -N http://google-gson.googlecode.com/files/google-gson-1.7.1-release.zip
+curl -v -z google-gson-1.7.1-release.zip http://google-gson.googlecode.com/files/google-gson-1.7.1-release.zip
 if [ gson-timestamp -ot google-gson-1.7.1-release.zip ]
 then
     unzip google-gson-1.7.1-release.zip google-gson-1.7.1/gson-1.7.1.jar
     touch -r google-gson-1.7.1-release.zip gson-timestamp
 fi
+
+wget -N http://www.digip.org/jansson/releases/jansson-2.0.1.tar.bz2
+if [ jansson-timestamp -ot jansson-2.0.1.tar.bz2 ]
+then
+    echo "Rebuilding Jansson..."
+    rm -r jansson-2.0.1
+    rm -r jansson-install
+    mkdir -p jansson-install
+    tar xvjf jansson-2.0.1.tar.bz2
+    cd jansson-2.0.1
+    ./configure --prefix=`readlink -m ../jansson-install`
+    make
+    make install
+    cd ..
+    touch -r jansson-2.0.1.tar.bz2 jansson-timestamp
+fi
+
+wget -N http://pypi.python.org/packages/source/s/sendmsg/sendmsg-1.0.1.tar.gz
+if [ sendmsg-timestamp -ot sendmsg-1.0.1.tar.gz ]
+then
+    echo "Installing sendmsg..."
+    tar xvzf sendmsg-1.0.1.tar.gz
+    cd sendmsg-1.0.1
+    python setup.py build
+    cd ..
+    touch -r sendmsg-1.0.1.tar.gz sendmsg-timestamp
+fi
+    

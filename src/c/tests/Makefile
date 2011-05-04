@@ -1,4 +1,7 @@
-all: libtest1.so libtest2a.so libtest2b.so
+
+.PHONY: first-class
+
+all: libtest1.so libtest2a.so libtest2b.so first-class
 
 libtest1.so: test1.c
 	gcc -std=gnu99 -I../include -fpic -shared -Wl,-soname,libtest1.so -o libtest1.so test1.c
@@ -9,23 +12,5 @@ libtest2a.so: test2a.c
 libtest2b.so: test2b.c
 	gcc -std=gnu99 -I../include -fpic -shared -Wl,-soname,libtest2b.so -o libtest2b.so test2b.c
 
-stream_consumer: stream_consumer.o libciel.o
-	gcc stream_consumer.o libciel.o -o stream_consumer -ljansson
-
-stream_producer: stream_producer.o libciel.o
-	gcc stream_producer.o libciel.o -o stream_producer -ljansson
-
-stream_consumer.o: stream_consumer.c
-	gcc stream_consumer.c -std=gnu99 -c -o stream_consumer.o -D_FILE_OFFSET_BITS=64
-
-stream_producer.o: stream_producer.c
-	gcc stream_producer.c -std=gnu99 -c -o stream_producer.o -D_FILE_OFFSET_BITS=64
-
-binomial-fc: binomial-fc.o libciel.o
-	gcc binomial-fc.o libciel.o -o binomial-fc -ljansson -lm
-
-binomial-fc.o: binomial-fc.c
-	gcc binomial-fc.c -c -o binomial-fc.o -std=gnu99 -O3 -D_FILE_OFFSET_BITS=64
-
-libciel.o: libciel.c
-	gcc libciel.c -std=gnu99 -c -o libciel.o -D_FILE_OFFSET_BITS=64
+first-class:
+	make -C first-class
