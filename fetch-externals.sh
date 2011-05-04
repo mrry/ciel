@@ -8,7 +8,7 @@ then
     touch -r mahout-0.3.tar.bz2 mahout-timestamp
 fi
 
-curl -v -z google-gson-1.7.1-release.zip http://google-gson.googlecode.com/files/google-gson-1.7.1-release.zip
+curl -v -z gson-timestamp -o google-gson-1.7.1-release.zip -R http://google-gson.googlecode.com/files/google-gson-1.7.1-release.zip
 if [ gson-timestamp -ot google-gson-1.7.1-release.zip ]
 then
     unzip google-gson-1.7.1-release.zip google-gson-1.7.1/gson-1.7.1.jar
