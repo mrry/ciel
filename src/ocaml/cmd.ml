@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
 open Printf
 open Lwt
 open Yojson
@@ -27,48 +26,20 @@ type t = {
   write: json -> unit Lwt.t
 }
 
-type output_ref = string
-
-module Out = struct
-  (* General form of a JSON command to the master *)
-  let cmd meth args =
-    `List [ `String meth; `Assoc args ]
-
-  (* Exit command to signal quit *)
-  (* XXX why is keep_process not a JSON bool? *)
-  let exit ?(keep_process=false) () =
-    cmd "exit" [ "keep_process", `String (if keep_process then "yes" else "no") ]
-
-  (* Open output reference *)
-  let open_output ~index ~stream ~pipe ~sweetheart =
-    cmd "open_output" 
-     [ "index", `Int index; "may_stream", `Bool stream;
-       "may_pipe", `Bool pipe;
-       "make_local_sweetheart", `Bool sweetheart ]
-
-  (* Allocate new output object *)
-  let allocate_output ~prefix =
-   cmd "allocate_output" [ "prefix", `String prefix ]
-
-end
-
-(** Combinators to help process commands *)
-
-let get_arg err fn key args =
+(* Retrieve JSON argument from worker response *)
+let arg_get err fn key args =
   try return (fn (List.assoc key args))
   with Not_found -> fail (Error err)
 
 (* Extract an argument string value *)
-let arg_string =
-  get_arg "arg_string" (function `String x -> x |_ -> raise Not_found)
+let arg_string = arg_get "string" (function `String x -> x |_ -> raise Not_found)
 
 (* Extract an argument integer value *)
-let arg_int =
-  get_arg "arg_int" (function `Int x -> x |_ -> raise Not_found)
+let arg_int = arg_get "int" (function `Int x -> x |_ -> raise Not_found)
 
-(* Extract a argument reference value *)
-let arg_output_ref k v : output_ref Lwt.t = arg_string k v
-   
+(* Extract a argument reference *)
+let arg_ref k v = arg_get "ref" (fun x -> x) k v >|= Cref.of_json
+
 (* Dispatch an incoming command to a set of expected ones *)
 let either t cmds =
   match_lwt t.read () with
@@ -78,22 +49,51 @@ let either t cmds =
   |_ -> fail (Failure "invalid command")
 
 (* Expect a single command *)
-let expect t cmd fn =
-  either t [ (cmd, fn) ]
+let expect t cmd fn = either t [ (cmd, fn) ]
+
+(* Send command to worker *)
+let send t meth args = t.write (`List [ `String meth; `Assoc args ])
+
+(* Send command to master and unpack response *)
+let send_recv t meth args fn =
+  send t meth args >>
+  expect t meth fn
 
 (** Concrete Handlers *)
 
-let exit t =
-  t.write (Out.exit ())
+let exit ?(keep_process=false) t =
+  send t "exit" [ "keep_process", `String (if keep_process then "yes" else "no") ]
 
-let get_output_ref ~index ?(stream=false) ?(pipe=false) ?(sweetheart=false) t  =
-  t.write (Out.open_output ~index ~stream ~pipe ~sweetheart) >>
-  expect t "open_output" (arg_output_ref "filename")
+let open_output ~index ?(stream=false) ?(pipe=false) ?(sweetheart=false) t =
+  send_recv t "open_output" 
+    [ "index", `Int index; "may_stream", `Bool stream;
+      "may_pipe", `Bool pipe; "make_local_sweetheart", `Bool sweetheart ]
+    (arg_string "filename")
 
 let allocate_output ?(prefix="obj") t =
-  t.write (Out.allocate_output ~prefix) >>
-  expect t "allocate_output" (arg_int "index")
+  send_recv t "allocate_output" [ "prefix", `String prefix ] (arg_int "index")
 
+let close_output ?size ~index t =
+  send_recv t "close_output" (("index", `Int index) ::
+    (match size with |None -> [] |Some sz -> [("size", `Int sz)])) (arg_ref "ref")
+
+let open_ref ~cref ?(sweetheart=false) t =
+  send t "open_ref" [ "ref", Cref.to_json cref; "make_sweetheart", `Bool sweetheart ] >>
+  try_lwt 
+    lwt filename = expect t "open_ref" (arg_string "filename") in
+    return (Some filename)
+  with Error _ -> return None
+
+let with_output ~index ?stream ?pipe ?sweetheart t fn =
+  lwt ofile = open_output ~index ?stream ?pipe ?sweetheart t in
+  try_lwt
+    Lwt_io.(with_file ofile ~mode:output fn) >>
+    close_output ~index t
+  with exn -> begin
+    close_output ~index t >>
+    fail exn
+  end
+  
 (* Input loop *)
 let input write read =
   let t = { write; read } in
@@ -104,9 +104,9 @@ let input write read =
         fail (Shutdown reason)
       );
       "start_task", (fun args -> 
-        lwt index = allocate_output t in
-        lwt oref = get_output_ref ~index t in
-        printf "OREF = %s\n%!" oref;
+        let index = 0 in
+        lwt rref = with_output ~index t (fun oc -> Lwt_io.write_line oc "foobar") in
+        printf "RREF[%d] = %s\n%!" index (match rref with |None -> "??" |Some x -> Cref.to_string x);
         fail (Shutdown "start_task")
       );
     ]
@@ -120,4 +120,26 @@ let input write read =
   |exn ->
     printf "Internal error: %s\n%!" (Printexc.to_string exn);
     exit t >> fail exn
+
+ let read_framed_json ic =
+  lwt len = Lwt_io.BE.read_int ic in
+  let buf = String.create len in
+  Lwt_io.read_into_exactly ic buf 0 len >>
+  (return (printf "read[%d]: %s\n%!" len buf)) >>
+  return (Basic.from_string buf :> json)
  
+let write_framed_json oc (json:json) () =
+  let buf = to_string json in
+  let len = String.length buf in
+  printf "write[%d]: %s\n%!" len buf;
+  Lwt_io.BE.write_int32 oc (Int32.of_int len) >>
+  Lwt_io.write_from_exactly oc buf 0 len 
+
+let fifo_t wfd rfd =
+  let ic = Lwt_io.(of_fd ~buffer_size:4000 ~mode:input rfd) in
+  let oc = Lwt_io.(of_fd ~buffer_size:4000 ~mode:output wfd) in
+  let ocm = Lwt_mutex.create () in
+  let write json = Lwt_mutex.with_lock ocm (write_framed_json oc json) in
+  let read () = read_framed_json ic in
+  input write read
+

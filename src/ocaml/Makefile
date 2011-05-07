@@ -7,7 +7,7 @@ PACKS += unix lwt.unix
 PACKS += lwt.syntax
 PACKS += yojson
 
-SOURCES=cmd.ml main.ml
+SOURCES=cref.mli cref.ml cmd.ml main.ml
 
 all: nc
 	@ :

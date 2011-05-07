@@ -14,26 +14,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+type id = string
 
-open Printf
-open Lwt
-open Yojson
+type t =
+  | Concrete
+  | Future
+  | Stream
+  | Sweetheart
+  | Value of id * string
+  | Completed
+  | Unknown of Yojson.json list
 
-let parse_args () =
-  match Sys.argv with
-    | [| _; "--write-fifo"; wf; "--read-fifo"; rf |]
-    | [| _; "--read-fifo"; rf; "--write-fifo"; wf |] ->
-      (rf, wf)
-    | _ ->
-      failwith (sprintf "Unable to parse cmdline args: %s"
-        (String.concat " " (Array.to_list Sys.argv)))
-
-let main () =
-  Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
-  let rf, wf = parse_args () in
-  lwt wfd = Lwt_unix.openfile wf [Unix.O_WRONLY] 0 in
-  lwt rfd = Lwt_unix.openfile rf [Unix.O_RDONLY] 0 in
-  Cmd.fifo_t wfd rfd
- 
-let _ = 
-  Lwt_main.run (main ())
+val of_json : Yojson.json -> t option
+val to_json : t -> Yojson.json
+val to_string : t -> string

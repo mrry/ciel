@@ -14,26 +14,35 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
-open Printf
-open Lwt
 open Yojson
 
-let parse_args () =
-  match Sys.argv with
-    | [| _; "--write-fifo"; wf; "--read-fifo"; rf |]
-    | [| _; "--read-fifo"; rf; "--write-fifo"; wf |] ->
-      (rf, wf)
-    | _ ->
-      failwith (sprintf "Unable to parse cmdline args: %s"
-        (String.concat " " (Array.to_list Sys.argv)))
+type id = string
 
-let main () =
-  Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
-  let rf, wf = parse_args () in
-  lwt wfd = Lwt_unix.openfile wf [Unix.O_WRONLY] 0 in
-  lwt rfd = Lwt_unix.openfile rf [Unix.O_RDONLY] 0 in
-  Cmd.fifo_t wfd rfd
- 
-let _ = 
-  Lwt_main.run (main ())
+type t =
+  |Concrete 
+  |Future
+  |Stream
+  |Sweetheart
+  |Value of id * string 
+  |Completed
+  |Unknown of json list
+
+let of_tuple = function
+  |`List [ `String "val"; `String k; `String v ] -> Value (k, v)
+  |`List jl -> Unknown jl
+  |_ -> raise Not_found
+
+let of_json = function
+  |`Assoc json -> begin
+    try Some (of_tuple (List.assoc "__ref__" json))
+    with Not_found -> None
+  end
+  |_ -> None
+
+let to_json t =
+  let j = match t with
+    |Value (k,v) -> `List [`String "val"; `String k; `String v]
+    |_ -> failwith "Cannot handle this ref type yet" in
+  `Assoc [ "__ref__", j ]
+
+let to_string t = Yojson.to_string (to_json t)
