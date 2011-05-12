@@ -14,9 +14,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+type 'a fut
 
-open Printf
-open Lwt
-open Yojson
+exception Reference_not_ready
+exception Spawn_failure
 
-let _ = Lwt_main.run (Cmd.init ())
+val repr : 'a fut -> 'a Lwt.t
+val bind : 'a fut -> ('a -> 'b fut Lwt.t) -> 'b fut Lwt.t
+
+val spawn1 : 'a -> ('a -> 'b fut Lwt.t) -> 'b fut Lwt.t
+val return1 : 'a -> 'a fut Lwt.t
+val return2 : 'a -> 'b -> ('a fut * 'b fut) Lwt.t

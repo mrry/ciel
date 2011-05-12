@@ -19,29 +19,29 @@ open Yojson
 type id = string
 
 type t =
-  |Concrete 
-  |Future
+  |Concrete of id
+  |Future of string
   |Stream
   |Sweetheart
   |Value of id * string 
   |Completed
-  |Unknown of json list
+  |Null
 
 let of_tuple = function
-  |`List [ `String "val"; `String k; `String v ] -> Value (k, v)
-  |`List jl -> Unknown jl
-  |_ -> raise Not_found
+  |`List [ `String "val"; `String k; `String v ] -> Value (k, (Base64.decode v))
+  |`List [ `String "c2"; `String id ] -> Concrete id
+  |`List [ `String "f2"; `String id ] -> Future id
+  |_ -> Null
 
 let of_json = function
-  |`Assoc json -> begin
-    try Some (of_tuple (List.assoc "__ref__" json))
-    with Not_found -> None
-  end
-  |_ -> None
+  |`Assoc json -> (try of_tuple (List.assoc "__ref__" json) with Not_found -> Null)
+  |_ -> Null
 
 let to_json t =
   let j = match t with
-    |Value (k,v) -> `List [`String "val"; `String k; `String v]
+    |Value (k,v) -> `List [`String "val"; `String k; `String (Base64.encode v)]
+    |Future id -> `List [`String "f2"; `String id]
+    |Null -> `Null
     |_ -> failwith "Cannot handle this ref type yet" in
   `Assoc [ "__ref__", j ]
 

@@ -16,15 +16,15 @@
 
 type id = string
 
-type t =
-  | Concrete
-  | Future
+type t = private
+  | Concrete of id
+  | Future of id
   | Stream
   | Sweetheart
   | Value of id * string
   | Completed
-  | Unknown of Yojson.json list
+  | Null
 
-val of_json : Yojson.json -> t option
+val of_json : Yojson.json -> t
 val to_json : t -> Yojson.json
 val to_string : t -> string
