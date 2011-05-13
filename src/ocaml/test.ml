@@ -1,6 +1,6 @@
 open Cwt
 
-let main a1 : int fut Lwt.t =
+let main a1 =
   let a1 = a1 * 10 in
   lwt a2_r = spawn1 a1
     (fun a2 ->
