@@ -130,7 +130,7 @@ class PlanFailedError(Exception):
 
 class FetchInProgress:
 
-    def __init__(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback, string_callback, progress_callback, chunk_size, may_pipe, sole_consumer, must_block):
+    def __init__(self, ref, result_callback, reset_callback, start_filename_callback, start_fd_callback, string_callback, progress_callback, chunk_size, may_pipe, sole_consumer, must_block, task_record):
         self.lock = threading.RLock()
         self.result_callback = result_callback
         self.reset_callback = reset_callback
@@ -142,6 +142,7 @@ class FetchInProgress:
         self.may_pipe = may_pipe
         self.sole_consumer = sole_consumer
         self.must_block = must_block
+        self.task_record = task_record
         self.pusher_thread = None
         self.ref = ref
         self.producer = None
@@ -308,7 +309,7 @@ class FetchInProgress:
 def fetch_ref_async(ref, result_callback, reset_callback, start_filename_callback, 
                     start_fd_callback=None, string_callback=None, progress_callback=None, 
                     chunk_size=67108864, may_pipe=False, sole_consumer=False,
-                    must_block=False):
+                    must_block=False, task_record=None):
 
     if isinstance(ref, SWErrorReference):
         raise RuntimeSkywritingError()
@@ -318,7 +319,7 @@ def fetch_ref_async(ref, result_callback, reset_callback, start_filename_callbac
     new_client = FetchInProgress(ref, result_callback, reset_callback, 
                                  start_filename_callback, start_fd_callback, 
                                  string_callback, progress_callback, chunk_size,
-                                 may_pipe, sole_consumer, must_block)
+                                 may_pipe, sole_consumer, must_block, task_record)
     new_client.start_fetch()
     return new_client
 

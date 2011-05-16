@@ -43,12 +43,13 @@ class ContextManager:
 
 class SynchronousTransfer:
         
-    def __init__(self, ref):
+    def __init__(self, ref, task_record):
         self.ref = ref
         self.filename = None
         self.str = None
         self.success = None
         self.completed_ref = None
+        self.task_record = task_record
         self.finished_event = threading.Event()
 
     def result(self, success, completed_ref):
@@ -115,18 +116,18 @@ class FileOrString:
             with open(self.filename, "r") as f:
                 return f.read()
             
-def sync_retrieve_refs(refs, accept_string=False):
+def sync_retrieve_refs(refs, task_record, accept_string=False):
     
     ctxs = []
     
     for ref in refs:
-        sync_transfer = SynchronousTransfer(ref)
+        sync_transfer = SynchronousTransfer(ref, task_record)
         ciel.log("Synchronous fetch ref %s" % ref.id, "BLOCKSTORE", logging.INFO)
         if accept_string:
             kwargs = {"string_callback": sync_transfer.return_string}
         else:
             kwargs = {}
-        fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset, sync_transfer.start_filename, **kwargs)
+        fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset, sync_transfer.start_filename, task_record=task_record, **kwargs)
         ctxs.append(sync_transfer)
             
     for ctx in ctxs:
@@ -137,35 +138,35 @@ def sync_retrieve_refs(refs, accept_string=False):
         raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
     return ctxs
 
-def retrieve_files_or_strings_for_refs(refs):
+def retrieve_files_or_strings_for_refs(refs, task_record):
     
-    ctxs = sync_retrieve_refs(refs, accept_string=True)
+    ctxs = sync_retrieve_refs(refs, task_record, accept_string=True)
     return [FileOrString(ctx.str, ctx.filename, ctx.completed_ref) for ctx in ctxs]
 
-def retrieve_file_or_string_for_ref(ref):
+def retrieve_file_or_string_for_ref(ref, task_record):
     
-    return retrieve_files_or_strings_for_refs([ref])[0]
+    return retrieve_files_or_strings_for_refs([ref], task_record)[0]
 
-def retrieve_filenames_for_refs(refs, return_ctx=False):
+def retrieve_filenames_for_refs(refs, task_record, return_ctx=False):
         
-    ctxs = sync_retrieve_refs(refs, accept_string=False)
+    ctxs = sync_retrieve_refs(refs, task_record, accept_string=False)
     if return_ctx:
         return [FileOrString(None, ctx.filename, ctx.completed_ref) for ctx in ctxs]
     else:
         return [x.filename for x in ctxs]
 
-def retrieve_filename_for_ref(ref, return_ctx=False):
+def retrieve_filename_for_ref(ref, task_record, return_ctx=False):
 
-    return retrieve_filenames_for_refs([ref], return_ctx)[0]
+    return retrieve_filenames_for_refs([ref], task_record, return_ctx)[0]
 
-def retrieve_strings_for_refs(refs):
+def retrieve_strings_for_refs(refs, task_record):
 
-    ctxs = retrieve_files_or_strings_for_refs(refs)
+    ctxs = retrieve_files_or_strings_for_refs(refs, task_record)
     return [ctx.to_str() for ctx in ctxs]
 
-def retrieve_string_for_ref(ref):
+def retrieve_string_for_ref(ref, task_record):
         
-    return retrieve_strings_for_refs([ref])[0]
+    return retrieve_strings_for_refs([ref], task_record)[0]
 
 def write_fixed_ref_string(string, fixed_ref):
     output_ctx = make_local_output(fixed_ref.id)

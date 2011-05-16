@@ -137,7 +137,7 @@ def package_lookup(task_record, block_store, key):
     if task_record.package_ref is None:
         ciel.log.error("Package lookup for %s in task without package" % key, "EXEC", logging.WARNING)
         return None
-    package_dict = retrieve_object_for_ref(task_record.package_ref, "pickle")
+    package_dict = retrieve_object_for_ref(task_record.package_ref, "pickle", task_record)
     try:
         return package_dict[key]
     except KeyError:
@@ -236,10 +236,10 @@ class BaseExecutor:
         pass
         
     @classmethod
-    def prepare_task_descriptor_for_execute(cls, task_descriptor, block_store):
+    def prepare_task_descriptor_for_execute(cls, task_descriptor, task_record, block_store):
         # Convert task_private from a reference to an object in here.
         try:
-            task_descriptor["task_private"] = retrieve_object_for_ref(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING)
+            task_descriptor["task_private"] = retrieve_object_for_ref(task_descriptor["task_private"], BaseExecutor.TASK_PRIVATE_ENCODING, task_record)
         except:
             ciel.log('Error retrieving task_private reference from task', 'BASE_EXECUTOR', logging.WARN, True)
             raise
@@ -255,7 +255,7 @@ class BaseExecutor:
 
 class OngoingFetch:
 
-    def __init__(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False):
+    def __init__(self, ref, chunk_size, task_record, sole_consumer=False, make_sweetheart=False, must_block=False):
         self.lock = threading.Lock()
         self.condvar = threading.Condition(self.lock)
         self.bytes = 0
@@ -263,6 +263,7 @@ class OngoingFetch:
         self.chunk_size = chunk_size
         self.sole_consumer = sole_consumer
         self.make_sweetheart = make_sweetheart
+        self.task_record = task_record
         self.done = False
         self.success = None
         self.filename = None
@@ -278,7 +279,8 @@ class OngoingFetch:
                                          chunk_size=chunk_size,
                                          may_pipe=True,
                                          must_block=must_block,
-                                         sole_consumer=sole_consumer)
+                                         sole_consumer=sole_consumer,
+                                         task_record=task_record)
         
     def progress(self, bytes):
         with self.lock:
@@ -577,9 +579,9 @@ class ProcExecutor(BaseExecutor):
         If reference is unavailable, raises a ReferenceUnavailableException."""
         ref = self.task_record.retrieve_ref(ref)
         if not accept_string:   
-            ctx = retrieve_filename_for_ref(ref, return_ctx=True)
+            ctx = retrieve_filename_for_ref(ref, self.task_record, return_ctx=True)
         else:
-            ctx = retrieve_file_or_string_for_ref(ref)
+            ctx = retrieve_file_or_string_for_ref(ref, self.task_record)
         if ctx.completed_ref is not None:
             if make_sweetheart:
                 ctx.completed_ref = SW2_SweetheartReference.from_concrete(ctx.completed_ref, get_own_netloc())
@@ -597,7 +599,7 @@ class ProcExecutor(BaseExecutor):
         
     def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False):
         real_ref = self.task_record.retrieve_ref(ref)
-        new_fetch = OngoingFetch(real_ref, chunk_size, sole_consumer, make_sweetheart, must_block)
+        new_fetch = OngoingFetch(real_ref, chunk_size, self.task_record, sole_consumer, make_sweetheart, must_block)
         filename, file_blocking = new_fetch.get_filename()
         if not new_fetch.done:
             self.context_manager.add_context(new_fetch)
@@ -1155,7 +1157,7 @@ class SimpleExecutor(BaseExecutor):
         self.output_ids = task_descriptor["expected_outputs"]
         self.output_refs = [None for i in range(len(self.output_ids))]
         self.succeeded = False
-        self.args = retrieve_object_for_ref(task_private["simple_exec_args"], "pickle")
+        self.args = retrieve_object_for_ref(task_private["simple_exec_args"], "pickle", self.task_record)
 
         try:
             self.debug_opts = self.args['debug_options']
@@ -1225,9 +1227,9 @@ class ProcessRunningExecutor(SimpleExecutor):
         push_threads = None
 
         if self.eager_fetch:
-            file_inputs = retrieve_filenames_for_refs(self.input_refs)
+            file_inputs = retrieve_filenames_for_refs(self.input_refs, self.task_record)
         else:
-            push_threads = [OngoingFetch(ref, chunk_size=67108864, must_block=True) for ref in self.input_refs]
+            push_threads = [OngoingFetch(ref, chunk_size=67108864, task_record=self.task_record, must_block=True) for ref in self.input_refs]
             for thread in push_threads:
                 self.context_mgr.add_context(thread)
 
@@ -1523,7 +1525,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
         ciel.engine.publish("worker_event", "Java: fetching JAR")
 
-        self.jar_filenames = retrieve_filenames_for_refs(self.jar_refs)
+        self.jar_filenames = retrieve_filenames_for_refs(self.jar_refs, self.task_record)
 
     def get_process_args(self):
         cp = os.getenv('CLASSPATH')
@@ -1563,7 +1565,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
         ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
-        self.dll_filenames = retrieve_filenames_for_refs(self.dll_refs)
+        self.dll_filenames = retrieve_filenames_for_refs(self.dll_refs, self.task_record)
 
     def get_process_args(self):
 
@@ -1600,7 +1602,7 @@ class CExecutor(FilenamesOnStdinExecutor):
 
         ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
         ciel.engine.publish("worker_event", "C-exec: fetching SOs")
-        self.so_filenames = retrieve_filenames_for_refs(self.so_refs)
+        self.so_filenames = retrieve_filenames_for_refs(self.so_refs, self.task_record)
 
     def get_process_args(self):
 

@@ -51,7 +51,7 @@ def main():
     
     result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
 
-    reflist = retrieve_object_for_ref(result, "json")
+    reflist = retrieve_object_for_ref(result, "json", None)
 
     return reflist[0]
 

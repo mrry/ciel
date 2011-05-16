@@ -60,8 +60,8 @@ def main():
     
     result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
     
-    reflist = retrieve_object_for_ref(result, "json")
-    sw_return = retrieve_object_for_ref(reflist[0], "json")
+    reflist = retrieve_object_for_ref(result, "json", None)
+    sw_return = retrieve_object_for_ref(reflist[0], "json", None)
     return sw_return
     
 if __name__ == '__main__':

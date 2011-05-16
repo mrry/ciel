@@ -126,7 +126,7 @@ def simple_retrieve_object_for_ref(ref, decoder, jobid, master_uri):
     if isinstance(ref, SW2_FutureReference) or isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_SocketStreamReference):
         ref = external_get_real_ref(ref, jobid, master_uri)
     if isinstance(ref, SWDataValue):
-        return retrieve_object_for_ref(ref, decoder)
+        return retrieve_object_for_ref(ref, decoder, None)
     elif isinstance(ref, SW2_ConcreteReference):
         urls = get_fetch_urls_for_ref(ref)
         _, content = httplib2.Http().request(urls[0])

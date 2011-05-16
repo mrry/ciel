@@ -55,7 +55,7 @@ def allinone_main(options, args):
         print run_id, 'SUBMITTED_JOB', now_as_timestamp()
         result = task_runner.run()
         print run_id, 'GOT_RESULT', now_as_timestamp()
-        print block_store.retrieve_object_for_ref(result, 'json')
+        print block_store.retrieve_object_for_ref(result, 'json', None)
         
     except:
         pass

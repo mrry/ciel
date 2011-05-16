@@ -78,6 +78,8 @@ class TaskPoolTask:
 
         self.event_index = 0
         self.current_attempt = 0
+        
+        self.profiling = {}
 
     def set_state(self, state):
         if self.job is not None and self.state is not None:
@@ -103,13 +105,14 @@ class TaskPoolTask:
             return []
 
     def set_profiling(self, profiling):
-        self.profiling = profiling
-    
-        ordered_events = [(timestamp, event) for (event, timestamp) in profiling.items()]
-        ordered_events.sort()
-        
-        for timestamp, event in ordered_events:
-            self.record_event(event, datetime.datetime.fromtimestamp(timestamp))
+        if profiling is not None:
+            self.profiling.update(profiling)
+            try:    
+                self.record_event('WORKER_CREATED', datetime.datetime.fromtimestamp(profiling['CREATED']))
+                self.record_event('WORKER_STARTED', datetime.datetime.fromtimestamp(profiling['STARTED']))
+                self.record_event('WORKER_FINISHED', datetime.datetime.fromtimestamp(profiling['FINISHED']))
+            except KeyError:
+                pass
     
     def get_type(self):
         if self.type is None:
@@ -120,10 +123,7 @@ class TaskPoolTask:
             return self.type
     
     def get_profiling(self):
-        try:
-            return self.profiling
-        except AttributeError:
-            return {}
+        return self.profiling
 
     def add_worker(self, worker):
         self.set_state(TASK_ASSIGNED)
@@ -219,6 +219,7 @@ class TaskPoolTask:
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
             descriptor['state'] = TASK_STATE_NAMES[self.state]
             descriptor['children'] = [x.task_id for x in self.children]
+            descriptor['profiling'] = self.profiling
         
         if self.task_private is not None:
             descriptor['task_private'] = self.task_private
