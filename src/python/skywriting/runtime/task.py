@@ -67,11 +67,12 @@ class TaskPoolTask:
         
         self.type = type
         
+        self.workers = set(workers)
+        
         self.state = None
         self.set_state(state)
         
         #self.worker = None
-        self.workers = set(workers)
         self.scheduling_class = scheduling_class
         
         self.saved_continuation_uri = None
@@ -220,6 +221,7 @@ class TaskPoolTask:
             descriptor['state'] = TASK_STATE_NAMES[self.state]
             descriptor['children'] = [x.task_id for x in self.children]
             descriptor['profiling'] = self.profiling
+            descriptor['worker'] = [w.netloc for w in self.workers]
         
         if self.task_private is not None:
             descriptor['task_private'] = self.task_private
@@ -228,7 +230,7 @@ class TaskPoolTask:
         if self.type is not None:
             descriptor['scheduling_type'] = self.type
         
-        return descriptor        
+        return descriptor
 
 class DummyJob:
     """Used to ensure that tasks on the worker can refer to their job (for inheriting job ID, e.g.)."""
