@@ -111,6 +111,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	public static final JsonPrimitive BLOCK = new JsonPrimitive("block");
 	public static final JsonPrimitive ERROR = new JsonPrimitive("error");
 	public static final JsonPrimitive LOG = new JsonPrimitive("log");
+	public static final JsonPrimitive PACKAGE_LOOKUP = new JsonPrimitive("package_lookup");
 	
 	@SuppressWarnings("unchecked")
 	public FirstClassJavaTask getTask() throws ShutdownException {
@@ -366,6 +367,14 @@ public class JsonPipeRpc implements WorkerRpc {
 		JsonObject args = new JsonObject();
 		args.add("message", new JsonPrimitive(logMessage));
 		this.sendMessage(LOG, args);
+	}
+	
+	public Reference packageLookup(String key) {
+		JsonObject args = new JsonObject();
+		args.add("key", new JsonPrimitive(key));
+		JsonElement response = this.sendReceiveMessage(PACKAGE_LOOKUP, args).getAsJsonArray().get(1).getAsJsonObject();
+		Reference result = Reference.fromJson(response.getAsJsonObject().get("value").getAsJsonObject());
+		return result;
 	}
 	
 }

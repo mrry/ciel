@@ -18,6 +18,7 @@ import com.asgow.ciel.tasks.FirstClassJavaTaskInformation;
 import com.asgow.ciel.tasks.SingleOutputTask;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 public final class Ciel {
 
@@ -175,6 +176,16 @@ public final class Ciel {
 			throw new RuntimeException(e);
 		}
 		
+	}
+	
+	public static Reference[] getRefsFromPackage(String key) {
+		Reference indexRef = Ciel.RPC.packageLookup(key);
+		JsonArray indexJsonArray = new JsonParser().parse(Ciel.stringOfRef(indexRef)).getAsJsonArray();
+		Reference[] ret = new Reference[indexJsonArray.size()];
+		for (int i = 0; i < ret.length; ++i) {
+			ret[i] = Reference.fromJson(indexJsonArray.get(i).getAsJsonObject());
+		}
+		return ret;
 	}
 	
 }

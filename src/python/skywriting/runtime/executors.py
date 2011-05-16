@@ -982,6 +982,7 @@ class Java2Executor(ProcExecutor):
             task_descriptor["dependencies"].append(object_ref)
         if args is not None:
             task_descriptor["task_private"]["args"] = args
+        add_package_dep(parent_task_record.package_ref, task_descriptor)
         
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, accept_ref_list_for_single=True, **kwargs)
         

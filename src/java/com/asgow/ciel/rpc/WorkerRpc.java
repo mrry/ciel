@@ -33,6 +33,8 @@ public interface WorkerRpc {
 
 	Reference closeNewObject(WritableReference wref);
 
+	Reference packageLookup(String key);
+	
 	void log(String logMessage);
 	
 	void error(String errorMessage);
