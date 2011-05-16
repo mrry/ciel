@@ -70,7 +70,7 @@ class UploadManager:
     def fetch_refs_deferred(self, session_id, refs):
         ciel.log.error('Fetching session %s' % session_id, 'UPLOAD', logging.INFO)
         try:
-            sync_retrieve_refs(refs)
+            sync_retrieve_refs(refs, None)
             self.current_fetches[session_id] = 200
             for ref in refs:
                 self.block_store.pin_ref_id(ref.id)
