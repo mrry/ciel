@@ -45,12 +45,21 @@ def ref_of_string(val, master_uri):
     return simplejson.loads(content, object_hook=json_decode_object_hook)
     
 def ref_of_object(val, package_path, master_uri):
-    if "filename" not in val:
+    if "filename" not in val and "urls" not in val:
         raise Exception("start_job can't handle resources that aren't files yet; package entries must have a 'filename' member")
-    if not os.path.isabs(val["filename"]):
+    if "filename" in val and not os.path.isabs(val["filename"]):
         # Construct absolute path by taking it as relative to package descriptor
         val["filename"] = os.path.join(package_path, val["filename"])
-    if "index" in val and val["index"]:
+    if "urlindex" in val and val["urlindex"]:
+        try:
+            replication = val["replication"]
+        except KeyError:
+            replication = 3
+        if 'urls' in val:
+            return load.do_uploads(master_uri, [], urllist=val["urls"], do_urls=True, replication=replication)
+        else:
+            return load.do_uploads(master_uri, [val["filename"]], do_urls=True, replication=replication)
+    elif "index" in val and val["index"]:
         return load.do_uploads(master_uri, [val["filename"]])
     else:
         with open(val["filename"], "r") as infile:
