@@ -55,8 +55,12 @@ def ref_of_object(val, package_path, master_uri):
             replication = val["replication"]
         except KeyError:
             replication = 3
+        try:
+            repeat = val["repeat"]
+        except KeyError:
+            repeat = 1
         if 'urls' in val:
-            return load.do_uploads(master_uri, [], urllist=val["urls"], do_urls=True, replication=replication)
+            return load.do_uploads(master_uri, [], urllist=val["urls"], do_urls=True, replication=replication, repeat=repeat)
         else:
             return load.do_uploads(master_uri, [val["filename"]], do_urls=True, replication=replication)
     elif "index" in val and val["index"]:

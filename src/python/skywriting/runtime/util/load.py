@@ -22,6 +22,7 @@ import uuid
 from shared.references import SW2_ConcreteReference, SW2_FetchReference, SWReferenceJSONEncoder
 import sys
 import time
+import itertools
 
 def get_worker_netlocs(master_uri):
     http = httplib2.Http()
@@ -179,7 +180,7 @@ def upload_string_to_targets(input, block_id, targets):
         h.request('http://%s/control/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
         h.request('http://%s/control/admin/pin/%s' % (target, block_id), 'POST', 'pin')
 
-def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, packet_size=1048576, name=None, do_urls=False, urllist=None):
+def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, packet_size=1048576, name=None, do_urls=False, urllist=None, repeat=1):
     
     workers = get_worker_netlocs(master)
     
@@ -225,6 +226,8 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
                         urls.append(line.strip())
         else:
             urls = urllist
+            
+        urls = itertools.chain.from_iterable(itertools.repeat(urls, repeat))
             
         target_fetch_lists = {}
                     

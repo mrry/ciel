@@ -1,5 +1,5 @@
 {"package":
-	{"dataref": {"urls": ["http://www.cl.cam.ac.uk/", "http://www.bbc.co.uk/", "http://www.cnn.com"], "urlindex": true, "replication": 2},
+	{"dataref": {"urls": ["http://www.cl.cam.ac.uk/", "http://www.cnn.com"], "urlindex": true, "replication": 2, "repeat": 50},
 	 "grep_jar": {"filename": "../../dist/sky-eg-Grep.jar"},
 	 "swmain": {"filename": "../sw/grep.sw"}},
  "start":
