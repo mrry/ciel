@@ -7,7 +7,9 @@ import java.io.ObjectOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.Serializable;
+import java.net.URL;
 import java.nio.charset.Charset;
+import java.util.HashSet;
 
 import com.asgow.ciel.references.CielFuture;
 import com.asgow.ciel.references.Reference;
@@ -33,6 +35,8 @@ public final class Ciel {
 	 * reflective calls inside user-code should use this classloader.
 	 */
 	public static ClassLoader CLASSLOADER = null;
+	
+	public static HashSet<URL> seenJars = new HashSet<URL>();
 	
 	/**
 	 * This is the array of references that comprise the classpath for this task. It

@@ -10,6 +10,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectStreamClass;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.ArrayList;
 
 import com.asgow.ciel.executor.Ciel;
 import com.asgow.ciel.io.CielInputStream;
@@ -138,13 +139,24 @@ public class JsonPipeRpc implements WorkerRpc {
 				refJarLib[i] = Reference.fromJson(jarLib.get(i).getAsJsonObject());
 				urls[i] = new URL("file://" + this.getFilenameForReference(refJarLib[i]));
 			}
-
+			
 			if (Ciel.CLASSLOADER == null) { 
 				URLClassLoader urlcl = new URLClassLoader(urls);
 				Ciel.CLASSLOADER = urlcl;
 			} else {
-				URLClassLoader urlcl = new URLClassLoader(urls, Ciel.CLASSLOADER);
-				Ciel.CLASSLOADER = urlcl;
+				
+				ArrayList<URL> unseenJars = new ArrayList<URL>(urls.length);
+				for (int i = 0; i < urls.length; ++i) {
+					if (!Ciel.seenJars.contains(urls[i])) {
+						unseenJars.add(urls[i]);
+						Ciel.seenJars.add(urls[i]);
+					}
+				}
+				
+				if (unseenJars.size() > 0) {
+					URLClassLoader urlcl = new URLClassLoader(unseenJars.toArray(new URL[0]), Ciel.CLASSLOADER);
+					Ciel.CLASSLOADER = urlcl;
+				}
 			}
 			
 			
