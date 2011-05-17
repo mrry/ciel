@@ -373,8 +373,22 @@ public class JsonPipeRpc implements WorkerRpc {
 		JsonObject args = new JsonObject();
 		args.add("key", new JsonPrimitive(key));
 		JsonElement response = this.sendReceiveMessage(PACKAGE_LOOKUP, args).getAsJsonArray().get(1).getAsJsonObject();
-		Reference result = Reference.fromJson(response.getAsJsonObject().get("value").getAsJsonObject());
+		JsonElement value = response.getAsJsonObject().get("value");
+		if (value == null) {
+			return null;
+		}
+		Reference result = Reference.fromJson(value.getAsJsonObject());
 		return result;
+	}
+
+	public Reference tryPackageLookup(String key) {
+		JsonObject args = new JsonObject();
+		args.add("key", new JsonPrimitive(key));
+		JsonElement response = this.sendReceiveMessage(PACKAGE_LOOKUP, args).getAsJsonArray().get(1).getAsJsonObject().get("value");
+		if (response.isJsonNull())
+			return null;
+		System.out.println(response);
+		return Reference.fromJson(response.getAsJsonObject());
 	}
 	
 }

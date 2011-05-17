@@ -179,7 +179,10 @@ public final class Ciel {
 	}
 	
 	public static Reference[] getRefsFromPackage(String key) {
-		Reference indexRef = Ciel.RPC.packageLookup(key);
+		Reference indexRef = Ciel.RPC.tryPackageLookup(key);
+		if (indexRef == null) {
+			return null;
+		}
 		JsonArray indexJsonArray = new JsonParser().parse(Ciel.stringOfRef(indexRef)).getAsJsonArray();
 		Reference[] ret = new Reference[indexJsonArray.size()];
 		for (int i = 0; i < ret.length; ++i) {

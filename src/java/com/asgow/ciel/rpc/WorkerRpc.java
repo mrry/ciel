@@ -35,6 +35,8 @@ public interface WorkerRpc {
 
 	Reference packageLookup(String key);
 	
+	Reference tryPackageLookup(String key);
+	
 	void log(String logMessage);
 	
 	void error(String errorMessage);
