@@ -16,3 +16,8 @@ parsetab.py
 /src/csharp/bin/
 *.dll
 *.exe
+*.o
+*.so
+binomial-fc
+stream_consumer
+stream_producer
