@@ -368,7 +368,7 @@ class Job:
                     for child in spawned:
                         child_task = build_taskpool_task_from_descriptor(child, parent_task)
                         tx.spawn(child_task)
-                        parent_task.children.append(child_task)
+                        #parent_task.children.append(child_task)
                     
                     for ref in published:
                         tx.publish(ref, parent_task)
