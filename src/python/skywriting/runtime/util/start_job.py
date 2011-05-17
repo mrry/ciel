@@ -125,8 +125,15 @@ def submit_job_with_package(package_dict, start_handler, start_args, job_options
 
 def await_job(jobid, master_uri):
     notify_url = urlparse.urljoin(master_uri, "control/job/%s/completion" % jobid)
-    (_, content) = http.request(notify_url)
-    completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
+    for i in range(5):
+        try:
+            (_, content) = http.request(notify_url)
+            completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
+            break
+        except:
+            print "Decode failed; retrying fetch..."
+            pass
+
     if "error" in completion_result:
         raise Exception("Job failure: %s" % completion_result["error"])
     else:

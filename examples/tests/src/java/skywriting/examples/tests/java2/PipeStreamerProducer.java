@@ -31,7 +31,7 @@ public class PipeStreamerProducer implements FirstClassJavaTask {
 		
 		WritableReference out_ref = Ciel.RPC.getOutputFilename(1, this.may_stream, this.may_pipe, false);
 		OutputStream out = out_ref.open();
-		int bytes_written = 0;
+		long bytes_written = 0;
 		byte[] out_array = new byte[4096];
 		for(int i = 0; i < 4096; i++) {
 			out_array[i] = (byte)((i % 32) + 32);

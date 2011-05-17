@@ -232,14 +232,14 @@ class FileOutputContext:
                 self.rollback()
         return False
 
-def make_local_output(id, subscribe_callback=None, may_pipe=False):
+def make_local_output(id, subscribe_callback=None, may_pipe=False, can_use_fd=False):
     '''
     Creates a file-in-progress in the block store directory.
     '''
     if subscribe_callback is None:
         subscribe_callback = fwt.create_watch
     ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
-    new_ctx = FileOutputContext(id, subscribe_callback, may_pipe=may_pipe)
+    new_ctx = FileOutputContext(id, subscribe_callback, may_pipe=may_pipe, can_use_fd=can_use_fd)
     dot_filename = producer_filename(id)
     open(dot_filename, 'wb').close()
     streaming_producers[id] = new_ctx

@@ -197,7 +197,6 @@ public class JsonPipeRpc implements WorkerRpc {
 
 	@Override
 	public Reference closeNewObject(WritableReference wref) {
-		//System.out.println("Close new output");
 		return closeOutput(wref.getIndex());
 	}
 
@@ -206,7 +205,6 @@ public class JsonPipeRpc implements WorkerRpc {
 		JsonObject args = new JsonObject();
 		args.add("index", new JsonPrimitive(index));
 		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		//System.out.println("Close output " + index);
 		return Reference.fromJson(response.getAsJsonObject("ref"));
 	}
 
@@ -216,7 +214,6 @@ public class JsonPipeRpc implements WorkerRpc {
 		args.add("index", new JsonPrimitive(index));
 		args.addProperty("size", final_size);
 		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		//System.out.println("Close output " + index);
 		return Reference.fromJson(response.getAsJsonObject("ref"));
 	}
 
@@ -325,7 +322,6 @@ public class JsonPipeRpc implements WorkerRpc {
 	@Override
 	public WritableReference getOutputFilename(int index, boolean may_stream, boolean may_pipe, boolean make_local_sweetheart) {
 		JsonObject args = new JsonObject();
-		//System.out.println("Open output " + index);
 		args.add("index", new JsonPrimitive(index));
 		args.addProperty("may_stream", may_stream);
 		args.addProperty("may_pipe", may_pipe);

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # list of packages to be installed (space-delimited)
-PACKAGES="python python-ply python-httplib2 python-simplejson python-cherrypy3 python-pycurl curl lighttpd python-flup ant openjdk-6-jdk mono-devel mono-mcs m4 gawk unzip"
+PACKAGES="python python-ply python-httplib2 python-simplejson python-cherrypy3 python-pycurl curl lighttpd python-flup ant openjdk-6-jdk mono-devel mono-mcs m4 gawk unzip python-setuptools gcc"
 
 # the JDK to install
 JDK="openjdk-6-jre"

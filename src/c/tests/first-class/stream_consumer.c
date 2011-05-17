@@ -25,50 +25,55 @@ int main(int argc, char** argv) {
     exit(1);
   }
 
-  printf("C stream producer: start\n");
+  printf("C stream consumer: start\n");
 
   ciel_init(argv[2], argv[4]);
 
   printf("FIFOs open\n");
 
-  json_t* task_private = ciel_get_task();
-
-  int n_chunks;
+  json_t* ref;
   int may_stream;
-  int may_pipe;
-  
+  int sole_consumer;
+  int must_block;
+
+  json_t* task_private = ciel_get_task();
   json_error_t error_bucket;
 
-  if(json_unpack_ex(task_private, &error_bucket, 0, "{s[ibb]}", "proc_pargs", &n_chunks, &may_stream, &may_pipe)) {
+  if(json_unpack_ex(task_private, &error_bucket, 0, "{s[Obbb]}", "proc_pargs", &ref, &may_stream, &sole_consumer, &must_block)) {
     ciel_json_error(0, &error_bucket);
     exit(1);
   }
 
   json_decref(task_private);
 
-  char* filename = ciel_open_output(1, may_stream, may_pipe, 0);
-  
-  FILE* fout = fopen(filename, "w");
+  ciel_block_on_refs(1, ref);
 
-  char write_buffer[4096];
-  for(int i = 0; i < 4096; i++)
-    write_buffer[i] = (32 + (i % 32));
+  struct ciel_input* input;
+  if(may_stream)
+    input = ciel_open_ref_async(ref, 1024*1024*64, sole_consumer, must_block);
+  else
+    input = ciel_open_ref(ref);
+
+  char read_buffer[4096];
   
-  for(int i = 0; i < n_chunks; i++) {
-    for(int j = 0; j < 16384; j++) {
-      ciel_write_all(fout, write_buffer, 4096);
+  json_int_t bytes_read = 0;
+
+  while(1) {
+    int this_read = ciel_read_ref(input, read_buffer, 4096);
+    if(this_read == -1) {
+      fprintf(stderr, "Error reading input!");
+      exit(1);
     }
+    else if(this_read == 0) {
+      break;
+    }
+    bytes_read += this_read;
   }
 
-  fflush(fout);
-  fclose(fout);
-  
-  long bytes_written = (long)(4096*16384)* (long)(n_chunks);
-  json_t* out_ref = ciel_close_output(1, bytes_written);
-  json_decref(out_ref);
+  ciel_close_ref(input);
   
   char* response_string;
-  asprintf(&response_string, "Producer wrote %ld bytes\n", bytes_written);
+  asprintf(&response_string, "Consumer read %lld bytes\n", bytes_read);
   ciel_define_output_with_plain_string(0, response_string);
   free(response_string);
 
