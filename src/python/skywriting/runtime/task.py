@@ -215,8 +215,9 @@ class TaskPoolTask:
                       'event_index': self.event_index,
                       'job' : self.job.id}
         
+        descriptor['parent'] = self.parent.task_id if self.parent is not None else None
+        
         if long:
-            descriptor['parent'] = self.parent.task_id if self.parent is not None else None
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
             descriptor['state'] = TASK_STATE_NAMES[self.state]
             descriptor['children'] = [x.task_id for x in self.children]

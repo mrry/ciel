@@ -56,7 +56,7 @@ RECORD_HEADER_STRUCT = struct.Struct('!cI')
 
 class Job:
     
-    def __init__(self, id, root_task, job_dir, state, job_pool, job_options):
+    def __init__(self, id, root_task, job_dir, state, job_pool, job_options, journal=True):
         self.id = id
         self.root_task = root_task
         self.job_dir = job_dir
@@ -76,8 +76,8 @@ class Job:
         self.task_journal_fp = None
 
         # Start journalling immediately to capture the root task.
-        if self.task_journal_fp is None and self.job_dir is not None:
-            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
+        if journal and self.task_journal_fp is None and self.job_dir is not None:
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'wb')
 
         self.job_options = job_options
 
@@ -102,12 +102,17 @@ class Job:
         self.workers = {}
         self.job_pool.worker_pool.notify_job_about_current_workers(self)
         
+    def restart_journalling(self):
+        # Assume that the recovery process has truncated the file to the previous record boundary.
+        if self.task_journal_fp is None and self.job_dir is not None:
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
+        
     def schedule(self):
         self.job_pool.deferred_worker.do_deferred(lambda: self._schedule())
         
     def _schedule(self):
         
-        ciel.log('Beginning to schedule job %s' % self.id, 'JOB', logging.INFO)
+        #ciel.log('Beginning to schedule job %s' % self.id, 'JOB', logging.DEBUG)
         
         with self._lock:
             
@@ -156,7 +161,7 @@ class Job:
                     self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                     num_global_assigned += 1
         
-        ciel.log('Finished scheduling job %s. Tasks assigned = %d' % (self.id, total_assigned), 'JOB', logging.INFO)
+        #ciel.log('Finished scheduling job %s. Tasks assigned = %d' % (self.id, total_assigned), 'JOB', logging.DEBUG)
         
     def pop_task_from_global_queue(self, scheduling_class):
         if scheduling_class == '*':
@@ -708,12 +713,12 @@ class JobPool(plugins.SimplePlugin):
     
     def notify_worker_added(self, worker):
         for job in self.jobs.values():
-            if job.state == JOB_ACTIVE:
+            if job.state in (JOB_ACTIVE, JOB_RECOVERED):
                 job.notify_worker_added(worker)
             
     def notify_worker_failed(self, worker):
         for job in self.jobs.values():
-            if job.state == JOB_ACTIVE:
+            if job.state in (JOB_ACTIVE, JOB_RECOVERED):
                 job.notify_worker_failed(worker)
                 
     def add_failed_job(self, job_id):
@@ -771,9 +776,10 @@ class JobPool(plugins.SimplePlugin):
                 ciel.log('Not starting a new job because there is insufficient capacity', 'JOB_POOL', logging.INFO)
                 
     def queue_job(self, job):
-        self.run_queue.put(job)
-        job.enqueued()
-        self.maybe_start_new_job()
+        if job.state == JOB_RECOVERED:
+            self.run_queue.put(job)
+            job.enqueued()
+            self.maybe_start_new_job()
             
     def job_completed(self, job):
         self.num_running_jobs -= 1

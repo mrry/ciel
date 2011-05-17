@@ -215,6 +215,8 @@ class JobRoot:
             # Block until the job is completed.
             self.job_pool.wait_for_completion(job)            
             return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder) 
+        elif attribute == 'resume':
+            self.job_pool.queue_job(job)
         else:
             # Invalid attribute.
             raise HTTPError(404)
