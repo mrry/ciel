@@ -14,3 +14,7 @@ libtest2b.so: test2b.c
 
 first-class:
 	make -C first-class
+
+clean:
+	-rm *.so
+	make -C first-class clean

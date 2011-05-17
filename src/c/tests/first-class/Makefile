@@ -1,6 +1,6 @@
 default: binomial-fc stream_consumer stream_producer
 
-FC_LD_FLAGS=-L../../../../ext/jansson-install/lib -ljansson -L../../src -lciel -Wl,-rpath,../../../../ext/jansson-install/lib -Wl,-rpath,../../src
+FC_LD_FLAGS=-L../../../../ext/jansson-install/lib -ljansson -L../../src -lciel -Wl,-rpath,'$$ORIGIN/../../../../ext/jansson-install/lib' -Wl,-rpath,'$$ORIGIN/../../src'
 
 FC_C_FLAGS=-I../../../../ext/jansson-install/include -I../../include -D_FILE_OFFSET_BITS=64
 
@@ -21,3 +21,6 @@ stream_consumer: stream_consumer.o
 
 stream_producer: stream_producer.o
 	gcc stream_producer.o -o stream_producer $(FC_LD_FLAGS)
+
+clean:
+	-rm *.o binomial-fc stream_consumer stream_producer
