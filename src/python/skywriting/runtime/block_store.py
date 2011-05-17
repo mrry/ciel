@@ -57,7 +57,13 @@ def sw_to_external_url(url):
 class BlockStore:
 
     def __init__(self, hostname, port, base_dir, ignore_blocks=False):
-        self.netloc = "%s:%s" % (hostname, port)
+        self.hostname = None
+        self.port = port
+        self.netloc = None
+        if hostname is not None:
+            self.set_hostname(hostname)
+        # N.B. This is not set up for workers until contact is made with the master.
+
         self.base_dir = base_dir
         self.pin_set = set()
         self.ignore_blocks = ignore_blocks
@@ -66,6 +72,10 @@ class BlockStore:
         global singleton_blockstore
         assert singleton_blockstore is None
         singleton_blockstore = self
+
+    def set_hostname(self, hostname):
+        self.hostname = hostname
+        self.netloc = '%s:%d' % (self.hostname, self.port)
 
     def allocate_new_id(self):
         return str(uuid.uuid1())
@@ -249,6 +259,7 @@ def commit_producer(id):
     singleton_blockstore.commit_producer(id)
 
 def get_own_netloc():
+    print singleton_blockstore.netloc
     return singleton_blockstore.netloc
 
 def create_fetch_file_for_ref(ref):

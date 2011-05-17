@@ -75,11 +75,19 @@ class Job:
 
         self.task_journal_fp = None
 
-        # Start journalling immediately to capture the root task.
-        if journal and self.task_journal_fp is None and self.job_dir is not None:
-            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'wb')
+        self.journal = journal
 
         self.job_options = job_options
+        
+        try:
+            self.journal = self.job_options['journal']
+        except KeyError:
+            pass
+
+        # Start journalling immediately to capture the root task.
+        if self.journal and self.task_journal_fp is None and self.job_dir is not None:
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'wb')
+
 
         self._lock = Lock()
         self._condition = Condition(self._lock)
@@ -96,6 +104,12 @@ class Job:
             self.scheduling_policy = get_scheduling_policy(self.job_options['scheduler'])
         except KeyError:
             self.scheduling_policy = LocalitySchedulingPolicy()
+            
+        try:
+            self.journal_sync_buffer = self.job_options['journal_sync_buffer']
+        except KeyError:
+            self.journal_sync_buffer = None
+        self.journal_sync_counter = 0
         
         self.task_graph = JobTaskGraph(self, self.runnable_queue)
         
@@ -270,27 +284,28 @@ class Job:
                 self.task_journal_fp.flush()
                 os.fsync(self.task_journal_fp.fileno())
 
+    def maybe_sync(self, must_sync=False):
+        if must_sync or (self.journal_sync_buffer is not None and self.journal_sync_counter % self.journal_sync_buffer == 0):
+            os.fsync(self.task_journal_fp.fileno())
+        self.journal_sync_counter += 1
+
     def add_reference(self, id, ref, should_sync=False):
         # Called under self._lock (from _report_tasks()).
-        if self.task_journal_fp is not None:
+        if self.journal and self.task_journal_fp is not None:
             ref_details = simplejson.dumps({'id': id, 'ref': ref}, cls=SWReferenceJSONEncoder)
             self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('R', len(ref_details)))
             self.task_journal_fp.write(ref_details)
-            if should_sync:
-                self.task_journal_fp.flush()
-                os.fsync(self.task_journal_fp.fileno())
-
+            self.maybe_sync(should_sync)
+            
     def add_task(self, task, should_sync=False):
         # Called under self._lock (from _report_tasks()).
         self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
-        if self.task_journal_fp is not None:
+        if self.journal and self.task_journal_fp is not None:
             task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
             self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('T', len(task_details)))
             self.task_journal_fp.write(task_details)
-            if should_sync:
-                self.task_journal_fp.flush()
-                os.fsync(self.task_journal_fp.fileno())
-
+            self.maybe_sync(should_sync)
+            
 #    def steal_task(self, worker, scheduling_class):
 #        ciel.log('In steal_task(%s, %s)' % (worker.id, scheduling_class), 'LOG', logging.INFO)
 #        # Stealing policy: prefer task with fewest replicas, then lowest cost on this worker.

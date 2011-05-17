@@ -59,10 +59,14 @@ class Worker(plugins.SimplePlugin):
         self.master_url = options.master
         self.master_proxy = MasterProxy(self, bus, self.master_url)
         self.master_proxy.subscribe()
-        if options.hostname is None:
-            self.hostname = self.master_proxy.get_public_hostname()
-        else:
-            self.hostname = options.hostname
+        
+        # This will now be set by the pinger when it attempts to contact the master.
+        self.hostname = None
+#        if options.hostname is None:
+#            self.hostname = self.master_proxy.get_public_hostname()
+#        else:
+#            self.hostname = options.hostname
+
         self.lighty_conf_template = options.lighty_conf
         if options.blockstore is None:
             self.static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
@@ -73,7 +77,9 @@ class Worker(plugins.SimplePlugin):
             os.mkdir(block_store_dir)
         except:
             pass
-        self.block_store = BlockStore(self.hostname, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
+        
+        # The hostname is None because we get this from the master.
+        self.block_store = BlockStore(None, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
         self.block_store.build_pin_set()
         self.block_store.check_local_blocks()
         create_watcher_thread(bus, self.block_store)
@@ -92,7 +98,7 @@ class Worker(plugins.SimplePlugin):
         self.process_pool.subscribe()
         self.runnable_executors = self.execution_features.runnable_executors.keys()
         self.server_root = WorkerRoot(self)
-        self.pinger = Pinger(bus, self.master_proxy, None, 30)
+        self.pinger = Pinger(bus, self.master_proxy, None)
         self.pinger.subscribe()
         self.stopping = False
         self.event_log = []
@@ -123,6 +129,10 @@ class Worker(plugins.SimplePlugin):
 
     def as_descriptor(self):
         return {'netloc': self.netloc(), 'features': self.runnable_executors, 'has_blocks': not self.block_store.is_empty(), 'scheduling_classes': self.scheduling_classes}
+
+    def set_hostname(self, hostname):
+        self.hostname = hostname
+        self.block_store.set_hostname(hostname)
 
     def set_master(self, master_details):
         self.master_url = master_details['master']
