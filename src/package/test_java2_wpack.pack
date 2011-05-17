@@ -1,6 +1,6 @@
 {"package": 
 	    {"tests-jar": {"filename": "../../dist/sky-eg-tests.jar"},
-             "pack_input": {"urls": ["http://www.cl.cam.ac.uk"], "urlindex":true, "repeat":10, "replication":1}},
+             "pack_input": {"urls": ["http://www.cl.cam.ac.uk"], "urlindex":true, "repeat":10, "replication":2}},
  "start": 
  	  { "handler": "java2",
  	    "args": {
