@@ -100,7 +100,7 @@ class Job:
         self.task_graph = JobTaskGraph(self, self.runnable_queue)
         
         self.workers = {}
-        self.job_pool.worker_pool.notify_job_about_current_workers(self)
+        
         
     def restart_journalling(self):
         # Assume that the recovery process has truncated the file to the previous record boundary.
@@ -231,6 +231,7 @@ class Job:
         self._condition.notify_all()
 
     def enqueued(self):
+        self.job_pool.worker_pool.notify_job_about_current_workers(self)
         self.set_state(JOB_QUEUED)
 
     def completed(self, result_ref):
@@ -713,12 +714,12 @@ class JobPool(plugins.SimplePlugin):
     
     def notify_worker_added(self, worker):
         for job in self.jobs.values():
-            if job.state in (JOB_ACTIVE, JOB_RECOVERED):
+            if job.state == JOB_ACTIVE:
                 job.notify_worker_added(worker)
             
     def notify_worker_failed(self, worker):
         for job in self.jobs.values():
-            if job.state in (JOB_ACTIVE, JOB_RECOVERED):
+            if job.state == JOB_ACTIVE:
                 job.notify_worker_failed(worker)
                 
     def add_failed_job(self, job_id):
@@ -776,10 +777,9 @@ class JobPool(plugins.SimplePlugin):
                 ciel.log('Not starting a new job because there is insufficient capacity', 'JOB_POOL', logging.INFO)
                 
     def queue_job(self, job):
-        if job.state == JOB_RECOVERED:
-            self.run_queue.put(job)
-            job.enqueued()
-            self.maybe_start_new_job()
+        self.run_queue.put(job)
+        job.enqueued()
+        self.maybe_start_new_job()
             
     def job_completed(self, job):
         self.num_running_jobs -= 1
