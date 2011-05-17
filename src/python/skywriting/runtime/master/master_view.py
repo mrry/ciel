@@ -217,6 +217,8 @@ class JobRoot:
             return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder) 
         elif attribute == 'resume':
             self.job_pool.queue_job(job)
+        elif attribute == 'poke':
+            job.schedule()
         else:
             # Invalid attribute.
             raise HTTPError(404)
