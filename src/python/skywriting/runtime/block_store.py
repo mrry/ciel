@@ -259,7 +259,6 @@ def commit_producer(id):
     singleton_blockstore.commit_producer(id)
 
 def get_own_netloc():
-    print singleton_blockstore.netloc
     return singleton_blockstore.netloc
 
 def create_fetch_file_for_ref(ref):

@@ -118,7 +118,6 @@ class MasterProxy:
         message_url = urljoin(self.master_url, 'control/worker/')
         _, result = self.backoff_request(message_url, 'POST', message_payload)
         self.worker.id = simplejson.loads(result)
-        print 'Registered'
     
     def publish_refs(self, job_id, task_id, refs):
         message_payload = simplejson.dumps(refs, cls=SWReferenceJSONEncoder)
