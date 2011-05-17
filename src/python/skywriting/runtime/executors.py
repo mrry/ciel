@@ -20,7 +20,7 @@ from shared.references import \
     SW2_FixedReference, SWReferenceJSONEncoder, SW2_ConcreteReference
 from shared.io_helpers import read_framed_json, write_framed_json
 from skywriting.runtime.exceptions import BlameUserException, ReferenceUnavailableException,\
-    RuntimeSkywritingError
+    RuntimeSkywritingError, MissingInputException
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
     retrieve_file_or_string_for_ref, ref_from_safe_string,\
@@ -581,6 +581,11 @@ class ProcExecutor(BaseExecutor):
                 finished = self.json_event_loop(reader, writer)
             else:
                 raise BlameUserException('Unsupported protocol: %s' % self.process_record.protocol)
+        
+        except MissingInputException, mie:
+            self.process_pool.delete_process_record(self.process_record)
+            raise
+            
         except:
             ciel.log('Got unexpected error', 'PROC', logging.ERROR, True)
             finished = PROC_ERROR
@@ -934,6 +939,10 @@ class ProcExecutor(BaseExecutor):
                 else:
                     ciel.log('Invalid method: %s' % method, 'PROC', logging.WARN, False)
                     return PROC_ERROR
+
+            except MissingInputException, mie:
+                ciel.log("Task died due to missing input", 'PROC', logging.WARN)
+                raise
 
             except:
                 ciel.log('Error during method handling in JSON event loop', 'PROC', logging.ERROR, True)

@@ -67,7 +67,7 @@ class TaskPoolTask:
         
         self.type = type
         
-        self.workers = set(workers)
+        self.worker = None
         
         self.state = None
         self.set_state(state)
@@ -81,6 +81,9 @@ class TaskPoolTask:
         self.current_attempt = 0
         
         self.profiling = {}
+
+    def __str__(self):
+        return 'TaskPoolTask(%s)' % self.task_id
 
     def set_state(self, state):
         if self.job is not None and self.state is not None:
@@ -126,16 +129,17 @@ class TaskPoolTask:
     def get_profiling(self):
         return self.profiling
 
-    def add_worker(self, worker):
+    def set_worker(self, worker):
         self.set_state(TASK_ASSIGNED)
-        self.workers.add(worker)
+        self.worker = worker
 
-    def remove_worker(self, worker):
-        self.workers.remove(worker)
+    def unset_worker(self, worker):
+        assert self.worker is worker
+        self.worker = None
 
-    def get_workers(self):
-        """Returns a list of the workers to which this task is assigned."""
-        return list(self.workers)
+    def get_worker(self):
+        """Returns the worker to which this task is assigned."""
+        return self.worker
 
     def block_on(self, global_id, local_id):
         self.set_state(TASK_BLOCKING)

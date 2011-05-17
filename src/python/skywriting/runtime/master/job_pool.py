@@ -154,7 +154,7 @@ class Job:
                             break
                         elif task.state not in (TASK_QUEUED, TASK_QUEUED_STREAMING):
                             continue
-                        task.add_worker(worker)
+                        task.set_worker(worker)
                         wstate.assign_task(task)
                         self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                         num_assigned += 1
@@ -170,7 +170,7 @@ class Job:
                         break
                     elif task.state not in (TASK_QUEUED, TASK_QUEUED_STREAMING):
                         continue
-                    task.add_worker(worker)
+                    task.set_worker(worker)
                     self.workers[worker].assign_task(task)
                     self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                     num_global_assigned += 1
@@ -354,15 +354,7 @@ class Job:
             tx = TaskGraphUpdate()
             
             root_task = self.task_graph.get_task(report[0][0])
-            for assigned_worker in root_task.get_workers():
-                if assigned_worker is worker:
-                    self.workers[worker].deassign_task(root_task)
-                else:
-                    self.workers[assigned_worker].deassign_task(root_task)
-                    assigned_worker.worker_pool.abort_task_on_worker(root_task, assigned_worker)
-                    
-                    # XXX: Need to abort the task running on other workers.
-                    pass
+            self.workers[worker].deassign_task(root_task)
             
             for (parent_id, success, payload) in report:
                 
@@ -435,7 +427,7 @@ class Job:
                 ciel.log('Reassigning tasks from failed worker %s for job %s' % (worker.id, self.id), 'JOB', logging.WARNING)
                 for assigned in worker_state.assigned_tasks.values():
                     for failed_task in assigned:
-                        failed_task.remove_worker(worker)
+                        failed_task.unset_worker(worker)
                         self.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
                 for scheduling_class in worker_state.queues:
                     while True:
@@ -498,11 +490,11 @@ class JobWorkerState:
     def assign_task(self, task):
         eff_class = self.worker.get_effective_scheduling_class(task.scheduling_class)
         try:
-            self.assigned_tasks[eff_class].append(task)
+            self.assigned_tasks[eff_class].add(task)
         except KeyError:
-            class_queue = collections.deque()
-            self.assigned_tasks[eff_class] = class_queue
-            class_queue.append(task)
+            class_set = set()
+            self.assigned_tasks[eff_class] = class_set
+            class_set.add(task)
         
     def deassign_task(self, task):
         try:
