@@ -1,5 +1,6 @@
 package skywriting.examples.tests.java2;
 
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 
@@ -36,9 +37,17 @@ public class PipeStreamerConsumer implements FirstClassJavaTask {
 		
 		Ciel.blockOn(this.input_ref);
 		
-		InputStream in = Ciel.RPC.getStreamForReference(this.input_ref, this.chunk_size, this.sole_consumer, false, this.must_block);
+		InputStream in = null;
+		
+		if(!this.may_stream) {
+			String filename = Ciel.RPC.getFilenameForReference(this.input_ref);
+			in = new FileInputStream(filename);
+		}
+		else {
+			in = Ciel.RPC.getStreamForReference(this.input_ref, this.chunk_size, this.sole_consumer, false, this.must_block);
+		}
 		byte[] inputBuffer = new byte[4096];
-		int bytes_read = 0;
+		long bytes_read = 0;
 		
 		while(true) {
 			int this_read = in.read(inputBuffer);

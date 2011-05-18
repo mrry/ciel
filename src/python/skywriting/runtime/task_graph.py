@@ -84,8 +84,12 @@ class DynamicTaskGraph:
         """Add a new task to the graph. If tx is None, this will cause an immediate
         reduction; otherwise, tasks-to-reduce will be added to tx.result_list."""
         
-        # Record the task in the task table.
+        # Record the task in the task table, if we don't already know about it.
+        if task.task_id in self.tasks:
+            return
         self.tasks[task.task_id] = task
+        if task.parent is not None:
+            task.parent.children.append(task)
         
         # Now update the reference table to account for the new task.
         # We will need to reduce this task if any of its outputs have consumers. 

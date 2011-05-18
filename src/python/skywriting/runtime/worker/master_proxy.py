@@ -59,7 +59,28 @@ class MasterProxy:
     def handle_shutdown(self):
         self.stop_event.set()
     
-    def backoff_request(self, url, method, payload=None, num_attempts=1, initial_wait=0, need_result=True):
+    def backoff_request(self, url, method, payload=None, need_result=True, callback=None):
+        if self.stop_event.is_set():
+            return
+        try:
+            if method == "POST":
+                if need_result:
+                    content = post_string(url, payload)
+                else:
+                    if callback is None:
+                        callback = self.master_post_result_callback
+                    post_string_noreturn(url, payload, result_callback=callback)
+                    return
+            elif method == "GET":
+                content = get_string(url)
+            else:
+                raise Exception("Invalid method %s" % method)
+            return 200, content
+        except:
+            ciel.log("Error attempting to contact master, aborting", "MSTRPRXY", logging.WARNING, True)
+            raise
+    
+    def _backoff_request(self, url, method, payload=None, num_attempts=1, initial_wait=0, need_result=True, callback=None):
         initial_wait = 5
         for _ in range(0, num_attempts):
             if self.stop_event.is_set():
@@ -70,7 +91,9 @@ class MasterProxy:
                         if need_result or num_attempts > 1:
                             content = post_string(url, payload)
                         else:
-                            post_string_noreturn(url, payload, result_callback=self.master_post_result_callback)
+                            if callback is None:
+                                callback = self.master_post_result_callback
+                            post_string_noreturn(url, payload, result_callback=callback)
                             return
                     elif method == "GET":
                         content = get_string(url)
@@ -89,13 +112,6 @@ class MasterProxy:
             raise WorkerShutdownException()
         else:
             raise MasterNotRespondingException()
-
-    def get_public_hostname(self):
-        # Performed with httplib2 because this happens before the cURL thread is up.
-        message_url = urljoin(self.master_url, "control/gethostname/")
-        h = httplib2.Http()
-        _, result = h.request(message_url, "GET")
-        return simplejson.loads(result)
 
     def register_as_worker(self):
         message_payload = simplejson.dumps(self.worker.as_descriptor())
@@ -123,9 +139,14 @@ class MasterProxy:
         message_url = urljoin(self.master_url, 'control/task/%s/%s/failed' % (job_id, task_id))
         self.backoff_request(message_url, "POST", message_payload, need_result=False)
 
-    def ping(self):
+    def get_public_hostname(self):
+        message_url = urljoin(self.master_url, "control/gethostname/")
+        _, result = self.backoff_request(message_url, "GET")
+        return simplejson.loads(result)
+
+    def ping(self, ping_fail_callback):
         message_url = urljoin(self.master_url, 'control/worker/%s/ping/' % (str(self.worker.id), ))
-        self.backoff_request(message_url, "POST", "PING", 1, 0, need_result=False)
+        self.backoff_request(message_url, "POST", "PING", need_result=False, callback=ping_fail_callback)
 
     def master_post_result_callback(self, success, url):
         if not success:

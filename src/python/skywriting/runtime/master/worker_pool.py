@@ -192,12 +192,7 @@ class WorkerPool:
             post_string_noreturn("http://%s/control/task/" % (worker.netloc), message, result_callback=self.worker_post_result_callback)
         except:
             self.worker_failed(worker)
-            
-    def task_completed_on_worker(self, task, done_worker):
-        for worker in task.get_workers():
-            if worker is not done_worker:
-                self.abort_task_on_worker(task, worker)
-        
+
     def abort_task_on_worker(self, task, worker):
         try:
             ciel.log("Aborting task %s on worker %s" % (task.task_id, worker), "WORKER_POOL", logging.WARNING)
@@ -279,17 +274,17 @@ class WorkerPool:
             for worker in self.workers.values():
                 if worker.failed:
                     continue
-                if (worker.last_ping + datetime.timedelta(seconds=30)) < datetime.datetime.now():
+                if (worker.last_ping + datetime.timedelta(seconds=10)) < datetime.datetime.now():
                     failed_worker = worker
                     self.deferred_worker.do_deferred(lambda: self.investigate_worker_failure(failed_worker))
                     
-            self.deferred_worker.do_deferred_after(30.0, self.reap_dead_workers)
+            self.deferred_worker.do_deferred_after(10.0, self.reap_dead_workers)
 
     def worker_post_result_callback(self, success, url):
         # An asynchronous post_string_noreturn has completed against 'url'. Called from the cURL thread.
         if not success:
             parsed = urlparse(url)
-            worker = self.get_worker_at_netloc(url.netloc)
+            worker = self.get_worker_at_netloc(parsed.netloc)
             if worker is not None:
                 ciel.log("Aysnchronous post against %s failed: investigating" % url, "WORKER_POOL", logging.ERROR)
                 # Safe to call from here: this bottoms out in a deferred-work call quickly.

@@ -25,6 +25,7 @@ from skywriting.runtime.executors import BaseExecutor
 import threading
 import datetime
 import time
+import urlparse
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
@@ -146,14 +147,30 @@ class TaskExecutionRecord:
         self.creation_time = datetime.datetime.now()
         self.start_time = None
         self.finish_time = None
+        self.fetches = []
         
     def as_timestamp(self, t):
         return time.mktime(t.timetuple()) + t.microsecond / 1e6
         
     def get_profiling(self):
-        return {'CREATED' : self.as_timestamp(self.creation_time),
-                'STARTED' : self.as_timestamp(self.start_time),
-                'FINISHED' : self.as_timestamp(self.finish_time)}
+        profile = {'CREATED' : self.as_timestamp(self.creation_time),
+                   'STARTED' : self.as_timestamp(self.start_time),
+                   'FINISHED' : self.as_timestamp(self.finish_time)}
+        
+        fetches = {}
+        for url, size in self.fetches:
+            netloc = urlparse.urlparse(url).netloc
+            try:
+                fetches[netloc] += size
+            except KeyError:
+                fetches[netloc] = size
+
+        profile['FETCHED'] = fetches
+        
+        return profile
+        
+    def add_completed_fetch(self, url, size):
+        self.fetches.append((url, size))
         
     def run(self):
         ciel.engine.publish("worker_event", "Start execution " + repr(self.task_descriptor['task_id']) + " with handler " + self.task_descriptor['handler'])
@@ -162,7 +179,7 @@ class TaskExecutionRecord:
             self.start_time = datetime.datetime.now()
             
             # Need to do this to bring task_private into the execution context.
-            BaseExecutor.prepare_task_descriptor_for_execute(self.task_descriptor, self.block_store)
+            BaseExecutor.prepare_task_descriptor_for_execute(self.task_descriptor, self, self.block_store)
         
             if "package_ref" in self.task_descriptor["task_private"]:
                 self.package_ref = self.task_descriptor["task_private"]["package_ref"]

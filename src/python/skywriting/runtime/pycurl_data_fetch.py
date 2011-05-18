@@ -14,12 +14,14 @@ active_http_transfers = dict()
 
 class pycURLFetchContext(pycURLContext):
 
-    def __init__(self, dest_fp, src_url, result_callback, progress_callback=None, start_byte=None):
+    def __init__(self, dest_fp, src_url, result_callback, progress_callback=None, start_byte=None, fetch_client=None):
 
         pycURLContext.__init__(self, src_url, result_callback)
 
         self.description = src_url
         self.progress_callback = None
+
+        self.fetch_client = fetch_client
 
         self.curl_ctx.setopt(pycurl.WRITEDATA, dest_fp)
         if progress_callback is not None:
@@ -30,26 +32,30 @@ class pycURLFetchContext(pycURLContext):
             self.curl_ctx.setopt(pycurl.HTTPHEADER, ["Range: bytes=%d-" % start_byte])
 
     def success(self):
-        self.progress_callback(self.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD))
+        bytes_downloaded = self.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD)
+        self.progress_callback(bytes_downloaded)
         pycURLContext.success(self)
+        if self.fetch_client.task_record is not None:
+            self.fetch_client.task_record.add_completed_fetch(self.description, bytes_downloaded)
 
     def progress(self, toDownload, downloaded, toUpload, uploaded):
         self.progress_callback(downloaded)
 
 class FileTransferContext:
 
-    def __init__(self, ref, callbacks):
+    def __init__(self, ref, callbacks, fetch_client):
         self.ref = ref
         self.urls = get_fetch_urls_for_ref(self.ref)
         self.callbacks = callbacks
         self.failures = 0
         self.cancelled = False
         self.curl_fetch = None
+        self.fetch_client = fetch_client
 
     def start_next_attempt(self):
         self.fp = open(self.callbacks.bs_ctx.filename, "w")
         ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
-        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.result, self.callbacks.progress)
+        self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.result, self.callbacks.progress, fetch_client=self.fetch_client)
         self.curl_fetch.start()
 
     def start(self):
@@ -85,11 +91,12 @@ class FileTransferContext:
 
 class StreamTransferContext:
 
-    def __init__(self, ref, callbacks):
+    def __init__(self, ref, callbacks, fetch_client):
         self.url = get_fetch_urls_for_ref(ref)[0]
         parsed_url = urlparse.urlparse(self.url)
         self.worker_netloc = parsed_url.netloc
         self.ref = ref
+        self.fetch_client = fetch_client
         open(callbacks.bs_ctx.filename, "w").close()
         self.callbacks = callbacks
         self.current_data_fetch = None
@@ -104,7 +111,7 @@ class StreamTransferContext:
         
     def start_next_fetch(self):
         ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
-        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.result, self.progress, self.previous_fetches_bytes_downloaded)
+        self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.result, self.progress, self.previous_fetches_bytes_downloaded, fetch_client=self.fetch_client)
         self.current_data_fetch.start()
 
     def start(self):
@@ -282,9 +289,9 @@ class HttpTransferContext:
     def start_http_fetch(self):
         new_fetch = pycURLFetchInProgress(self.ref)
         if isinstance(self.ref, SW2_ConcreteReference) or isinstance(self.ref, SW2_FetchReference):
-            new_ctx = FileTransferContext(self.ref, new_fetch)
+            new_ctx = FileTransferContext(self.ref, new_fetch, self.fetch_client)
         else:
-            new_ctx = StreamTransferContext(self.ref, new_fetch)
+            new_ctx = StreamTransferContext(self.ref, new_fetch, self.fetch_client)
         new_fetch.set_fetch_context(new_ctx)
         active_http_transfers[self.ref.id] = new_fetch
         new_ctx.start()

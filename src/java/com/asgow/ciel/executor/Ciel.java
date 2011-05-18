@@ -7,7 +7,9 @@ import java.io.ObjectOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.Serializable;
+import java.net.URL;
 import java.nio.charset.Charset;
+import java.util.HashSet;
 
 import com.asgow.ciel.references.CielFuture;
 import com.asgow.ciel.references.Reference;
@@ -18,6 +20,7 @@ import com.asgow.ciel.tasks.FirstClassJavaTaskInformation;
 import com.asgow.ciel.tasks.SingleOutputTask;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 public final class Ciel {
 
@@ -32,6 +35,8 @@ public final class Ciel {
 	 * reflective calls inside user-code should use this classloader.
 	 */
 	public static ClassLoader CLASSLOADER = null;
+	
+	public static HashSet<URL> seenJars = new HashSet<URL>();
 	
 	/**
 	 * This is the array of references that comprise the classpath for this task. It
@@ -175,6 +180,19 @@ public final class Ciel {
 			throw new RuntimeException(e);
 		}
 		
+	}
+	
+	public static Reference[] getRefsFromPackage(String key) {
+		Reference indexRef = Ciel.RPC.tryPackageLookup(key);
+		if (indexRef == null) {
+			return null;
+		}
+		JsonArray indexJsonArray = new JsonParser().parse(Ciel.stringOfRef(indexRef)).getAsJsonArray();
+		Reference[] ret = new Reference[indexJsonArray.size()];
+		for (int i = 0; i < ret.length; ++i) {
+			ret[i] = Reference.fromJson(indexJsonArray.get(i).getAsJsonObject());
+		}
+		return ret;
 	}
 	
 }

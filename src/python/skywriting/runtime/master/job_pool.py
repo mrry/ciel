@@ -56,7 +56,7 @@ RECORD_HEADER_STRUCT = struct.Struct('!cI')
 
 class Job:
     
-    def __init__(self, id, root_task, job_dir, state, job_pool, job_options):
+    def __init__(self, id, root_task, job_dir, state, job_pool, job_options, journal=True):
         self.id = id
         self.root_task = root_task
         self.job_dir = job_dir
@@ -75,11 +75,19 @@ class Job:
 
         self.task_journal_fp = None
 
-        # Start journalling immediately to capture the root task.
-        if self.task_journal_fp is None and self.job_dir is not None:
-            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
+        self.journal = journal
 
         self.job_options = job_options
+        
+        try:
+            self.journal = self.job_options['journal']
+        except KeyError:
+            pass
+
+        # Start journalling immediately to capture the root task.
+        if self.journal and self.task_journal_fp is None and self.job_dir is not None:
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'wb')
+
 
         self._lock = Lock()
         self._condition = Condition(self._lock)
@@ -96,18 +104,29 @@ class Job:
             self.scheduling_policy = get_scheduling_policy(self.job_options['scheduler'])
         except KeyError:
             self.scheduling_policy = LocalitySchedulingPolicy()
+            
+        try:
+            self.journal_sync_buffer = self.job_options['journal_sync_buffer']
+        except KeyError:
+            self.journal_sync_buffer = None
+        self.journal_sync_counter = 0
         
         self.task_graph = JobTaskGraph(self, self.runnable_queue)
         
         self.workers = {}
-        self.job_pool.worker_pool.notify_job_about_current_workers(self)
+        
+        
+    def restart_journalling(self):
+        # Assume that the recovery process has truncated the file to the previous record boundary.
+        if self.task_journal_fp is None and self.job_dir is not None:
+            self.task_journal_fp = open(os.path.join(self.job_dir, 'task_journal'), 'ab')
         
     def schedule(self):
         self.job_pool.deferred_worker.do_deferred(lambda: self._schedule())
         
     def _schedule(self):
         
-        ciel.log('Beginning to schedule job %s' % self.id, 'JOB', logging.INFO)
+        #ciel.log('Beginning to schedule job %s' % self.id, 'JOB', logging.DEBUG)
         
         with self._lock:
             
@@ -135,7 +154,7 @@ class Job:
                             break
                         elif task.state not in (TASK_QUEUED, TASK_QUEUED_STREAMING):
                             continue
-                        task.add_worker(worker)
+                        task.set_worker(worker)
                         wstate.assign_task(task)
                         self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                         num_assigned += 1
@@ -151,12 +170,12 @@ class Job:
                         break
                     elif task.state not in (TASK_QUEUED, TASK_QUEUED_STREAMING):
                         continue
-                    task.add_worker(worker)
+                    task.set_worker(worker)
                     self.workers[worker].assign_task(task)
                     self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                     num_global_assigned += 1
         
-        ciel.log('Finished scheduling job %s. Tasks assigned = %d' % (self.id, total_assigned), 'JOB', logging.INFO)
+        #ciel.log('Finished scheduling job %s. Tasks assigned = %d' % (self.id, total_assigned), 'JOB', logging.DEBUG)
         
     def pop_task_from_global_queue(self, scheduling_class):
         if scheduling_class == '*':
@@ -226,6 +245,7 @@ class Job:
         self._condition.notify_all()
 
     def enqueued(self):
+        self.job_pool.worker_pool.notify_job_about_current_workers(self)
         self.set_state(JOB_QUEUED)
 
     def completed(self, result_ref):
@@ -264,27 +284,28 @@ class Job:
                 self.task_journal_fp.flush()
                 os.fsync(self.task_journal_fp.fileno())
 
+    def maybe_sync(self, must_sync=False):
+        if must_sync or (self.journal_sync_buffer is not None and self.journal_sync_counter % self.journal_sync_buffer == 0):
+            os.fsync(self.task_journal_fp.fileno())
+        self.journal_sync_counter += 1
+
     def add_reference(self, id, ref, should_sync=False):
         # Called under self._lock (from _report_tasks()).
-        if self.task_journal_fp is not None:
+        if self.journal and self.task_journal_fp is not None:
             ref_details = simplejson.dumps({'id': id, 'ref': ref}, cls=SWReferenceJSONEncoder)
             self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('R', len(ref_details)))
             self.task_journal_fp.write(ref_details)
-            if should_sync:
-                self.task_journal_fp.flush()
-                os.fsync(self.task_journal_fp.fileno())
-
+            self.maybe_sync(should_sync)
+            
     def add_task(self, task, should_sync=False):
         # Called under self._lock (from _report_tasks()).
         self.task_state_counts[task.state] = self.task_state_counts[task.state] + 1
-        if self.task_journal_fp is not None:
+        if self.journal and self.task_journal_fp is not None:
             task_details = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
             self.task_journal_fp.write(RECORD_HEADER_STRUCT.pack('T', len(task_details)))
             self.task_journal_fp.write(task_details)
-            if should_sync:
-                self.task_journal_fp.flush()
-                os.fsync(self.task_journal_fp.fileno())
-
+            self.maybe_sync(should_sync)
+            
 #    def steal_task(self, worker, scheduling_class):
 #        ciel.log('In steal_task(%s, %s)' % (worker.id, scheduling_class), 'LOG', logging.INFO)
 #        # Stealing policy: prefer task with fewest replicas, then lowest cost on this worker.
@@ -333,15 +354,7 @@ class Job:
             tx = TaskGraphUpdate()
             
             root_task = self.task_graph.get_task(report[0][0])
-            for assigned_worker in root_task.get_workers():
-                if assigned_worker is worker:
-                    self.workers[worker].deassign_task(root_task)
-                else:
-                    self.workers[assigned_worker].deassign_task(root_task)
-                    assigned_worker.worker_pool.abort_task_on_worker(root_task, assigned_worker)
-                    
-                    # XXX: Need to abort the task running on other workers.
-                    pass
+            self.workers[worker].deassign_task(root_task)
             
             for (parent_id, success, payload) in report:
                 
@@ -355,7 +368,7 @@ class Job:
                     for child in spawned:
                         child_task = build_taskpool_task_from_descriptor(child, parent_task)
                         tx.spawn(child_task)
-                        parent_task.children.append(child_task)
+                        #parent_task.children.append(child_task)
                     
                     for ref in published:
                         tx.publish(ref, parent_task)
@@ -414,7 +427,7 @@ class Job:
                 ciel.log('Reassigning tasks from failed worker %s for job %s' % (worker.id, self.id), 'JOB', logging.WARNING)
                 for assigned in worker_state.assigned_tasks.values():
                     for failed_task in assigned:
-                        failed_task.remove_worker(worker)
+                        failed_task.unset_worker(worker)
                         self.investigate_task_failure(failed_task, ('WORKER_FAILED', None, {}))
                 for scheduling_class in worker_state.queues:
                     while True:
@@ -477,11 +490,11 @@ class JobWorkerState:
     def assign_task(self, task):
         eff_class = self.worker.get_effective_scheduling_class(task.scheduling_class)
         try:
-            self.assigned_tasks[eff_class].append(task)
+            self.assigned_tasks[eff_class].add(task)
         except KeyError:
-            class_queue = collections.deque()
-            self.assigned_tasks[eff_class] = class_queue
-            class_queue.append(task)
+            class_set = set()
+            self.assigned_tasks[eff_class] = class_set
+            class_set.add(task)
         
     def deassign_task(self, task):
         try:

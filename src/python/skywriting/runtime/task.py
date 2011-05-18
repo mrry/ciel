@@ -67,22 +67,29 @@ class TaskPoolTask:
         
         self.type = type
         
+        self.worker = None
+        
         self.state = None
         self.set_state(state)
         
         #self.worker = None
-        self.workers = set(workers)
         self.scheduling_class = scheduling_class
         
         self.saved_continuation_uri = None
 
         self.event_index = 0
         self.current_attempt = 0
+        
+        self.profiling = {}
+
+    def __str__(self):
+        return 'TaskPoolTask(%s)' % self.task_id
 
     def set_state(self, state):
         if self.job is not None and self.state is not None:
             self.job.record_state_change(self.state, state)
         self.record_event(TASK_STATE_NAMES[state])
+        #print self, TASK_STATE_NAMES[self.state] if self.state is not None else None, '-->', TASK_STATE_NAMES[state] if state is not None else None
         self.state = state
         
     def record_event(self, description, time=None):
@@ -103,13 +110,14 @@ class TaskPoolTask:
             return []
 
     def set_profiling(self, profiling):
-        self.profiling = profiling
-    
-        ordered_events = [(timestamp, event) for (event, timestamp) in profiling.items()]
-        ordered_events.sort()
-        
-        for timestamp, event in ordered_events:
-            self.record_event(event, datetime.datetime.fromtimestamp(timestamp))
+        if profiling is not None:
+            self.profiling.update(profiling)
+            try:    
+                self.record_event('WORKER_CREATED', datetime.datetime.fromtimestamp(profiling['CREATED']))
+                self.record_event('WORKER_STARTED', datetime.datetime.fromtimestamp(profiling['STARTED']))
+                self.record_event('WORKER_FINISHED', datetime.datetime.fromtimestamp(profiling['FINISHED']))
+            except KeyError:
+                pass
     
     def get_type(self):
         if self.type is None:
@@ -120,21 +128,19 @@ class TaskPoolTask:
             return self.type
     
     def get_profiling(self):
-        try:
-            return self.profiling
-        except AttributeError:
-            return {}
+        return self.profiling
 
-    def add_worker(self, worker):
+    def set_worker(self, worker):
         self.set_state(TASK_ASSIGNED)
-        self.workers.add(worker)
+        self.worker = worker
 
-    def remove_worker(self, worker):
-        self.workers.remove(worker)
+    def unset_worker(self, worker):
+        assert self.worker is worker
+        self.worker = None
 
-    def get_workers(self):
-        """Returns a list of the workers to which this task is assigned."""
-        return list(self.workers)
+    def get_worker(self):
+        """Returns the worker to which this task is assigned."""
+        return self.worker
 
     def block_on(self, global_id, local_id):
         self.set_state(TASK_BLOCKING)
@@ -214,11 +220,14 @@ class TaskPoolTask:
                       'event_index': self.event_index,
                       'job' : self.job.id}
         
+        descriptor['parent'] = self.parent.task_id if self.parent is not None else None
+        
         if long:
-            descriptor['parent'] = self.parent.task_id if self.parent is not None else None
             descriptor['history'] = map(lambda (t, name): (time.mktime(t.timetuple()) + t.microsecond / 1e6, name), self.history)
             descriptor['state'] = TASK_STATE_NAMES[self.state]
             descriptor['children'] = [x.task_id for x in self.children]
+            descriptor['profiling'] = self.profiling
+            descriptor['worker'] = [w.netloc for w in self.workers]
         
         if self.task_private is not None:
             descriptor['task_private'] = self.task_private
@@ -227,7 +236,7 @@ class TaskPoolTask:
         if self.type is not None:
             descriptor['scheduling_type'] = self.type
         
-        return descriptor        
+        return descriptor
 
 class DummyJob:
     """Used to ensure that tasks on the worker can refer to their job (for inheriting job ID, e.g.)."""

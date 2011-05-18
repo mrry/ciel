@@ -1,7 +1,7 @@
 #!/bin/bash
 PYTHON=${PYTHON:-python}
 BASE=$(${PYTHON} -c "import os,sys;print os.path.dirname(os.path.realpath('$0'))")/..
-export PYTHONPATH=$PYTHONPATH:$BASE/src/python
+export PYTHONPATH=$PYTHONPATH:$BASE/ext/sendmsg-1.0.1/build/lib.linux-x86_64-2.6:$BASE/ext/sendmsg-1.0.1/build/lib.linux-i686-2.6:$BASE/src/python
 
 if [[ $REL_BLOCK_LOCATION == "" ]]; then
     REL_BLOCK_LOCATION="store/"

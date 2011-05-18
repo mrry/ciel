@@ -9,12 +9,14 @@ import com.asgow.ciel.references.WritableReference;
 public class CielOutputStream extends FileOutputStream {
 
 	private WritableReference ref;
-        private long bytesWritten;
+    private long bytesWritten;
+    private boolean closed;    
 	
 	public CielOutputStream(WritableReference ref) throws FileNotFoundException {
 		super(ref.getFilename());
 		this.ref = ref;
 		this.bytesWritten = 0;
+		this.closed = false;
 	}
 	
 	@Override
@@ -25,8 +27,11 @@ public class CielOutputStream extends FileOutputStream {
 
 	@Override
 	public void close() throws IOException {
-		super.close();
-		ref.close(this.bytesWritten);
+		if(!closed) {
+			super.close();
+			ref.close(this.bytesWritten);
+			this.closed = true;
+		}
 	}
 
 	@Override

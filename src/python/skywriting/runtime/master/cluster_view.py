@@ -110,8 +110,8 @@ class TaskBrowserRoot:
         task_string += '<body><table>'
         task_string += table_row('ID', task.task_id)
         task_string += table_row('State', TASK_STATE_NAMES[task.state])
-        for worker in task.get_workers():
-            task_string += table_row('Worker', worker.netloc)
+        for worker in [task.get_worker()]:
+            task_string += table_row('Worker', worker.netloc if worker is not None else None)
         task_string += span_row('Dependencies')
         for local_id, ref in task.dependencies.items():
             task_string += table_row(local_id, ref_link(job, ref))

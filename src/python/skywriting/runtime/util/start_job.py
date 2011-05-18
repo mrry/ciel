@@ -12,11 +12,13 @@ from skywriting.runtime.util.sw_pprint import sw_pprint
 
 from shared.references import SWReferenceJSONEncoder,json_decode_object_hook,\
     SW2_FutureReference, SWDataValue, SWErrorReference,\
-    SW2_SocketStreamReference, SW2_StreamReference, SW2_ConcreteReference
+    SW2_SocketStreamReference, SW2_StreamReference, SW2_ConcreteReference,\
+    build_reference_from_tuple
 from skywriting.runtime.object_cache import retrieve_object_for_ref, decoders
 from optparse import OptionParser
 from skywriting.runtime.block_store import get_fetch_urls_for_ref
 from StringIO import StringIO
+import sys
 
 http = httplib2.Http()
 
@@ -44,13 +46,28 @@ def ref_of_string(val, master_uri):
     (_, content) = http.request(master_data_uri, "POST", val)
     return simplejson.loads(content, object_hook=json_decode_object_hook)
     
-def ref_of_object(val, package_path, master_uri):
-    if "filename" not in val:
+def ref_of_object(key, val, package_path, master_uri):
+    if "__ref__" in val:
+        return build_reference_from_tuple(val['__ref__'])
+    if "filename" not in val and "urls" not in val:
         raise Exception("start_job can't handle resources that aren't files yet; package entries must have a 'filename' member")
-    if not os.path.isabs(val["filename"]):
+    if "filename" in val and not os.path.isabs(val["filename"]):
         # Construct absolute path by taking it as relative to package descriptor
         val["filename"] = os.path.join(package_path, val["filename"])
-    if "index" in val and val["index"]:
+    if "urlindex" in val and val["urlindex"]:
+        try:
+            replication = val["replication"]
+        except KeyError:
+            replication = 3
+        try:
+            repeat = val["repeat"]
+        except KeyError:
+            repeat = 1
+        if 'urls' in val:
+            return load.do_uploads(master_uri, [], urllist=val["urls"], do_urls=True, replication=replication, repeat=repeat)
+        else:
+            return load.do_uploads(master_uri, [val["filename"]], do_urls=True, replication=replication)
+    elif "index" in val and val["index"]:
         return load.do_uploads(master_uri, [val["filename"]])
     else:
         with open(val["filename"], "r") as infile:
@@ -84,7 +101,9 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
     package_dict = resolve_vars(package_dict, env_and_args_callbacks)
     start_args = resolve_vars(start_args, env_and_args_callbacks)
 
-    submit_package_dict = dict([(k, ref_of_object(v, package_path, master_uri)) for (k, v) in package_dict.items()])
+    submit_package_dict = dict([(k, ref_of_object(k, v, package_path, master_uri)) for (k, v) in package_dict.items()])
+    for key, ref in submit_package_dict.items():
+        print >>sys.stderr, key, '-->', simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
     package_ref = ref_of_string(pickle.dumps(submit_package_dict), master_uri)
 
     resolved_args = resolve_vars(start_args, {"__package__": lambda x: submit_package_dict[x["__package__"]]})
@@ -106,8 +125,15 @@ def submit_job_with_package(package_dict, start_handler, start_args, job_options
 
 def await_job(jobid, master_uri):
     notify_url = urlparse.urljoin(master_uri, "control/job/%s/completion" % jobid)
-    (_, content) = http.request(notify_url)
-    completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
+    for i in range(5):
+        try:
+            (_, content) = http.request(notify_url)
+            completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
+            break
+        except:
+            print "Decode failed; retrying fetch..."
+            pass
+
     if "error" in completion_result:
         raise Exception("Job failure: %s" % completion_result["error"])
     else:
@@ -126,7 +152,7 @@ def simple_retrieve_object_for_ref(ref, decoder, jobid, master_uri):
     if isinstance(ref, SW2_FutureReference) or isinstance(ref, SW2_StreamReference) or isinstance(ref, SW2_SocketStreamReference):
         ref = external_get_real_ref(ref, jobid, master_uri)
     if isinstance(ref, SWDataValue):
-        return retrieve_object_for_ref(ref, decoder)
+        return retrieve_object_for_ref(ref, decoder, None)
     elif isinstance(ref, SW2_ConcreteReference):
         urls = get_fetch_urls_for_ref(ref)
         _, content = httplib2.Http().request(urls[0])

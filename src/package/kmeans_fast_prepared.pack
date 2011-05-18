@@ -1,0 +1,13 @@
+{"package": 
+	    {"kmeans-jar": {"filename": "../../dist/sky-eg-kmeans.jar"},
+	     "kmeans-vectors": {"urls" : ["http://www.cl.cam.ac.uk/~dgm36/vector-test"], "replication":1, "repeat":10, "urlindex":true}},
+ "start": 
+ 	  { "handler": "java2",
+ 	    "args": {
+	    	    "class_name" : "skywriting.examples.kmeans.KMeansInitTask",
+	    	    "jar_lib" : [{"__package__": "kmeans-jar"}],
+		    "args" : [1600, 10, 10, 2, 0.000001, true],
+		    "n_outputs" : 1}
+	  },
+ "result": [{"__decode_ref__": "noop"}]
+}

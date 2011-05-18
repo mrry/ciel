@@ -37,7 +37,7 @@ def ref_from_object(object, encoder, id):
     buffer.close()
     return ret
 
-def retrieve_objects_for_refs(ref_and_decoders):
+def retrieve_objects_for_refs(ref_and_decoders, task_record):
 
     solutions = dict()
     unsolved_refs = []
@@ -47,7 +47,7 @@ def retrieve_objects_for_refs(ref_and_decoders):
         except:
             unsolved_refs.append(ref)
 
-    strings = retrieve_strings_for_refs(unsolved_refs)
+    strings = retrieve_strings_for_refs(unsolved_refs, task_record)
     str_of_ref = dict([(ref.id, string) for (string, ref) in zip(strings, unsolved_refs)])
             
     for (ref, decoder) in ref_and_decoders:
@@ -58,6 +58,6 @@ def retrieve_objects_for_refs(ref_and_decoders):
             
     return [solutions[ref.id] for (ref, decoder) in ref_and_decoders]
 
-def retrieve_object_for_ref(ref, decoder):
+def retrieve_object_for_ref(ref, decoder, task_record):
     
-    return retrieve_objects_for_refs([(ref, decoder)])[0]
+    return retrieve_objects_for_refs([(ref, decoder)], task_record)[0]

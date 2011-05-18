@@ -19,18 +19,14 @@ import httplib2
 import simplejson
 import sys
 
-def main():
-    
-    root_url = sys.argv[1]
-    
+def sanitise_job_url(root_url):
+
     h = httplib2.Http()
-    
+
     # Postel's Law!
     # We expect the URL of a root task; however, we should liberally accept
     # URLs starting with '/control/browse/job/', '/control/job/' and '/control/browse/task/', and URLs missing '/control'.
     url_parts = urlparse(root_url)
-
-    print root_url
 
     if not url_parts.path.startswith('/control'):
         root_url = urljoin(root_url, '/control' + url_parts.path)
@@ -40,8 +36,6 @@ def main():
         root_url = urljoin(root_url, '/control' + url_parts.path[len('/control/browse'):])
         url_parts = urlparse(root_url)
 
-    print root_url
-
     if url_parts.path.startswith('/control/job/'):
         job_url = root_url
         _, content = h.request(job_url)
@@ -49,13 +43,16 @@ def main():
         root_url = urljoin(root_url, '/control/task/%s/%s' % (job_descriptor['job_id'], job_descriptor['root_task']))
     elif not url_parts.path.startswith('/control/task/'):
         print >>sys.stderr, "Error: must specify task or job URL."
-        sys.exit(-1)
+        raise Exception()
+        
+    return root_url
 
+def task_descriptors_for_job(job_url, sanitise=True):
+
+    h = httplib2.Http()
     q = Queue()
-    q.put(root_url)
-    
-    print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state worker'
-    
+    q.put(sanitise_job_url(job_url) if sanitise else job_url)
+
     while True:
         try:
             url = q.get(block=False)
@@ -64,6 +61,19 @@ def main():
         _, content = h.request(url)
         
         descriptor = simplejson.loads(content, object_hook=json_decode_object_hook)
+
+        for child in descriptor["children"]:
+            q.put(urljoin(url, child))
+            
+        yield descriptor
+
+def main():
+    
+    root_url = sys.argv[1]
+        
+    print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state worker'
+    for descriptor in task_descriptors_for_job(root_url):
+    
 
         task_id = descriptor["task_id"]
         parent = descriptor["parent"]
@@ -99,8 +109,7 @@ def main():
 
         print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state, worker
 
-        for child in descriptor["children"]:
-            q.put(urljoin(url, child))
+
             
 if __name__ == '__main__':
     main()

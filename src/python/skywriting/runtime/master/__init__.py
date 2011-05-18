@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
-from skywriting.runtime.block_store import BlockStore
+from skywriting.runtime.block_store import BlockStore, get_own_netloc
 from skywriting.runtime.lighttpd import LighttpdAdapter
 from skywriting.runtime.master.deferred_work import DeferredWorkPlugin
 from skywriting.runtime.master.hot_standby import BackupSender, \

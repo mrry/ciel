@@ -10,6 +10,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectStreamClass;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.ArrayList;
 
 import com.asgow.ciel.executor.Ciel;
 import com.asgow.ciel.io.CielInputStream;
@@ -111,6 +112,7 @@ public class JsonPipeRpc implements WorkerRpc {
 	public static final JsonPrimitive BLOCK = new JsonPrimitive("block");
 	public static final JsonPrimitive ERROR = new JsonPrimitive("error");
 	public static final JsonPrimitive LOG = new JsonPrimitive("log");
+	public static final JsonPrimitive PACKAGE_LOOKUP = new JsonPrimitive("package_lookup");
 	
 	@SuppressWarnings("unchecked")
 	public FirstClassJavaTask getTask() throws ShutdownException {
@@ -137,13 +139,24 @@ public class JsonPipeRpc implements WorkerRpc {
 				refJarLib[i] = Reference.fromJson(jarLib.get(i).getAsJsonObject());
 				urls[i] = new URL("file://" + this.getFilenameForReference(refJarLib[i]));
 			}
-
+			
 			if (Ciel.CLASSLOADER == null) { 
 				URLClassLoader urlcl = new URLClassLoader(urls);
 				Ciel.CLASSLOADER = urlcl;
 			} else {
-				URLClassLoader urlcl = new URLClassLoader(urls, Ciel.CLASSLOADER);
-				Ciel.CLASSLOADER = urlcl;
+				
+				ArrayList<URL> unseenJars = new ArrayList<URL>(urls.length);
+				for (int i = 0; i < urls.length; ++i) {
+					if (!Ciel.seenJars.contains(urls[i])) {
+						unseenJars.add(urls[i]);
+						Ciel.seenJars.add(urls[i]);
+					}
+				}
+				
+				if (unseenJars.size() > 0) {
+					URLClassLoader urlcl = new URLClassLoader(unseenJars.toArray(new URL[0]), Ciel.CLASSLOADER);
+					Ciel.CLASSLOADER = urlcl;
+				}
 			}
 			
 			
@@ -196,7 +209,6 @@ public class JsonPipeRpc implements WorkerRpc {
 
 	@Override
 	public Reference closeNewObject(WritableReference wref) {
-		//System.out.println("Close new output");
 		return closeOutput(wref.getIndex());
 	}
 
@@ -205,7 +217,6 @@ public class JsonPipeRpc implements WorkerRpc {
 		JsonObject args = new JsonObject();
 		args.add("index", new JsonPrimitive(index));
 		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		//System.out.println("Close output " + index);
 		return Reference.fromJson(response.getAsJsonObject("ref"));
 	}
 
@@ -215,7 +226,6 @@ public class JsonPipeRpc implements WorkerRpc {
 		args.add("index", new JsonPrimitive(index));
 		args.addProperty("size", final_size);
 		JsonObject response = this.sendReceiveMessage(CLOSE_OUTPUT, args).getAsJsonArray().get(1).getAsJsonObject();
-		//System.out.println("Close output " + index);
 		return Reference.fromJson(response.getAsJsonObject("ref"));
 	}
 
@@ -324,7 +334,6 @@ public class JsonPipeRpc implements WorkerRpc {
 	@Override
 	public WritableReference getOutputFilename(int index, boolean may_stream, boolean may_pipe, boolean make_local_sweetheart) {
 		JsonObject args = new JsonObject();
-		//System.out.println("Open output " + index);
 		args.add("index", new JsonPrimitive(index));
 		args.addProperty("may_stream", may_stream);
 		args.addProperty("may_pipe", may_pipe);
@@ -366,6 +375,28 @@ public class JsonPipeRpc implements WorkerRpc {
 		JsonObject args = new JsonObject();
 		args.add("message", new JsonPrimitive(logMessage));
 		this.sendMessage(LOG, args);
+	}
+	
+	public Reference packageLookup(String key) {
+		JsonObject args = new JsonObject();
+		args.add("key", new JsonPrimitive(key));
+		JsonElement response = this.sendReceiveMessage(PACKAGE_LOOKUP, args).getAsJsonArray().get(1).getAsJsonObject();
+		JsonElement value = response.getAsJsonObject().get("value");
+		if (value == null) {
+			return null;
+		}
+		Reference result = Reference.fromJson(value.getAsJsonObject());
+		return result;
+	}
+
+	public Reference tryPackageLookup(String key) {
+		JsonObject args = new JsonObject();
+		args.add("key", new JsonPrimitive(key));
+		JsonElement response = this.sendReceiveMessage(PACKAGE_LOOKUP, args).getAsJsonArray().get(1).getAsJsonObject().get("value");
+		if (response.isJsonNull())
+			return null;
+		System.out.println(response);
+		return Reference.fromJson(response.getAsJsonObject());
 	}
 	
 }

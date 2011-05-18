@@ -75,7 +75,6 @@ class TaskFailureInvestigator:
                 
         with task.job._lock:
             # Finally, propagate the failure to the task pool, so that we can re-run the failed task.
-            # FIXME: need to route this through the job.
             task.job.task_graph.task_failed(task, revised_bindings, reason, detail)
 
 class RecoveryManager(plugins.SimplePlugin):
@@ -138,7 +137,7 @@ class RecoveryManager(plugins.SimplePlugin):
                 
                 # FIXME: Get the job pool to create this job, because it has access to the scheduler queue and task failure investigator.
                 # FIXME: Store job options somewhere for recovered job.
-                job = Job(job_id, root_task, job_dir, JOB_RECOVERED, self.job_pool, {})
+                job = Job(job_id, root_task, job_dir, JOB_RECOVERED, self.job_pool, {}, journal=False)
                 
                 root_task.job = job
                 if result is not None:
@@ -151,7 +150,7 @@ class RecoveryManager(plugins.SimplePlugin):
                 if result is None:
                     self.load_other_tasks_defer(job, journal_file)
                     ciel.log.error('Recovered job %s' % job_id, 'RECOVERY', logging.INFO, False)
-                    ciel.log.error('Recovered task %s for job %s' % (root_task['task_id'], job_id), 'RECOVERY', logging.INFO, False)
+                    ciel.log.error('Recovered task %s for job %s' % (root_task.task_id, job_id), 'RECOVERY', logging.INFO, False)
                 else:
                     journal_file.close()
                     ciel.log.error('Found information about job %s' % job_id, 'RECOVERY', logging.INFO, False)
@@ -174,24 +173,26 @@ class RecoveryManager(plugins.SimplePlugin):
                 record_header = journal_file.read(RECORD_HEADER_STRUCT.size)
                 if len(record_header) != RECORD_HEADER_STRUCT.size:
                     ciel.log.error('Journal entry truncated for job %s' % job.id, 'RECOVERY', logging.WARNING, False)
+                    # XXX: Need to truncate the journal file.
                     break
                 record_type, record_length = RECORD_HEADER_STRUCT.unpack(record_header)
                 record_string = journal_file.read(record_length)
                 if len(record_string) != record_length:
                     ciel.log.error('Journal entry truncated for job %s' % job.id, 'RECOVERY', logging.WARNING, False)
+                    # XXX: Need to truncate the journal file.
                     break
                 rec = simplejson.loads(record_string, object_hook=json_decode_object_hook)
                 if record_type == 'R':
-                    self.task_pool.publish_single_ref(rec['id'], rec['ref'], job, should_journal=False)
+                    job.task_graph.publish(rec['ref'])
                 elif record_type == 'T':
                     task_id = rec['task_id']
-                    parent_task = self.task_pool.get_task_by_id(rec['parent'])
+                    parent_task = job.task_graph.get_task(rec['parent'])
                     task = build_taskpool_task_from_descriptor(rec, parent_task)
                     task.job = job
                     task.parent.children.append(task)
     
                     ciel.log.error('Recovered task %s for job %s' % (task_id, job.id), 'RECOVERY', logging.INFO, False)
-                    self.task_pool.add_task(task)
+                    job.task_graph.spawn(task)
                 else:
                     ciel.log.error('Got invalid record type in job %s' % job.id, 'RECOVERY', logging.WARNING, False)
                 
@@ -200,6 +201,7 @@ class RecoveryManager(plugins.SimplePlugin):
 
         finally:
             journal_file.close()
+            job.restart_journalling()
             if job.state == JOB_ACTIVE:
                 ciel.log.error('Restarting recovered job %s' % job.id, 'RECOVERY', logging.INFO)
             # We no longer immediately start a job when recovering it.

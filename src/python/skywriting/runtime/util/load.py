@@ -22,6 +22,7 @@ import uuid
 from shared.references import SW2_ConcreteReference, SW2_FetchReference, SWReferenceJSONEncoder
 import sys
 import time
+import itertools
 
 def get_worker_netlocs(master_uri):
     http = httplib2.Http()
@@ -179,7 +180,7 @@ def upload_string_to_targets(input, block_id, targets):
         h.request('http://%s/control/upload/%s/commit' % (target, block_id), 'POST', simplejson.dumps(len(input)))
         h.request('http://%s/control/admin/pin/%s' % (target, block_id), 'POST', 'pin')
 
-def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, packet_size=1048576, name=None, urls=False):
+def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, packet_size=1048576, name=None, do_urls=False, urllist=None, repeat=1):
     
     workers = get_worker_netlocs(master)
     
@@ -188,7 +189,7 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
     output_references = []
     
     # Upload the data in extents.
-    if not urls:
+    if not do_urls:
         
         if len(args) == 1:
             input_filename = args[0] 
@@ -217,11 +218,16 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
 
     else:
         
-        urls = []
-        for filename in args:
-            with open(filename, 'r') as f:
-                for line in f:
-                    urls.append(line.strip())
+        if urllist is None:
+            urls = []
+            for filename in args:
+                with open(filename, 'r') as f:
+                    for line in f:
+                        urls.append(line.strip())
+        else:
+            urls = urllist
+            
+        urls = itertools.chain.from_iterable(itertools.repeat(urls, repeat))
             
         target_fetch_lists = {}
                     
@@ -238,10 +244,11 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
                 tfl.append(ref)
             h = httplib2.Http()
             print >>sys.stderr, 'Getting size of %s' % url
-            response, _ = h.request(url, 'HEAD')
             try:
+                response, _ = h.request(url, 'HEAD')
                 size = int(response['content-length'])
-            except KeyError:
+            except:
+                print >>sys.stderr, 'Error while getting size of %s; assuming default size (1048576 bytes)' % url
                 size = 1048576
             conc_ref = SW2_ConcreteReference(block_name, size, targets)
             output_references.append(conc_ref)
