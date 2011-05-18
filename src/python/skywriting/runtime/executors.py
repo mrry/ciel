@@ -1009,16 +1009,20 @@ class OCamlExecutor(ProcExecutor):
             raise BlameUserException("All OCaml invocations must specify a binary")
             
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, binary, args=None, n_outputs=1, is_tail_spawn=False, **kwargs):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, binary, fn_ref=None, args=None, n_outputs=1, is_tail_spawn=False, **kwargs):
         if binary is None:
             raise BlameUserException("All OCaml invocations must specify a binary")
         
         task_descriptor["task_private"]["binary"] = binary
+        if fn_ref is not None:
+            task_descriptor["task_private"]["fn_ref"] = fn_ref
+            task_descriptor["dependencies"].append(fn_ref)
 
         if not is_tail_spawn:
             sha = hashlib.sha1()
             hash_update_with_structure(sha, [args, n_outputs])
             hash_update_with_structure(sha, binary)
+            hash_update_with_structure(sha, fn_ref)
             name_prefix = "ocaml:%s:" % (sha.hexdigest())
             task_descriptor["expected_outputs"] = ["%s%d" % (name_prefix, i) for i in range(n_outputs)]            
         
