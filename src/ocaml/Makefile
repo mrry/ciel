@@ -1,13 +1,11 @@
 OCAMLMAKEFILE=OCamlMakefile
 RESULT=ocamltest
 
-SOURCES=base64.mli base64.ml cref.mli cref.ml cmd.ml cwt.ml main.ml test.ml
+SOURCES=base64.mli base64.ml cref.mli cref.ml cmd.ml cwt.mli cwt.ml test.ml
 
 ANNOTATE=yes
-PREDS=camlp4o
 
-PACKS += unix lwt.unix
-PACKS += lwt.syntax
+PACKS += unix
 PACKS += yojson
 
 LIBS += delimcc

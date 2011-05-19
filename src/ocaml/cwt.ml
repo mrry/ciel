@@ -15,47 +15,42 @@
  *)
 
 open Printf
-open Lwt
 
 (* Type of a reference *)
 type 'a ref = Cref.t
-type ('a,'b) fut = 
-  |Ref of 'b ref
-  |Future of ('a,'b) fut * ('a -> ('a,'b) fut Lwt.t)
 
 exception Spawn_failure
 
-(* Obtain a concrete OCaml value from a reference *)
-let repr = function
-  |Future _ -> return None
-  |Ref cref -> begin
-    match_lwt Cmd.open_ref ~cref () with
-    |Some filename -> Lwt_io.(with_file ~mode:input filename read_value)
-    |None -> return None
-  end
- 
+let repr (t:'a ref) : 'a =
+  Cmd.input_value ~cref:t
+     
 (* Wait for all the references to become available and
    then run the function f *)
-let bind (t:('a,'b) fut) fn =
-  match_lwt repr t with
-  |Some v -> return (Lwt_main.run (fn v))
-  |None -> return (Future (t, fn))
+let bind t fn : 'a ref =
+  try
+    fn (repr t)
+  with Cmd.Reference_not_available -> begin
+    (* tail spawn *)
+    let fn' () = fn (repr t) in
+    let oref = Cmd.output_new_value fn' in
+    Cmd.tail_spawn ~deps:[t] ~args:[] ~n_outputs:1 oref;
+    Cmd.exit ()
+  end
 
-let spawn1 (t:'a) (fn:'a -> ('a,'b) fut Lwt.t) : ('a,'b) fut Lwt.t =
+let spawn (t:'a) (fn:'a -> 'b ref) : 'b ref =
   let arg = Base64.encode (Marshal.to_string t []) in
-  lwt oref = Cmd.output_new_value fn in
-  lwt rrefs = Cmd.spawn ~args:[`String arg] ~n_outputs:1 oref in
+  let oref = Cmd.output_new_value fn in
+  let rrefs = Cmd.spawn ~args:[`String arg] ~n_outputs:1 oref in
   match rrefs with
-  |[x] -> return (Ref x)
-  |_ -> fail Spawn_failure
+  |[x] -> x
+  |_ -> raise Spawn_failure
 
-let return1 (t:'a) : ('a,'b) fut Lwt.t =
-  lwt x = Cmd.output_value ~index:0 t in
-  return (Ref x)
+let return (t:'a) : 'a ref =
+  Cmd.output_value ~index:0 t
 
-let return2 (t1:'a) (t2:'b) : ('a ref * 'b ref) Lwt.t =
-  let r1 = Cmd.output_value ~index:0 t1 in
-  let r2 = Cmd.output_value ~index:0 t2 in
-  lwt r1 = r1 in lwt r2 = r2 in
-  return (r1, r2)
-  
+let run fn ifn ofn =
+  let main arg1 =
+    let _ = bind (spawn (ifn arg1) fn) (fun res ->
+      Cmd.with_output ~index:0 (fun oc -> output_string oc (ofn res))
+    ) in ()
+  in Cmd.init main

@@ -14,12 +14,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-type ('a,'b) fut
 
+type 'a ref
 exception Spawn_failure
 
-val repr : ('a,'b) fut -> 'b option Lwt.t
-val bind : ('a,'b) fut -> ('a -> ('a,'b) fut Lwt.t) -> ('a,'b) fut Lwt.t
-val spawn1 : 'a -> ('a -> ('a,'b) fut Lwt.t) -> ('a,'b) fut Lwt.t
-val return1 : 'a -> ('a,'b) fut Lwt.t
-(* val run : 'a -> ('a -> string) -> ('a -> 'b) -> 'b *)
+val repr : 'a ref -> 'a
+val bind : 'a ref -> ('a -> 'b ref) -> 'b ref
+val spawn : 'a -> ('a -> 'b ref) -> 'b ref
+val return : 'a -> 'a ref
+val run : ('a -> 'b ref) -> (string -> 'a) -> ('b -> string) -> unit
+

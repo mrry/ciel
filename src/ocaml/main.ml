@@ -14,9 +14,4 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
-open Printf
-open Lwt
-open Yojson
-
-let _ = Lwt_main.run (Cmd.init ())
+let _ = Cmd.init ()
