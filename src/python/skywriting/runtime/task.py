@@ -227,7 +227,7 @@ class TaskPoolTask:
             descriptor['state'] = TASK_STATE_NAMES[self.state]
             descriptor['children'] = [x.task_id for x in self.children]
             descriptor['profiling'] = self.profiling
-            descriptor['worker'] = self.worker.netloc if self.netloc is not None else None
+            descriptor['worker'] = self.worker.netloc if self.worker is not None else None
         
         if self.task_private is not None:
             descriptor['task_private'] = self.task_private
