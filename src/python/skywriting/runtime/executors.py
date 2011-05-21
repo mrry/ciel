@@ -641,19 +641,16 @@ class ProcExecutor(BaseExecutor):
         return ctx.to_safe_dict()
         
     def publish_fetched_ref(self, fetch):
-        print '--- publish_fetched_ref'
         completed_ref = fetch.get_completed_ref()
         if completed_ref is None:
             ciel.log("Cancelling async fetch %s (chunk %d)" % (fetch.ref.id, fetch.chunk_size), "EXEC", logging.INFO)
         else:
             if fetch.make_sweetheart:
                 completed_ref = SW2_SweetheartReference.from_concrete(completed_ref, get_own_netloc())
-            print '--- completed_ref:', completed_ref
             self.task_record.publish_ref(completed_ref)
         
     # Setting fd_socket_name implies you can accept a sendmsg'd FD.
     def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False, fd_socket_name=None):
-        print '()()()()()()()()() open_ref_async %s' % ref.id
         if not sendmsg_enabled:
             fd_socket_name = None
             ciel.log("Not using FDs directly: module 'sendmsg' not available", "EXEC", logging.WARNING)
