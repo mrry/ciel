@@ -175,7 +175,7 @@ class JobRoot:
 
     @cherrypy.expose
     def default(self, id, attribute=None):
-        if cherrypy.request.method == 'POST':
+        if cherrypy.request.method == 'POST' and attribute is None:
             ciel.log('Creating job for ID: %s' % id, 'JOB_POOL', logging.INFO)
             # Need to support this for backup masters, so that the job ID is
             # consistent.
@@ -213,8 +213,15 @@ class JobRoot:
             return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder, indent=4)
         elif attribute == 'completion':
             # Block until the job is completed.
-            self.job_pool.wait_for_completion(job)            
-            return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder) 
+            try:
+                timeout = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)['timeout']
+            except:
+                timeout = None
+            done = self.job_pool.wait_for_completion(job, timeout)            
+            if timeout is None:
+                return simplejson.dumps(job.as_descriptor(), cls=SWReferenceJSONEncoder) 
+            else:
+                return simplejson.dumps(done)
         elif attribute == 'resume':
             self.job_pool.queue_job(job)
         elif attribute == 'poke':
