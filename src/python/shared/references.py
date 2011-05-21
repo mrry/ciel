@@ -31,13 +31,6 @@ class SWRealReference:
         # XXX: Should really make id a field of RealReference.
         return SW2_FutureReference(self.id)
     
-def netloc_to_protobuf(netloc):
-    hostname, port = netloc.split(':')
-    loc = NetworkLocation()
-    loc.hostname = hostname
-    loc.port = int(port)
-    return loc
-
 def protobuf_to_netloc(netloc):
     return '%s:%d' % (netloc.hostname, netloc.port)
 
@@ -47,14 +40,6 @@ class SWErrorReference(SWRealReference):
         self.id = id
         self.reason = reason
         self.details = details
-
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.ERROR
-        ref.id = self.id
-        ref.reason = self.reason
-        ref.details = self.details
-        return ref
 
     def as_tuple(self):
         return ('err', self.id, self.reason, self.details)
@@ -74,12 +59,6 @@ class SW2_FutureReference(SWRealReference):
     
     def as_future(self):
         return self
-    
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.FUTURE
-        ref.id = self.id
-        return ref
     
     def as_tuple(self):
         return ('f2', str(self.id))
@@ -115,14 +94,6 @@ class SW2_ConcreteReference(SWRealReference):
             
             # We calculate the union of the two sets of location hints.
             self.location_hints.update(ref.location_hints)
-            
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.CONCRETE
-        ref.size_hint = self.size_hint
-        for netloc in self.location_hints:
-            ref.location_hints.add(netloc_to_protobuf(netloc))
-        return ref
         
     def as_tuple(self):
         return('c2', str(self.id), self.size_hint, list(self.location_hints))
@@ -149,12 +120,6 @@ class SW2_SweetheartReference(SW2_ConcreteReference):
         SW2_ConcreteReference.combine_with(self, ref)
         if isinstance(ref, SW2_SweetheartReference):
             self.sweetheart_netloc = ref.sweetheart_netloc
-            
-    def as_protobuf(self):
-        ref = SW2_ConcreteReference.as_protobuf(self)
-        ref.type = Reference.SWEETHEART
-        ref.sweetheart = netloc_to_protobuf(self.sweetheart_netloc)
-        return ref
         
     def as_tuple(self):
         return('<3', str(self.id), self.sweetheart_netloc, self.size_hint, list(self.location_hints))
@@ -170,13 +135,6 @@ class SW2_FixedReference(SWRealReference):
     
     def combine_with(self, ref):
         pass
-    
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.FIXED
-        ref.id = self.id
-        ref.location_hints.add(netloc_to_protobuf(self.fixed_netloc))
-        return ref
     
     def as_tuple(self):
         return ('fx', str(self.id), self.fixed_netloc)
@@ -209,14 +167,6 @@ class SW2_StreamReference(SWRealReference):
             
             # We calculate the union of the two sets of location hints.
             self.location_hints.update(ref.location_hints)
-        
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.STREAM
-        ref.id = self.id
-        for netloc in self.location_hints:
-            ref.location_hints.add(netloc_to_protobuf(netloc))
-        return ref
         
     def as_tuple(self):
         return('s2', str(self.id), list(self.location_hints))
@@ -258,14 +208,6 @@ class SW2_TombstoneReference(SWRealReference):
     def add_netloc(self, netloc):
         self.netlocs.add(netloc)
         
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.TOMBSTONE
-        ref.id = self.id
-        for netloc in self.location_hints:
-            ref.location_hints.add(netloc_to_protobuf(netloc))
-        return ref
-        
     def as_tuple(self):
         return ('t2', str(self.id), list(self.netlocs))
 
@@ -301,13 +243,6 @@ class SW2_FetchReference(SWRealReference):
 
     def is_consumable(self):
         return False
-    
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.FETCH
-        ref.id = self.id
-        ref.url = self.url
-        return ref
     
     def as_tuple(self):
         return ('fetch2', str(self.id), str(self.url))
@@ -345,13 +280,6 @@ class SWDataValue(SWRealReference):
         
     def as_tuple(self):
         return ('val', self.id, self.value)
-    
-    def as_protobuf(self):
-        ref = Reference()
-        ref.type = Reference.VALUE
-        ref.id = self.id
-        ref.value = self.value
-        return ref
     
     def __str__(self):
         string_repr = ""
@@ -404,34 +332,6 @@ def build_reference_from_tuple(reference_tuple):
         return SW2_CompletedReference(reference_tuple[1])
     else:
         raise KeyError(ref_type)
-
-try:
-    from shared.generated.ciel.protoc_pb2 import Reference, NetworkLocation
-
-    def build_reference_from_protobuf(ref):
-        if ref.type == Reference.VALUE:
-            return SWDataValue(ref.id, ref.value)
-        elif ref.type == Reference.ERROR:
-            return SWErrorReference(ref.id, ref.reason, ref.details)
-        elif ref.type == Reference.FUTURE:
-            return SW2_FutureReference(ref.id)
-        elif ref.type == Reference.CONCRETE:
-            return SW2_ConcreteReference(ref.id, ref.size_hint, map(protobuf_to_netloc, ref.location_hints))
-        elif ref.type == Reference.SWEETHEART:
-            return SW2_SweetheartReference(ref.id, ref.sweetheart, ref.size_hint, map(protobuf_to_netloc, ref.location_hints))
-        elif ref.type == Reference.STREAM:
-            return SW2_StreamReference(ref.id, map(protobuf_to_netloc, ref.location_hints))
-        elif ref.type == Reference.FIXED:
-            return SW2_FixedReference(ref.id, protobuf_to_netloc(ref.location_hints[0]))
-        elif ref.type == Reference.TOMBSTONE:
-            return SW2_TombstoneReference(ref.id, map(protobuf_to_netloc, ref.location_hints))
-        elif ref.type == Reference.FETCH:
-            return SW2_FetchReference(ref.id, ref.url)
-        else:
-            raise KeyError(ref.type)
-except ImportError:
-    import sys
-    print >>sys.stderr, 'Could not import protobufs.'
     
 def combine_references(original, update):
 
