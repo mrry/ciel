@@ -5,5 +5,6 @@
 	    	    "binary" : "flyingcaml",
 		    "args" : [42],
 		    "n_outputs" : 1}
-	  }
+	  },
+ "result": [ {"__decode_ref__":"noop"} ]
 }
