@@ -17,24 +17,29 @@
 open Cwt
 open Printf
 
+(* loop some spawns and derefs *)
 let main a1 =
-  let a1 = a1 * 10 in
-  let a2_r = spawn a1
-    (fun a2 ->
-       let a2 = a2 + 5 in
-       return a2
-    ) in
-  let a3_r = spawn a1
-    (fun a2 ->
-       let a2 = a2 + 1 in
-       return a2
-    ) in
-  bind a2_r (fun a2 ->
-    bind a3_r (fun a3 ->
-      let res = a2 + a3 in
-      Printf.printf "res=%d\n%!" res;
-      return res
-    );
-  )
+  let x = ref 0 in
+  for i = 0 to 3 do
+    let a1 = a1 * 10 in
+    let a2_r = spawn (fun a2 -> a2 + 5) a1 in
+    let a3_r = spawn (fun a2 -> a2 + 1) a1 in
+    let res = (deref a2_r) + (deref a3_r) in
+    x := !x + res
+  done;
+  !x
 
-let _ = Cwt.run main int_of_string string_of_int
+(* try a deref inside a spawn *)
+let main2 a1 =
+  let r = spawn (fun a1 -> a1 + 5) a1 in
+  let a2 = spawn (fun a2 -> deref r + 5) a1 in
+  deref a2
+
+(* recursive *)
+let main3 a1 =
+  let rec loop acc = function
+  |0 -> acc
+  |n -> loop (deref (spawn ((+) 5) acc)) (n-1) in
+  loop a1 10
+
+let _ = Cwt.run int_of_string string_of_int main3

@@ -10,7 +10,7 @@ PACKS += yojson
 
 LIBS += delimcc
 
-all: nc
+all: dc
 	@ :
 
 -include $(OCAMLMAKEFILE)

@@ -17,7 +17,7 @@
 type id = string
 
 type t = private
-  | Concrete of id
+  | Concrete of Yojson.json
   | Future of id
   | Stream
   | Sweetheart

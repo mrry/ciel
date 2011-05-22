@@ -19,7 +19,7 @@ open Yojson
 type id = string
 
 type t =
-  |Concrete of id
+  |Concrete of json
   |Future of string
   |Stream
   |Sweetheart
@@ -29,7 +29,7 @@ type t =
 
 let of_tuple = function
   |`List [ `String "val"; `String k; `String v ] -> Value (k, (Base64.decode v))
-  |`List [ `String "c2"; `String id ] -> Concrete id
+  |`List (`String "c2" :: tl) as x -> Concrete x
   |`List [ `String "f2"; `String id ] -> Future id
   |_ -> Null
 
@@ -40,6 +40,7 @@ let of_json = function
 let to_json t =
   let j = match t with
     |Value (k,v) -> `List [`String "val"; `String k; `String (Base64.encode v)]
+    |Concrete j -> j
     |Future id -> `List [`String "f2"; `String id]
     |Null -> `Null
     |_ -> failwith "Cannot handle this ref type yet" in

@@ -14,13 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
 type 'a ref
-exception Spawn_failure
 
-val repr : 'a ref -> 'a
-val bind : 'a ref -> ('a -> 'b ref) -> 'b ref
-val spawn : 'a -> ('a -> 'b ref) -> 'b ref
-val return : 'a -> 'a ref
-val run : ('a -> 'b ref) -> (string -> 'a) -> ('b -> string) -> unit
-
+val deref : 'a ref -> 'a
+val spawn : ('a -> 'b) -> 'a -> 'b ref
+val run : (string -> 'a) -> ('b -> string) -> ('a -> 'b) -> unit

@@ -16,41 +16,39 @@
 
 open Printf
 
-(* Type of a reference *)
 type 'a ref = Cref.t
 
-exception Spawn_failure
+let p = Delimcc.new_prompt ()
 
-let repr (t:'a ref) : 'a =
-  Cmd.input_value ~cref:t
-     
-(* Wait for all the references to become available and
-   then run the function f *)
-let bind t fn : 'a ref =
-  try
-    fn (repr t)
-  with Cmd.Reference_not_available -> begin
-    (* tail spawn *)
-    let fn' () = fn (repr t) in
-    let oref = Cmd.output_new_value fn' in
-    Cmd.tail_spawn ~deps:[t] ~args:[] ~n_outputs:1 oref;
-    Cmd.exit ()
-  end
+let rec deref (t:'a ref) : 'a =
+  try Cmd.input_value ~cref:t 
+  with Cmd.Reference_not_available ->
+    Delimcc.shift0 p (fun k ->
+      let oref = Cmd.with_new_output
+        (fun oc -> Delimcc.output_delim_value oc k) in
+      Cmd.tail_spawn ~deps:[t] ~args:[] ~n_outputs:1 oref;
+      Cmd.exit ()
+    );
+    deref t
 
-let spawn (t:'a) (fn:'a -> 'b ref) : 'b ref =
+let spawn (fn:'a -> 'b) (t:'a) : 'b ref =
   let arg = Base64.encode (Marshal.to_string t []) in
   let oref = Cmd.output_new_value fn in
   let rrefs = Cmd.spawn ~args:[`String arg] ~n_outputs:1 oref in
   match rrefs with
   |[x] -> x
-  |_ -> raise Spawn_failure
+  |_ -> raise (Failure "spawn")
 
-let return (t:'a) : 'a ref =
-  Cmd.output_value ~index:0 t
-
-let run fn ifn ofn =
+let run ifn ofn fn =
   let main arg1 =
-    let _ = bind (spawn (ifn arg1) fn) (fun res ->
-      Cmd.with_output ~index:0 (fun oc -> output_string oc (ofn res))
-    ) in ()
-  in Cmd.init main
+    Delimcc.push_prompt p (fun () ->
+      let result = ofn (fn (ifn arg1)) in
+      ignore(Cmd.with_output ~index:0 (fun oc -> output_string oc result))
+    ) in
+  let start_spawn fn arg =
+    let result = Delimcc.push_prompt p (fun () -> fn arg) in
+    ignore(Cmd.output_value ~index:0 result) in
+  let start_tail fn =
+    let result = Delimcc.push_prompt p fn in
+    ignore(Cmd.output_value ~index:0 result) in
+  ignore(Cmd.init main start_spawn start_tail)

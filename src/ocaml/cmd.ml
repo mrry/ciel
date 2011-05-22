@@ -153,7 +153,7 @@ let tail_spawn ?(deps=[]) ~args ~n_outputs fn_ref =
     "args", `List args; "extra_dependencies", deps ]
 
 (* Input loop *)
-let input main =
+let input main restart restart_tail =
   try
     either [
       "die", (fun args -> raise (Shutdown (arg_string "reason" args)));
@@ -163,25 +163,24 @@ let input main =
           |`List [`String arg1] -> Some arg1
           |`List [`Int arg1] -> Some (string_of_int arg1)
           |_ -> None in
-        let has_fnref = List.mem_assoc "fn_ref" args in
-        match (has_fnref, arg1) with
-        |false, Some arg1 -> (* fresh task *)
+        match List.mem_assoc "fn_ref" args with
+        |false ->
+          let arg1 = match arg1 with |Some x -> x |None -> "" in
           printf "Start_task: main\n%!";
           main arg1
-        |false, None ->
-          printf "Start_task: main blank arg\n%!";
-          main ""
-        |true, Some arg1 -> (* continuation *)
-          let fn_ref = Cref.of_json (List.assoc "fn_ref" args) in
-          let fn : ('a -> unit) = input_value ~cref:fn_ref in
-          let arg1 = Marshal.from_string (Base64.decode arg1) 0 in
+        |true -> begin
           printf "Start_task: cont\n%!";
-          fn arg1 
-        |true, None -> (* tail spawn *)
           let fn_ref = Cref.of_json (List.assoc "fn_ref" args) in
-          let fn : ('a -> unit) = input_value ~cref:fn_ref in
-          printf "Start_task: tail\n%!";
-          fn ()
+          match arg1 with
+          |Some arg1 ->
+            let fn : ('a -> unit) = input_value ~cref:fn_ref in
+            let arg1 : 'a = Marshal.from_string (Base64.decode arg1) 0 in
+            restart fn arg1 
+          |None ->
+            let fn_ref = Cref.of_json (List.assoc "fn_ref" args) in
+            let fn : ('a -> unit) = input_value ~cref:fn_ref in
+            restart_tail fn
+        end
         );
     ];
     exit ()
@@ -212,7 +211,7 @@ let write_framed_json oc (json:json) =
 
 (* Connect to the executor FIFO, register a start
    function, and begin the command thread *)
-let init main =
+let init main restart restart_tail =
   let parse_args () =
     match Sys.argv with
     | [| _; "--write-fifo"; wf; "--read-fifo"; rf |]
@@ -228,5 +227,5 @@ let init main =
   let write json = write_framed_json oc json in
   let read () = read_framed_json ic in
   t := { read; write };
-  input main
+  input main restart restart_tail
 
