@@ -313,7 +313,8 @@ class OngoingFetch:
             self.done = True
             self.success = False
             self.condvar.notify_all()
-        self.client.cancel()
+        # XXX: This is causing failures. Is it a vestige?
+        #self.client.cancel()
 
     def set_filename(self, filename, is_blocking):
         with self.lock:
