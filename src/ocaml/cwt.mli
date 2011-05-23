@@ -17,5 +17,6 @@
 type 'a ref
 
 val deref : 'a ref -> 'a
-val spawn : ('a -> 'b) -> 'a -> 'b ref
-val run : (string -> 'a) -> ('b -> string) -> ('a -> 'b) -> unit
+val spawn : ?stream:bool -> ('a -> 'b) -> 'a -> 'b ref
+val run : ('a -> string) -> (string list -> 'a) -> unit
+

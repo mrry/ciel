@@ -126,11 +126,13 @@ let with_new_output ?stream ?pipe ?sweetheart fn =
   let index = allocate_output () in
   with_output ~index ?stream ?pipe ?sweetheart fn
 
-let output_value ~index v = 
-  with_output ~index (fun oc -> Marshal.to_channel oc v [Marshal.Closures])
+let output_value ~index ?stream ?pipe ?sweetheart v = 
+  with_output ~index ?stream ?pipe ?sweetheart 
+    (fun oc -> Marshal.to_channel oc v [Marshal.Closures])
 
-let output_new_value v =
-  with_new_output (fun oc -> Marshal.to_channel oc v [Marshal.Closures])
+let output_new_value ?stream ?pipe ?sweetheart v =
+  with_new_output ?stream ?pipe ?sweetheart 
+    (fun oc -> Marshal.to_channel oc v [Marshal.Closures])
 
 let input_value ~cref =
   match open_ref ~cref () with
@@ -153,35 +155,11 @@ let tail_spawn ?(deps=[]) ~args ~n_outputs fn_ref =
     "args", `List args; "extra_dependencies", deps ]
 
 (* Input loop *)
-let input main restart restart_tail =
+let input callback =
   try
     either [
       "die", (fun args -> raise (Shutdown (arg_string "reason" args)));
-      "start_task", (fun args -> 
-        (* Check if this is a new job or a continuation *)
-        let arg1 = match List.assoc "args" args with
-          |`List [`String arg1] -> Some arg1
-          |`List [`Int arg1] -> Some (string_of_int arg1)
-          |_ -> None in
-        match List.mem_assoc "fn_ref" args with
-        |false ->
-          let arg1 = match arg1 with |Some x -> x |None -> "" in
-          printf "Start_task: main\n%!";
-          main arg1
-        |true -> begin
-          printf "Start_task: cont\n%!";
-          let fn_ref = Cref.of_json (List.assoc "fn_ref" args) in
-          match arg1 with
-          |Some arg1 ->
-            let fn : ('a -> unit) = input_value ~cref:fn_ref in
-            let arg1 : 'a = Marshal.from_string (Base64.decode arg1) 0 in
-            restart fn arg1 
-          |None ->
-            let fn_ref = Cref.of_json (List.assoc "fn_ref" args) in
-            let fn : ('a -> unit) = input_value ~cref:fn_ref in
-            restart_tail fn
-        end
-        );
+      "start_task", callback
     ];
     exit ()
   with
@@ -211,7 +189,7 @@ let write_framed_json oc (json:json) =
 
 (* Connect to the executor FIFO, register a start
    function, and begin the command thread *)
-let init main restart restart_tail =
+let init callback =
   let parse_args () =
     match Sys.argv with
     | [| _; "--write-fifo"; wf; "--read-fifo"; rf |]
@@ -227,5 +205,5 @@ let init main restart restart_tail =
   let write json = write_framed_json oc json in
   let read () = read_framed_json ic in
   t := { read; write };
-  input main restart restart_tail
+  input callback
 

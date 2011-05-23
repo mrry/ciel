@@ -31,24 +31,43 @@ let rec deref (t:'a ref) : 'a =
     );
     deref t
 
-let spawn (fn:'a -> 'b) (t:'a) : 'b ref =
+let spawn ?(stream=false) (fn:'a -> 'b) (t:'a) : 'b ref =
   let arg = Base64.encode (Marshal.to_string t []) in
   let oref = Cmd.output_new_value fn in
-  let rrefs = Cmd.spawn ~args:[`String arg] ~n_outputs:1 oref in
-  match rrefs with
-  |[x] -> x
-  |_ -> raise (Failure "spawn")
+  let rrefs = Cmd.spawn ~args:[`Bool stream; `String arg] ~n_outputs:1 oref in
+  match rrefs with |[x] -> x |_ -> raise (Failure "spawn")
 
-let run ifn ofn fn =
-  let main arg1 =
-    Delimcc.push_prompt p (fun () ->
-      let result = ofn (fn (ifn arg1)) in
-      ignore(Cmd.with_output ~index:0 (fun oc -> output_string oc result))
-    ) in
-  let start_spawn fn arg =
-    let result = Delimcc.push_prompt p (fun () -> fn arg) in
-    ignore(Cmd.output_value ~index:0 result) in
-  let start_tail fn =
-    let result = Delimcc.push_prompt p fn in
-    ignore(Cmd.output_value ~index:0 result) in
-  ignore(Cmd.init main start_spawn start_tail)
+let run ofn fn =
+  let callback args =
+    match List.mem_assoc "fn_ref" args with
+    |false ->
+       (* main start *)
+       let argv = match List.assoc "args" args with
+         |`List l ->
+            List.map (function
+               |`String x -> x
+               |`Int x -> string_of_int x
+               |x -> Yojson.to_string x) l
+         |_ -> [] in
+       Delimcc.push_prompt p (fun () ->
+         let result = ofn (fn argv) in
+         ignore(Cmd.with_output ~index:0 (fun oc -> output_string oc result))
+       )
+    |true -> begin
+      match List.assoc "args" args with
+      |`List [`Bool false; `String arg1 ] ->
+        (* non-streaming spawn *)
+        let cref = Cref.of_json (List.assoc "fn_ref" args) in
+        let fn : ('a -> unit) = Cmd.input_value ~cref in
+        let arg1 : 'a = Marshal.from_string (Base64.decode arg1) 0 in
+        let result = Delimcc.push_prompt p (fun () -> fn arg1) in
+        ignore(Cmd.output_value ~index:0 result)
+      |`List [] ->
+        (* tail-spawn continuation *)
+        let cref = Cref.of_json (List.assoc "fn_ref" args) in
+        let fn : ('a -> unit) = Cmd.input_value ~cref in
+        let result = Delimcc.push_prompt p fn in
+        ignore(Cmd.output_value ~index:0 result)
+      |_ -> assert false
+    end
+  in ignore(Cmd.init callback)

@@ -19,6 +19,7 @@ open Printf
 
 (* loop some spawns and derefs *)
 let main a1 =
+  let a1 = match a1 with [x] -> int_of_string x |_ -> assert false in
   let x = ref 0 in
   for i = 0 to 3 do
     let a1 = a1 * 10 in
@@ -31,15 +32,23 @@ let main a1 =
 
 (* try a deref inside a spawn *)
 let main2 a1 =
+  let a1 = match a1 with [x] -> int_of_string x |_ -> assert false in
   let r = spawn (fun a1 -> a1 + 5) a1 in
   let a2 = spawn (fun a2 -> deref r + 5) a1 in
   deref a2
 
 (* recursive *)
 let main3 a1 =
+  let a1 = match a1 with [x] -> int_of_string x |_ -> assert false in
   let rec loop acc = function
   |0 -> acc
   |n -> loop (deref (spawn ((+) 5) acc)) (n-1) in
   loop a1 10
 
-let _ = Cwt.run int_of_string string_of_int main3
+(* stream *)
+let main4 a1 =
+  let x = spawn
+    (fun a1 -> ()) in
+  ()
+
+let _ = Cwt.run string_of_int main3
