@@ -1,0 +1,7 @@
+#!/usr/bin/python
+
+import skywriting.runtime.util.start_job
+from shared.references import SWErrorReference,SWDataValue
+import sys
+
+skywriting.runtime.util.start_job.submit()

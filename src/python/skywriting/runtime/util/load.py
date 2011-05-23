@@ -229,19 +229,18 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
             
         urls = itertools.chain.from_iterable(itertools.repeat(urls, repeat))
             
-        target_fetch_lists = {}
+        #target_fetch_lists = {}
+        
+        upload_sessions = []
+                    
+        output_ref_dict = {}
                     
         for i, url in enumerate(urls):
             targets = select_targets(workers, replication)
             block_name = make_block_id(name_prefix, i)
             ref = SW2_FetchReference(block_name, url, i)
-            for target in targets:
-                try:
-                    tfl = target_fetch_lists[target]
-                except KeyError:
-                    tfl = []
-                    target_fetch_lists[target] = tfl
-                tfl.append(ref)
+            for j, target in enumerate(targets):
+                upload_sessions.append((target, ref, j))
             h = httplib2.Http()
             print >>sys.stderr, 'Getting size of %s' % url
             try:
@@ -249,87 +248,69 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
                 size = int(response['content-length'])
             except:
                 print >>sys.stderr, 'Error while getting size of %s; assuming default size (1048576 bytes)' % url
-                size = 1048576
-            conc_ref = SW2_ConcreteReference(block_name, size, targets)
+                size = 1048576 
+                
+            # The refs will be updated as uploads succeed.
+            conc_ref = SW2_ConcreteReference(block_name, size)
+            output_ref_dict[block_name] = conc_ref
             output_references.append(conc_ref)
-
-        pending_targets = {}
-        failed_targets = set()
-        
-        for target, tfl in target_fetch_lists.items():
-            h2 = httplib2.Http()
-            print >>sys.stderr, 'Uploading to %s' % target
-            id = uuid.uuid4()
-            response, _ = h2.request('http://%s/control/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
-            if response.status != 202:
-                print >>sys.stderr, 'Failed... %s' % target
-                failed_targets.add(target)
-            else:
-                pending_targets[target] = id
         
         while True:
+
+            pending_uploads = {}
+            
+            failed_this_session = []
+            
+            for target, ref, index in upload_sessions:
+                h2 = httplib2.Http()
+                print >>sys.stderr, 'Uploading to %s' % target
+                id = uuid.uuid4()
+                response, _ = h2.request('http://%s/control/fetch/%s' % (target, id), 'POST', simplejson.dumps([ref], cls=SWReferenceJSONEncoder))
+                if response.status != 202:
+                    print >>sys.stderr, 'Failed... %s' % target
+                    #failed_targets.add(target)
+                    failed_this_session.append((ref, index))
+                else:
+                    pending_uploads[ref, index] = target, id
             
             # Wait until we get a non-try-again response from all of the targets.
-            while len(pending_targets) > 0:
+            while len(pending_uploads) > 0:
                 time.sleep(3)
-                for target, id in list(pending_targets.items()):
+                for ref, index in list(pending_uploads.keys()):
+                    target, id = pending_uploads[ref, index]
                     try:
                         response, _ = h2.request('http://%s/control/fetch/%s' % (target, id), 'GET')
                         if response.status == 408:
-                            print >>sys.stderr, 'Continuing to wait for %s' % target
+                            print >>sys.stderr, 'Continuing to wait for %s:%d on %s' % (ref.id, index, target)
                             continue
                         elif response.status == 200:
-                            print >>sys.stderr, 'Succeded! %s' % target
-                            del pending_targets[target]
+                            print >>sys.stderr, 'Succeded! %s:%d on %s' % (ref.id, index, target)
+                            output_ref_dict[ref.id].location_hints.add(target)
+                            del pending_uploads[ref, index]
                         else:
                             print >>sys.stderr, 'Failed... %s' % target
-                            del pending_targets[target]
-                            failed_targets.add(target)
+                            del pending_uploads[ref, index]
+                            failed_this_session.append((ref, index))
+
                     except:
                         print >>sys.stderr, 'Failed... %s' % target
-                        del pending_targets[target]
-                        failed_targets.add(target)
+                        del pending_uploads[target]
                         
-            if len(pending_targets) == 0 and len(failed_targets) == 0:
+            if len(pending_uploads) == 0 and len(failed_this_session) == 0:
                 break
                         
             # All transfers have finished or failed, so check for failures.
-            if len(failed_targets) > 0:
+            if len(failed_this_session) > 0:
                 
-                # Redistribute blocks to working workers.
-                redistribute_refs = {}
-                
-                for target in failed_targets:
-                    tfl = target_fetch_lists[target]
-                    for ref in tfl:
-                        redistribute_refs[ref.id] = ref
-                        conc_ref = SW2_ConcreteReference(block_name, size, targets)
-                        output_references[ref.index] = conc_ref
-
-                target_fetch_lists = {}
-
                 # We refetch the worker list, in case any have failed in the mean time.
                 workers = get_worker_netlocs(master)
-    
-                for ref in redistribute_refs.values():
-                    targets = select_targets(workers, replication)
-                    for target in targets:
-                        try:
-                            tfl = target_fetch_lists[target]
-                        except KeyError:
-                            tfl = []
-                            target_fetch_lists[target] = tfl
-                        tfl.append(ref)
-            
-                for target, tfl in target_fetch_lists.items():
-                    print >>sys.stderr, 'Retrying... uploading to %s' % target
-                    h2 = httplib2.Http()
-                    id = uuid.uuid4()
-                    _, _ = h2.request('http://%s/control/fetch/%s' % (target, id), 'POST', simplejson.dumps(tfl, cls=SWReferenceJSONEncoder))
-                    pending_targets[target] = id
                 
-                failed_targets = set()
-
+                upload_sessions = []
+                
+                for ref, index in failed_this_session:
+                    target, = select_targets(workers, 1)
+                    upload_sessions.append(target, ref, index)
+                    
     # Upload the index object.
     index = simplejson.dumps(output_references, cls=SWReferenceJSONEncoder)
     block_name = '%s:index' % name_prefix
