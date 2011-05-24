@@ -81,7 +81,7 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
             return args[value["__args__"]]
         except IndexError:
             if "default" in value:
-                print "Positional argument", value["__args__"], "not specified; using default", value["default"]
+                print >>sys.stderr, "Positional argument", value["__args__"], "not specified; using default", value["default"]
                 return value["default"]
             else:
                 raise Exception("Package requires at least %d args" % (value["__args__"] + 1))
@@ -91,7 +91,7 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
             return os.environ[value["__env__"]]
         except KeyError:
             if "default" in value:
-                print "Environment variable", value["__env__"], "not specified; using default", value["default"]
+                print >>sys.stderr, "Environment variable", value["__env__"], "not specified; using default", value["default"]
                 return value["default"]
             else:
                 raise Exception("Package requires environment variable '%s'" % value["__env__"])
@@ -114,8 +114,8 @@ def submit_job_with_package(package_dict, start_handler, start_args, job_options
     
     task_descriptor = task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri, args)
 
-    print "Submitting descriptor:"
-    sw_pprint(task_descriptor, indent=2)
+    #print "Submitting descriptor:"
+    #sw_pprint(task_descriptor, indent=2)
 
     payload = {"root_task" : task_descriptor, "job_options" : job_options}
 
@@ -123,18 +123,26 @@ def submit_job_with_package(package_dict, start_handler, start_args, job_options
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(payload, cls=SWReferenceJSONEncoder))
     return simplejson.loads(content)
 
-def await_job(jobid, master_uri):
+def await_job(jobid, master_uri, timeout=None):
     notify_url = urlparse.urljoin(master_uri, "control/job/%s/completion" % jobid)
+    if timeout is not None:
+        payload = simplejson.dumps({'timeout' : timeout})
+    else:
+        payload = None
+    completion_result = None
     for i in range(5):
         try:
-            (_, content) = http.request(notify_url)
+            (_, content) = http.request(notify_url, "GET" if timeout is None else "POST", body=payload)
             completion_result = simplejson.loads(content, object_hook=json_decode_object_hook)
             break
         except:
-            print "Decode failed; retrying fetch..."
+            print >>sys.stderr, "Decode failed; retrying fetch..."
             pass
 
-    if "error" in completion_result:
+    if timeout is not None:
+        return completion_result
+
+    if completion_result is not None and "error" in completion_result:
         raise Exception("Job failure: %s" % completion_result["error"])
     else:
         return completion_result["result_ref"]
@@ -143,7 +151,7 @@ def external_get_real_ref(ref, jobid, master_uri):
     fetch_url = urlparse.urljoin(master_uri, "control/ref/%s/%s" % (jobid, ref.id))
     _, content = httplib2.Http().request(fetch_url)
     real_ref = simplejson.loads(content, object_hook=json_decode_object_hook)
-    print "Resolved", ref, "-->", real_ref
+    print >>sys.stderr, "Resolved", ref, "-->", real_ref
     return real_ref 
     
 def simple_retrieve_object_for_ref(ref, decoder, jobid, master_uri):
@@ -195,7 +203,7 @@ def recursive_decode(to_decode, template, jobid, master_uri):
 def main():
 
     parser = OptionParser()
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
     
     (options, args) = parser.parse_args()
     master_uri = options.master
@@ -244,3 +252,54 @@ def main():
             print "Failed to decode due to exception", repr(e)
             return reflist
         
+def submit():
+    """Toned-down version of the above for automation purposes."""        
+    parser = OptionParser()
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
+    
+    (options, args) = parser.parse_args()
+    master_uri = options.master
+
+    if master_uri is None or master_uri == "":
+        raise Exception("Must specify a master with -m or SW_MASTER")
+    
+    with open(args[0], "r") as package_file:
+        job_dict = simplejson.load(package_file)
+
+    package_dict = job_dict.get("package",{})
+    start_dict = job_dict["start"]
+    start_handler = start_dict["handler"]
+    start_args = start_dict["args"]
+    try:
+        job_options = job_dict["options"]
+    except KeyError:
+        job_options = {}
+    
+
+    (package_path, _) = os.path.split(args[0])
+
+    new_job = submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args[1:])
+    
+    job_browse_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % new_job['job_id'])
+    print >>sys.stderr, "Information available at ", job_browse_url
+
+    print new_job['job_id']
+
+def wait():
+    """Toned-down version of the above for automation purposes."""        
+    parser = OptionParser()
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
+    parser.add_option("-t", "--timeout", action="store", dest="timeout", help="Timeout", metavar="DURATION", default=10)
+    
+    (options, args) = parser.parse_args()
+
+    master_uri = options.master
+
+    if master_uri is None or master_uri == "":
+        raise Exception("Must specify a master with -m or SW_MASTER")
+
+    result = await_job(args[0], master_uri, options.timeout)
+
+    print >>sys.stderr, "Job done?", result
+
+    return result

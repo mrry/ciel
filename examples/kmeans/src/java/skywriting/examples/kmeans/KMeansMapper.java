@@ -72,7 +72,7 @@ public class KMeansMapper implements FirstClassJavaTask {
 				doRead = true;
 				vectors = new LinkedList<double[]>();
 				vectorIterator = null;
-				dataIn = new DataInputStream(new BufferedInputStream(new FileInputStream(Ciel.RPC.getFilenameForReference(this.dataPartitionRef, true)), 1048576));
+				dataIn = new DataInputStream(new BufferedInputStream((Ciel.RPC.getStreamForReference(this.dataPartitionRef, 1048576, false, true, false)), 1048576));
 			} else {
 				doRead = false;
 				dataIn = null;
@@ -80,7 +80,7 @@ public class KMeansMapper implements FirstClassJavaTask {
 			}
 		} else {
 			doRead = true;
-			dataIn = new DataInputStream(new BufferedInputStream(new FileInputStream(Ciel.RPC.getFilenameForReference(this.dataPartitionRef, true)), 1048576));
+			dataIn = new DataInputStream(new BufferedInputStream((Ciel.RPC.getStreamForReference(this.dataPartitionRef, 1048576, false, true, false)), 1048576));
 			vectorIterator = null;
 			vectors = null;
 		}

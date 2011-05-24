@@ -313,7 +313,8 @@ class OngoingFetch:
             self.done = True
             self.success = False
             self.condvar.notify_all()
-        self.client.cancel()
+        # XXX: This is causing failures. Is it a vestige?
+        #self.client.cancel()
 
     def set_filename(self, filename, is_blocking):
         with self.lock:
@@ -633,9 +634,11 @@ class ProcExecutor(BaseExecutor):
         else:
             ctx = retrieve_file_or_string_for_ref(ref, self.task_record)
         if ctx.completed_ref is not None:
-            if make_sweetheart:
-                ctx.completed_ref = SW2_SweetheartReference.from_concrete(ctx.completed_ref, get_own_netloc())
+            #if make_sweetheart:
+            #    ctx.completed_ref = SW2_SweetheartReference.from_concrete(ctx.completed_ref, get_own_netloc())
             self.task_record.publish_ref(ctx.completed_ref)
+        if make_sweetheart:
+            self.task_record.publish_ref(SW2_SweetheartReference(ref.id, get_own_netloc()))
         return ctx.to_safe_dict()
         
     def publish_fetched_ref(self, fetch):
@@ -676,6 +679,11 @@ class ProcExecutor(BaseExecutor):
         # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
         ret.update({"done": new_fetch.done, "size": new_fetch.bytes})
         ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s, sending_fd=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"], ret["sending_fd"]), "EXEC", logging.INFO)
+
+        # XXX: adding this because the OngoingFetch isn't publishing the sweetheart correctly.        
+        if make_sweetheart:
+            self.task_record.publish_ref(SW2_SweetheartReference(ref.id, get_own_netloc()))
+
         if new_fetch.done:
             if not new_fetch.success:
                 ciel.log("Async fetch %s failed early" % ref, "EXEC", logging.WARNING)

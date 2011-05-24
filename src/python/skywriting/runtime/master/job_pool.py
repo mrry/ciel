@@ -797,7 +797,7 @@ class JobPool(plugins.SimplePlugin):
         # This will also start the job by subscribing to the root task output and reducing.
         job.activated()
 
-    def wait_for_completion(self, job):
+    def wait_for_completion(self, job, timeout=None):
         with job._lock:
             ciel.log('Waiting for completion of job %s' % job.id, 'JOB_POOL', logging.INFO)
             while job.state not in (JOB_COMPLETED, JOB_FAILED):
@@ -807,8 +807,12 @@ class JobPool(plugins.SimplePlugin):
                     break
                 else:
                     self.current_waiters += 1
-                    job._condition.wait()
+                    job._condition.wait(timeout)
                     self.current_waiters -= 1
+                    if timeout is not None:
+                        return job.state in (JOB_COMPLETED, JOB_FAILED)
+            if timeout is not None:
+                return job.state in (JOB_COMPLETED, JOB_FAILED)
             if self.is_stopping:
                 raise Exception("Server stopping")
             elif self.current_waiters >= self.max_concurrent_waiters:
