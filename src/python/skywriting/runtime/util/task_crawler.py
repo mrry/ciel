@@ -71,15 +71,19 @@ def main():
     
     root_url = sys.argv[1]
         
-    print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state worker'
+    print 'task_id type parent created_at assigned_at committed_at duration num_children num_dependencies num_outputs final_state worker total_bytes_fetched'
     for descriptor in task_descriptors_for_job(root_url):
-    
+
+        try:
+            total_bytes_fetched = sum(descriptor["profiling"]["FETCHED"].values())
+        except:
+            total_bytes_fetched = None
 
         task_id = descriptor["task_id"]
         parent = descriptor["parent"]
 
         try:
-            worker = descriptor["worker_id"] 
+            worker = descriptor["worker"] 
         except KeyError:
             worker = None
 
@@ -107,7 +111,7 @@ def main():
 
         final_state = descriptor["state"]
 
-        print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state, worker
+        print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state, worker, total_bytes_fetched
 
 
             
