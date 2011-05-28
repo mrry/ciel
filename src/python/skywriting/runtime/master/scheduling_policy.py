@@ -21,7 +21,7 @@ class SchedulingPolicy:
     def __init__(self):
         pass
     
-    def select_worker_for_task(self, task, worker_pool):
+    def select_workers_for_task(self, task, worker_pool):
         """Returns a list of workers on which to run the given task."""
         raise Exception("Subclass must implement this")
     
@@ -30,31 +30,31 @@ class RandomSchedulingPolicy(SchedulingPolicy):
     def __init__(self):
         pass
     
-    def select_worker_for_task(self, task, worker_pool):
-        return (worker_pool.get_random_worker(), [])
+    def select_workers_for_task(self, task, worker_pool):
+        return [worker_pool.get_random_worker()]
     
 class WeightedRandomSchedulingPolicy(SchedulingPolicy):
     
     def __init__(self):
         pass
     
-    def select_worker_for_task(self, task, worker_pool):
-        return worker_pool.get_random_worker_with_capacity_weight(task.scheduling_class)
+    def select_workers_for_task(self, task, worker_pool):
+        return [worker_pool.get_random_worker_with_capacity_weight(task.scheduling_class)]
     
 class TwoRandomChoiceSchedulingPolicy(SchedulingPolicy):
     
     def __init__(self):
         pass
     
-    def select_worker_for_task(self, task, worker_pool):
+    def select_workers_for_task(self, task, worker_pool):
         worker1 = worker_pool.get_random_worker()
         worker2 = worker_pool.get_random_worker()
         cost1 = task.job.guess_task_cost_on_worker(task, worker1)
         cost2 = task.job.guess_task_cost_on_worker(task, worker2)
         if cost1 < cost2:
-            return (worker1, [])
+            return [worker1]
         else:
-            return (worker2, [])
+            return [worker2]
 
 class LocalitySchedulingPolicy(SchedulingPolicy):
     
@@ -64,7 +64,7 @@ class LocalitySchedulingPolicy(SchedulingPolicy):
         self.stream_source_bytes_equivalent = stream_source_bytes_equivalent 
         self.min_saving_threshold = min_saving_threshold
     
-    def select_worker_for_task(self, task, worker_pool):
+    def select_workers_for_task(self, task, worker_pool):
         netlocs = {}
         for input in task.inputs.values():
             
@@ -108,24 +108,14 @@ class LocalitySchedulingPolicy(SchedulingPolicy):
         if len(filtered_ranked_netlocs) == 0:
             # If we have no preference for any worker, use the power of two random choices. [Azar et al. STOC 1994]
             worker1 = worker_pool.get_random_worker_with_capacity_weight(task.scheduling_class)
-            return worker1, []
+            return [worker1]
         elif len(filtered_ranked_netlocs) == 1:
-            return worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1]), []
-        
-        elif filtered_ranked_netlocs[0][0] * self.equally_local_margin > filtered_ranked_netlocs[1][0]:
-            # Many potential netlocs, but one clear best.
-            return worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1]), []
+            return [worker_pool.get_worker_at_netloc(filtered_ranked_netlocs[0][1])]
         
         else:
-            # Get all the equally-good netlocs, but in a random order.
-            i = 2
-            while i < len(filtered_ranked_netlocs) and (filtered_ranked_netlocs[0][0] * self.equally_local_margin) > filtered_ranked_netlocs[1][0]:
-                i += 1
-            
-            ret = [worker_pool.get_worker_at_netloc(x[1]) for x in filtered_ranked_netlocs[0:i]]
-            random.shuffle(ret)
-            return ret[0], ret[1:]
-        
+            threshold = filtered_ranked_netlocs[0][0] * self.equally_local_margin
+            return [worker_pool.get_worker_at_netloc(netloc) for saved, netloc in filtered_ranked_netlocs if saved > threshold]
+                
 SCHEDULING_POLICIES = {'random' : RandomSchedulingPolicy,
                        'tworandom' : TwoRandomChoiceSchedulingPolicy,
                        'locality' : LocalitySchedulingPolicy}

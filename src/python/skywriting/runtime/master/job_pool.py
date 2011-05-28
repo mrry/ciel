@@ -135,8 +135,10 @@ class Job:
                 try:
                     task = self.runnable_queue.get_nowait()
                     self.assign_scheduling_class_to_task(task)
-                    worker = self.select_worker_for_task(task)
-                    self.workers[worker].queue_task(task)
+                    workers = self.select_workers_for_task(task)
+                    print workers
+                    for worker in workers:
+                        self.workers[worker].queue_task(task)
                     if task.get_constrained_location() is None:
                         self.push_task_on_global_queue(task)
                 except Queue.Empty:
@@ -201,18 +203,17 @@ class Job:
             self.global_queues[task.scheduling_class] = class_queue
         class_queue.append(task)
         
-    def select_worker_for_task(self, task):
+    def select_workers_for_task(self, task):
         constrained_location = task.get_constrained_location()
         if constrained_location is not None:
-            worker = self.job_pool.worker_pool.get_worker_at_netloc(constrained_location)
+            return [self.job_pool.worker_pool.get_worker_at_netloc(constrained_location)]
         elif task.state in (TASK_QUEUED_STREAMING, TASK_QUEUED):
-            worker, _ = self.scheduling_policy.select_worker_for_task(task, self.job_pool.worker_pool)
+            return self.scheduling_policy.select_workers_for_task(task, self.job_pool.worker_pool)
         else:
             ciel.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
                                "SCHEDULER", logging.ERROR)
             raise
-        return worker
-        
+                
     def assign_scheduling_class_to_task(self, task):
         if task.scheduling_class is not None:
             return
