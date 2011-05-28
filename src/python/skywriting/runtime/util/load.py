@@ -135,10 +135,18 @@ def build_extent_list(filename, size, count, delimiter):
     return extents
     
 def select_targets(netlocs, num_replicas):
-    if num_replicas > len(netlocs):
-        print 'Not enough replicas remain... exiting.'
-        sys.exit(-1)
-    return random.sample(netlocs, num_replicas)
+    target_set = set()
+    while len(target_set) < num_replicas:
+        x, y = random.sample(netlocs, 2)
+        if netlocs[x] < netlocs[y]:
+            if x not in target_set:
+                target_set.add(x)
+                netlocs[x] += 1
+        else:
+            if y not in target_set:
+                target_set.add(y)
+                netlocs[y] += 1
+    return list(target_set)
     
 def create_name_prefix(specified_name):
     if specified_name is None:
@@ -182,7 +190,7 @@ def upload_string_to_targets(input, block_id, targets):
 
 def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, packet_size=1048576, name=None, do_urls=False, urllist=None, repeat=1):
     
-    workers = get_worker_netlocs(master)
+    workers = dict([(w, 0) for w in get_worker_netlocs(master)])
     
     name_prefix = create_name_prefix(name)
     
@@ -303,13 +311,19 @@ def do_uploads(master, args, size=None, count=1, replication=1, delimiter=None, 
             if len(failed_this_session) > 0:
                 
                 # We refetch the worker list, in case any have failed in the mean time.
-                workers = get_worker_netlocs(master)
+                new_workers = {}
+                for w in get_worker_netlocs(master):
+                    try:
+                        new_workers[w] = workers[w]
+                    except KeyError:
+                        new_workers[w] = 0
+                workers = new_workers
                 
                 upload_sessions = []
                 
                 for ref, index in failed_this_session:
                     target, = select_targets(workers, 1)
-                    upload_sessions.append(target, ref, index)
+                    upload_sessions.append((target, ref, index))
                     
     # Upload the index object.
     index = simplejson.dumps(output_references, cls=SWReferenceJSONEncoder)
