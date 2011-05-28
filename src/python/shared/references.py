@@ -99,7 +99,7 @@ class SW2_ConcreteReference(SWRealReference):
         return('c2', str(self.id), self.size_hint, list(self.location_hints))
 
     def __str__(self):
-        return "<ConcreteRef: %s..., length %d, held in %d locations>" % (self.id[:10], self.size_hint, len(self.location_hints))
+        return "<ConcreteRef: %s..., length %s, held in %d locations>" % (self.id[:10], str(self.size_hint) if self.size_hint is not None else "Unknown", len(self.location_hints))
         
     def __repr__(self):
         return 'SW2_ConcreteReference(%s, %s, %s)' % (repr(self.id), repr(self.size_hint), repr(self.location_hints))
