@@ -46,7 +46,7 @@ public class KMeansMapper implements FirstClassJavaTask {
 	@Override
 	public void invoke() throws Exception {
 		
-		DataInputStream clustersIn = new DataInputStream(new BufferedInputStream(Ciel.RPC.getStreamForReference(this.clustersRef, 1048576, false, true, false), 1048576));
+		DataInputStream clustersIn = new DataInputStream(new BufferedInputStream(Ciel.RPC.getStreamForReference(this.clustersRef, 1048576, false, false, false), 1048576));
 	
 		double[][] clusters = new double[this.k][this.numDimensions];
 		
@@ -138,6 +138,10 @@ public class KMeansMapper implements FirstClassJavaTask {
 		
 		if (doRead && doCache) {
 			Ciel.softCache.putCache(vectors, "fastkmeansin", this.dataPartitionRef);
+		}
+
+		if (dataIn != null) {
+		    dataIn.close();
 		}
 		
 		Ciel.returnObject(result);
