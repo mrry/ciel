@@ -47,8 +47,7 @@ let main3 a1 =
 
 (* stream *)
 let main4 a1 =
-  let x = spawn
-    (fun a1 -> ()) in
-  ()
+  let x_ref = spawn_ref0 (fun oc -> output_string oc "666\n%!") in
+  input_ref (fun ic -> int_of_string (input_line ic)) x_ref
 
-let _ = Cwt.run string_of_int main3
+let _ = Cwt.run string_of_int main4
