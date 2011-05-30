@@ -636,7 +636,7 @@ class ProcExecutor(BaseExecutor):
         if ctx.completed_ref is not None:
             if make_sweetheart:
                 ctx.completed_ref = SW2_SweetheartReference.from_concrete(ctx.completed_ref, get_own_netloc())
-            self.task_record.publish_ref(ctx.get_completed_ref())
+            self.task_record.publish_ref(ctx.completed_ref)
         return ctx.to_safe_dict()
         
     def publish_fetched_ref(self, fetch):
