@@ -135,6 +135,8 @@ def build_extent_list(filename, size, count, delimiter):
     return extents
     
 def select_targets(netlocs, num_replicas):
+    if len(netlocs) < 2:
+        return netlocs.keys()
     target_set = set()
     while len(target_set) < num_replicas:
         x, y = random.sample(netlocs, 2)

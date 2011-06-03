@@ -12,10 +12,10 @@ input_refs = *url;
 
 // Configuration
 num_mappers = len(input_refs);
-num_reducers = 2;
+num_reducers = 1;
 
 // Change the regexp here
-regexp = "for";
+regexp = "A20";
 
 jar_lib = [package("grep_jar")];
 
