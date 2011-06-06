@@ -42,7 +42,11 @@ let deref (t:'a ref) : 'a =
 
 (* Force the evaluation of an opaque reference *)
 let force (t:opaque_ref) =
-  with_ref (fun cref -> ()) t
+  with_ref (fun cref -> 
+    match Cmd.open_ref ~cref () with
+    |Some _ -> ()
+    |None -> raise Cmd.Reference_not_available
+  ) t
 
 (* Read from an opaque reference *)
 let input_ref fn (cref:opaque_ref) =
@@ -52,6 +56,9 @@ let input_ref fn (cref:opaque_ref) =
     |None -> raise Cmd.Reference_not_available
   ) cref
 
+let output ?(stream=false) ?(pipe=false) fn : opaque_ref =
+  Cmd.with_output ~stream ~pipe fn
+
 let spawn (fn:'a->'b) (t:'a): 'b ref =
   let fn' t = Cmd.output_value ~index:0 (fn t) in
   let arg = Base64.encode (Marshal.to_string t []) in
@@ -59,15 +66,8 @@ let spawn (fn:'a->'b) (t:'a): 'b ref =
   let rrefs = Cmd.spawn ~args:[`String arg] ~n_outputs:1 oref in
   match rrefs with |[x] -> x |_ -> raise (Failure "spawn")
 
-let spawn_ref ?(stream=false) ?(pipe=false) (fn:opaque_ref->unit) (t:opaque_ref) : opaque_ref =
-  let fn' t = Cmd.output_value ~index:0 (fn t) in
-  let oref = Cmd.output_new_value fn' in
-  let rrefs = Cmd.spawn ~args:[] ~deps:[t] ~n_outputs:1 oref in
-  match rrefs with |[x] -> x |_ -> raise (Failure "spawn_ref")
-
-let spawn_ref0 ?(stream=false) ?(pipe=false) (fn:out_channel->unit) : opaque_ref =
-  let fn' () = Cmd.with_output ~index:0 ~stream ~pipe fn in
-  let oref = Cmd.output_new_value fn' in
+let spawn_ref ?(stream=false) ?(pipe=false) (fn:unit->opaque_ref) : opaque_ref =
+  let oref = Cmd.output_new_value fn in
   let rrefs = Cmd.spawn ~args:[] ~deps:[] ~n_outputs:1 oref in
   match rrefs with |[x] -> x |_ -> raise (Failure "spawn_ref")
 

@@ -45,9 +45,35 @@ let main3 a1 =
   |n -> loop (deref (spawn ((+) 5) acc)) (n-1) in
   loop a1 10
 
-(* stream *)
+(* opaque ref *)
 let main4 a1 =
-  let x_ref = spawn_ref0 (fun oc -> output_string oc "666\n%!") in
-  input_ref (fun ic -> int_of_string (input_line ic)) x_ref
+  let x_ref = spawn_ref (fun () ->
+    Cwt.output (fun oc -> output_string oc "foobar123\n%!")) in
+  input_ref input_line x_ref
 
-let _ = Cwt.run string_of_int main4
+(* streaming *)
+let main5 a1 =
+  let x_ref = spawn_ref (fun () ->
+     Cwt.output ~stream:true (fun oc ->
+       for i = 0 to 5 do
+         Unix.sleep 1;
+         fprintf oc "foobar %d\n%!" i;
+       done
+     )
+   ) in
+  let y_ref = spawn_ref (fun () ->
+    input_ref (fun ic ->
+      output ~stream:true (fun oc ->
+        for i = 0 to 5 do
+          let line = input_line ic in
+          fprintf oc "LINE=%s\n%!" line
+        done
+      )
+    ) x_ref
+   ) in
+  input_ref (fun ic ->
+    let _ = input_line ic in
+    input_line ic
+  ) y_ref
+
+let _ = Cwt.run (fun s -> s) main5

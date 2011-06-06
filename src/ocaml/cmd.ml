@@ -112,7 +112,7 @@ let with_input_file fname fn =
     raise exn
   end
 
-let with_output ~index ?stream ?pipe ?sweetheart fn =
+let with_output ?(index=0) ?stream ?pipe ?sweetheart fn =
   let ofile = open_output ~index ?stream ?pipe ?sweetheart () in
   try
     with_output_file ofile fn;

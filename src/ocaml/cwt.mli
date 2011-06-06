@@ -21,9 +21,7 @@ val spawn : ('a -> 'b) -> 'a -> 'b ref
 val run : ('a -> string) -> (string list -> 'a) -> unit
 
 type opaque_ref
-val spawn_ref: ?stream:bool -> ?pipe:bool ->
-  (opaque_ref -> unit) -> opaque_ref -> opaque_ref
-val spawn_ref0: ?stream:bool -> ?pipe:bool ->
-  (out_channel -> unit) -> opaque_ref
+val spawn_ref: ?stream:bool -> ?pipe:bool -> (unit -> opaque_ref) -> opaque_ref
 val input_ref : (in_channel -> 'a) -> opaque_ref -> 'a
+val output : ?stream:bool -> ?pipe:bool -> (out_channel -> unit) -> opaque_ref
 val force: opaque_ref -> unit
