@@ -1122,7 +1122,9 @@ class OCamlExecutor(ProcExecutor):
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, is_fixed=False, accept_ref_list_for_single=True, **kwargs)
         
     def get_command(self):
-        return ["ocaml-wrapper"]
+        cmd = self.task_descriptor["task_private"]["binary"]
+        assert(cmd)
+        return cmd.split(" ")
 
     @staticmethod
     def can_run():

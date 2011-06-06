@@ -141,7 +141,7 @@ let input_value ~cref =
 
 let spawn ?(deps=[]) ~args ~n_outputs fn_ref =
   let deps = `List (List.map Cref.to_json deps) in
-  send "spawn" [ "executor_name", `String "ocaml"; "binary", `String "x"; 
+  send "spawn" [ "executor_name", `String "ocaml"; "binary", `String Sys.argv.(0); 
     "n_outputs", `Int n_outputs; "args", `List args;
     "fn_ref", (Cref.to_json fn_ref); "extra_dependencies", deps ];
   match !t.read () with 
@@ -150,7 +150,7 @@ let spawn ?(deps=[]) ~args ~n_outputs fn_ref =
 
 let tail_spawn ?(deps=[]) ~args ~n_outputs fn_ref =
   let deps = `List (List.map Cref.to_json deps) in
-  send "tail_spawn" [ "executor_name", `String "ocaml"; "binary", `String "x";
+  send "tail_spawn" [ "executor_name", `String "ocaml"; "binary", `String Sys.argv.(0);
     "n_outputs", `Int n_outputs; "fn_ref", (Cref.to_json fn_ref);
     "args", `List args; "extra_dependencies", deps ]
 

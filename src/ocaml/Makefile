@@ -1,16 +1,10 @@
-OCAMLMAKEFILE=OCamlMakefile
-RESULT=ocamltest
+.PHONY: all
 
-SOURCES=base64.mli base64.ml cref.mli cref.ml cmd.ml cwt.mli cwt.ml test.ml
+all:
+	$(MAKE) -f Makefile.testocaml all
+	$(MAKE) -f Makefile.binomial all
 
-ANNOTATE=yes
+clean:
+	$(MAKE) -f Makefile.testocaml clean
+	$(MAKE) -f Makefile.binomial clean
 
-PACKS += unix
-PACKS += yojson
-
-LIBS += delimcc
-
-all: dc
-	@ :
-
--include $(OCAMLMAKEFILE)

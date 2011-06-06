@@ -2,8 +2,8 @@
  "start": 
  	  { "handler": "ocaml",
  	    "args": {
-	    	    "binary" : "./src/ocaml/ocamltest",
-		    "args" : [42],
+	    	    "binary" : "./src/ocaml/binomial",
+		    "args" : [10000,2000],
 		    "n_outputs" : 1}
 	  },
  "result": [ {"__decode_ref__":"noop"} ]
