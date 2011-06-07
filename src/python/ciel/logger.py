@@ -27,6 +27,9 @@ class CielLogger:
         log_handler = logging.StreamHandler(sys.stderr)
         self.log.addHandler(log_handler)
     
+    def setLevel(self, lvl):
+        self.log.setLevel(lvl)
+    
     def __call__(self, *args, **kwargs):
         """Write to the error log.
         

@@ -56,6 +56,7 @@ def main(default_role=None):
     parser.add_option("-T", "--process-tag", action="store", dest="tag", help="Ignored, for tagging the process", metavar="STRING")
     parser.add_option("-C", "--scheduling-classes", action="store", dest="scheduling_classes", help="List of semicolon-delimited scheduling classes", metavar="CLASS,N;CLASS,N;...", default=None)
     parser.add_option("-P", "--auxiliary-port", action="store", dest="aux_port", type="int", help="Listen port for auxiliary TCP connections (for workers)", metavar="PORT", default=None)
+    parser.add_option("-v", "--verbose", action="callback", callback=lambda w, x, y, z: ciel.set_log_level(logging.DEBUG), help="Turns on debugging output")
     (options, args) = parser.parse_args()
 
     if options.daemonise:

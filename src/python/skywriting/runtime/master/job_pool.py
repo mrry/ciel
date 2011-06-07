@@ -126,7 +126,7 @@ class Job:
         
     def _schedule(self):
         
-        #ciel.log('Beginning to schedule job %s' % self.id, 'JOB', logging.DEBUG)
+        ciel.log('Beginning to schedule job %s' % self.id, 'JOB', logging.DEBUG)
         
         with self._lock:
             
@@ -136,8 +136,8 @@ class Job:
                     task = self.runnable_queue.get_nowait()
                     self.assign_scheduling_class_to_task(task)
                     workers = self.select_workers_for_task(task)
-                    print workers
                     for worker in workers:
+                        ciel.log('Adding task %s to queue for worker %s' % (task.task_id, worker.id), 'SCHED', logging.DEBUG)
                         self.workers[worker].queue_task(task)
                     if task.get_constrained_location() is None:
                         self.push_task_on_global_queue(task)
@@ -158,6 +158,7 @@ class Job:
                             continue
                         task.set_worker(worker)
                         wstate.assign_task(task)
+                        ciel.log('Executing task %s on worker %s' % (task.task_id, worker.id), 'SCHED', logging.DEBUG)
                         self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                         num_assigned += 1
                         total_assigned += 1
@@ -174,10 +175,11 @@ class Job:
                         continue
                     task.set_worker(worker)
                     self.workers[worker].assign_task(task)
+                    ciel.log('Executing task %s on worker %s (STOLEN)' % (task.task_id, worker.id), 'SCHED', logging.DEBUG)
                     self.job_pool.worker_pool.execute_task_on_worker(worker, task)
                     num_global_assigned += 1
         
-        #ciel.log('Finished scheduling job %s. Tasks assigned = %d' % (self.id, total_assigned), 'JOB', logging.DEBUG)
+        ciel.log('Finished scheduling job %s. Tasks assigned = %d' % (self.id, total_assigned), 'JOB', logging.DEBUG)
         
     def pop_task_from_global_queue(self, scheduling_class):
         if scheduling_class == '*':
@@ -355,26 +357,35 @@ class Job:
             tx = TaskGraphUpdate()
             
             root_task = self.task_graph.get_task(report[0][0])
+            
+            ciel.log('Received report from task %s with %d entries' % (root_task.task_id, len(report)), 'SCHED', logging.DEBUG)
+            
             self.workers[worker].deassign_task(root_task)
             
             for (parent_id, success, payload) in report:
                 
+                ciel.log('Processing report record from task %s' % (parent_id), 'SCHED', logging.DEBUG)
+                
                 parent_task = self.task_graph.get_task(parent_id)
                 
                 if success:
+                    ciel.log('Task %s was successful' % (parent_id), 'SCHED', logging.DEBUG)
                     (spawned, published, profiling) = payload
                     parent_task.set_profiling(profiling)
                     parent_task.set_state(TASK_COMMITTED)
                     self.record_task_stats(parent_task, worker)
                     for child in spawned:
                         child_task = build_taskpool_task_from_descriptor(child, parent_task)
+                        ciel.log('Task %s spawned task %s' % (parent_id, child_task.task_id), 'SCHED', logging.DEBUG)
                         tx.spawn(child_task)
                         #parent_task.children.append(child_task)
                     
                     for ref in published:
+                        ciel.log('Task %s published reference %s' % (parent_id, str(ref)), 'SCHED', logging.DEBUG)
                         tx.publish(ref, parent_task)
                 
                 else:
+                    ciel.log('Task %s failed' % (parent_id), 'SCHED', logging.WARN)
                     # Only one failed task per-report, at the moment.
                     self.investigate_task_failure(parent_task, payload)
                     self.schedule()

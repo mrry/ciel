@@ -17,8 +17,11 @@ import logging
 try:
     import cherrypy
     log = cherrypy.log
+    _logger = log._get_builtin_handler(cherrypy.log.error_log, "screen")
+    _logger.setLevel(logging.INFO)
 except ImportError:
     log = CielLogger()
+    _logger = log
     
 try:
     import cherrypy
@@ -33,3 +36,6 @@ except ImportError:
             return method
     
     engine = EngineStub()
+    
+def set_log_level(lvl):
+    _logger.setLevel(lvl)
