@@ -1,0 +1,6 @@
+#!/bin/sh
+
+echo Ocaml-wrapper started : $*
+echo Starting ocamltest
+export OCAMLRUNPARAM=b
+$CIELHOME/src/ocaml/ocamltest $*
