@@ -53,7 +53,7 @@ ax = fig.add_subplot(111)
 
 ax.plot(xseries, yseries)
 ax.set_xlim(0, math.ceil(max_end - min_start))
-ax.set_ylim(0, 21)
+#ax.set_ylim(0, 21)
 
 ax.set_ylabel('active workers')
 ax.set_xlabel('seconds since start')
