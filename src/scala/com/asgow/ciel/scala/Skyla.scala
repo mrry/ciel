@@ -7,9 +7,9 @@ import scala.util.continuations._
 
 package com.asgow.ciel.scala {
 
-  class FunctionTask[T](func : Unit => T) extends SingleOutputTask[T] {
+  class FunctionTask[T](func : Unit => T @suspendable) extends SkylaThread[T] {
     
-    override def run : T = {
+    override def run : T @suspendable = {
       func()
     }
 
@@ -44,9 +44,10 @@ package com.asgow.ciel.scala {
 
   }
 
+  case class YieldException(cont : Unit => Unit) extends Throwable
   case class BlockException(cont : Unit => Unit, ref : Reference) extends Throwable
 
-  class SkylaFuture[T](fut : CielFuture[T]) extends FutureReference(fut.getId()) {
+  class SkylaFuture[T](fut : Reference) extends FutureReference(fut.getId()) {
 
     def get : T @suspendable = {
       try {
@@ -124,9 +125,9 @@ package com.asgow.ciel.scala {
 
   object Skyla {
 
-    def spawn[T](func : Unit => T) : SkylaFuture[T] = {
+    def spawn[T](func : Unit => T @suspendable) : SkylaFuture[T] = {
       val task = new FunctionTask(func)
-      new SkylaFuture(com.asgow.ciel.executor.Ciel.spawnSingle(task))
+      new SkylaFuture(com.asgow.ciel.executor.Ciel.spawn(task, Array[String](), 1)(0))
     }
 
     def spawnGenerator[T](func : (T => Unit) => Unit) : SkylaGenerator[T] = {
@@ -137,6 +138,16 @@ package com.asgow.ciel.scala {
     def spawnChainedGenerator[T, U](func : (T => Unit) => Unit, parent : SkylaGenerator[U]) : SkylaGenerator[T] = {
       val task = new ChainedGeneratorTask(func, parent)
       new SkylaGenerator(com.asgow.ciel.executor.Ciel.spawn(task, Array[String](), 1)(0))
+    }
+
+    def yieldTask : Unit @suspendable = {
+      shift { (cont : Unit => Unit) =>
+        throw new YieldException(cont)
+      }
+    }
+
+    def suspendTask : Unit = {
+      Ciel.blockOn()
     }
 
   }
@@ -155,6 +166,10 @@ package com.asgow.ciel.scala {
 	case be: BlockException => {
 	  val contTask = new SkylaContinuation(be.cont, Array(be.ref))
 	  Ciel.tailSpawn(contTask, null)
+        }
+        case ye: YieldException => {
+          val contTask = new SkylaContinuation(ye.cont, Array())
+          Ciel.tailSpawn(contTask, null)
         }
       }
     }
@@ -176,6 +191,10 @@ package com.asgow.ciel.scala {
 	case be: BlockException => {
 	  val contTask = new SkylaContinuation(be.cont, Array(be.ref))
 	  Ciel.tailSpawn(contTask, null)
+        }
+        case ye: YieldException => {
+          val contTask = new SkylaContinuation(ye.cont, Array())
+          Ciel.tailSpawn(contTask, null)
         }
       }
     }
