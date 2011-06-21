@@ -13,6 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from ciel.logger import CielLogger
 import logging
+import skywriting.runtime.stopwatch
 
 try:
     import cherrypy
@@ -39,3 +40,5 @@ except ImportError:
     
 def set_log_level(lvl):
     _logger.setLevel(lvl)
+
+stopwatch = skywriting.runtime.stopwatch.Stopwatch()

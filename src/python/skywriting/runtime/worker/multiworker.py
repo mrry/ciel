@@ -228,6 +228,7 @@ class MultiWorkerTaskSetExecutionRecord:
                 else:
                     ciel.log('Appending failure to report for task %s' % tr.task_descriptor['task_id'], 'TASKEXEC', logging.DEBUG)
                     report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.failure_reason, tr.failure_details, tr.failure_bindings)))
+            ciel.stopwatch.stop("worker_task")
             self.master_proxy.report_tasks(self.job.id, self.initial_td['task_id'], report_data)
 
     def build_task_record(self, task_descriptor):

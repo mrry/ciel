@@ -18,7 +18,7 @@ from shared.references import json_decode_object_hook,\
 import sys
 import simplejson
 import cherrypy
-from skywriting.runtime.worker.worker_view import DataRoot
+from skywriting.runtime.worker.worker_view import DataRoot, StopwatchRoot
 from skywriting.runtime.master.cluster_view import WebBrowserRoot
 import ciel
 import logging
@@ -43,6 +43,7 @@ class ControlRoot:
         self.browse = WebBrowserRoot(job_pool)
         self.backup = BackupMasterRoot(backup_sender)
         self.ref = RefRoot(job_pool)
+        self.stopwatch = StopwatchRoot()
 
     @cherrypy.expose
     def index(self):
@@ -239,6 +240,9 @@ class MasterTaskRoot:
        
     @cherrypy.expose 
     def default(self, job_id, task_id, action=None):
+        
+        if action == 'report':
+            ciel.stopwatch.start("master_task")
         
         try:
             job = self.job_pool.get_job_by_id(job_id)

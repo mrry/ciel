@@ -13,6 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import skywriting.runtime.executors
 from skywriting.runtime.executor_helpers import ref_from_string
+import ciel
 
 '''
 Created on 8 Feb 2010
@@ -52,6 +53,7 @@ class ControlRoot:
         self.fetch = FetchRoot(worker.upload_manager)
         self.process = ProcessRoot(worker.process_pool)
         self.abort = AbortRoot(worker)
+        self.stopwatch = StopwatchRoot()
     
     @cherrypy.expose
     def index(self):
@@ -107,6 +109,7 @@ class TaskRoot:
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
+            ciel.stopwatch.start("worker_task")
             task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
                 self.worker.multiworker.create_and_queue_taskset(task_descriptor)
@@ -321,3 +324,23 @@ class FeaturesRoot:
     @cherrypy.expose
     def index(self):
         return simplejson.dumps(self.execution_features.all_features())
+
+class StopwatchRoot:
+    
+    def __init__(self):
+        pass
+    
+    @cherrypy.expose
+    def index(self):
+        return simplejson.dumps(ciel.stopwatch.times.keys())
+    
+    @cherrypy.expose
+    def default(self, watch_name):
+        try:
+            times = ciel.stopwatch.get_times(watch_name)
+            return simplejson.dumps([float(x.seconds) + (float(x.microseconds) / 1000000.0) for x in times])
+        except KeyError:
+            if not ciel.stopwatch.enabled:
+                raise cherrypy.HTTPError(403, "Profiling not enabled")
+            else:
+                raise cherrypy.HTTPError(404)

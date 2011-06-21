@@ -188,6 +188,8 @@ class WorkerPool:
     
     def execute_task_on_worker(self, worker, task):
         try:
+            ciel.stopwatch.stop("master_task")
+            
             message = simplejson.dumps(task.as_descriptor(), cls=SWReferenceJSONEncoder)
             post_string_noreturn("http://%s/control/task/" % (worker.netloc), message, result_callback=self.worker_post_result_callback)
         except:
