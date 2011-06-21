@@ -68,7 +68,7 @@ class UploadManager:
         self.deferred_work.do_deferred(lambda: self.fetch_refs_deferred(session_id, refs))
         
     def fetch_refs_deferred(self, session_id, refs):
-        ciel.log.error('Fetching session %s' % session_id, 'UPLOAD', logging.INFO)
+        ciel.log.error('Fetching session %s' % session_id, 'UPLOAD', logging.DEBUG)
         try:
             sync_retrieve_refs(refs, None)
             self.current_fetches[session_id] = 200
@@ -77,4 +77,4 @@ class UploadManager:
         except:
             ciel.log.error('Exception during attempted fetch session %s' % session_id, 'UPLOAD', logging.WARNING, True)
             self.current_fetches[session_id] = 500
-        ciel.log.error('Finished session %s, status = %d' % (session_id, self.current_fetches[session_id]), 'UPLOAD', logging.INFO)
+        ciel.log.error('Finished session %s, status = %d' % (session_id, self.current_fetches[session_id]), 'UPLOAD', logging.DEBUG)

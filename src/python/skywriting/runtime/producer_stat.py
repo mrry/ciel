@@ -58,11 +58,11 @@ def subscribe_output(otherend_netloc, chunk_size, id):
             if producer is not None:
                 try:
                     remote_stream_subscribers[(id, otherend_netloc)].set_chunk_size(chunk_size)
-                    ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
+                    ciel.log("Remote %s changed chunk size for %s to %d" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.DEBUG)
                 except KeyError:
                     new_subscriber = RemoteOutputSubscriber(producer, otherend_netloc, chunk_size)
                     producer.subscribe(new_subscriber, try_direct=False)
-                    ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.INFO)
+                    ciel.log("Remote %s subscribed to output %s (chunk size %d)" % (otherend_netloc, id, chunk_size), "BLOCKSTORE", logging.DEBUG)
             else:
                 try:
                     st = os.stat(filename(id))
@@ -79,6 +79,6 @@ def unsubscribe_output(otherend_netloc, id):
     with module_lock:
         try:
             remote_stream_subscribers[(id, otherend_netloc)].cancel()
-            ciel.log("%s unsubscribed from %s" % (otherend_netloc, id), "BLOCKSTORE", logging.INFO)
+            ciel.log("%s unsubscribed from %s" % (otherend_netloc, id), "BLOCKSTORE", logging.DEBUG)
         except KeyError:
             ciel.log("Ignored unsubscribe request for unknown block %s" % id, "BLOCKSTORE", logging.WARNING)

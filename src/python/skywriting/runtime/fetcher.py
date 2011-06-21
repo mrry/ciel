@@ -37,10 +37,10 @@ class AsyncPushThread:
 
     def _check_completion(self):
         if self.success is False:
-            ciel.log("Fetch for %s failed" % self.ref, "EXEC", logging.INFO)
+            ciel.log("Fetch for %s failed" % self.ref, "EXEC", logging.WARNING)
             return False
         elif self.success is True:
-            ciel.log("Fetch for %s completed; using file directly" % self.ref, "EXEC", logging.INFO)
+            ciel.log("Fetch for %s completed; using file directly" % self.ref, "EXEC", logging.DEBUG)
             return True
         else:
             return False
@@ -67,7 +67,7 @@ class AsyncPushThread:
                 return
             else:
                 self.stream_started = True
-        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.fetch_ip.chunk_size), "EXEC", logging.INFO)
+        ciel.log("Fetch for %s got more than %d bytes; commencing asynchronous push" % (self.ref, self.fetch_ip.chunk_size), "EXEC", logging.DEBUG)
 
         self.copy_loop()
 
@@ -86,7 +86,7 @@ class AsyncPushThread:
                                 if self.success is False or (self.bytes_copied == self.bytes_available and self.fetch_done):
                                     self.stream_done = True
                                     self.condvar.notify_all()
-                                    ciel.log("FIFO-push for %s complete (success: %s)" % (self.ref, self.success), "EXEC", logging.INFO)
+                                    ciel.log("FIFO-push for %s complete (success: %s)" % (self.ref, self.success), "EXEC", logging.DEBUG)
                                     return
                             if len(buf) < 4096:
                                 # EOF, for now.
@@ -200,19 +200,19 @@ class FetchInProgress:
             self.set_filename(filename, True)
             self.result(True, None)
         else:
-            raise PlanFailedError("Plan use-local-file failed for %s: no such file %s" % (self.ref, filename), "BLOCKSTORE", logging.INFO)
+            raise PlanFailedError("Plan use-local-file failed for %s: no such file %s" % (self.ref, filename), "BLOCKSTORE", logging.DEBUG)
 
     def attach_local_producer(self):
         producer = get_producer_for_id(self.ref.id)
         if producer is None:
-            raise PlanFailedError("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.INFO)
+            raise PlanFailedError("Plan attach-local-producer failed for %s: not being produced here" % self.ref, "BLOCKSTORE", logging.DEBUG)
         else:
             is_pipe = producer.subscribe(self, try_direct=(self.may_pipe and self.sole_consumer))
             if is_pipe:
-                ciel.log("Fetch-ref %s: attached to direct pipe!" % self.ref, "BLOCKSTORE", logging.INFO)
+                ciel.log("Fetch-ref %s: attached to direct pipe!" % self.ref, "BLOCKSTORE", logging.DEBUG)
                 filename = producer.get_fifo_filename()
             else:
-                ciel.log("Fetch-ref %s: following local producer's file" % self.ref, "BLOCKSTORE", logging.INFO)
+                ciel.log("Fetch-ref %s: following local producer's file" % self.ref, "BLOCKSTORE", logging.DEBUG)
                 filename = producer_filename(self.ref.id)
             self.set_filename(filename, is_pipe)
 

@@ -36,7 +36,7 @@ class ContextManager:
         if exnt is not None:
             ciel.log("Context manager for %s exiting with exception %s" % (self.description, repr(exnv)), "EXEC", logging.WARNING)
         else:
-            ciel.log("Context manager for %s exiting cleanly" % self.description, "EXEC", logging.INFO)
+            ciel.log("Context manager for %s exiting cleanly" % self.description, "EXEC", logging.DEBUG)
         for ctx in self.active_contexts:
             ctx.__exit__(exnt, exnv, exnbt)
         return False
@@ -122,7 +122,7 @@ def sync_retrieve_refs(refs, task_record, accept_string=False):
     
     for ref in refs:
         sync_transfer = SynchronousTransfer(ref, task_record)
-        ciel.log("Synchronous fetch ref %s" % ref.id, "BLOCKSTORE", logging.INFO)
+        ciel.log("Synchronous fetch ref %s" % ref.id, "BLOCKSTORE", logging.DEBUG)
         if accept_string:
             kwargs = {"string_callback": sync_transfer.return_string}
         else:

@@ -66,13 +66,13 @@ class SocketPusher:
             if fd_taken is None:
                 return
             elif fd_taken is True:
-                ciel.log("Incoming TCP connection for %s connected directly to producer" % self.refid, "TCP_SERVER", logging.INFO)
+                ciel.log("Incoming TCP connection for %s connected directly to producer" % self.refid, "TCP_SERVER", logging.DEBUG)
                 self.sock_obj.close()
                 return
             # Otherwise we'll get progress/result callbacks as we follow the producer's on-disk file.
             os.close(self.write_fd)
             self.read_filename = producer_filename(self.refid)
-            ciel.log("Auxiliary TCP connection for output %s (chunk %s) attached via push thread" % (self.refid, self.chunk_size), "TCP_FETCH", logging.INFO)
+            ciel.log("Auxiliary TCP connection for output %s (chunk %s) attached via push thread" % (self.refid, self.chunk_size), "TCP_FETCH", logging.DEBUG)
 
             with open(self.read_filename, "r") as input_fp:
                 while True:
@@ -82,7 +82,7 @@ class SocketPusher:
                         self.bytes_copied += len(buf)
                         with self.lock:
                             if self.bytes_copied == self.bytes_available and self.fetch_done:
-                                ciel.log("Socket-push for %s complete: wrote %d bytes" % (self.refid, self.bytes_copied), "TCP_SERVER", logging.INFO)
+                                ciel.log("Socket-push for %s complete: wrote %d bytes" % (self.refid, self.bytes_copied), "TCP_SERVER", logging.DEBUG)
                                 self.sock_obj.close()
                                 return
                             if len(buf) < self.chunk_size:
@@ -120,7 +120,7 @@ class TcpServer:
 
     def __init__(self, port):
         self.aux_port = port
-        ciel.log("Listening for auxiliary connections on port %d" % port, "TCP_FETCH", logging.INFO)
+        ciel.log("Listening for auxiliary connections on port %d" % port, "TCP_FETCH", logging.DEBUG)
         self.aux_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.aux_listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.aux_listen_socket.bind(("0.0.0.0", port))

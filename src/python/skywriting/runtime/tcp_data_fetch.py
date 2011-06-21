@@ -22,7 +22,7 @@ class TcpTransferContext:
         self.should_close = False
 
     def start(self):
-        ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
+        ciel.log("Stream-fetch %s: trying TCP (%s:%s)" % (self.ref.id, self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.DEBUG)
         self.thread.start()
 
     def thread_main(self):
@@ -30,18 +30,18 @@ class TcpTransferContext:
             with self.lock:
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.should_close = True            
-            ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.INFO)
+            ciel.log("Connecting %s:%s" % (self.otherend_hostname, self.ref.socket_port), "TCP_FETCH", logging.DEBUG)
             subscribe_remote_output_nopost(self.ref.id, self)
             self.sock.connect((self.otherend_hostname, self.ref.socket_port))
             self.sock.sendall("%s %s %d\n" % (self.ref.id, get_own_netloc(), self.chunk_size))
-            ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.ref.socket_port, self.ref.id, self.chunk_size), "TCP_FETCH", logging.INFO)
+            ciel.log("%s:%s connected: requesting %s (chunk size %d)" % (self.otherend_hostname, self.ref.socket_port, self.ref.id, self.chunk_size), "TCP_FETCH", logging.DEBUG)
             fp = self.sock.makefile("r", bufsize=0)
             response = fp.readline().strip()
             fp.close()
             with self.lock:
                 self.should_close = False
                 if response.find("GO") != -1:
-                    ciel.log("TCP-fetch %s: transfer started" % self.ref.id, "TCP_FETCH", logging.INFO)
+                    ciel.log("TCP-fetch %s: transfer started" % self.ref.id, "TCP_FETCH", logging.DEBUG)
                     new_fd = os.dup(self.sock.fileno())
                     self.sock.close()
                     self.fetch_ctx.set_fd(new_fd, True)
@@ -82,7 +82,7 @@ class TcpTransferContext:
                 ciel.log("TCP-fetch %s: remote reported failure" % self.ref.id, "TCP_FETCH", logging.ERROR)
                 self.fetch_ctx.result(False)
             elif done is True:
-                ciel.log("TCP-fetch %s: remote reported success (%d bytes)" % (self.ref.id, bytes), "TCP_FETCH", logging.INFO)
+                ciel.log("TCP-fetch %s: remote reported success (%d bytes)" % (self.ref.id, bytes), "TCP_FETCH", logging.DEBUG)
                 self.fetch_ctx.result(True)
             else:
                 ciel.log("TCP-fetch %s: weird advertisment (%s, %s, %s, %s)" % (bytes, done, absent, failed), "TCP_FETCH", logging.ERROR)

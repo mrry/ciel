@@ -147,7 +147,7 @@ class BlockStore:
                 raise
 
     def commit_producer(self, id):
-        ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Committing file for output %s' % id, 'BLOCKSTORE', logging.DEBUG)
         self.commit_file(self.producer_filename(id), self.filename(id))
         
     def choose_best_netloc(self, netlocs):
@@ -167,7 +167,7 @@ class BlockStore:
             return random.choice(urls)
 
     def check_local_blocks(self):
-        ciel.log("Looking for local blocks", "BLOCKSTORE", logging.INFO)
+        ciel.log("Looking for local blocks", "BLOCKSTORE", logging.DEBUG)
         try:
             for block_name in os.listdir(self.base_dir):
                 if block_name.startswith('.fetch:'):
@@ -182,23 +182,23 @@ class BlockStore:
             ciel.log("Couldn't enumerate existing blocks: %s" % e, "BLOCKSTORE", logging.WARNING)
 
     def block_list_generator(self):
-        ciel.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Generating block list for local consumption', 'BLOCKSTORE', logging.DEBUG)
         for block_name in os.listdir(self.base_dir):
             if not block_name.startswith('.'):
                 block_size = os.path.getsize(os.path.join(self.base_dir, block_name))
                 yield block_name, block_size
     
     def build_pin_set(self):
-        ciel.log.error('Building pin set', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Building pin set', 'BLOCKSTORE', logging.DEBUG)
         initial_size = len(self.pin_set)
         for filename in os.listdir(self.base_dir):
             if filename.startswith(PIN_PREFIX):
                 self.pin_set.add(filename[len(PIN_PREFIX):])
-                ciel.log.error('Pinning block %s' % filename[len(PIN_PREFIX):], 'BLOCKSTORE', logging.INFO)
-        ciel.log.error('Pinned %d new blocks' % (len(self.pin_set) - initial_size), 'BLOCKSTORE', logging.INFO)
+                ciel.log.error('Pinning block %s' % filename[len(PIN_PREFIX):], 'BLOCKSTORE', logging.DEBUG)
+        ciel.log.error('Pinned %d new blocks' % (len(self.pin_set) - initial_size), 'BLOCKSTORE', logging.DEBUG)
     
     def generate_block_list_file(self):
-        ciel.log.error('Generating block list file', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Generating block list file', 'BLOCKSTORE', logging.DEBUG)
         with tempfile.NamedTemporaryFile('w', delete=False) as block_list_file:
             filename = block_list_file.name
             for block_name, block_size in self.block_list_generator():
@@ -214,10 +214,10 @@ class BlockStore:
     def pin_ref_id(self, id):
         open(self.pin_filename(id), 'w').close()
         self.pin_set.add(id)
-        ciel.log.error('Pinned block %s' % id, 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Pinned block %s' % id, 'BLOCKSTORE', logging.DEBUG)
         
     def flush_unpinned_blocks(self, really=True):
-        ciel.log.error('Flushing unpinned blocks', 'BLOCKSTORE', logging.INFO)
+        ciel.log.error('Flushing unpinned blocks', 'BLOCKSTORE', logging.DEBUG)
         files_kept = 0
         files_removed = 0
         for block_name in os.listdir(self.base_dir):
@@ -228,9 +228,9 @@ class BlockStore:
             elif not block_name.startswith(PIN_PREFIX):
                 files_kept += 1
         if really:
-            ciel.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+            ciel.log.error('Flushed block store, kept %d blocks, removed %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.DEBUG)
         else:
-            ciel.log.error('If we flushed block store, would keep %d blocks, remove %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.INFO)
+            ciel.log.error('If we flushed block store, would keep %d blocks, remove %d blocks' % (files_kept, files_removed), 'BLOCKSTORE', logging.DEBUG)
         return (files_kept, files_removed)
 
     def is_empty(self):

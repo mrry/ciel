@@ -64,10 +64,10 @@ class LocalTaskGraph(DynamicTaskGraph):
         upd.commit(self)
 
     def task_runnable(self, task):
-        ciel.log('Task %s became runnable!' % task.task_id, 'LTG', logging.INFO)
+        ciel.log('Task %s became runnable!' % task.task_id, 'LTG', logging.DEBUG)
         if self.execution_features.can_run(task.handler):
             if task.task_id in self.root_task_ids:
-                ciel.log('Putting task %s in the runnableQ because it is a root' % task.task_id, 'LTG', logging.INFO)
+                ciel.log('Putting task %s in the runnableQ because it is a root' % task.task_id, 'LTG', logging.DEBUG)
                 try:
                     self.runnable_queues[task.scheduling_class].put(task)
                 except KeyError:
@@ -81,7 +81,7 @@ class LocalTaskGraph(DynamicTaskGraph):
                 try:
                     is_small_task = task.worker_private['hint'] == 'small_task'
                     if is_small_task:
-                        ciel.log('Putting task %s in the runnableQ because it is small' % task.task_id, 'LTG', logging.INFO)
+                        ciel.log('Putting task %s in the runnableQ because it is small' % task.task_id, 'LTG', logging.DEBUG)
                         try:
                             self.runnable_queues[task.scheduling_class].put(task)
                         except KeyError:

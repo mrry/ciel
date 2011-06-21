@@ -545,7 +545,7 @@ class ProcExecutor(BaseExecutor):
         
         self.task_record = task_record
         self.task_descriptor = task_descriptor
-        self.expected_outputs = self.task_descriptor['expected_outputs']
+        self.expected_outputs = list(self.task_descriptor['expected_outputs'])
         
         if "id" in task_private:
             id = task_private['id']
@@ -642,7 +642,7 @@ class ProcExecutor(BaseExecutor):
     def publish_fetched_ref(self, fetch):
         completed_ref = fetch.get_completed_ref()
         if completed_ref is None:
-            ciel.log("Cancelling async fetch %s (chunk %d)" % (fetch.ref.id, fetch.chunk_size), "EXEC", logging.INFO)
+            ciel.log("Cancelling async fetch %s (chunk %d)" % (fetch.ref.id, fetch.chunk_size), "EXEC", logging.DEBUG)
         else:
             if fetch.make_sweetheart:
                 completed_ref = SW2_SweetheartReference.from_concrete(completed_ref, get_own_netloc())
@@ -652,7 +652,7 @@ class ProcExecutor(BaseExecutor):
     def open_ref_async(self, ref, chunk_size, sole_consumer=False, make_sweetheart=False, must_block=False, fd_socket_name=None):
         if not sendmsg_enabled:
             fd_socket_name = None
-            ciel.log("Not using FDs directly: module 'sendmsg' not available", "EXEC", logging.WARNING)
+            ciel.log("Not using FDs directly: module 'sendmsg' not available", "EXEC", logging.DEBUG)
         real_ref = self.task_record.retrieve_ref(ref)
 
         new_fetch = OngoingFetch(real_ref, chunk_size, self.task_record, sole_consumer, make_sweetheart, must_block, can_accept_fd=(fd_socket_name is not None))
@@ -676,7 +676,7 @@ class ProcExecutor(BaseExecutor):
         # Definitions here: "done" means we're already certain that the producer has completed successfully.
         # "blocking" means that EOF, as and when it arrives, means what it says. i.e. it's a regular file and done, or a pipe-like thing.
         ret.update({"done": new_fetch.done, "size": new_fetch.bytes})
-        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s, sending_fd=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"], ret["sending_fd"]), "EXEC", logging.INFO)
+        ciel.log("Async fetch %s (chunk %d): initial status %d bytes, done=%s, blocking=%s, sending_fd=%s" % (real_ref, chunk_size, ret["size"], ret["done"], ret["blocking"], ret["sending_fd"]), "EXEC", logging.DEBUG)
 
         # XXX: adding this because the OngoingFetch isn't publishing the sweetheart correctly.        
         if make_sweetheart:
@@ -707,17 +707,17 @@ class ProcExecutor(BaseExecutor):
             ciel.log("Failed to wait for async-fetch %s: not an active transfer" % id, "EXEC", logging.WARNING)
             return {"success": False}
         if eof is not None:
-            ciel.log("Waiting for fetch %s to complete" % id, "EXEC", logging.INFO)
+            ciel.log("Waiting for fetch %s to complete" % id, "EXEC", logging.DEBUG)
             the_fetch.wait_eof()
         else:
-            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "EXEC", logging.INFO)
+            ciel.log("Waiting for fetch %s length to exceed %d bytes" % (id, bytes), "EXEC", logging.DEBUG)
             the_fetch.wait_bytes(bytes)
         if the_fetch.done and not the_fetch.success:
             ciel.log("Wait %s complete: transfer has failed" % id, "EXEC", logging.WARNING)
             return {"success": False}
         else:
             ret = {"size": int(the_fetch.bytes), "done": the_fetch.done, "success": True}
-            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "EXEC", logging.INFO)
+            ciel.log("Wait %s complete: new length=%d, EOF=%s" % (id, ret["size"], ret["done"]), "EXEC", logging.DEBUG)
             return ret
         
     def spawn(self, request_args):
@@ -1408,7 +1408,7 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
     def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
-        ciel.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
+        ciel.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.DEBUG)
 
         with open(output_files[0], "w") as temp_output_fp:
             # This hopefully avoids the race condition in subprocess.Popen()
@@ -1453,7 +1453,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         except KeyError:
             env = {}
 
-        ciel.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.INFO)
+        ciel.log.error("Executing environ with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.DEBUG)
 
         with tempfile.NamedTemporaryFile(delete=False) as input_filenames_file:
             for filename in input_files:
@@ -1586,13 +1586,13 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
     def await_process(self, input_files, output_files):
         self.change_state("Running")
         if "trace_io" in self.debug_opts:
-            ciel.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.INFO)
+            ciel.log.error("DEBUG: Executor gathering an I/O trace from child", "EXEC", logging.DEBUG)
             self.gather_io_trace()
         rc = self.proc.wait()
         self.change_state("Done")
-        ciel.log.error("Process terminated. Stats:", "EXEC", logging.INFO)
+        ciel.log.error("Process terminated. Stats:", "EXEC", logging.DEBUG)
         for key, value in self.state_times.items():
-            ciel.log.error("Time in state %s: %s seconds" % (key, value), "EXEC", logging.INFO)
+            ciel.log.error("Time in state %s: %s seconds" % (key, value), "EXEC", logging.DEBUG)
         return rc
 
     def get_process_args(self):
@@ -1626,7 +1626,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         self.jar_refs = self.args["lib"]
         self.class_name = self.args["class"]
 
-        ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.INFO)
+        ciel.log.error("Running Java executor for class: %s" % self.class_name, "JAVA", logging.DEBUG)
         ciel.engine.publish("worker_event", "Java: fetching JAR")
 
         self.jar_filenames = retrieve_filenames_for_refs(self.jar_refs, self.task_record)
@@ -1667,7 +1667,7 @@ class DotNetExecutor(FilenamesOnStdinExecutor):
         self.dll_refs = self.args['lib']
         self.class_name = self.args['class']
 
-        ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.INFO)
+        ciel.log.error("Running Dotnet executor for class: %s" % self.class_name, "DOTNET", logging.DEBUG)
         ciel.engine.publish("worker_event", "Dotnet: fetching DLLs")
         self.dll_filenames = retrieve_filenames_for_refs(self.dll_refs, self.task_record)
 
@@ -1704,7 +1704,7 @@ class CExecutor(FilenamesOnStdinExecutor):
         self.so_refs = self.args['lib']
         self.entry_point_name = self.args['entry_point']
 
-        ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.INFO)
+        ciel.log.error("Running C executor for entry point: %s" % self.entry_point_name, "CEXEC", logging.DEBUG)
         ciel.engine.publish("worker_event", "C-exec: fetching SOs")
         self.so_filenames = retrieve_filenames_for_refs(self.so_refs, self.task_record)
 
@@ -1734,7 +1734,7 @@ class GrabURLExecutor(SimpleExecutor):
         urls = self.args['urls']
         version = self.args['version']
 
-        ciel.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.INFO)
+        ciel.log.error('Starting to fetch URLs', 'FETCHEXECUTOR', logging.DEBUG)
         
         for i, url in enumerate(urls):
             ref = get_ref_for_url(url, version, self.task_id)
@@ -1743,7 +1743,7 @@ class GrabURLExecutor(SimpleExecutor):
             cache_object(ref, "json", self.output_ids[i])
             self.output_refs[i] = SWDataValue(self.output_ids[i], out_str)
 
-        ciel.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.INFO)
+        ciel.log.error('Done fetching URLs', 'FETCHEXECUTOR', logging.DEBUG)
             
 class SyncExecutor(SimpleExecutor):
 

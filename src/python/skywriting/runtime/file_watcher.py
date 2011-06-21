@@ -80,7 +80,7 @@ class FileWatch:
 
     # Out-of-thread call
     def set_chunk_size(self, new_chunk_size):
-        ciel.log("File-watch for %s: new chunk size %d. (ignored)" % (self.id, new_chunk_size), "FILE_WATCHER", logging.INFO)
+        ciel.log("File-watch for %s: new chunk size %d. (ignored)" % (self.id, new_chunk_size), "FILE_WATCHER", logging.DEBUG)
         
 def create_watcher_thread(bus, block_store):
     global singleton_watcher

@@ -54,7 +54,7 @@ class FileTransferContext:
 
     def start_next_attempt(self):
         self.fp = open(self.callbacks.bs_ctx.filename, "w")
-        ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.INFO)
+        ciel.log("Starting fetch attempt %d using %s" % (self.failures + 1, self.urls[self.failures]), "CURL_FETCH", logging.DEBUG)
         self.curl_fetch = pycURLFetchContext(self.fp, self.urls[self.failures], self.result, self.callbacks.progress, fetch_client=self.fetch_client)
         self.curl_fetch.start()
 
@@ -68,7 +68,7 @@ class FileTransferContext:
         else:
             self.failures += 1
             if self.failures == len(self.urls):
-                ciel.log.error('Fetch %s: no more URLs to try.' % self.ref.id, 'BLOCKSTORE', logging.INFO)
+                ciel.log.error('Fetch %s: no more URLs to try.' % self.ref.id, 'BLOCKSTORE', logging.WARNING)
                 self.callbacks.result(False)
             else:
                 ciel.log.error("Fetch %s failed; trying next URL" % (self.urls[self.failures - 1]))
@@ -82,7 +82,7 @@ class FileTransferContext:
         pass
 
     def cancel(self):
-        ciel.log("Fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
+        ciel.log("Fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.DEBUG)
         self.cancelled = True
         if self.curl_fetch is not None:
             self.curl_fetch.cancel()
@@ -110,7 +110,7 @@ class StreamTransferContext:
         self.subscribed_to_remote_adverts = True
         
     def start_next_fetch(self):
-        ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.INFO)
+        ciel.log("Stream-fetch %s: start fetch from byte %d" % (self.ref.id, self.previous_fetches_bytes_downloaded), "CURL_FETCH", logging.DEBUG)
         self.current_data_fetch = pycURLFetchContext(self.fp, self.url, self.result, self.progress, self.previous_fetches_bytes_downloaded, fetch_client=self.fetch_client)
         self.current_data_fetch.start()
 
@@ -128,7 +128,7 @@ class StreamTransferContext:
         else:
             ciel.log("Stream-fetch %s: paused (remote has %d, I have %d)" % 
                      (self.ref.id, self.latest_advertisment, self.previous_fetches_bytes_downloaded), 
-                     "CURL_FETCH", logging.INFO)
+                     "CURL_FETCH", logging.DEBUG)
             self.current_data_fetch = None
 
     def check_complete(self):
@@ -149,14 +149,14 @@ class StreamTransferContext:
         else:
             this_fetch_bytes = self.current_data_fetch.curl_ctx.getinfo(pycurl.SIZE_DOWNLOAD)
             ciel.log("Stream-fetch %s: transfer succeeded (got %d bytes)" % (self.ref.id, this_fetch_bytes),
-                     "CURL_FETCH", logging.INFO)
+                     "CURL_FETCH", logging.DEBUG)
             self.previous_fetches_bytes_downloaded += this_fetch_bytes
             self.check_complete()
 
     def complete(self, success):
         if not self.local_done:
             self.local_done = True
-            ciel.log("Stream-fetch %s: complete" % self.ref.id, "CURL_FETCH", logging.INFO)
+            ciel.log("Stream-fetch %s: complete" % self.ref.id, "CURL_FETCH", logging.DEBUG)
             self.unsubscribe_remote_output()
             self.fp.close() 
             self.callbacks.result(success)        
@@ -165,7 +165,7 @@ class StreamTransferContext:
     def subscribe_result(self, success, _):
         if not success:
             ciel.log("Stream-fetch %s: failed to subscribe to remote adverts. Abandoning stream." 
-                     % self.ref.id, "CURL_FETCH", logging.INFO)
+                     % self.ref.id, "CURL_FETCH", logging.DEBUG)
             self.subscribed_to_remote_adverts = False
             self.remote_failed = True
             if self.current_data_fetch is None:
@@ -178,7 +178,7 @@ class StreamTransferContext:
 
     def subscribe_remote_output(self, chunk_size):
         ciel.log("Stream-fetch %s: change notification chunk size to %d" 
-                 % (self.ref.id, chunk_size), "CURL_FETCH", logging.INFO)
+                 % (self.ref.id, chunk_size), "CURL_FETCH", logging.DEBUG)
         remote_stat.subscribe_remote_output(self.ref.id, self.worker_netloc, chunk_size, self)
 
     def set_chunk_size(self, new_chunk_size):
@@ -187,7 +187,7 @@ class StreamTransferContext:
         self.current_chunk_size = new_chunk_size
 
     def cancel(self):
-        ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.INFO)
+        ciel.log("Stream-fetch %s: cancelling" % self.ref.id, "CURL_FETCH", logging.DEBUG)
         self.cancelled = True
         if self.current_data_fetch is not None:
             self.current_data_fetch.cancel()
@@ -207,7 +207,7 @@ class StreamTransferContext:
             if self.current_data_fetch is None:
                 self.complete(False)
         else:
-            ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (self.ref.id, bytes, done), "CURL_FETCH", logging.INFO)
+            ciel.log("Stream-fetch %s: got advertisment: bytes %d done %s" % (self.ref.id, bytes, done), "CURL_FETCH", logging.DEBUG)
             if self.latest_advertisment <= bytes:
                 self.latest_advertisment = bytes
             else:
@@ -269,7 +269,7 @@ class pycURLFetchInProgress:
         self.update_chunk_size()
         fetch_client.result(False)
         if len(self.listeners) == 0:
-            ciel.log("Removing fetch client %s: no clients remain, cancelling transfer" % fetch_client, "CURL_FETCH", logging.INFO)
+            ciel.log("Removing fetch client %s: no clients remain, cancelling transfer" % fetch_client, "CURL_FETCH", logging.DEBUG)
             self.fetch_context.cancel()
 
     def add_listener(self, fetch_client):
@@ -298,7 +298,7 @@ class HttpTransferContext:
         
     def _start(self):
         if self.ref.id in active_http_transfers:
-            ciel.log("Joining existing fetch for ref %s" % self.ref, "BLOCKSTORE", logging.INFO)
+            ciel.log("Joining existing fetch for ref %s" % self.ref, "BLOCKSTORE", logging.DEBUG)
         else:
             self.start_http_fetch()
         active_http_transfers[self.ref.id].add_listener(self.fetch_client)

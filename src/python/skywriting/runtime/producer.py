@@ -52,21 +52,21 @@ class FileOutputContext:
                     if now < self.pipe_deadline:
                         wait_time = self.pipe_deadline - now
                         wait_secs = float(wait_time.seconds) + (float(wait_time.microseconds) / 10**6)
-                        ciel.log("Producer for %s: waiting for a direct consumer" % self.refid, "BLOCKPIPE", logging.INFO)
+                        ciel.log("Producer for %s: waiting for a direct consumer" % self.refid, "BLOCKPIPE", logging.DEBUG)
                         self.cond.wait(wait_secs)
                 if self.direct_write_filename is not None:
-                    ciel.log("Producer for %s: writing direct to filename %s" % (self.refid, self.direct_write_filename), "BLOCKPIPE", logging.INFO)
+                    ciel.log("Producer for %s: writing direct to filename %s" % (self.refid, self.direct_write_filename), "BLOCKPIPE", logging.DEBUG)
                     self.started = True
                     return (self.direct_write_filename, False)
                 elif self.direct_write_fd is not None:
-                    ciel.log("Producer for %s: writing direct to consumer-supplied FD" % self.refid, "BLOCKPIPE", logging.INFO)
+                    ciel.log("Producer for %s: writing direct to consumer-supplied FD" % self.refid, "BLOCKPIPE", logging.DEBUG)
                     self.started = True
                     return (self.direct_write_fd, True)
                 elif self.started:
-                    ciel.log("Producer for %s: kicked by a regular-file subscription; using conventional stream-file" % self.refid, "BLOCKPIPE", logging.INFO)
+                    ciel.log("Producer for %s: kicked by a regular-file subscription; using conventional stream-file" % self.refid, "BLOCKPIPE", logging.DEBUG)
                 else:
                     self.started = True
-                    ciel.log("Producer for %s: timed out waiting for a consumer; writing to local block store" % self.refid, "BLOCKPIPE", logging.INFO)
+                    ciel.log("Producer for %s: timed out waiting for a consumer; writing to local block store" % self.refid, "BLOCKPIPE", logging.DEBUG)
         return (producer_filename(self.refid), False)
 
     def get_stream_ref(self):
@@ -139,14 +139,14 @@ class FileOutputContext:
             return False
         else:
             if self.started:
-                ciel.log("Producer for %s: consumer tried to attach, but we've already started writing a file" % self.refid, "BLOCKPIPE", logging.INFO)
+                ciel.log("Producer for %s: consumer tried to attach, but we've already started writing a file" % self.refid, "BLOCKPIPE", logging.DEBUG)
                 ret = False
             elif consumer_filename is not None:
-                ciel.log("Producer for %s: writing to consumer-supplied filename %s" % (self.refid, consumer_filename), "BLOCKPIPE", logging.INFO)
+                ciel.log("Producer for %s: writing to consumer-supplied filename %s" % (self.refid, consumer_filename), "BLOCKPIPE", logging.DEBUG)
                 self.direct_write_filename = consumer_filename
                 ret = True
             elif consumer_fd is not None and self.can_use_fd:
-                ciel.log("Producer for %s: writing to consumer-supplied FD %s" % (self.refid, consumer_fd), "BLOCKPIPE", logging.INFO)
+                ciel.log("Producer for %s: writing to consumer-supplied FD %s" % (self.refid, consumer_fd), "BLOCKPIPE", logging.DEBUG)
                 self.direct_write_fd = consumer_fd
                 ret = True
             else:
@@ -154,7 +154,7 @@ class FileOutputContext:
                 os.mkfifo(self.fifo_name)
                 self.direct_write_filename = self.fifo_name
                 if consumer_fd is not None:
-                    ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.INFO)
+                    ciel.log("Producer for %s: consumer gave an FD to attach, but we can't use FDs directly. Starting 'cat'" % self.refid, "BLOCKPIPE", logging.DEBUG)
                     self.cat_proc = subprocess.Popen(["cat < %s" % self.fifo_name], shell=True, stdout=consumer_fd, close_fds=True)
                     os.close(consumer_fd)
                 ret = True
@@ -169,7 +169,7 @@ class FileOutputContext:
         if self.current_size is not None:
             new_subscriber.progress(self.current_size)
         if self.file_watch is None:
-            ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.INFO)
+            ciel.log("Starting watch on output %s" % self.refid, "BLOCKSTORE", logging.DEBUG)
             self.file_watch = self.subscribe_callback(self)
             should_start_watch = True
         self.update_chunk_size()
@@ -206,7 +206,7 @@ class FileOutputContext:
         except ValueError:
             ciel.log("Couldn't unsubscribe %s from output %s: not a subscriber" % (subscriber, self.refid), "BLOCKSTORE", logging.ERROR)
         if len(self.subscriptions) == 0 and self.file_watch is not None:
-            ciel.log("No more subscribers for %s; cancelling watch" % self.refid, "BLOCKSTORE", logging.INFO)
+            ciel.log("No more subscribers for %s; cancelling watch" % self.refid, "BLOCKSTORE", logging.DEBUG)
             self.file_watch.cancel()
             self.file_watch = None
         else:
@@ -238,7 +238,7 @@ def make_local_output(id, subscribe_callback=None, may_pipe=False, can_use_fd=Fa
     '''
     if subscribe_callback is None:
         subscribe_callback = fwt.create_watch
-    ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.INFO)
+    ciel.log.error('Creating file for output %s' % id, 'BLOCKSTORE', logging.DEBUG)
     new_ctx = FileOutputContext(id, subscribe_callback, may_pipe=may_pipe, can_use_fd=can_use_fd)
     dot_filename = producer_filename(id)
     open(dot_filename, 'wb').close()
