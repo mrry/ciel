@@ -21,6 +21,7 @@ import logging
 import random
 import threading
 import math
+import time
 
 EWMA_ALPHA = 0.75
 INITIAL_TASK_COST = 0.5
@@ -92,12 +93,12 @@ class WorkerJob:
             
     def task_started(self):
         self.running_tasks += 1
-        ciel.log('Job %s started a task (now running %d)' % (self.id, self.running_tasks), 'JOB', logging.INFO)
+        ciel.log('Job %s started a task (now running %d)' % (self.id, self.running_tasks), 'JOB', logging.DEBUG)
         
     def task_finished(self, task, time):
         self.running_tasks -= 1
         self.task_cost = EWMA_ALPHA * time + (1 - EWMA_ALPHA) * self.task_cost
-        ciel.log('Job %s finished a task (now running %d, task cost now %f)' % (self.id, self.running_tasks, self.task_cost), 'JOB', logging.INFO)
+        ciel.log('Job %s finished a task (now running %d, task cost now %f)' % (self.id, self.running_tasks, self.task_cost), 'JOB', logging.DEBUG)
 
 class MultiWorker:
     """FKA JobManager."""
@@ -130,7 +131,8 @@ class MultiWorker:
         return self.jobs.values()
     
     def get_job_by_id(self, job_id):
-        return self.jobs[job_id]
+        with self._lock:
+            return self.jobs[job_id]
     
     def create_and_queue_taskset(self, task_descriptor):
         with self._lock:
@@ -198,7 +200,7 @@ class MultiWorkerTaskSetExecutionRecord:
             self.notify_completed()
 
     def start(self):
-        ciel.log.error('Starting taskset with %s' % self.initial_td['task_id'], 'TASKEXEC', logging.INFO)
+        ciel.log.error('Starting taskset with %s' % self.initial_td['task_id'], 'TASKEXEC', logging.DEBUG)
         self.job.taskset_activated(self)
         
         self.task_graph.add_root_task_id(self.initial_td['task_id'])
@@ -212,7 +214,10 @@ class MultiWorkerTaskSetExecutionRecord:
 
     def notify_completed(self):
         """Called by LocalJobOutput.notify_ref_table_updated() when the taskset is complete."""
-        ciel.log.error('Taskset complete', 'TASKEXEC', logging.INFO)
+        ciel.log.error('Taskset complete', 'TASKEXEC', logging.DEBUG)
+
+        # Release this task set, which may allow the JobManager to delete the job.
+        self.job_manager.taskset_completed(self)
         
         if not self.aborted:
             # Send a task report back to the master.
@@ -221,12 +226,9 @@ class MultiWorkerTaskSetExecutionRecord:
                 if tr.success:
                     report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.spawned_tasks, tr.published_refs, tr.get_profiling())))
                 else:
-                    ciel.log('Appending failure to report for task %s' % tr.task_descriptor['task_id'], 'TASKEXEC', logging.INFO)
+                    ciel.log('Appending failure to report for task %s' % tr.task_descriptor['task_id'], 'TASKEXEC', logging.DEBUG)
                     report_data.append((tr.task_descriptor['task_id'], tr.success, (tr.failure_reason, tr.failure_details, tr.failure_bindings)))
             self.master_proxy.report_tasks(self.job.id, self.initial_td['task_id'], report_data)
-
-        # Release this task set, which may allow the JobManager to delete the job.
-        self.job_manager.taskset_completed(self)
 
     def build_task_record(self, task_descriptor):
         """Creates a new TaskExecutionRecord for the given task, and adds it to the journal for this task set."""
@@ -304,7 +306,9 @@ class QueueManager:
             while self.is_running:
                 ticket_list = []
                 total_tickets = 0
+                some_jobs = False
                 for job in self.job_manager.get_active_jobs():
+                    some_jobs = True
                     try:
                         candidate = current_heads[job]
                     except KeyError:
@@ -332,6 +336,8 @@ class QueueManager:
                             # Choose the current head from this job.
                             del current_heads[job]
                             return current_head
+                elif some_jobs:
+                    continue
 
                 self._cond[scheduling_class].wait()
                 
@@ -398,5 +404,5 @@ class WorkerThreadPool:
             if task_record.success:
                 task.taskset.task_graph.spawn_and_publish(task_record.spawned_tasks, task_record.published_refs, next_td)
         except AbortedException:
-            ciel.log('Task %s was aborted, skipping' % task.task_id, 'MWPOOL', logging.INFO)
+            ciel.log('Task %s was aborted, skipping' % task.task_id, 'MWPOOL', logging.DEBUG)
         task.taskset.dec_runnable_count()
