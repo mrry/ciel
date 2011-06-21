@@ -109,7 +109,7 @@ class TaskRoot:
     @cherrypy.expose
     def index(self):
         if cherrypy.request.method == 'POST':
-            ciel.stopwatch.start("worker_task")
+            ciel.stopwatch.multi(starts=["worker_task"], laps=["end_to_end"])
             task_descriptor = simplejson.loads(cherrypy.request.body.read(), object_hook=json_decode_object_hook)
             if task_descriptor is not None:
                 self.worker.multiworker.create_and_queue_taskset(task_descriptor)

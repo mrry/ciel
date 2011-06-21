@@ -242,7 +242,7 @@ class MasterTaskRoot:
     def default(self, job_id, task_id, action=None):
         
         if action == 'report':
-            ciel.stopwatch.start("master_task")
+            ciel.stopwatch.multi(starts=["master_task"], laps=["end_to_end"])
         
         try:
             job = self.job_pool.get_job_by_id(job_id)
