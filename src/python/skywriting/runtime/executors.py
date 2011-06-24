@@ -52,6 +52,12 @@ from errno import EPIPE
 import ciel
 import traceback
 
+never_reuse_process = False
+def set_never_reuse_process(setting=True):
+    global never_reuse_process
+    ciel.log("Disabling process reuse", "PROC", logging.INFO)
+    never_reuse_process = setting
+
 try:
     import sendmsg
     sendmsg_enabled = True
@@ -591,8 +597,8 @@ class ProcExecutor(BaseExecutor):
             ciel.log('Got unexpected error', 'PROC', logging.ERROR, True)
             finished = PROC_ERROR
         
-        if finished == PROC_EXITED:
-            
+        global never_reuse_process
+        if finished == PROC_EXITED or never_reuse_process:
             self.process_pool.delete_process_record(self.process_record)
         
         elif finished == PROC_MAY_KEEP:
@@ -756,7 +762,7 @@ class ProcExecutor(BaseExecutor):
         if index in self.ongoing_outputs:
             raise Exception("Tried to open output %d which was already open" % index)
         if not sendmsg_enabled:
-            ciel.log("Not using FDs directly: module 'sendmsg' not available", "EXEC", logging.WARNING)
+            ciel.log("Not using FDs directly: module 'sendmsg' not available", "EXEC", logging.DEBUG)
             fd_socket_name = None
         output_name = self.expected_outputs[index]
         can_accept_fd = (fd_socket_name is not None)

@@ -21,6 +21,7 @@ import sys
 import os
 import logging
 import ciel
+from skywriting.runtime.executors import set_never_reuse_process
 
 def set_port(port):
     cherrypy.config.update({'server.socket_port': port})
@@ -33,6 +34,8 @@ def main(default_role=None):
     ciel.log("CIEL started with args: %s" % " ".join(sys.argv), "STARTUP", logging.INFO)
 
     cherrypy.config.update({'server.socket_host': '0.0.0.0'})
+    
+    cherrypy.config.update({'log.screen': False})
     
     if cherrypy.config.get('server.socket_port') is None:
         cherrypy.config.update({'server.socket_port': 8000})
@@ -58,6 +61,7 @@ def main(default_role=None):
     parser.add_option("-P", "--auxiliary-port", action="store", dest="aux_port", type="int", help="Listen port for auxiliary TCP connections (for workers)", metavar="PORT", default=None)
     parser.add_option("-v", "--verbose", action="callback", callback=lambda w, x, y, z: ciel.set_log_level(logging.DEBUG), help="Turns on debugging output")
     parser.add_option("-S", "--stopwatch-profiling", action="callback", callback=lambda w, x, y, z: ciel.stopwatch.enable(), help="Turns on stopwatch profiling")
+    parser.add_option("-U", "--never-reuse", action="callback", callback=lambda w, x, y, z: set_never_reuse_process(), help="Turns off process reuse")
     (options, args) = parser.parse_args()
 
     if options.daemonise:

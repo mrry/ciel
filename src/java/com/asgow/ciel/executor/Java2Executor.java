@@ -34,7 +34,7 @@ public class Java2Executor {
 			try {
 				task = Ciel.RPC.getTask();
 			} catch (ShutdownException e) {
-				System.out.println("Java2Executor: ordered to shut down (reason: '" + e.reason + "')");
+				//System.out.println("Java2Executor: ordered to shut down (reason: '" + e.reason + "')");
 				System.exit(0);
 			}
 			

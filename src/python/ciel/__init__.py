@@ -18,8 +18,10 @@ import skywriting.runtime.stopwatch
 try:
     import cherrypy
     log = cherrypy.log
-    _logger = log._get_builtin_handler(cherrypy.log.error_log, "screen")
-    _logger.setLevel(logging.INFO)
+    _handler = logging.StreamHandler()
+    log.error_log.addHandler(_handler)
+    #_logger = log._get_builtin_handler(cherrypy.log.error_log, "screen")
+    _handler.setLevel(logging.INFO)
 except ImportError:
     log = CielLogger()
     _logger = log
@@ -39,6 +41,6 @@ except ImportError:
     engine = EngineStub()
     
 def set_log_level(lvl):
-    _logger.setLevel(lvl)
+    _handler.setLevel(lvl)
 
 stopwatch = skywriting.runtime.stopwatch.Stopwatch()

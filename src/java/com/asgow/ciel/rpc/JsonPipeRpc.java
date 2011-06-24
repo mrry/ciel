@@ -2,6 +2,7 @@ package com.asgow.ciel.rpc;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -116,7 +117,12 @@ public class JsonPipeRpc implements WorkerRpc {
 	
 	@SuppressWarnings("unchecked")
 	public FirstClassJavaTask getTask() throws ShutdownException {
-		JsonArray initCommand = this.receiveMessage().getAsJsonArray();
+		JsonArray initCommand;
+		try {
+			initCommand = this.receiveMessage().getAsJsonArray();
+		} catch (RuntimeException re) {
+			throw new ShutdownException("EOF");
+		}
 
 		assert initCommand.size() == 2;
 		String command_string = initCommand.get(0).getAsString();
