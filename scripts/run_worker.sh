@@ -12,6 +12,12 @@ MASTER=${MASTER_HOST:-http://127.0.0.1:8000}
 
 WORKER_PORT=${WORKER_PORT:-8001}
 
+if [[ $SCALA_HOME == "" ]]; then
+    if [ -e /opt/skywriting/ext/scala-2.9.0.1 ]; then
+	SCALA_HOME=/opt/skywriting/ext/scala-2.9.0.1
+    fi
+fi
+
 if [[ $SCALA_HOME != "" ]]; then
     SCALA_CLASSPATH=$SCALA_HOME/lib/scala-library.jar
     if [ ! -e "${SCALA_CLASSPATH}" ]; then
