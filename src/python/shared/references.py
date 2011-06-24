@@ -283,11 +283,12 @@ class SWDataValue(SWRealReference):
     
     def __str__(self):
         string_repr = ""
-        if len(self.value) < 20:
-            string_repr = '"' + decode_datavalue_string(self.value) + '"'
-        else:
-            string_repr = "%d Base64 chars inline, starting with '%s'" % (len(self.value), remove_control_chars(decode_datavalue_string(self.value)[:20]))
-        return "<DataValue: %s...: %s>" % (self.id[:10], string_repr)
+        # XXX: Disabled because it was being invoked during logging, causing exceptions to arise.
+        #if len(self.value) < 20:
+        #    string_repr = '"' + decode_datavalue_string(self.value) + '"'
+        #else:
+        #    string_repr = "%d Base64 chars inline, starting with '%s'" % (len(self.value), remove_control_chars(decode_datavalue_string(self.value)[:20]))
+        return "<DataValue: %s...>" % (self.id[:10])
 
     def __repr__(self):
         return 'SWDataValue(%s, %s)' % (repr(self.id), repr(self.value))
