@@ -101,7 +101,12 @@ class Job:
         self.all_tasks_by_type = {}
 
         try:
-            self.scheduling_policy = get_scheduling_policy(self.job_options['scheduler'])
+            sched_opts = self.job_options["sched_opts"]
+        except KeyError:
+            sched_opts = {}
+
+        try:
+            self.scheduling_policy = get_scheduling_policy(self.job_options['scheduler'], **sched_opts)
         except KeyError:
             self.scheduling_policy = LocalitySchedulingPolicy()
             
