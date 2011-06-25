@@ -45,7 +45,7 @@ package com.asgow.ciel.scala {
   }
 
   case class YieldException(cont : Unit => Unit) extends Throwable
-  case class BlockException(cont : Unit => Unit, ref : Reference) extends Throwable
+  case class BlockException(cont : Unit => Unit, refs : Array[Reference]) extends Throwable
 
   class SkylaFuture[T](fut : Reference) extends FutureReference(fut.getId()) {
 
@@ -58,7 +58,7 @@ package com.asgow.ciel.scala {
       } catch {
         case rue: ReferenceUnavailableException => {
 	  shift { (cont : Unit => Unit) =>
-	    throw new BlockException(cont, this)
+	    throw new BlockException(cont, Array(this))
           }
 	  get
         }
@@ -113,7 +113,7 @@ package com.asgow.ciel.scala {
       } catch {
         case rue: ReferenceUnavailableException => {
           shift { (cont : Unit => Unit) =>
-            throw new BlockException(cont, this)
+            throw new BlockException(cont, Array(this))
           }
           iterator
         }
@@ -146,6 +146,12 @@ package com.asgow.ciel.scala {
       }
     }
 
+    def blockOnAll(refs : Array[Reference]) : Unit @suspendable = {
+      shift { (cont : Unit => Unit) =>
+        throw new BlockException(cont, refs)
+      }
+    }
+
     def suspendTask : Unit = {
       Ciel.blockOn()
     }
@@ -164,7 +170,7 @@ package com.asgow.ciel.scala {
         }
       } catch {
 	case be: BlockException => {
-	  val contTask = new SkylaContinuation(be.cont, Array(be.ref))
+	  val contTask = new SkylaContinuation(be.cont, be.refs)
 	  Ciel.tailSpawn(contTask, null)
         }
         case ye: YieldException => {
@@ -189,7 +195,7 @@ package com.asgow.ciel.scala {
 	cont()
       } catch {
 	case be: BlockException => {
-	  val contTask = new SkylaContinuation(be.cont, Array(be.ref))
+	  val contTask = new SkylaContinuation(be.cont, be.refs)
 	  Ciel.tailSpawn(contTask, null)
         }
         case ye: YieldException => {

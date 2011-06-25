@@ -1,0 +1,14 @@
+{"package": 
+	    {"tests-jar": {"filename": "../../dist/scala-tests.jar"}},
+ "start": 
+ 	  { "handler": "java2",
+ 	    "args": {
+	    	    "class_name" : "IterativeTest",
+	    	    "jar_lib" : [{"__package__": "tests-jar"}],
+		    "args" : [10, 10, 0],
+		    "n_outputs" : 1}
+	  },
+ "options":
+          {"scheduler": "locality",
+           "sched_opts": {"min_saving_threshold":0}}
+}
