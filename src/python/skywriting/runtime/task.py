@@ -61,6 +61,7 @@ class TaskPoolTask:
         self.history = []
         
         self.job = job
+
         self.taskset = taskset
         
         self.worker_private = worker_private
@@ -247,7 +248,7 @@ class DummyJob:
     def __init__(self, id):
         self.id = id
         
-    def record_state_change(self, from_state, to_state):
+    def record_state_change(self, task, from_state, to_state, additional=None):
         pass
 
 def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None, taskset=None):

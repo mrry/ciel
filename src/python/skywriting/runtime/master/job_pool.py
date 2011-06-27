@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from cherrypy.process import plugins
 from shared.references import SWReferenceJSONEncoder
-from skywriting.runtime.task import TASK_STATES, \
+from skywriting.runtime.task import TASK_STATES, TASK_STATE_NAMES, \
     build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED,\
     TASK_COMMITTED, TASK_QUEUED_STREAMING
 from threading import Lock, Condition
