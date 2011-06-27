@@ -214,7 +214,7 @@ class Job:
         constrained_location = task.get_constrained_location()
         if constrained_location is not None:
             return [self.job_pool.worker_pool.get_worker_at_netloc(constrained_location)]
-        elif task.state in (TASK_QUEUED_STREAMING, TASK_QUEUED):
+        elif task.state in (TASK_QUEUED_STREAMING, TASK_QUEUED, TASK_COMMITTED):
             return self.scheduling_policy.select_workers_for_task(task, self.job_pool.worker_pool)
         else:
             ciel.log.error("Task %s scheduled in bad state %s; ignored" % (task, task.state), 
