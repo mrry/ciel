@@ -82,24 +82,14 @@ def main():
         task_id = descriptor["task_id"]
         parent = descriptor["parent"]
 
-        try:
-            worker = descriptor["worker"] 
-        except KeyError:
-            worker = None
+        #try:
+        #    worker = descriptor["worker"] 
+        #except KeyError:
+        #    worker = None
 
         created_at = None
         assigned_at = None
         committed_at = None
-
-        for (time, state) in descriptor["history"]:
-            if state == 'CREATED':
-                created_at = time
-            elif assigned_at is None and state == 'ASSIGNED':
-                assigned_at = time
-            elif state == 'COMMITTED':
-                committed_at = time
-
-        duration = committed_at - assigned_at if (committed_at is not None and assigned_at is not None) else None
 
         num_children = len(descriptor["children"])
 
@@ -111,7 +101,36 @@ def main():
 
         final_state = descriptor["state"]
 
-        print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state, worker, total_bytes_fetched
+        worker = None
+        
+        for (time, state) in descriptor["history"]:
+            #print time, state
+            if state == 'CREATED':
+                created_at = time
+            elif state == 'COMMITTED':
+                committed_at = time
+                duration = committed_at - assigned_at if (committed_at is not None and assigned_at is not None) else None
+                print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, 'COMMITTED', worker, total_bytes_fetched
+            elif state == 'FAILED':
+                committed_at = time
+                duration = committed_at - assigned_at if (committed_at is not None and assigned_at is not None) else None
+                print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, 'FAILED', worker, total_bytes_fetched
+            else:
+                try:
+                    if state[0] == 'ASSIGNED':
+                        assigned_at = time
+                        worker = state[1]
+                        assigned_at = time
+                        committed_at = None
+                        duration = None
+                except ValueError:
+                    pass
+
+        if committed_at is None:
+            print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state, worker, total_bytes_fetched
+
+        
+        #print task_id, type, parent, created_at, assigned_at, committed_at, duration, num_children, num_dependencies, num_outputs, final_state, worker, total_bytes_fetched
 
 
             
