@@ -314,6 +314,7 @@ class Job:
             self.task_journal_fp.write(task_details)
             self.maybe_sync(should_sync)
             
+
 #    def steal_task(self, worker, scheduling_class):
 #        ciel.log('In steal_task(%s, %s)' % (worker.id, scheduling_class), 'LOG', logging.INFO)
 #        # Stealing policy: prefer task with fewest replicas, then lowest cost on this worker.
@@ -334,10 +335,11 @@ class Job:
 #            self.workers[worker].add_task(task)
 #            self.job_pool.worker_pool.execute_task_on_worker(worker, task)
             
-    def record_state_change(self, prev_state, next_state):
+    def record_state_change(self, task, prev_state, next_state, additional=None):
         # Done under self._lock (from _report_tasks()).
         self.task_state_counts[prev_state] = self.task_state_counts[prev_state] - 1
         self.task_state_counts[next_state] = self.task_state_counts[next_state] + 1
+        self.job_pool.log(task, TASK_STATE_NAMES[next_state], additional)
 
     def as_descriptor(self):
         counts = {}
@@ -675,10 +677,16 @@ class JobTaskGraph(DynamicTaskGraph):
 
 class JobPool(plugins.SimplePlugin):
 
-    def __init__(self, bus, journal_root, scheduler, task_failure_investigator, deferred_worker, worker_pool):
+    def __init__(self, bus, journal_root, scheduler, task_failure_investigator, deferred_worker, worker_pool, task_log_root=None):
         plugins.SimplePlugin.__init__(self, bus)
         self.journal_root = journal_root
-        
+
+        self.task_log_root = task_log_root
+        if self.task_log_root is not None:
+            self.task_log = open(os.path.join(self.task_log_root, "ciel-task-log.txt"), "w+")
+        else:
+            self.task_log = None
+
         self.scheduler = scheduler
         self.task_failure_investigator = task_failure_investigator
         self.deferred_worker = deferred_worker
@@ -712,6 +720,10 @@ class JobPool(plugins.SimplePlugin):
         for job in self.jobs.values():
             self.queue_job(job)
         
+    def log(self, task, state, details=None):
+        if self.task_log is not None:
+            print >>self.task_log, task.task_id if task is not None else None,  state, details
+
     def server_stopping(self):
         # When the server is shutting down, we need to notify all threads
         # waiting on job completion.
@@ -719,7 +731,10 @@ class JobPool(plugins.SimplePlugin):
         for job in self.jobs.values():
             with job._lock:
                 job._condition.notify_all()
-        
+        if self.task_log is not None:
+            self.log(None, "STOPPING")
+            close(self.task_log)
+
     def get_job_by_id(self, id):
         return self.jobs[id]
     

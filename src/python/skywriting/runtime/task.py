@@ -87,7 +87,7 @@ class TaskPoolTask:
 
     def set_state(self, state, additional=None):
         if self.job is not None and self.state is not None:
-            self.job.record_state_change(self.state, state)
+            self.job.record_state_change(self, self.state, state, additional)
         self.record_event(TASK_STATE_NAMES[state], additional=additional)
         #print self, TASK_STATE_NAMES[self.state] if self.state is not None else None, '-->', TASK_STATE_NAMES[state] if state is not None else None
         self.state = state
