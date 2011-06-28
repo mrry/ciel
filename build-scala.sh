@@ -1,5 +1,7 @@
 #!/bin/bash
 
+PATH=$PWD/scala-2.9.0.1/bin:$PATH
+
 rm -rf build/scala
 mkdir -p build/scala
 

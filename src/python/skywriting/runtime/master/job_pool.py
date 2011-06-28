@@ -367,8 +367,13 @@ class Job:
             
             ciel.log('Received report from task %s with %d entries' % (root_task.task_id, len(report)), 'SCHED', logging.DEBUG)
             
-            self.workers[worker].deassign_task(root_task)
-            
+            try:
+                self.workers[worker].deassign_task(root_task)
+            except KeyError:
+                # This can happen if we recieve the report after the worker is deemed to have failed. In this case, we should
+                # accept the report and ignore the failed worker.
+                pass
+
             for (parent_id, success, payload) in report:
                 
                 ciel.log('Processing report record from task %s' % (parent_id), 'SCHED', logging.DEBUG)
@@ -683,7 +688,15 @@ class JobPool(plugins.SimplePlugin):
 
         self.task_log_root = task_log_root
         if self.task_log_root is not None:
-            self.task_log = open(os.path.join(self.task_log_root, "ciel-task-log.txt"), "w+")
+            try:
+                self.task_log = open(os.path.join(self.task_log_root, "ciel-task-log.txt"), "w")
+            except:
+                import sys
+                print >>sys.stderr, "Error configuring task log root (%s), disabling task logging" % task_log_root
+                import traceback
+                traceback.print_exc()
+                self.task_log_root = None
+                self.task_log = None
         else:
             self.task_log = None
 
@@ -722,7 +735,10 @@ class JobPool(plugins.SimplePlugin):
         
     def log(self, task, state, details=None):
         if self.task_log is not None:
-            print >>self.task_log, task.task_id if task is not None else None,  state, details
+            log_at = datetime.datetime.now()
+            log_float = time.mktime(log_at.timetuple()) + log_at.microsecond / 1e6
+            print >>self.task_log, log_float, task.task_id if task is not None else None,  state, details
+            self.task_log.flush()
 
     def server_stopping(self):
         # When the server is shutting down, we need to notify all threads
@@ -733,7 +749,7 @@ class JobPool(plugins.SimplePlugin):
                 job._condition.notify_all()
         if self.task_log is not None:
             self.log(None, "STOPPING")
-            close(self.task_log)
+            self.task_log.close()
 
     def get_job_by_id(self, id):
         return self.jobs[id]

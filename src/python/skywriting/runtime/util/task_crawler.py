@@ -102,7 +102,8 @@ def main():
         final_state = descriptor["state"]
 
         worker = None
-        
+        duration = None
+
         for (time, state) in descriptor["history"]:
             #print time, state
             if state == 'CREATED':
