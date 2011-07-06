@@ -3,9 +3,9 @@
  "start": 
  	  { "handler": "java2",
  	    "args": {
-	    	    "class_name" : {"__args__": 0, "default": "ScalaInitTest"},
+	    	    "class_name" : "IterativeTest",
 	    	    "jar_lib" : [{"__package__": "tests-jar"}],
-		    "args" : [42],
+		    "args" : [{"__args__": 1, "default": 1000}, {"__args__": 0}, {"__args__": 2, "default": 0}],
 		    "n_outputs" : 1}
 	  },
  "options":

@@ -1,6 +1,7 @@
 package skywriting.examples.tests.java2;
 
 import java.io.OutputStream;
+import java.util.Random;
 
 import com.asgow.ciel.executor.Ciel;
 import com.asgow.ciel.references.Reference;
@@ -9,16 +10,16 @@ import com.asgow.ciel.tasks.FirstClassJavaTask;
 
 public class PipeStreamerProducer implements FirstClassJavaTask {
 
-	private boolean may_stream;
-	private boolean may_pipe;
-	private int chunk_size;
-	private int n_chunks;
+	private final boolean may_stream;
+	private final boolean may_pipe;
+	private final int chunk_size;
+	private final long nBytes;
 	
-	public PipeStreamerProducer(int chunk_size, int n_chunks, boolean may_stream, boolean may_pipe) {
+	public PipeStreamerProducer(int chunk_size, long nBytes, boolean may_stream, boolean may_pipe) {
 		this.may_stream = may_stream;
 		this.may_pipe = may_pipe;
 		this.chunk_size = chunk_size;
-		this.n_chunks = n_chunks;
+		this.nBytes = nBytes;
 	}
 	
 	@Override
@@ -33,15 +34,13 @@ public class PipeStreamerProducer implements FirstClassJavaTask {
 		OutputStream out = out_ref.open();
 		long bytes_written = 0;
 		byte[] out_array = new byte[4096];
-		for(int i = 0; i < 4096; i++) {
-			out_array[i] = (byte)((i % 32) + 32);
-		}
+		Random random = new Random(0);
+		random.nextBytes(out_array);
 		
-		for(int i = 0; i < this.n_chunks; i++) {
-			for(int j = 0; j < this.chunk_size / 4096; j++) {
-				out.write(out_array);
-				bytes_written += 4096;
-			}
+		for (long i = 0; i < this.nBytes; i += 4096) {
+		    int bytesToWrite = (i + 4096 > this.nBytes) ? (int) (this.nBytes - i) : 4096;
+		    out.write(out_array, 0, bytesToWrite);
+		    bytes_written += bytesToWrite;
 		}
 
 		out.close();

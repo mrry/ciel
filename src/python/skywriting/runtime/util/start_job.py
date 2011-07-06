@@ -121,7 +121,12 @@ def submit_job_with_package(package_dict, start_handler, start_args, job_options
 
     master_task_submit_uri = urlparse.urljoin(master_uri, "control/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(payload, cls=SWReferenceJSONEncoder))
-    return simplejson.loads(content)
+    try:
+        return simplejson.loads(content)
+    except ValueError:
+        print >>sys.stderr, 'Error submitting job'
+        print >>sys.stderr, content
+        raise
 
 def await_job(jobid, master_uri, timeout=None):
     notify_url = urlparse.urljoin(master_uri, "control/job/%s/completion" % jobid)

@@ -17,7 +17,7 @@ public class PipeStreamerTest implements FirstClassJavaTask {
 	@Override
 	public void invoke() throws Exception {
 		
-		int n_chunks = Integer.parseInt(Ciel.args[0]);
+		long nBytes = Long.parseLong(Ciel.args[0]);
 		String mode = Ciel.args[1];
 		boolean do_log = Boolean.parseBoolean(Ciel.args[2]);
 		
@@ -73,7 +73,7 @@ public class PipeStreamerTest implements FirstClassJavaTask {
 	        throw new Exception("PipeStreamerTest: bad mode " + mode);
 	    }
 	    
-		FirstClassJavaTask producer = new PipeStreamerProducer(67108864, n_chunks, producer_may_stream, producer_pipe);
+		FirstClassJavaTask producer = new PipeStreamerProducer(67108864, nBytes, producer_may_stream, producer_pipe);
 		Reference[] producer_refs = Ciel.spawn(producer, new String[0], 2);
 	    FirstClassJavaTask consumer = new PipeStreamerConsumer(67108864, producer_refs[1], consumer_may_stream, consumer_pipe, consumer_must_block, do_log);
 	    Reference[] consumer_refs = Ciel.spawn(consumer, new String[0], 1);

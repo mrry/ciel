@@ -62,6 +62,7 @@ def main(default_role=None):
     parser.add_option("-v", "--verbose", action="callback", callback=lambda w, x, y, z: ciel.set_log_level(logging.DEBUG), help="Turns on debugging output")
     parser.add_option("-S", "--stopwatch-profiling", action="callback", callback=lambda w, x, y, z: ciel.stopwatch.enable(), help="Turns on stopwatch profiling")
     parser.add_option("-U", "--never-reuse", action="callback", callback=lambda w, x, y, z: set_never_reuse_process(), help="Turns off process reuse")
+    parser.add_option("-6", "--task-log-root", action="store", dest="task_log_root", help="Path to store task state log", metavar="PATH", default=None)
     (options, args) = parser.parse_args()
 
     if options.daemonise:

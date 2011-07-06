@@ -61,6 +61,7 @@ class TaskPoolTask:
         self.history = []
         
         self.job = job
+
         self.taskset = taskset
         
         self.worker_private = worker_private
@@ -85,17 +86,20 @@ class TaskPoolTask:
     def __str__(self):
         return 'TaskPoolTask(%s)' % self.task_id
 
-    def set_state(self, state):
+    def set_state(self, state, additional=None):
         if self.job is not None and self.state is not None:
-            self.job.record_state_change(self.state, state)
-        self.record_event(TASK_STATE_NAMES[state])
+            self.job.record_state_change(self, self.state, state, additional)
+        self.record_event(TASK_STATE_NAMES[state], additional=additional)
         #print self, TASK_STATE_NAMES[self.state] if self.state is not None else None, '-->', TASK_STATE_NAMES[state] if state is not None else None
         self.state = state
         
-    def record_event(self, description, time=None):
+    def record_event(self, description, time=None, additional=None):
         if time is None:
             time = datetime.datetime.now()
-        self.history.append((time, description))
+        if additional is not None:
+            self.history.append((time, (description, additional)))
+        else:
+            self.history.append((time, description))
         
     def is_blocked(self):
         return self.state == TASK_BLOCKING
@@ -131,7 +135,7 @@ class TaskPoolTask:
         return self.profiling
 
     def set_worker(self, worker):
-        self.set_state(TASK_ASSIGNED)
+        self.set_state(TASK_ASSIGNED, additional=worker.netloc)
         self.worker = worker
 
     def unset_worker(self, worker):
@@ -244,7 +248,7 @@ class DummyJob:
     def __init__(self, id):
         self.id = id
         
-    def record_state_change(self, from_state, to_state):
+    def record_state_change(self, task, from_state, to_state, additional=None):
         pass
 
 def build_taskpool_task_from_descriptor(task_descriptor, parent_task=None, taskset=None):
