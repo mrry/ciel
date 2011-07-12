@@ -6,6 +6,6 @@ import sys
 
 result = skywriting.runtime.util.cluster.main()
 
-print "SW returned:", result
+print "Script returned:", result
 
 

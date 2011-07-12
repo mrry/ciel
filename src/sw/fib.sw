@@ -8,4 +8,7 @@ function fib (n) {
     }
 }    
 
-return fib(10);
+// Attempt to read parameter from the environment.
+i = int(get_key(env, "I", 10)); 
+
+return fib(i);

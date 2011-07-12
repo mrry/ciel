@@ -30,9 +30,10 @@ def now_as_timestamp():
 
 def main():
     parser = OptionParser()
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("SW_MASTER"))
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
     parser.add_option("-i", "--id", action="store", dest="id", help="Job ID", metavar="ID", default="default")
     parser.add_option("-e", "--env", action="store_true", dest="send_env", help="Set this flag to send the current environment with the script as _env", default=False)
+    parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Set this flag to enable verbose output", default=False)
     (options, args) = parser.parse_args()
    
     if not options.master:
@@ -49,14 +50,15 @@ def main():
     master_uri = options.master
     id = options.id
     
-    print id, "STARTED", now_as_timestamp()
+    if options.verbose:
+        print id, "STARTED", now_as_timestamp()
 
     swi_package = {"swimain": {"filename": script_name}}
     swi_args = {"sw_file_ref": {"__package__": "swimain"}, "start_args": args}
     if options.send_env:
         swi_args["start_env"] = dict(os.environ)
 
-    new_job = skywriting.runtime.util.start_job.submit_job_with_package(swi_package, "swi", swi_args, os.getcwd(), master_uri)
+    new_job = skywriting.runtime.util.start_job.submit_job_with_package(swi_package, "swi", swi_args, {}, os.getcwd(), master_uri, args)
     
     result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
     
