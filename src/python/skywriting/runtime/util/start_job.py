@@ -84,7 +84,8 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
                 print >>sys.stderr, "Positional argument", value["__args__"], "not specified; using default", value["default"]
                 return value["default"]
             else:
-                raise Exception("Package requires at least %d args" % (value["__args__"] + 1))
+                print >>sys.stderr, "Mandatory argument", value["__args__"], "not specified."
+                sys.exit(-1)
 
     def resolve_env(value):
         try:
@@ -94,7 +95,8 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
                 print >>sys.stderr, "Environment variable", value["__env__"], "not specified; using default", value["default"]
                 return value["default"]
             else:
-                raise Exception("Package requires environment variable '%s'" % value["__env__"])
+                print >>sys.stderr, "Mandatory environment variable", value["__env__"], "not specified."
+                sys.exit(-1)
 
     env_and_args_callbacks = {"__args__": resolve_arg,
                               "__env__": resolve_env}
@@ -126,7 +128,7 @@ def submit_job_with_package(package_dict, start_handler, start_args, job_options
     except ValueError:
         print >>sys.stderr, 'Error submitting job'
         print >>sys.stderr, content
-        raise
+        sys.exit(-1)
 
 def await_job(jobid, master_uri, timeout=None):
     notify_url = urlparse.urljoin(master_uri, "control/job/%s/completion" % jobid)
@@ -148,7 +150,8 @@ def await_job(jobid, master_uri, timeout=None):
         return completion_result
 
     if completion_result is not None and "error" in completion_result:
-        raise Exception("Job failure: %s" % completion_result["error"])
+        print >>sys.stderr, "Job failed: %s" % completion_result["error"]
+        sys.exit(-1)
     else:
         return completion_result["result_ref"]
     
@@ -301,7 +304,7 @@ def wait():
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
-        raise Exception("Must specify a master with -m or SW_MASTER")
+        raise Exception("Must specify a master with -m or CIEL_MASTER")
 
     result = await_job(args[0], master_uri, options.timeout)
 
