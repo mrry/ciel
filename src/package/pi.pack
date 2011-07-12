@@ -9,5 +9,7 @@
 	 	       "NUM_SAMPLES": {"__env__": "NUM_SAMPLES", "default": "10000000"}}}
 	},
  "options":
-	{"scheduler": "tworandom"}
+	{"scheduler": "tworandom"},
+ "result":
+        [{"__decode_ref__": "json"}]
 }

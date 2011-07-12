@@ -12,4 +12,4 @@ for (i in range(0, num_mappers)) {
 
 reduce_output = spawn_other("java", {"args":{"inputs":map_outputs, "argv":[], "class":"skywriting.examples.pi.PiReducer", "lib":jar_lib}, "scheduling_class":"cpu", "scheduling_type":"pi-reduce", "n_outputs":1});
 
-return *(exec("sync", {"inputs":reduce_output}, 1)[0]);
+return *(reduce_output[0]);

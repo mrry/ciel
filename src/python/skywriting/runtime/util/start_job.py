@@ -266,7 +266,7 @@ def submit():
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
-        raise Exception("Must specify a master with -m or SW_MASTER")
+        raise Exception("Must specify a master with -m or CIEL_MASTER")
     
     with open(args[0], "r") as package_file:
         job_dict = simplejson.load(package_file)
