@@ -51,6 +51,9 @@ echo "2/6 installed minimal packages" > ~/deploy-status
 # git checkout
 git clone -q http://github.com/$2.git $1
 
+echo "export PYTHONPATH=$SWROOT/src/python:\$PYTHONPATH" > ~/.bashrc
+echo "cd $SWROOT" > ~/.bashrc
+
 echo "3/6 checked out CIEL" > ~/deploy-status
 
 cd $1
