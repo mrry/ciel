@@ -57,6 +57,8 @@ def main():
     swi_args = {"sw_file_ref": {"__package__": "swimain"}, "start_args": args}
     if options.send_env:
         swi_args["start_env"] = dict(os.environ)
+    else:
+        swi_args["start_env"] = {}
 
     new_job = skywriting.runtime.util.start_job.submit_job_with_package(swi_package, "swi", swi_args, {}, os.getcwd(), master_uri, args)
     
