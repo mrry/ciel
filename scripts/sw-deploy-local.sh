@@ -24,6 +24,8 @@
 # this and otherwise throw an error.
 #
 
+echo "1/6 started" > ~/deploy-status
+
 if [[ $1 == '' ]]; then
     SWROOT='/opt/skywriting'
 else
@@ -44,11 +46,24 @@ export DEBIAN_FRONTEND="noninteractive"
 apt-get -qq -y update 1>&2 2>/dev/null
 apt-get -qq -y install git-core 1>&2 2>/dev/null
 
+echo "2/6 installed minimal packages" > ~/deploy-status
+
 # git checkout
 git clone -q http://github.com/$2.git $1
 
+echo "3/6 checked out CIEL" > ~/deploy-status
+
 cd $1
 ./scripts/install-deps-ubuntu.sh
+
+echo "4/6 installed package dependencies" > ~/deploy-status
+
 ./build-all.sh
-#mkdir -p /mnt/store
-#ln -s /mnt/store /opt/skywriting/store
+
+echo "5/6 built dependencies" > ~/deploy-status
+
+mkdir -p /mnt/store/data
+rm -rf /opt/skywriting/store
+ln -s /mnt/store /opt/skywriting/store
+
+echo "6/6 completed" > ~/deploy-status
