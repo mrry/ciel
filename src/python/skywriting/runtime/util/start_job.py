@@ -311,3 +311,50 @@ def wait():
     print >>sys.stderr, "Job done?", result
 
     return result
+
+def result():
+    """Toned-down version of the above for automation purposes."""        
+    
+    parser = OptionParser()
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
+    parser.add_option("-t", "--timeout", action="store", dest="timeout", help="Timeout", metavar="DURATION", default=10)
+    parser.add_option("-p", "--package", action="store", dest="package", help="Package file (for parsing format)", metavar="FILE", default=None)
+    
+    (options, args) = parser.parse_args()
+
+    if len(args) < 1:
+        print >>sys.stderr, "Must specify the job ID on the command line"
+        sys.exit(-1)
+
+    master_uri = options.master
+
+    if master_uri is None or master_uri == "":
+        print >>sys.stderr, ("Must specify a master with -m or CIEL_MASTER")
+        sys.exit(-1)
+
+    result = await_job(args[0], master_uri)
+
+    print result
+
+    if not result:
+        print >>sys.stderr, "Timed out"
+        sys.exit(-2)
+
+    reflist = simple_retrieve_object_for_ref(result, "json", args[0], master_uri)
+
+    if options.package is not None:
+        with open(options.package) as f:
+            job_dict = simplejson.load(f)
+            decode_template = job_dict.get("result", None)
+    else:
+        return reflist
+        
+    if decode_template is not None:
+        try:
+            decoded = recursive_decode(reflist, decode_template, args[0], master_uri)
+            return decoded
+        except Exception as e:
+            print "Failed to decode due to exception", repr(e)
+            return reflist
+    else:
+        return reflist
