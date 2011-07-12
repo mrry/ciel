@@ -51,6 +51,7 @@ from errno import EPIPE
 
 import ciel
 import traceback
+import stat
 
 never_reuse_process = False
 def set_never_reuse_process(setting=True):
@@ -1414,6 +1415,14 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
     def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
+        
+        if isinstance(command_line[0], SWRealReference):
+            # Executable to run has been passed in as a reference.
+            command_line[0] = retrieve_filename_for_ref(command_line[0], self.task_record, False)
+            os.chmod(command_line[0], stat.S_IRWXU)
+        
+        print command_line
+        
         ciel.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.DEBUG)
 
         with open(output_files[0], "w") as temp_output_fp:
