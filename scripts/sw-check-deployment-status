@@ -81,7 +81,6 @@ do
       echo "             (defaults to '/opt/skywriting')"
       echo "-u|--swuser: the user name of the Skywriting user on the cluster"
       echo "             (defaults to 'root')"
-      echo "-v: verbose mode (don't surpress output from remote machines)"
       shift 1
       exit 0
     ;;
@@ -100,13 +99,8 @@ exec 3<$SOURCE
 I=0
 while read -u 3 myLine
 do
-    echo -n "Running command on instance $I: "
-    if [[ $VERBOSE -eq 1 ]]; then
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine $COMMAND
-    else
-	ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine $COMMAND 1>&2 2>/dev/null
-    fi
-    echo $myLine
+    echo -n "Deployment status of instance $I ($myLine): "
+    ssh -o StrictHostKeyChecking=no -f -i $KEY $SWUSER@$myLine 'cat /root/deploy-status'
     I=`expr $I + 1`
 done
 
