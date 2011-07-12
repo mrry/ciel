@@ -17,8 +17,8 @@ function jarrow_rudd(s, k, t, v, rf, cp, n, chunk) {
     // cp: +1/-1 for call/put
     // n: number of steps */
     // chunks: number of rows per task
-    cmd1 = [ "/opt/skywriting/binomial-c", s, k, t, v, rf, cp, n, chunk, "1"];
-    cmd2 = [ "/opt/skywriting/binomial-c", s, k, t, v, rf, cp, n, chunk, "0"];
+    cmd1 = [ package("bin"), s, k, t, v, rf, cp, n, chunk, "1"];
+    cmd2 = [ package("bin"), s, k, t, v, rf, cp, n, chunk, "0"];
     r = stdinout_stream([], cmd1);
     for (i in range(0, n, chunk)) {
       r = stdinout_stream([r], cmd2);
