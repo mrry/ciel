@@ -225,7 +225,6 @@ def recursive_decode(to_decode, template, jobid, master_uri):
                 ret_dict[k] = recursive_decode(v, value_template, jobid, master_uri)
         return ret_dict
     elif isinstance(template, list):
-        print "LIST"
         if len(to_decode) != len(template):
             raise Exception("%s and %s: length mismatch" % to_decode, template)
         result_list = []
