@@ -1,8 +1,8 @@
 {"package":
 	{"mapreduce-sw": {"filename": "src/sw/mapreduce.sw"},
-	 "map-bin": {"filename": {"__args__": 0}},
-         "reduce-bin": {"filename": {"__args__": 1}},
-	 "input-files": {"filenamelist": {"__args__": 2}}
+	 "map-bin": {"filename": {"__args__": 0}, "cwd": true},
+         "reduce-bin": {"filename": {"__args__": 1}, "cwd": true},
+	 "input-files": {"filenamelist": {"__args__": 2}, "cwd": true}
         },
  "start":
 	{"handler": "swi",

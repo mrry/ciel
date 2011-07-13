@@ -63,7 +63,10 @@ def ref_of_object(key, val, package_path, master_uri):
         raise Exception("start_job can't handle resources that aren't files yet; package entries must have a 'filename' member")
     if "filename" in val and not os.path.isabs(val["filename"]):
         # Construct absolute path by taking it as relative to package descriptor
-        val["filename"] = os.path.join(package_path, val["filename"])
+        if "cwd" in val and val["cwd"]:
+            val["filename"] = os.path.join(os.getcwd(), val["filename"])
+        else:
+            val["filename"] = os.path.join(package_path, val["filename"])
     if "urlindex" in val and val["urlindex"]:
         try:
             replication = val["replication"]
