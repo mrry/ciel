@@ -49,6 +49,16 @@ def ref_of_string(val, master_uri):
 def ref_of_object(key, val, package_path, master_uri):
     if "__ref__" in val:
         return build_reference_from_tuple(val['__ref__'])
+    if "filenamelist" in val:
+        
+        with open(val["filenamelist"]) as listfile:
+            filenamelist = [x.strip() for x in listfile.readlines()]
+        
+        try:
+            replication = val["replication"]
+        except KeyError:
+            replication = 1
+        return load.do_uploads(master_uri, filenamelist, replication=replication)
     if "filename" not in val and "urls" not in val:
         raise Exception("start_job can't handle resources that aren't files yet; package entries must have a 'filename' member")
     if "filename" in val and not os.path.isabs(val["filename"]):
@@ -178,26 +188,44 @@ def simple_retrieve_object_for_ref(ref, decoder, jobid, master_uri):
     
 def recursive_decode(to_decode, template, jobid, master_uri):
     if isinstance(template, dict):
-        decode_method = template.get("__decode_ref__", None)
-        if decode_method is not None:
+        
+        try:
+            decode_method = template["__decode_ref__"]
             decoded_value = simple_retrieve_object_for_ref(to_decode, decode_method, jobid, master_uri)
             recurse_template = template.get("value", None)
             if recurse_template is None:
                 return decoded_value
             else:
                 return recursive_decode(decoded_value, recurse_template, jobid, master_uri)
-        else:
-            if not isinstance(to_decode, dict):
-                raise Exception("%s and %s: Type mismatch" % to_decode, template)
-            ret_dict = {}
-            for (k, v) in to_decode:
-                value_template = template.get(k, None)
-                if value_template is None:
-                    ret_dict[k] = v
-                else:
-                    ret_dict[k] = recursive_decode(v, value_template, jobid, master_uri)
-            return ret_dict
+        except KeyError:
+            pass
+    
+        try:
+            concat_list = template["__concat__"]
+            try:
+                decode_method = template["encoding"]
+            except KeyError:
+                decode_method = "json"
+            print to_decode
+            decoded_value = [simple_retrieve_object_for_ref(x, decode_method, jobid, master_uri) for x in to_decode]
+            assert isinstance(concat_list, list)
+            assert isinstance(decoded_value, list)
+            return "".join(recursive_decode(decoded_value, concat_list, jobid, master_uri))
+        except KeyError:
+            pass
+        
+        if not isinstance(to_decode, dict):
+            raise Exception("%s and %s: Type mismatch" % to_decode, template)
+        ret_dict = {}
+        for (k, v) in to_decode:
+            value_template = template.get(k, None)
+            if value_template is None:
+                ret_dict[k] = v
+            else:
+                ret_dict[k] = recursive_decode(v, value_template, jobid, master_uri)
+        return ret_dict
     elif isinstance(template, list):
+        print "LIST"
         if len(to_decode) != len(template):
             raise Exception("%s and %s: length mismatch" % to_decode, template)
         result_list = []
@@ -319,7 +347,7 @@ def result():
     parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
     parser.add_option("-t", "--timeout", action="store", dest="timeout", help="Timeout", metavar="DURATION", default=10)
     parser.add_option("-p", "--package", action="store", dest="package", help="Package file (for parsing format)", metavar="FILE", default=None)
-    
+
     (options, args) = parser.parse_args()
 
     if len(args) < 1:

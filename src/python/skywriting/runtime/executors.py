@@ -1239,11 +1239,20 @@ class SimpleExecutor(BaseExecutor):
 
     @classmethod
     def get_required_refs(cls, args):
+        required = []
+        
+        try:
+            required.extend([x for x in args["command_line"] if isinstance(x, SWRealReference)])
+        except KeyError:
+            pass
+        
         try:
             # Shallow copy
-            return list(args["inputs"])
+            required.extend(list(args["inputs"]))
         except KeyError:
-            return []
+            pass
+        
+        return required
 
     @classmethod
     def check_args_valid(cls, args, n_outputs):
@@ -1415,13 +1424,14 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
     def start_process(self, input_files, output_files):
 
         command_line = self.args["command_line"]
-        
-        if isinstance(command_line[0], SWRealReference):
-            # Executable to run has been passed in as a reference.
-            command_line[0] = retrieve_filename_for_ref(command_line[0], self.task_record, False)
-            os.chmod(command_line[0], stat.S_IRWXU)
-        
-        print command_line
+
+        for i, arg in enumerate(command_line):
+            if isinstance(arg, SWRealReference):
+                # Command line argument has been passed in as a reference.
+                command_line[i] = retrieve_filename_for_ref(arg, self.task_record, False)
+                if i == 0:
+                    # First argument must be executable.
+                    os.chmod(command_line[0], stat.S_IRWXU)
         
         ciel.log.error("Executing stdinout with: %s" % " ".join(map(str, command_line)), 'EXEC', logging.DEBUG)
 
@@ -1463,6 +1473,14 @@ class EnvironmentExecutor(ProcessRunningExecutor):
 
         command_line = self.args["command_line"]
 
+        for i, arg in enumerate(command_line):
+            if isinstance(arg, SWRealReference):
+                # Command line argument has been passed in as a reference.
+                command_line[i] = retrieve_filename_for_ref(arg, self.task_record, False)
+                if i == 0:
+                    # First argument must be executable.
+                    os.chmod(command_line[0], stat.S_IRWXU)
+
         try:
             env = self.args['env']
         except KeyError:
@@ -1485,6 +1503,7 @@ class EnvironmentExecutor(ProcessRunningExecutor):
         environment = {'INPUT_FILES'  : input_filenames_name,
                        'OUTPUT_FILES' : output_filenames_name}
         
+        environment.update(os.environ)
         environment.update(env)
             
         proc = subprocess.Popen(map(str, command_line), env=environment, close_fds=True)

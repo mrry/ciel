@@ -34,6 +34,7 @@ def main():
     parser.add_option("-i", "--id", action="store", dest="id", help="Job ID", metavar="ID", default="default")
     parser.add_option("-e", "--env", action="store_true", dest="send_env", help="Set this flag to send the current environment with the script as _env", default=False)
     parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Set this flag to enable verbose output", default=False)
+    parser.add_option("-p", "--package-file", action="append", type="string", dest="package_files", help="Specify files to be included as package inputs", metavar="KEY FILENAME", nargs=2, default=[])
     (options, args) = parser.parse_args()
    
     if not options.master:
@@ -54,6 +55,10 @@ def main():
         print id, "STARTED", now_as_timestamp()
 
     swi_package = {"swimain": {"filename": script_name}}
+
+    for key, filename in options.package_files:
+        swi_package[key] = {"filename": filename}
+    
     swi_args = {"sw_file_ref": {"__package__": "swimain"}, "start_args": args}
     if options.send_env:
         swi_args["start_env"] = dict(os.environ)
