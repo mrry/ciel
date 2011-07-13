@@ -1,0 +1,3 @@
+function sync(inputs) {
+    return (*(spawn_exec("sync", {"inputs" : inputs}, 1)[0]))[0];
+}
