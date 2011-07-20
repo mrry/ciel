@@ -14,7 +14,7 @@ from skywriting.runtime.tcp_data_fetch import TcpTransferContext
 from skywriting.runtime.block_store import filename_for_ref, producer_filename,\
     get_own_netloc, create_datavalue_file
 from skywriting.runtime.producer import get_producer_for_id
-from skywriting.runtime.exceptions import RuntimeSkywritingError
+from skywriting.runtime.exceptions import ErrorReferenceError
 
 class AsyncPushThread:
 
@@ -312,7 +312,7 @@ def fetch_ref_async(ref, result_callback, reset_callback, start_filename_callbac
                     must_block=False, task_record=None):
 
     if isinstance(ref, SWErrorReference):
-        raise RuntimeSkywritingError()
+        raise ErrorReferenceError(ref)
     if isinstance(ref, SW2_FixedReference):
         assert ref.fixed_netloc == get_own_netloc()
 

@@ -11,6 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+from skywriting.runtime.exceptions import UnknownIdentifierError,\
+    TaskFailedError
 
 '''
 Created on 23 Feb 2010
@@ -238,8 +240,8 @@ class TaskContext:
             else:
                 raise
         except:
-            print "Error context[%d][%d]:" % (self.wrapped_context.context_base - 1, self.wrapped_context.binding_bases[self.wrapped_context.context_base-1] - 1), self.wrapped_context.contexts
-            raise
+            #print "Error context[%d][%d]:" % (self.wrapped_context.context_base - 1, self.wrapped_context.binding_bases[self.wrapped_context.context_base-1] - 1), self.wrapped_context.contexts
+            raise TaskFailedError('Tried to read identifier "%s", not found' % base_identifier)
 
     def value_of_dynamic_scope(self, base_identifier):
         return self.tasklocal_bindings[base_identifier]

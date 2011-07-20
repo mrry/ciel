@@ -20,7 +20,7 @@ from shared.references import \
     SW2_FixedReference, SWReferenceJSONEncoder, SW2_ConcreteReference
 from shared.io_helpers import read_framed_json, write_framed_json
 from skywriting.runtime.exceptions import BlameUserException, ReferenceUnavailableException,\
-    RuntimeSkywritingError, MissingInputException
+    MissingInputException, TaskFailedError
 from skywriting.runtime.executor_helpers import ContextManager, retrieve_filename_for_ref, \
     retrieve_filenames_for_refs, get_ref_for_url, ref_from_string, \
     retrieve_file_or_string_for_ref, ref_from_safe_string,\
@@ -533,7 +533,7 @@ class ProcExecutor(BaseExecutor):
                 return [SW2_FutureReference(refid) for refid in task_descriptor["expected_outputs"]]
 
     def get_command(self):
-        raise RuntimeSkywritingError("Attempted to get_command() for an executor that does not define this.")
+        raise TaskFailedError("Attempted to get_command() for an executor that does not define this.")
     
     def get_env(self):
         return {}
@@ -553,6 +553,8 @@ class ProcExecutor(BaseExecutor):
         self.task_record = task_record
         self.task_descriptor = task_descriptor
         self.expected_outputs = list(self.task_descriptor['expected_outputs'])
+        
+        self.error_details = None
         
         if "id" in task_private:
             id = task_private['id']
@@ -594,6 +596,10 @@ class ProcExecutor(BaseExecutor):
             self.process_pool.delete_process_record(self.process_record)
             raise
             
+        except TaskFailedError, tfe:
+            finished = PROC_ERROR
+            self.error_details = tfe.message
+            
         except:
             ciel.log('Got unexpected error', 'PROC', logging.ERROR, True)
             finished = PROC_ERROR
@@ -610,8 +616,11 @@ class ProcExecutor(BaseExecutor):
         elif finished == PROC_ERROR:
             ciel.log('Task died with an error', 'PROC', logging.ERROR)
             for output_id in self.expected_outputs:
-                task_record.publish_ref(SWErrorReference(output_id, 'RUNTIME_ERROR', None))
+                task_record.publish_ref(SWErrorReference(output_id, 'RUNTIME_ERROR', self.error_details))
             self.process_pool.delete_process_record(self.process_record)
+            return False
+        
+        return True
         
     def line_event_loop(self, reader, writer):
         """Dummy event loop for testing interactive tasks."""
@@ -926,16 +935,14 @@ class ProcExecutor(BaseExecutor):
                     response = {'ref' : self.rollback_output(**args)}
                     
                 elif method == "advert":
-                    
                     self.output_size_update(**args)
     
                 elif method == "package_lookup":
-                    
                     response = {"value": package_lookup(self.task_record, self.block_store, args["key"])}
     
                 elif method == 'error':
-                    ciel.log('Got error from task: %s' % args["report"], 'PROC', logging.ERROR, False)
-                    return PROC_ERROR
+                    ciel.log('Task reported error: %s' % args["report"], 'PROC', logging.ERROR, False)
+                    raise TaskFailedError(args["report"])
     
                 elif method == 'exit':
                     
@@ -955,6 +962,9 @@ class ProcExecutor(BaseExecutor):
 
             except MissingInputException, mie:
                 ciel.log("Task died due to missing input", 'PROC', logging.WARN)
+                raise
+
+            except TaskFailedError:
                 raise
 
             except:

@@ -47,7 +47,7 @@ class CloudScriptParser:
     )
  
     def parse(self, text):
-        return self.parser.parse(text)
+        return self.parser.parse(text, tracking=True)
     
     def p_error(self, p):
         print "Syntax error on line %d: %s" % (p.lineno, repr(p.value))
@@ -79,7 +79,8 @@ class CloudScriptParser:
                       | named_function_decl
         """
         p[0] = p[1]
-        
+        p[0].linespan = p.linespan(1)
+         
     def p_assignment_statement_1(self, p):
         """ assignment_statement : lvalue ASSIGN expression SEMICOLON
         """

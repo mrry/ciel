@@ -1,6 +1,7 @@
 
 from skywriting.runtime.exceptions import ExecutionInterruption, ReferenceUnavailableException,\
-    BlameUserException
+    BlameUserException, UnknownIdentifierError, RuntimeSkywritingError,\
+    TaskFailedError
 from skywriting.lang.context import SimpleContext, TaskContext,\
     LambdaFunction
 from skywriting.lang.visitors import \
@@ -158,6 +159,11 @@ class SkywritingTask:
                                                           "extra_dependencies": list(self.lazy_derefs)
                                                           }
                                            )
+        
+        except RuntimeSkywritingError, rse:
+            print >>sys.stderr, rse.message
+            self.ciel_runtime.send_message("error", {"report" : rse.message})
+        
    
     # TODO: Fix this?
     #        if "save_continuation" in task_descriptor and task_descriptor["save_continuation"]:
@@ -211,7 +217,11 @@ class SkywritingTask:
         return ret
     
     def package_lookup(self, key):
-        return self.ciel_runtime.synchronous_request("package_lookup", {"key": key})["value"]
+        package_val = self.ciel_runtime.synchronous_request("package_lookup", {"key": key})["value"]
+        if package_val is None:
+            raise TaskFailedError('Package member "%s" not found -- have you defined it in your job submission?' % key)
+        else:
+            return package_val
     
     def include_script(self, target_expr):
         if isinstance(target_expr, basestring):

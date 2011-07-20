@@ -11,6 +11,7 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+from skywriting.runtime.exceptions import ErrorReferenceError
 
 '''
 Created on 15 Apr 2010
@@ -69,8 +70,14 @@ def main():
     
     result = skywriting.runtime.util.start_job.await_job(new_job["job_id"], master_uri)
     
-    reflist = retrieve_object_for_ref(result, "json", None)
-    sw_return = retrieve_object_for_ref(reflist[0], "json", None)
+    try:
+        reflist = retrieve_object_for_ref(result, "json", None)
+        sw_return = retrieve_object_for_ref(reflist[0], "json", None)
+    except ErrorReferenceError, ere:
+        print >>sys.stderr, 'Task failed with an error'
+        print >>sys.stderr, '%s: "%s"' % (ere.ref.reason, ere.ref.details)
+        sys.exit(-2)
+    
     return sw_return
     
 if __name__ == '__main__':

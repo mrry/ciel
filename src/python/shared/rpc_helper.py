@@ -35,33 +35,39 @@ class RpcHelper:
 
     def receive_message(self, block=True):
 
-        if block:
-            pargs = []
-        else:
-            pargs = [0.0]
-
-        reads, _, _ = select.select([self.in_fd], [], [], *pargs)
-
-        have_message = self.in_fd in reads
-        if have_message:
-            (method, args) = read_framed_json(self.in_fp)
-            if method == "subscribe" or method == "unsubscribe":
-                if self.active_outputs is None:
-                    print >>sys.stderr, "Ignored request", method, "args", args, "because I have no active outputs dict"
-                else:
-                    self.active_outputs.handle_request(method, args)
-            elif method == "die":
-                raise ShutdownException(args["reason"])
+        try:
+    
+            if block:
+                pargs = []
             else:
-                if self.pending_request is not None:
-                    if method != self.pending_request.method:
-                        print >>sys.stderr, "Ignored response of type", method, \
-                            "because I'm waiting for", self.pending_request.method
-                    self.pending_request.response = args
+                pargs = [0.0]
+    
+            reads, _, _ = select.select([self.in_fd], [], [], *pargs)
+    
+            have_message = self.in_fd in reads
+            if have_message:
+                (method, args) = read_framed_json(self.in_fp)
+                if method == "subscribe" or method == "unsubscribe":
+                    if self.active_outputs is None:
+                        print >>sys.stderr, "Ignored request", method, "args", args, "because I have no active outputs dict"
+                    else:
+                        self.active_outputs.handle_request(method, args)
+                elif method == "die":
+                    raise ShutdownException(args["reason"])
                 else:
-                    print >>sys.stderr, "Ignored request", method, "args", args
-        return have_message
+                    if self.pending_request is not None:
+                        if method != self.pending_request.method:
+                            print >>sys.stderr, "Ignored response of type", method, \
+                                "because I'm waiting for", self.pending_request.method
+                        self.pending_request.response = args
+                    else:
+                        print >>sys.stderr, "Ignored request", method, "args", args
+            return have_message
 
+        except IOError:
+            print >>sys.stderr, "RPC error when receiving message: process dying."
+            sys.exit(-1)
+    
     def synchronous_request(self, method, args=None, send=True):
         
         self.pending_request = RpcRequest(method)
@@ -77,7 +83,10 @@ class RpcHelper:
         return self.synchronous_request(method, send=False)
 
     def send_message(self, method, args):
-        
-        write_framed_json((method, args), self.out_fp)
-        self.out_fp.flush()
+        try:
+            write_framed_json((method, args), self.out_fp)
+            self.out_fp.flush()
 
+        except IOError:
+            print >>sys.stderr, "RPC error when receiving message: process dying."
+            sys.exit(-1)
