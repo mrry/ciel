@@ -165,8 +165,10 @@ def await_job(jobid, master_uri, timeout=None):
     if completion_result is not None and "error" in completion_result:
         print >>sys.stderr, "Job failed: %s" % completion_result["error"]
         sys.exit(-1)
-    else:
+    elif completion_result is not None:
         return completion_result["result_ref"]
+    else:
+        print >>sys.stderr, 'Error receiving result from master'
     
 def external_get_real_ref(ref, jobid, master_uri):
     fetch_url = urlparse.urljoin(master_uri, "control/ref/%s/%s" % (jobid, ref.id))

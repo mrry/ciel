@@ -11,6 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+from skywriting.runtime.exceptions import RuntimeSkywritingError,\
+    ReferenceUnavailableException
 
 '''
 Created on 23 Feb 2010
@@ -29,18 +31,6 @@ class Visitor:
     
     def visit(self, node):
         return getattr(self, "visit_%s" % (str(node.__class__).split('.')[-1], ))(node)
-
-#class SWFutureReference:
-#    
-#    def __init__(self, ref_id):
-#        self.is_future = True
-#        self.id = ref_id
-
-#class SWDataReference:
-#    
-#    def __init__(self, urls):
-#        self.is_future = False
-#        self.urls = urls
 
 class SWDereferenceWrapper:
     
@@ -68,7 +58,22 @@ class StatementExecutorVisitor(Visitor):
         self.context = context
         
     def visit(self, node, stack, stack_base):
-        return getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
+        try:
+            return getattr(self, "visit_%s" % (node.__class__.__name__, ))(node, stack, stack_base)
+        except RuntimeSkywritingError:
+            raise
+        except ReferenceUnavailableException:
+            raise
+        except Exception as e:
+            message = "Error executing statement"
+            if hasattr(node, "linespan"):
+                message += " on lines %d--%d" % node.linespan
+            else:
+                pass
+            if hasattr(e, "message"):
+                message += ": %s" % e.message
+            
+            raise RuntimeSkywritingError(message, e)
         
     def visit_statement_list(self, statements, stack, stack_base):
         if stack_base == len(stack):

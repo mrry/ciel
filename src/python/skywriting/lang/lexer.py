@@ -11,6 +11,8 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+from skywriting.runtime.exceptions import RuntimeSkywritingError,\
+    SkywritingParsingError
 
 '''
 Created on 22 Feb 2010
@@ -23,12 +25,14 @@ from ply.lex import TOKEN
 class CloudScriptLexer:
     
     def __init__(self):
+        self.text = None
         pass
-    
+        
     def build(self, **kwargs):
         self.lexer = ply.lex.lex(object=self, **kwargs)
         
     def input(self, text):
+        self.text = text
         self.lexer.input(text)
         
     def token(self):
@@ -71,16 +75,13 @@ class CloudScriptLexer:
     integer_literal = r'(0)|([1-9][0-9]*)'
     
     def t_error(self, t):
-        print "Illegal character '%s'" % t.value[0]
-        t.lexer.skip(1)
+        raise SkywritingParsingError('Illegal character "%s" on line %d at column %d' % (t.value[0], self.lexer.lineno, self.find_column(t)))
         
     def t_escaped_error(self, t):
-        print "Illegal escape character '%s'" % t.value[0]
-        t.lexer.skip(1)
+        raise SkywritingParsingError('Illegal escape character "%s" on line %d at column %d' % (t.value[0], self.lexer.lineno, self.find_column(t)))
         
     def t_string_error(self, t):
-        print "Illegal character in string '%s'" % t.value[0]
-        t.lexer.skip(1)
+        raise SkywritingParsingError('Illegal character in string "%s" on line %d at column %d' % (t.value[0], self.lexer.lineno, self.find_column(t)))
 
     @TOKEN(identifier)
     def t_ID(self, t):
@@ -201,6 +202,13 @@ class CloudScriptLexer:
     def t_NEWLINE(self, t):
         r'\n+'
         t.lexer.lineno += len(t.value)
+
+    def find_column(self, token):
+        last_cr = self.text.rfind('\n',0,token.lexpos)
+        if last_cr < 0:
+            last_cr = 0
+        column = (token.lexpos - last_cr) + 1
+        return column
     
 if __name__ == '__main__':
     text = open('testscript.sw').read()

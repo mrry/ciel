@@ -28,7 +28,7 @@ from shared.references import SW2_ConcreteReference, SW2_StreamReference,\
     SW2_FetchReference, SW2_FixedReference, SWRealReference, SWErrorReference,\
     SWDataValue, decode_datavalue
 import ciel
-from skywriting.runtime.exceptions import RuntimeSkywritingError
+from skywriting.runtime.exceptions import ErrorReferenceError
 urlparse.uses_netloc.append("swbs")
 
 BLOCK_LIST_RECORD_STRUCT = struct.Struct("!120pQ")
@@ -117,7 +117,7 @@ class BlockStore:
         assert isinstance(ref, SWRealReference)
 
         if isinstance(ref, SWErrorReference):
-            raise RuntimeSkywritingError()
+            raise ErrorReferenceError(ref)
 
         if isinstance(ref, SW2_FixedReference):
             assert ref.fixed_netloc == self.netloc

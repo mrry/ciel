@@ -26,9 +26,26 @@ class AbortedException(Exception):
     def __init__(self):
         pass
 
+class SkywritingParsingError(Exception):
+    def __init__(self, message):
+        self.message = message
+
 class RuntimeSkywritingError(Exception):
-    def __init__(self):
-        pass
+    def __init__(self, message, cause):
+        self.message = message
+        self.cause = cause
+
+class UnknownIdentifierError(Exception):
+    def __init__(self, identifier):
+        self.identifier = identifier
+        
+class TaskFailedError(Exception):
+    def __init__(self, message):
+        self.message = message
+
+class ErrorReferenceError(Exception):
+    def __init__(self, ref):
+        self.ref = ref
 
 class AbortedExecutionException(RuntimeSkywritingError):
     def __init__(self):

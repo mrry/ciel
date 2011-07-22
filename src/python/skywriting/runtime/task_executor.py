@@ -140,6 +140,7 @@ class TaskExecutionRecord:
         self.master_proxy = master_proxy
         self.worker = worker
         self.executor = None
+        self.failed = False
         self.success = False
         self.aborted = False
         self._executor_lock = threading.Lock()
@@ -195,7 +196,7 @@ class TaskExecutionRecord:
             self.executor.run(self.task_descriptor, self)
             self.finish_time = datetime.datetime.now()
             
-            self.success = True
+            self.success = not self.failed
             
             ciel.engine.publish("worker_event", "Completed execution " + repr(self.task_descriptor['task_id']))
             ciel.log.error("Completed task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.DEBUG, False)
@@ -205,16 +206,19 @@ class TaskExecutionRecord:
             self.failure_details = ""
             self.failure_reason = "MISSING_INPUT"
             self.finish_time = datetime.datetime.now()
+            self.success = False
             raise
         except AbortedException:
             self.finish_time = datetime.datetime.now()
+            self.success = False
             raise
-        except:
+        except Exception, e:
             ciel.log.error("Error in task %s with handler %s" % (str(self.task_descriptor['task_id']), self.task_descriptor['handler']), 'TASK', logging.ERROR, True)
             self.failure_bindings = dict()
-            self.failure_details = ""
+            self.failure_details = getattr(e, "message", '')
             self.failure_reason = "RUNTIME_EXCEPTION"
             self.finish_time = datetime.datetime.now()
+            self.success = False
             raise
 
     def cleanup(self):
