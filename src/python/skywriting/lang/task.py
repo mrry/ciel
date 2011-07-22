@@ -130,6 +130,7 @@ class SkywritingTask:
         task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: self.package_lookup(x[0])))
+        task_context.bind_tasklocal_identifier("print", SafeLambdaFunction(lambda x: sys.stdout.write("%s\n" % str(x)) or True))
     
         visitor = StatementExecutorVisitor(task_context)
         
