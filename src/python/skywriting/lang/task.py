@@ -125,13 +125,15 @@ class SkywritingTask:
         task_context.bind_tasklocal_identifier("spawn_other", LambdaFunction(lambda x: self.spawn_other(x[0], x[1])))
         task_context.bind_tasklocal_identifier("__star__", LambdaFunction(lambda x: self.lazy_dereference(x[0])))
         task_context.bind_tasklocal_identifier("int", SafeLambdaFunction(lambda x: int(x[0]), self))
+        task_context.bind_tasklocal_identifier("str", SafeLambdaFunction(lambda x: str(x[0]), self))
         task_context.bind_tasklocal_identifier("range", SafeLambdaFunction(lambda x: range(*x), self))
         task_context.bind_tasklocal_identifier("len", SafeLambdaFunction(lambda x: len(x[0]), self))
         task_context.bind_tasklocal_identifier("has_key", SafeLambdaFunction(lambda x: x[1] in x[0], self))
         task_context.bind_tasklocal_identifier("get_key", SafeLambdaFunction(lambda x: x[0][x[1]] if x[1] in x[0] else x[2], self))
         task_context.bind_tasklocal_identifier("exec", LambdaFunction(lambda x: self.exec_func(x[0], x[1], x[2])))
         task_context.bind_tasklocal_identifier("package", LambdaFunction(lambda x: self.package_lookup(x[0])))
-        task_context.bind_tasklocal_identifier("print", SafeLambdaFunction(lambda x: sys.stdout.write("%s\n" % str(x)) or True))
+        task_context.bind_tasklocal_identifier("print", LambdaFunction(lambda x: sys.stdout.write("%s\n" % str(x[0])) or True))
+    
     
         visitor = StatementExecutorVisitor(task_context)
         
