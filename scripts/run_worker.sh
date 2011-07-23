@@ -1,12 +1,48 @@
 #!/bin/bash
-PYTHON=${PYTHON:-python}
-BASE=$(${PYTHON} -c "import os,sys;print os.path.dirname(os.path.realpath('$0'))")/..
-export PYTHONPATH=$PYTHONPATH:$BASE/ext/sendmsg-1.0.1/build/lib.linux-x86_64-2.6:$BASE/ext/sendmsg-1.0.1/build/lib.linux-i686-2.6:$BASE/src/python
+
+if [ "${0#/}" = "${0}" ]
+then
+    me=$(pwd)/$0
+else
+    me=$0
+fi
+
+install_prefix=${me%bin/run_worker.sh}
+if [ "$install_prefix" = "$me" ]
+then
+    BASE=$(pwd)
+    my_python_path="$BASE/src/python"
+    sw_worker=${BASE}/scripts/sw-worker
+    staticbase=${BASE}/src/js/skyweb/
+    lighttpd_conf=${BASE}/src/python/skywriting/runtime/lighttpd.conf
+    store_base=${BASE}
+else
+    if [ "$install_prefix" != "/" ] && [ "$install_prefix" != "/usr" ] && [ "$install_prefix" != "/usr/local" ]
+    then
+	PYTHONVER=$(python --version 2>&1 | cut -d' ' -f 2 | cut -d '.' -f1,2)
+	my_python_path=$install_prefix/lib/python${PYTHONVER}/site-packages
+    else
+	my_python_path=""
+    fi
+    sw_worker=${install_prefix}/bin/sw-worker
+    staticbase=${install_prefix}/share/ciel/skyweb/
+    lighttpd_conf=${install_prefix}/share/ciel/lighttpd.conf
+    store_base=${install_prefix}/var/run/ciel
+fi
+if ! [ -z "$my_python_path" ]
+then
+    if [ -z "$PYTHONPATH" ]
+    then
+	export PYTHONPATH=$my_python_path
+    else
+	PYTHONPATH=${PYTHONPATH}:$my_python_path
+    fi
+fi
 
 if [[ $REL_BLOCK_LOCATION == "" ]]; then
     REL_BLOCK_LOCATION="store/"
 fi
-ABS_BLOCK_LOCATION="$BASE/$REL_BLOCK_LOCATION"
+ABS_BLOCK_LOCATION="${store_base}/$REL_BLOCK_LOCATION"
 
 MASTER=${MASTER_HOST:-http://127.0.0.1:8000}
 
@@ -28,7 +64,7 @@ fi
 
 LIGHTTPD_BIN=`which lighttpd`
 if [ "$LIGHTTPD_BIN" != "" ]; then
-  EXTRA_CONF="${EXTRA_CONF} --lighttpd-conf $BASE/src/python/skywriting/runtime/lighttpd.conf"
+  EXTRA_CONF="${EXTRA_CONF} --lighttpd-conf ${lighttpd_conf}"
 fi
 
 GSON_VERSION=1.7.1
@@ -38,4 +74,4 @@ export SW_C_LOADER_PATH=${BASE}/src/c/src/loader
 export CIEL_SKYPY_BASE=${BASE}/src/python/skywriting/runtime/worker/skypy
 export CIEL_SW_BASE=${BASE}/src/python/skywriting/lang
 export CIEL_SW_STDLIB=${BASE}/src/sw/stdlib
-${PYTHON} ${BASE}/src/python/skywriting/__init__.py --role worker --master ${MASTER} --port $WORKER_PORT --staticbase $BASE/src/js/skyweb_worker/ ${HTTPD} -b $BASE/$REL_BLOCK_LOCATION -T ciel-process-aaca0f5eb4d2d98a6ce6dffa99f8254b ${EXTRA_CONF} $*
+${sw_worker} --role worker --master ${MASTER} --port $WORKER_PORT --staticbase "$staticbase" ${HTTPD} -b $ABS_BLOCK_LOCATION -T ciel-process-aaca0f5eb4d2d98a6ce6dffa99f8254b ${EXTRA_CONF} $*
