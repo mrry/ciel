@@ -28,6 +28,7 @@ then
     sw_master=${BASE}/scripts/sw-master
     staticbase=${BASE}/src/js/skyweb/
     lighttpd_conf=${BASE}/src/python/skywriting/runtime/lighttpd.conf
+    store_base=${BASE}
 else
     # Running from an installed version
     if [ "$install_prefix" != "/" ] && [ "$install_prefix" != "/usr" ] && [ "$install_prefix" != "/usr/local" ]
@@ -40,6 +41,7 @@ else
     sw_master=${install_prefix}/bin/sw-master
     staticbase=${install_prefix}/share/ciel/skyweb/
     lighttpd_conf=${install_prefix}/share/ciel/lighttpd.conf
+    store_base=${install_prefix}/var/run/ciel
 fi
 if ! [ -z "$my_python_path" ]
 then
@@ -51,7 +53,7 @@ then
     fi
 fi
 
-ABS_BLOCK_LOCATION="$BASE/$REL_BLOCK_LOCATION"
+ABS_BLOCK_LOCATION="${store_base}/$REL_BLOCK_LOCATION"
 
 if [ ! -d "$ABS_BLOCK_LOCATION" ]; then
   mkdir -p "$ABS_BLOCK_LOCATION"
