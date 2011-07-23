@@ -27,6 +27,7 @@ then
     my_python_path="$BASE/src/python"
     sw_master=${BASE}/scripts/sw-master
     staticbase=${BASE}/src/js/skyweb/
+    lighttpd_conf=${BASE}/src/python/skywriting/runtime/lighttpd.conf
 else
     # Running from an installed version
     if [ "$install_prefix" != "/" ] && [ "$install_prefix" != "/usr" ] && [ "$install_prefix" != "/usr/local" ]
@@ -38,6 +39,7 @@ else
     fi
     sw_master=${install_prefix}/bin/sw-master
     staticbase=${install_prefix}/share/ciel/skyweb/
+    lighttpd_conf=${install_prefix}/share/ciel/lighttpd.conf
 fi
 if ! [ -z "$my_python_path" ]
 then
@@ -57,7 +59,7 @@ fi
 
 LIGHTTPD_BIN=`which lighttpd`
 if [ "$LIGHTTPD_BIN" != "" ]; then
-  EXTRA_CONF="${EXTRA_CONF} --lighttpd-conf $BASE/src/python/skywriting/runtime/lighttpd.conf"
+  EXTRA_CONF="${EXTRA_CONF} --lighttpd-conf ${lighttpd_conf}"
 fi
 
 ${sw_master} --role master --port $MASTER_PORT --staticbase "$staticbase" -b "$ABS_BLOCK_LOCATION" -T ciel-process-aaca0f5eb4d2d98a6ce6dffa99f8254b ${EXTRA_CONF} $*

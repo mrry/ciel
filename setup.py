@@ -21,7 +21,8 @@ setup(
                                            'raphael-min.js',
                                            'skyweb.css',
                                            'skyweb.js',
-                                           'skyweb-test.html']] ) ],
+                                           'skyweb-test.html']] ),
+                   ("share/ciel", ["src/python/skywriting/runtime/lighttpd.conf"])],
     classifiers = [
             'Development Status :: 3 - Alpha',
             'Intended Audience :: Developers',
