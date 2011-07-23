@@ -9,11 +9,12 @@ setup(
     url = "http://www.cl.cam.ac.uk/research/srg/netos/skywriting/",
     packages = [ 'skywriting', 'skywriting.lang', 'skywriting.runtime',
                  'skywriting.runtime.master', 'skywriting.runtime.worker',
-                 'ciel', 'shared' ],
+                 'skywriting.runtime.util', 'ciel', 'shared' ],
     package_dir = { '' : 'src/python' },
     scripts = [ 'scripts/sw-master', 'scripts/sw-worker', 'scripts/sw-job',
                 'scripts/sw-console', 'scripts/run_master.sh',
-                'scripts/run_worker.sh', 'scripts/sw-start-job' ],
+                'scripts/run_worker.sh', 'scripts/sw-start-job',
+                'scripts/run_job.sh' ],
     data_files = [ ("share/ciel/skyweb", ['src/js/skyweb/%s' % s
                                           for s in
                                           ['jquery-1.4.2.js',
