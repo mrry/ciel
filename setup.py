@@ -22,7 +22,11 @@ setup(
                                            'skyweb.css',
                                            'skyweb.js',
                                            'skyweb-test.html']] ),
-                   ("share/ciel", ["src/python/skywriting/runtime/lighttpd.conf"])],
+                   ("share/ciel", ["src/python/skywriting/runtime/lighttpd.conf"]),
+                   ("share/ciel/skywriting",
+                    ["src/sw/stdlib/%s" %s for s in
+                     ["environ", "grab", "java", "mapreduce",
+                      "stdinout", "sync"]])],
     classifiers = [
             'Development Status :: 3 - Alpha',
             'Intended Audience :: Developers',

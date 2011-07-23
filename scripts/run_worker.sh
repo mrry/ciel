@@ -16,11 +16,14 @@ then
     staticbase=${BASE}/src/js/skyweb/
     lighttpd_conf=${BASE}/src/python/skywriting/runtime/lighttpd.conf
     store_base=${BASE}
+    skywriting_lang=${BASE}/src/python/skywriting/lang
+    skywriting_stdlib=${BASE}/src/sw/stdlib
 else
+    PYTHONVER=$(python --version 2>&1 | cut -d' ' -f 2 | cut -d '.' -f1,2)
+    pprefix=$install_prefix/lib/python${PYTHONVER}/site-packages
     if [ "$install_prefix" != "/" ] && [ "$install_prefix" != "/usr" ] && [ "$install_prefix" != "/usr/local" ]
     then
-	PYTHONVER=$(python --version 2>&1 | cut -d' ' -f 2 | cut -d '.' -f1,2)
-	my_python_path=$install_prefix/lib/python${PYTHONVER}/site-packages
+	my_python_path="${pprefix}"
     else
 	my_python_path=""
     fi
@@ -28,6 +31,8 @@ else
     staticbase=${install_prefix}/share/ciel/skyweb/
     lighttpd_conf=${install_prefix}/share/ciel/lighttpd.conf
     store_base=${install_prefix}/var/run/ciel
+    skywriting_lang=${pprefix}/skywriting/lang
+    skywriting_stdlib=${install_prefix}/share/ciel/skywriting
 fi
 if ! [ -z "$my_python_path" ]
 then
@@ -72,6 +77,6 @@ export CLASSPATH=${BASE}/dist/skywriting.jar:${BASE}/ext/google-gson-${GSON_VERS
 export SW_MONO_LOADER_PATH=${BASE}/src/csharp/bin/loader.exe
 export SW_C_LOADER_PATH=${BASE}/src/c/src/loader
 export CIEL_SKYPY_BASE=${BASE}/src/python/skywriting/runtime/worker/skypy
-export CIEL_SW_BASE=${BASE}/src/python/skywriting/lang
-export CIEL_SW_STDLIB=${BASE}/src/sw/stdlib
+export CIEL_SW_BASE=${skywriting_lang}
+export CIEL_SW_STDLIB=${skywriting_stdlib}
 ${sw_worker} --role worker --master ${MASTER} --port $WORKER_PORT --staticbase "$staticbase" ${HTTPD} -b $ABS_BLOCK_LOCATION -T ciel-process-aaca0f5eb4d2d98a6ce6dffa99f8254b ${EXTRA_CONF} $*
