@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/bin/bash -e
 
 if [ "${0#/}" = "${0}" ]
 then
@@ -28,9 +28,9 @@ if ! [ -z "$my_python_path" ]
 then
     if [ -z "$PYTHONPATH" ]
     then
-	export PYTHONPATH=$my_python_path
+	export PYTHONPATH="$my_python_path"
     else
-	PYTHONPATH=${PYTHONPATH}:$my_python_path
+	PYTHONPATH="${PYTHONPATH}:$my_python_path"
     fi
 fi
 
