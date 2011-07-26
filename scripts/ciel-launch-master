@@ -19,7 +19,7 @@ fi
 
 # Figure out whether this is running in-place in the source directory
 # or in an installed version
-install_prefix=${me%bin/run_master.sh}
+install_prefix=${me%bin/ciel-launch-master}
 if [ "$install_prefix" = "$me" ]
 then
     # It's a source install

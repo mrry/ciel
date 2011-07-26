@@ -7,7 +7,7 @@ else
     me=$0
 fi
 
-install_prefix=${me%bin/run_worker.sh}
+install_prefix=${me%bin/ciel-launch-worker}
 if [ "$install_prefix" = "$me" ]
 then
     BASE=$(pwd)
