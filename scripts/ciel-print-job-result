@@ -6,6 +6,5 @@ import sys
 
 decoded_result = skywriting.runtime.util.start_job.result()
 
-print "Job result:", decoded_result
-
+print decoded_result
 sys.exit(0)
