@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2010 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
+# Copyright (c) 2010-2011 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -15,14 +15,14 @@
 #
 # ----
 #
-# Skywriting/Ciel cluster launch script.
+# Ciel cluster launch script.
 #
 # usage: See sw-launch-cluster -h
 
 # defaults
 KEY="sw-masterkey"
-SWUSER="root"
-SWROOT="/opt/skywriting"
+SWUSER=${SWUSER:-"root"}
+SWROOT=${SWROOT:-"/opt/skywriting"}
 VERBOSE=0
 SKIPMASTER=0
 LOCAL_CLUSTER=0
