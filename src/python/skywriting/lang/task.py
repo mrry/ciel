@@ -21,6 +21,7 @@ import pickle
 import httplib2
 import sys
 import os
+from pkg_resources import Requirement, resource_filename
 
 class SWContinuation:
     
@@ -227,6 +228,9 @@ class SkywritingTask:
             return package_val
     
     def include_script(self, target_expr):
+
+    lighty_conf_template = resource_filename(Requirement.parse("ciel"), "resources/lighttpd.conf")
+
         if isinstance(target_expr, basestring):
             # Name may be relative to the local stdlib.
             if target_expr.startswith('http'):
@@ -237,7 +241,7 @@ class SkywritingTask:
                     raise
             else:
                 try:
-                    with open(os.path.join(self.stdlib_base, target_expr), "r") as fp:
+                    with open(resource_filename(Requirement.parse("ciel"), os.path.join("resources/skywriting/stdlib/", target_expr)), "r") as fp:
                         script_str = fp.read()
                 except Exception as e:
                     print >>sys.stderr, "Include file failed:", repr(e)
