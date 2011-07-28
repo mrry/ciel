@@ -1,0 +1,2 @@
+include src/python/skywriting/runtime/lighttpd.conf
+include src/sw/stdlib/*

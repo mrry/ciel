@@ -68,7 +68,7 @@ class Worker(plugins.SimplePlugin):
 #        else:
 #            self.hostname = options.hostname
 
-        self.lighty_conf_template = resource_filename(Requirement.parse("ciel"), "resources/lighttpd.conf")
+        self.lighty_conf_template = resource_filename(Requirement.parse("ciel"), "share/ciel/lighttpd.conf")
         if options.blockstore is None:
             self.static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         else:
