@@ -15,7 +15,6 @@ from skywriting.runtime.executors.swi import SkywritingExecutor
 from skywriting.runtime.executors.skypy import SkyPyExecutor
 from skywriting.runtime.executors.stdinout import SWStdinoutExecutor
 from skywriting.runtime.executors.dotnet import DotNetExecutor
-from skywriting.runtime.executors.java import JavaExecutor
 from skywriting.runtime.executors.environ import EnvironmentExecutor
 from skywriting.runtime.executors.cso import CExecutor
 from skywriting.runtime.executors.grab import GrabURLExecutor
@@ -23,21 +22,31 @@ from skywriting.runtime.executors.sync import SyncExecutor
 from skywriting.runtime.executors.init import InitExecutor
 from skywriting.runtime.executors.proc import ProcExecutor
 from skywriting.runtime.executors.ocaml import OCamlExecutor
-from skywriting.runtime.executors.java2 import Java2Executor
 import ciel
 import logging
+import pkg_resources
 
 class ExecutionFeatures:
     
     def __init__(self):
 
         self.executors = dict([(x.handler_name, x) for x in [SkywritingExecutor, SkyPyExecutor, SWStdinoutExecutor, 
-                                                             EnvironmentExecutor, JavaExecutor, DotNetExecutor, 
+                                                             EnvironmentExecutor, DotNetExecutor, 
                                                              CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
-                                                             Java2Executor, OCamlExecutor, ProcExecutor]])
+                                                             OCamlExecutor, ProcExecutor]])
+
+        for entrypoint in pkg_resources.iter_entry_points(group="ciel.executor.plugin"):
+            classes_function = entrypoint.load()
+            plugin_classes = classes_function()
+            for plugin_class in plugin_classes:
+                ciel.log("Found plugin for %s executor" % plugin_class.handler_name, 'EXEC', logging.INFO)
+                self.executors[plugin_class.handler_name] = plugin_class
+
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
-        cacheable_executors = [SkywritingExecutor, SkyPyExecutor, Java2Executor]
-        self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
+        #cacheable_executors = [SkywritingExecutor, SkyPyExecutor, Java2Executor]
+        #self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
+        # TODO: Implement a class method for this.
+        self.process_cacheing_executors = []
 
     def all_features(self):
         return self.executors.keys()
