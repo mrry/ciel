@@ -21,8 +21,6 @@ import logging
 class SkywritingExecutor(ProcExecutor):
 
     handler_name = "swi"
-    stdlibbase = os.getenv("CIEL_SW_STDLIB", None)
-    sw_interpreter_base = os.getenv("CIEL_SW_BASE", None)
     process_cache = set()
 
     def __init__(self, worker):
@@ -59,8 +57,4 @@ class SkywritingExecutor(ProcExecutor):
 
     @staticmethod
     def can_run():
-        if SkywritingExecutor.sw_interpreter_base is None:
-            ciel.log.error("Can't run Skywriting: CIEL_SW_BASE not in environment", "SKYWRITING", logging.WARNING)
-            return False
-        else:
-            return test_program(["skywriting", "--version"], "Skywriting")
+        return test_program(["skywriting", "--version"], "Skywriting")
