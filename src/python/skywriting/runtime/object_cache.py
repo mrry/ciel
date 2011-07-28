@@ -2,8 +2,10 @@
 import pickle
 import simplejson
 from cStringIO import StringIO
-from shared.references import SWReferenceJSONEncoder, json_decode_object_hook
-from skywriting.runtime.executor_helpers import ref_from_string, retrieve_strings_for_refs
+from shared.references import SWReferenceJSONEncoder, json_decode_object_hook,\
+    SWDataValue, encode_datavalue
+from skywriting.runtime.producer import make_local_output, ref_from_string
+from skywriting.runtime.fetcher import retrieve_strings_for_refs
 
 def decode_handle(file):
     return file
@@ -61,3 +63,6 @@ def retrieve_objects_for_refs(ref_and_decoders, task_record):
 def retrieve_object_for_ref(ref, decoder, task_record):
     
     return retrieve_objects_for_refs([(ref, decoder)], task_record)[0]
+
+    
+

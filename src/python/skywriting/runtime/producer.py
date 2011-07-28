@@ -10,9 +10,12 @@ from datetime import datetime, timedelta
 
 import skywriting.runtime.tcp_server
 import skywriting.runtime.file_watcher as fwt
-from skywriting.runtime.block_store import get_own_netloc, producer_filename
+from skywriting.runtime.block_store import get_own_netloc, producer_filename,\
+    filename_for_ref
 from shared.references import SWDataValue, encode_datavalue, SW2_ConcreteReference, \
-    SW2_StreamReference, SW2_CompletedReference, SW2_SocketStreamReference
+    SW2_StreamReference, SW2_CompletedReference, SW2_SocketStreamReference,\
+    decode_datavalue_string
+import shutil
 
 # Maintains a set of block IDs that are currently being written.
 # (i.e. They are in the pre-publish/streamable state, and have not been
@@ -251,4 +254,36 @@ def get_producer_for_id(id):
     except KeyError:
         return None
 
+def ref_from_string(string, id):
+    if len(string) < 1024:
+        return SWDataValue(id, value=encode_datavalue(string))
+    else:
+        output_ctx = make_local_output(id)
+        filename, _ = output_ctx.get_filename_or_fd()
+        with open(filename, "w") as fp:
+            fp.write(string)
+        output_ctx.close()
+        return output_ctx.get_completed_ref()
         
+def write_fixed_ref_string(string, fixed_ref):
+    output_ctx = make_local_output(fixed_ref.id)
+    with open(filename_for_ref(fixed_ref), "w") as fp:
+        fp.write(string)
+    output_ctx.close()
+
+def ref_from_safe_string(string, id):
+    if len(string) < 1024:
+        return SWDataValue(id, value=string)
+    else:
+        return ref_from_string(decode_datavalue_string(string), id)
+
+# Why not just rename to self.filename(id) and skip this nonsense? Because os.rename() can be non-atomic.
+# When it renames between filesystems it does a full copy; therefore I copy/rename to a colocated dot-file,
+# then complete the job by linking the proper name in output_ctx.close().
+def ref_from_external_file(filename, id):
+    output_ctx = make_local_output(id)
+    with output_ctx:
+        (new_filename, is_fd) = output_ctx.get_filename_or_fd()
+        assert not is_fd
+        shutil.move(filename, new_filename)
+    return output_ctx.get_completed_ref()

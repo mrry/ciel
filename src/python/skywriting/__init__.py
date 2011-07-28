@@ -21,7 +21,7 @@ import sys
 import os
 import logging
 import ciel
-from skywriting.runtime.executors import set_never_reuse_process
+from skywriting.runtime.executors.proc import set_never_reuse_process
 
 def set_port(port):
     cherrypy.config.update({'server.socket_port': port})

@@ -24,9 +24,9 @@ from shared.references import SWReferenceJSONEncoder
 import pickle
 import threading
 from skywriting.runtime.pycurl_rpc import post_string
-from skywriting.runtime.executor_helpers import write_fixed_ref_string
 from skywriting.runtime.block_store import is_ref_local
 from shared.io_helpers import write_framed_json
+from skywriting.runtime.producer import write_fixed_ref_string
 
 class ProcessRecord:
     """Represents a long-running process that is attached to this worker."""

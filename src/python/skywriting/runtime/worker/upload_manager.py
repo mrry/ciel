@@ -16,8 +16,7 @@ import logging
 import os
 import ciel
 from skywriting.runtime.producer import make_local_output
-from skywriting.runtime.executor_helpers import retrieve_filenames_for_refs,\
-    sync_retrieve_refs
+from skywriting.runtime.fetcher import sync_retrieve_refs
 
 class UploadSession:
     

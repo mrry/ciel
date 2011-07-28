@@ -12,8 +12,8 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import skywriting.runtime.executors
-from skywriting.runtime.executor_helpers import ref_from_string
 import ciel
+from skywriting.runtime.producer import ref_from_string
 
 '''
 Created on 8 Feb 2010
