@@ -7,7 +7,7 @@ setup(
     author = "Derek Murray",
     author_email = "Derek.Murray@cl.cam.ac.uk",
     url = "http://www.cl.cam.ac.uk/netos/ciel/",
-    packages = [ 'skywriting', 'skywriting.lang', 'skywriting.runtime',
+    packages = [ 'skywriting', 'skywriting.runtime',
                  'skywriting.runtime.master', 'skywriting.runtime.worker',
                  'skywriting.runtime.executors', 'skywriting.runtime.util', 'ciel', 'shared' ],
     package_dir = { '' : 'src/python' },
@@ -16,12 +16,8 @@ setup(
                    'ciel-launch-master', 'ciel-launch-worker', 'ciel-poll-job',
                    'ciel-print-job-result', 'ciel-run-job', 'ciel-run-job-async',
                    'ciel-task-crawler', 'sw-job', 'sw-master', 'sw-start-job', 
-                   'sw-worker', 'skywriting'] ],
-    data_files = [ ("share/ciel/", ["src/python/skywriting/runtime/lighttpd.conf"]),
-                   ("share/ciel/skywriting/stdlib/",
-                   ["src/sw/stdlib/%s" %s for s in
-                     ["environ", "grab", "java", "mapreduce",
-                      "stdinout", "sync"]])],
+                   'sw-worker'] ],
+    data_files = [ ("share/ciel/", ["src/python/skywriting/runtime/lighttpd.conf"]) ],
     classifiers = [
             'Development Status :: 3 - Alpha',
             'Intended Audience :: Developers',
