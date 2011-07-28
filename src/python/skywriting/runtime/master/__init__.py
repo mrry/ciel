@@ -95,9 +95,6 @@ def master_main(options):
 
     cherrypy_conf = dict()
     
-    if options.staticbase is not None:
-        cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
-
     app = cherrypy.tree.mount(root, "", cherrypy_conf)
     lighty_conf_template = resource_filename(Requirement.parse("ciel"), "resources/lighttpd.conf")
     if lighty_conf_template is not None:

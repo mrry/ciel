@@ -38,6 +38,7 @@ from skywriting.runtime.worker.process_pool import ProcessPool
 from skywriting.runtime.worker.multiworker import MultiWorker
 from skywriting.runtime.pycurl_thread import create_pycurl_thread
 from skywriting.runtime.tcp_server import create_tcp_server
+from pkg_resources import Requirement, resource_filename
 
 class WorkerState:
     pass
@@ -67,7 +68,7 @@ class Worker(plugins.SimplePlugin):
 #        else:
 #            self.hostname = options.hostname
 
-        self.lighty_conf_template = options.lighty_conf
+        self.lighty_conf_template = resource_filename(Requirement.parse("ciel"), "resources/lighttpd.conf")
         if options.blockstore is None:
             self.static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
         else:
@@ -108,11 +109,6 @@ class Worker(plugins.SimplePlugin):
         self.cherrypy_conf = {}
 
         cherrypy.config.update({"server.thread_pool" : 20})
-
-
-        
-        if options.staticbase is not None:
-            self.cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
 
         self.subscribe()
 
