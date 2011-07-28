@@ -17,9 +17,9 @@ setup(
                    'ciel-print-job-result', 'ciel-run-job', 'ciel-run-job-async',
                    'ciel-task-crawler', 'sw-job', 'sw-master', 'sw-start-job', 
                    'sw-worker'] ],
-    data_files = [ ("share/ciel", ["src/python/skywriting/runtime/lighttpd.conf"]),
-                   ("share/ciel/skywriting",
-                    ["src/sw/stdlib/%s" %s for s in
+    data_files = [ ("resources/", ["src/python/skywriting/runtime/lighttpd.conf"]),
+                   ("resources/skywriting/stdlib/",
+                   ["src/sw/stdlib/%s" %s for s in
                      ["environ", "grab", "java", "mapreduce",
                       "stdinout", "sync"]])],
     classifiers = [

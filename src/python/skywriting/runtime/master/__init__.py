@@ -36,6 +36,7 @@ import subprocess
 import tempfile
 import urllib
 import urllib2
+from pkg_resources import Requirement, resource_filename
 
 def master_main(options):
 
@@ -98,7 +99,7 @@ def master_main(options):
         cherrypy_conf["/skyweb"] = { "tools.staticdir.on": True, "tools.staticdir.dir": options.staticbase }
 
     app = cherrypy.tree.mount(root, "", cherrypy_conf)
-    lighty_conf_template = options.lighty_conf
+    lighty_conf_template = resource_filename(Requirement.parse("ciel"), "resources/lighttpd.conf")
     if lighty_conf_template is not None:
         lighty = LighttpdAdapter(ciel.engine, lighty_conf_template, static_content_root, local_port)
         lighty.subscribe()
