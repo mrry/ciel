@@ -17,6 +17,7 @@ import uuid
 import ciel
 import logging
 import simplejson
+import shutil
 from datetime import datetime
 from shared.references import SW2_FixedReference
 import urlparse
@@ -80,8 +81,9 @@ class ProcessRecord:
                 self.from_process_fifo.close()
             if self.to_process_fifo is not None:
                 self.to_process_fifo.close()
+            shutil.rmtree(self.fifos_dir)
         except:
-            ciel.log('Error cleaning up process %s, ignoring' % self.id, 'PROCESS', logging.WARN)
+            ciel.log('Error cleaning up process %s, ignoring' % self.id, 'PROCESS', logging.WARN, True)
             
     def kill(self):
         ciel.log("Garbage collecting process %s" % self.id, "PROCESSPOOL", logging.INFO)
@@ -183,7 +185,9 @@ class ProcessPool:
     
     def stop(self):
         self.gc_thread_stop.set()
+        print "Cleaning up!"
         for record in self.processes.values():
+            print record
             record.cleanup()
         
     def get_reference_for_process(self, record):
