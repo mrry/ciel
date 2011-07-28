@@ -55,10 +55,7 @@ class SkywritingExecutor(ProcExecutor):
                                                   is_tail_spawn=is_tail_spawn, is_fixed=False, **kwargs)
 
     def get_command(self):
-        command = ["python", os.path.join(SkywritingExecutor.sw_interpreter_base, "interpreter_main.py")]
-        if SkywritingExecutor.stdlibbase is not None:
-            command.extend(["--stdlib-base", SkywritingExecutor.stdlibbase])
-        return command
+        return ["skywriting"]
 
     @staticmethod
     def can_run():

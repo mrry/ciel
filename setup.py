@@ -9,7 +9,7 @@ setup(
     url = "http://www.cl.cam.ac.uk/netos/ciel/",
     packages = [ 'skywriting', 'skywriting.lang', 'skywriting.runtime',
                  'skywriting.runtime.master', 'skywriting.runtime.worker',
-                 'skywriting.runtime.util', 'ciel', 'shared' ],
+                 'skywriting.runtime.executors', 'skywriting.runtime.util', 'ciel', 'shared' ],
     package_dir = { '' : 'src/python' },
     scripts = [ "scripts/%s" %s for s in
                   ['ciel-killall.sh', 'ciel-kill-cluster', 'ciel-launch-cluster',
