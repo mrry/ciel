@@ -1,3 +1,5 @@
+/build
+/src/python/ciel.egg-info
 /bin
 /dist
 /ext
