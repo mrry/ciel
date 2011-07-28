@@ -229,8 +229,6 @@ class SkywritingTask:
     
     def include_script(self, target_expr):
 
-        lighty_conf_template = resource_filename(Requirement.parse("ciel"), "resources/lighttpd.conf")
-
         if isinstance(target_expr, basestring):
             # Name may be relative to the local stdlib.
             if target_expr.startswith('http'):
