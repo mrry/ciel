@@ -16,7 +16,7 @@ setup(
                    'ciel-launch-master', 'ciel-launch-worker', 'ciel-poll-job',
                    'ciel-print-job-result', 'ciel-run-job', 'ciel-run-job-async',
                    'ciel-task-crawler', 'sw-job', 'sw-master', 'sw-start-job', 
-                   'sw-worker'] ],
+                   'sw-worker', 'skywriting'] ],
     data_files = [ ("resources/", ["src/python/skywriting/runtime/lighttpd.conf"]),
                    ("resources/skywriting/stdlib/",
                    ["src/sw/stdlib/%s" %s for s in
