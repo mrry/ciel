@@ -5,7 +5,7 @@ setup(
     version = '0.1-dev',
     description = "Execution engine for distributed, parallel computation",
     author = "Derek Murray",
-    author_email = "derek.murray@cl.cam.ac.uk",
+    author_email = "Derek.Murray@cl.cam.ac.uk",
     url = "http://www.cl.cam.ac.uk/netos/ciel/",
     packages = [ 'skywriting', 'skywriting.lang', 'skywriting.runtime',
                  'skywriting.runtime.master', 'skywriting.runtime.worker',
