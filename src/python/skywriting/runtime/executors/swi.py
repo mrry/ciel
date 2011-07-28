@@ -66,4 +66,4 @@ class SkywritingExecutor(ProcExecutor):
             ciel.log.error("Can't run Skywriting: CIEL_SW_BASE not in environment", "SKYWRITING", logging.WARNING)
             return False
         else:
-            return test_program(["python", os.path.join(SkywritingExecutor.sw_interpreter_base, "interpreter_main.py"), "--version"], "Skywriting")
+            return test_program(["skywriting", "--version"], "Skywriting")
