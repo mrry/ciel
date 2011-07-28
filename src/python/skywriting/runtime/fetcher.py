@@ -1,7 +1,21 @@
+# Copyright (c) 2010--11 Chris Smowton <Chris.Smowton@cl.cam.ac.uk>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference,\
     SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue,\
-    SW2_FetchReference
+    SW2_FetchReference, decode_datavalue_string, encode_datavalue,\
+    SW2_TombstoneReference
 
 import tempfile
 import subprocess
@@ -13,8 +27,14 @@ from skywriting.runtime.pycurl_data_fetch import HttpTransferContext
 from skywriting.runtime.tcp_data_fetch import TcpTransferContext
 from skywriting.runtime.block_store import filename_for_ref, producer_filename,\
     get_own_netloc, create_datavalue_file
-from skywriting.runtime.producer import get_producer_for_id
-from skywriting.runtime.exceptions import ErrorReferenceError
+from skywriting.runtime.producer import get_producer_for_id,\
+    ref_from_external_file, ref_from_string
+from skywriting.runtime.exceptions import ErrorReferenceError,\
+    MissingInputException
+import hashlib
+import contextlib
+import urllib2
+import urlparse
 
 class AsyncPushThread:
 
@@ -323,3 +343,278 @@ def fetch_ref_async(ref, result_callback, reset_callback, start_filename_callbac
     new_client.start_fetch()
     return new_client
 
+class SynchronousTransfer:
+        
+    def __init__(self, ref, task_record):
+        self.ref = ref
+        self.filename = None
+        self.str = None
+        self.success = None
+        self.completed_ref = None
+        self.task_record = task_record
+        self.finished_event = threading.Event()
+
+    def result(self, success, completed_ref):
+        self.success = success
+        self.completed_ref = completed_ref
+        self.finished_event.set()
+
+    def reset(self):
+        pass
+
+    def start_filename(self, filename, is_pipe):
+        self.filename = filename
+
+    def return_string(self, str):
+        self.str = str
+        self.success = True
+        self.finished_event.set()
+
+    def wait(self):
+        self.finished_event.wait()
+        
+class FileOrString:
+    
+    def __init__(self, strdata=None, filename=None, completed_ref=None):
+        self.str = strdata
+        self.filename = filename
+        self.completed_ref = completed_ref
+            
+    @staticmethod
+    def from_dict(in_dict):
+        return FileOrString(**in_dict)
+    
+    @staticmethod
+    def from_safe_dict(in_dict):
+        try:
+            in_dict["strdata"] = decode_datavalue_string(in_dict["strdata"])
+        except KeyError:
+            pass
+        return FileOrString(**in_dict)
+    
+    def to_dict(self):
+        if self.str is not None:
+            return {"strdata": self.str}
+        else:
+            return {"filename": self.filename}
+        
+    def to_safe_dict(self):
+        if self.str is not None:
+            return {"strdata": encode_datavalue(self.str)}
+        else:
+            return {"filename": self.filename}
+
+    def to_ref(self, refid):
+        if self.str is not None:
+            ref = ref_from_string(self.str, refid)
+        else:
+            ref = ref_from_external_file(self.filename, refid)
+        return ref
+
+    def to_str(self):
+        if self.str is not None:
+            return self.str
+        else:
+            with open(self.filename, "r") as f:
+                return f.read()
+            
+def sync_retrieve_refs(refs, task_record, accept_string=False):
+    
+    ctxs = []
+    
+    for ref in refs:
+        sync_transfer = SynchronousTransfer(ref, task_record)
+        ciel.log("Synchronous fetch ref %s" % ref.id, "BLOCKSTORE", logging.DEBUG)
+        if accept_string:
+            kwargs = {"string_callback": sync_transfer.return_string}
+        else:
+            kwargs = {}
+        fetch_ref_async(ref, sync_transfer.result, sync_transfer.reset, sync_transfer.start_filename, task_record=task_record, **kwargs)
+        ctxs.append(sync_transfer)
+            
+    for ctx in ctxs:
+        ctx.wait()
+            
+    failed_transfers = filter(lambda x: not x.success, ctxs)
+    if len(failed_transfers) > 0:
+        raise MissingInputException(dict([(ctx.ref.id, SW2_TombstoneReference(ctx.ref.id, ctx.ref.location_hints)) for ctx in failed_transfers]))
+    return ctxs
+
+def retrieve_files_or_strings_for_refs(refs, task_record):
+    
+    ctxs = sync_retrieve_refs(refs, task_record, accept_string=True)
+    return [FileOrString(ctx.str, ctx.filename, ctx.completed_ref) for ctx in ctxs]
+
+def retrieve_file_or_string_for_ref(ref, task_record):
+    
+    return retrieve_files_or_strings_for_refs([ref], task_record)[0]
+
+def retrieve_filenames_for_refs(refs, task_record, return_ctx=False):
+        
+    ctxs = sync_retrieve_refs(refs, task_record, accept_string=False)
+    if return_ctx:
+        return [FileOrString(None, ctx.filename, ctx.completed_ref) for ctx in ctxs]
+    else:
+        return [x.filename for x in ctxs]
+
+def retrieve_filename_for_ref(ref, task_record, return_ctx=False):
+
+    return retrieve_filenames_for_refs([ref], task_record, return_ctx)[0]
+
+def get_ref_for_url(url, version, task_id):
+    """
+    Returns a SW2_ConcreteReference for the data stored at the given URL.
+    Currently, the version is ignored, but we imagine using this for e.g.
+    HTTP ETags, which would raise an error if the data changed.
+    """
+
+    parsed_url = urlparse.urlparse(url)
+    if parsed_url.scheme == 'swbs':
+        # URL is in a Skywriting Block Store, so we can make a reference
+        # for it directly.
+        id = parsed_url.path[1:]
+        ref = SW2_ConcreteReference(id, None)
+        ref.add_location_hint(parsed_url.netloc)
+    else:
+        # URL is outside the cluster, so we have to fetch it. We use
+        # content-based addressing to name the fetched data.
+        hash = hashlib.sha1()
+
+        # 1. Fetch URL to a file-like object.
+        with contextlib.closing(urllib2.urlopen(url)) as url_file:
+
+            # 2. Hash its contents and write it to disk.
+            with tempfile.NamedTemporaryFile('wb', 4096, delete=False) as fetch_file:
+                fetch_filename = fetch_file.name
+                while True:
+                    chunk = url_file.read(4096)
+                    if not chunk:
+                        break
+                    hash.update(chunk)
+                    fetch_file.write(chunk)
+
+        # 3. Store the fetched file in the block store, named by the
+        #    content hash.
+        id = 'urlfetch:%s' % hash.hexdigest()
+        ref = ref_from_external_file(fetch_filename, id)
+
+    return ref
+
+class OngoingFetch:
+
+    def __init__(self, ref, chunk_size, task_record, sole_consumer=False, make_sweetheart=False, must_block=False, can_accept_fd=False):
+        self.lock = threading.Lock()
+        self.condvar = threading.Condition(self.lock)
+        self.bytes = 0
+        self.ref = ref
+        self.chunk_size = chunk_size
+        self.sole_consumer = sole_consumer
+        self.make_sweetheart = make_sweetheart
+        self.task_record = task_record
+        self.done = False
+        self.success = None
+        self.filename = None
+        self.fd = None
+        self.completed_ref = None
+        self.file_blocking = None
+        # may_pipe = True because this class is only used for async operations.
+        # The only current danger of pipes is that waiting for a transfer to complete might deadlock.
+        if can_accept_fd:
+            fd_callback = self.set_fd
+        else:
+            fd_callback = None
+        self.fetch_ctx = fetch_ref_async(ref, 
+                                         result_callback=self.result,
+                                         progress_callback=self.progress, 
+                                         reset_callback=self.reset,
+                                         start_filename_callback=self.set_filename,
+                                         start_fd_callback=fd_callback,
+                                         chunk_size=chunk_size,
+                                         may_pipe=True,
+                                         must_block=must_block,
+                                         sole_consumer=sole_consumer,
+                                         task_record=task_record)
+        
+    def progress(self, bytes):
+        with self.lock:
+            self.bytes = bytes
+            self.condvar.notify_all()
+
+    def result(self, success, completed_ref):
+        with self.lock:
+            self.done = True
+            self.success = success
+            self.completed_ref = completed_ref
+            self.condvar.notify_all()
+
+    def reset(self):
+        with self.lock:
+            self.done = True
+            self.success = False
+            self.condvar.notify_all()
+        # XXX: This is causing failures. Is it a vestige?
+        #self.client.cancel()
+
+    def set_filename(self, filename, is_blocking):
+        with self.lock:
+            self.filename = filename
+            self.file_blocking = is_blocking
+            self.condvar.notify_all()
+            
+    def set_fd(self, fd, is_blocking):
+        with self.lock:
+            self.fd = fd
+            self.file_blocking = is_blocking
+            self.condvar.notify_all()
+
+    def get_filename(self):
+        with self.lock:
+            while self.filename is None and self.success is not False:
+                self.condvar.wait()
+            if self.filename is not None:
+                return (self.filename, self.file_blocking)
+            else:
+                return (None, None)
+        
+    def get_fd(self):
+        with self.lock:
+            while self.fd is None and self.filename is None and self.success is not False:
+                self.condvar.wait()
+            if self.fd is not None:
+                return (self.fd, self.file_blocking)
+            else:
+                return (None, None)
+
+    def get_completed_ref(self):
+        return self.completed_ref
+
+    def wait_bytes(self, bytes):
+        with self.lock:
+            while self.bytes < bytes and not self.done:
+                self.condvar.wait()
+
+    def wait_eof(self):
+        with self.lock:
+            while not self.done:
+                self.condvar.wait()
+
+    def cancel(self):
+        self.fetch_ctx.cancel()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exnt, exnv, exnbt):
+        if not self.done:
+            ciel.log("Cancelling async fetch for %s" % self.ref, "EXEC", logging.WARNING)
+            self.cancel()
+        return False
+
+def retrieve_strings_for_refs(refs, task_record):
+
+    ctxs = retrieve_files_or_strings_for_refs(refs, task_record)
+    return [ctx.to_str() for ctx in ctxs]
+
+def retrieve_string_for_ref(ref, task_record):
+        
+    return retrieve_strings_for_refs([ref], task_record)[0]

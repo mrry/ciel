@@ -4,7 +4,6 @@ import load
 import urlparse
 import httplib2
 import pickle
-import skywriting.runtime.executors
 import time
 import datetime
 import os.path
@@ -19,6 +18,7 @@ from optparse import OptionParser
 from skywriting.runtime.block_store import get_fetch_urls_for_ref
 from StringIO import StringIO
 import sys
+from skywriting.runtime.executors.init import build_init_descriptor
 
 http = httplib2.Http()
 
@@ -123,7 +123,7 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
 
     resolved_args = resolve_vars(start_args, {"__package__": lambda x: submit_package_dict[x["__package__"]]})
 
-    return skywriting.runtime.executors.build_init_descriptor(start_handler, resolved_args, package_ref, master_uri, ref_of_string)
+    return build_init_descriptor(start_handler, resolved_args, package_ref, master_uri, ref_of_string)
 
 def submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args):
     

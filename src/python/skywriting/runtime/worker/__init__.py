@@ -18,7 +18,6 @@ from skywriting.runtime.worker.master_proxy import MasterProxy
 from skywriting.runtime.task_executor import TaskExecutorPlugin
 from skywriting.runtime.block_store import BlockStore
 from skywriting.runtime.worker.worker_view import WorkerRoot
-from skywriting.runtime.executors import ExecutionFeatures
 from skywriting.runtime.worker.pinger import Pinger
 from skywriting.runtime.file_watcher import create_watcher_thread
 from cherrypy.process import plugins
@@ -38,6 +37,7 @@ from skywriting.runtime.worker.process_pool import ProcessPool
 from skywriting.runtime.worker.multiworker import MultiWorker
 from skywriting.runtime.pycurl_thread import create_pycurl_thread
 from skywriting.runtime.tcp_server import create_tcp_server
+from skywriting.runtime.worker.execution_features import ExecutionFeatures
 from pkg_resources import Requirement, resource_filename
 
 class WorkerState:
