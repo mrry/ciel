@@ -7,4 +7,9 @@
 #
 
 # Additional options that are passed to the Daemon.
-DAEMON_OPTS=""
+START_MASTER=no
+BLOCK_STORE=/var/lib/ciel
+MASTER_PORT=8000
+
+START_WORKER=no
+WORKER_PORT=8001

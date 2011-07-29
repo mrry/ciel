@@ -1,24 +1,26 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          ciel
-# Required-Start:    $network $local_fs
+# Required-Start:    $network $local_fs $remote_fs
 # Required-Stop:
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: <Enter a short description of the sortware>
-# Description:       <Enter a long description of the software>
-#                    <...>
-#                    <...>
+# Short-Description: a execution engine for distributed computing
+# Description:       CIEL is designed to achieve high scalability
+#                    and reliability when run on a commodity cluster
+#                    or cloud computing platform. CIEL supports the
+#                    full range of MapReduce-style computations, as
+#                    well as Turing-powerful support for iterative
+#                    and dynamic programming.
 ### END INIT INFO
 
-# Author: Ubuntu <ubuntu@ip-10-98-75-166.ec2.internal>
+# Author: Anil Madhavapeddy <anil@recoil.org>
 
-# PATH should only include /usr/* if it runs after the mountnfs.sh script
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
-DESC=ciel             # Introduce a short description here
-NAME=ciel             # Introduce the short server's name here
-DAEMON=/usr/sbin/ciel # Introduce the server's location here
-DAEMON_ARGS=""             # Arguments to run the daemon with
+DESC=ciel
+NAME=ciel
+MASTER=/usr/bin/sw-master
+WORKER=/usr/bin/sw-worker
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
@@ -35,6 +37,9 @@ SCRIPTNAME=/etc/init.d/$NAME
 # Depend on lsb-base (>= 3.0-6) to ensure that this file is present.
 . /lib/lsb/init-functions
 
+MASTER_CMD="--role master --port $MASTER_PORT -b $BLOCK_STORE $MASTER_ARGS"
+WORKER_CMD="--role worker --port $WORKER_PORT -b $BLOCK_STORE $WORKER_ARGS"
+
 #
 # Function that starts the daemon/service
 #
@@ -44,14 +49,9 @@ do_start()
 	#   0 if daemon has been started
 	#   1 if daemon was already running
 	#   2 if daemon could not be started
-	start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON --test > /dev/null \
-		|| return 1
-	start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- \
-		$DAEMON_ARGS \
+	start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $MASTER -- \
+		$MASTER_CMD \
 		|| return 2
-	# Add code here, if necessary, that waits for the process to be ready
-	# to handle requests from services started subsequently which depend
-	# on this one.  As a last resort, sleep for some time.
 }
 
 #
