@@ -20,6 +20,7 @@ set -e
 
 case "$1" in
     configure)
+        mkdir -p /var/lib/ciel/data
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)
