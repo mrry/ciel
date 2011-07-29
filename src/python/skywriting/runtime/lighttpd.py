@@ -3,6 +3,7 @@ from cherrypy.process import plugins
 import subprocess
 import os.path
 import tempfile
+import shutil
 
 class LighttpdAdapter(plugins.SimplePlugin):
 
@@ -32,5 +33,6 @@ class LighttpdAdapter(plugins.SimplePlugin):
     def stop(self):
         try:
             self.lighty_proc.kill()
+            shutil.rmtree(self.lighty_ancillary_dir)
         except:
             pass

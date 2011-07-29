@@ -1,3 +1,0 @@
-function java(class_name, input_refs, argv, jar_refs, num_outputs) {
-	return spawn_exec("java", {"inputs" : input_refs, "class" : class_name, "lib" : jar_refs, "argv" : argv}, num_outputs);
-}  

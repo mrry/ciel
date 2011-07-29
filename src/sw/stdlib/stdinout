@@ -1,7 +1,0 @@
-function stdinout(input_refs, cmd_line) {
-	return spawn_exec("stdinout", {"inputs" : input_refs, "command_line" : cmd_line}, 1)[0];
-}
-
-function stdinout_stream(input_refs, cmd_line) {
-	return spawn_exec("stdinout", {"inputs" : input_refs, "command_line" : cmd_line, "stream_output" : true }, 1)[0];
-}

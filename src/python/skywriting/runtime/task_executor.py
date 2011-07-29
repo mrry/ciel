@@ -21,11 +21,11 @@ from threading import Lock
 import logging
 import hashlib
 import ciel
-from skywriting.runtime.executors import BaseExecutor
 import threading
 import datetime
 import time
 import urlparse
+from skywriting.runtime.executors.base import BaseExecutor
 
 class TaskExecutorPlugin(AsynchronousExecutePlugin):
     
