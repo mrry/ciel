@@ -1,15 +1,22 @@
 Source: ciel
-Section: unknown
-Priority: extra
-Maintainer: Ubuntu <ubuntu@ip-10-98-75-166.ec2.internal>
-Build-Depends: debhelper (>= 7.0.50~)
+Section: python
+Priority: optional
+Maintainer: Derek Murray <derek.murray@cl.cam.ac.uk>
+Build-Depends: debhelper (>= 7.0.50~), python-support, python (>=2.6), python-cherrypy3 (>=3.1), python-pycurl, python-httplib2, python-simplejson, python-flup
+XS-Python-Version: >=2.6
 Standards-Version: 3.9.1
-Homepage: <insert the upstream URL, if relevant>
-#Vcs-Git: git://git.debian.org/collab-maint/ciel.git
-#Vcs-Browser: http://git.debian.org/?p=collab-maint/ciel.git;a=summary
+Homepage: http://www.cl.cam.ac.uk/netos/ciel
+Vcs-Git: git://github.com/mrry/ciel.git
+Vcs-Browser: http://github.com/mrry/ciel
 
 Package: ciel
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: <insert up to 60 chars description>
- <insert long description, indented with spaces>
+Depends: ${misc:Depends}, ${python:Depends}, lighttpd
+Description: a universal execution engine for distributed computation
+ CIEL is designed to achieve high scalability and reliability when run on a
+ commodity cluster or cloud computing platform. CIEL supports the full range
+ of MapReduce-style computations, as well as Turing-powerful support for 
+ iterative and dynamic programming. The included Skywriting scripting language
+ allows developers to create more sophisticated algorithms using a JavaScript-like
+ syntax, and bindings are available for other languages such as Java, Scala,
+ Python or OCaml.

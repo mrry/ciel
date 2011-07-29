@@ -1,5 +1,5 @@
 ciel (0.1-1) unstable; urgency=low
 
-  * Initial release (Closes: #nnnn)  <nnnn is the bug number of your ITP>
+  * Initial release (Closes: #nnnn)
 
- -- Ubuntu <ubuntu@ip-10-98-75-166.ec2.internal>  Fri, 29 Jul 2011 13:39:04 +0000
+ -- Anil Madhavapeddy <anil@recoil.org>  Fri, 29 Jul 2011 10:45:21 +0000
