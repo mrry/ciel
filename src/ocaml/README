@@ -1,5 +1,0 @@
-This requires Yojson [1] and Delimcc [2] to build.
-Also copy ocaml-wrapper to your PATH.
-
-[1] http://martin.jambon.free.fr/atd-biniou-intro.html#yojson
-[2] http://okmij.org/ftp/continuations/implementations.html
