@@ -17,7 +17,8 @@ setup(
                    'ciel-print-job-result', 'ciel-run-job', 'ciel-run-job-async',
                    'ciel-task-crawler', 'sw-job', 'sw-master', 'sw-start-job', 
                    'sw-worker'] ],
-    data_files = [ ("share/ciel/", ["src/python/skywriting/runtime/lighttpd.conf"]) ],
+    package_data = {"ciel": ["src/python/skywriting/runtime/lighttpd.conf"]},
+    include_package_data = True,
     classifiers = [
             'Development Status :: 3 - Alpha',
             'Intended Audience :: Developers',

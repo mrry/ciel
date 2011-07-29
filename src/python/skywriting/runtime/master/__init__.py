@@ -96,7 +96,7 @@ def master_main(options):
     cherrypy_conf = dict()
     
     app = cherrypy.tree.mount(root, "", cherrypy_conf)
-    lighty_conf_template = resource_filename(Requirement.parse("ciel"), "share/ciel/lighttpd.conf")
+    lighty_conf_template = resource_filename(Requirement.parse("ciel"), "skywriting/runtime/lighttpd.conf")
     if lighty_conf_template is not None:
         lighty = LighttpdAdapter(ciel.engine, lighty_conf_template, static_content_root, local_port)
         lighty.subscribe()
