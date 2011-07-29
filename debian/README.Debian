@@ -1,6 +1,6 @@
-ciel for Debian
+CIEL for Debian
 ---------------
 
-<possible notes regarding this package - if none, delete this file>
+The default location of the CIEL datastores are in /var/lib/ciel
 
- -- Ubuntu <ubuntu@ip-10-98-75-166.ec2.internal>  Fri, 29 Jul 2011 13:39:04 +0000
+ -- Anil Madhavapeddy <anil@recoil.org>  Fri, 29 Jul 2011 13:39:04 +0000
