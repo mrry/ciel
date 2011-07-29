@@ -3,7 +3,10 @@ files may have different copyright assignments, depending on external
 contributors.
 
 /*
- * Copyright (c) 2010 Derek Murray <Derek.Murray@cl.cam.ac.uk>
+ * Copyright (c) 2010-2011 Derek Murray <Derek.Murray@cl.cam.ac.uk>
+ * Copyright (c) 2010-2011 Chris Smowton <Chris.Smowton@cl.cam.ac.uk>
+ * Copyright (c) 2010-2011 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
+ * Copyright (c) 2010-2011 Anil Madhavapeddy <anil@recoil.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
