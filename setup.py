@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name = "ciel",
-    version = '0.1-dev',
+    version = '0.1',
     description = "Execution engine for distributed, parallel computation",
     author = "Derek Murray",
     author_email = "Derek.Murray@cl.cam.ac.uk",
