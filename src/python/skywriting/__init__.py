@@ -61,7 +61,11 @@ def main(default_role=None):
     parser.add_option("-S", "--stopwatch-profiling", action="callback", callback=lambda w, x, y, z: ciel.stopwatch.enable(), help="Turns on stopwatch profiling")
     parser.add_option("-U", "--never-reuse", action="callback", callback=lambda w, x, y, z: set_never_reuse_process(), help="Turns off process reuse")
     parser.add_option("-6", "--task-log-root", action="store", dest="task_log_root", help="Path to store task state log", metavar="PATH", default=None)
+    parser.add_option("-i", "--pidfile", action="store", dest="pidfile", help="Record the PID of the process", default=None);
     (options, args) = parser.parse_args()
+
+    if options.pidfile:
+        cherrypy.process.plugins.PIDFile(cherrypy.engine, options.pidfile).subscribe()
 
     if options.daemonise:
         if options.logfile is None:
