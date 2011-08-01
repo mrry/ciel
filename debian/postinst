@@ -20,7 +20,13 @@ set -e
 
 case "$1" in
     configure)
-        mkdir -p /var/lib/ciel/data
+	. /etc/default/ciel
+	if [ "$BLOCK_STORE" = "" ]; then
+	  echo BLOCK_STORE not set in ciel, error
+	  exit 1
+	fi
+        mkdir -p $BLOCK_STORE/$MASTER_PORT/data
+        mkdir -p $BLOCK_STORE/$WORKER_PORT
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)

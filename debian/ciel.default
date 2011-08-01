@@ -7,9 +7,12 @@
 #
 
 # Additional options that are passed to the Daemon.
-START_MASTER=no
 BLOCK_STORE=/var/lib/ciel
-MASTER_PORT=8000
 
-START_WORKER=no
+MASTER=yes
+MASTER_PORT=8000
+MASTER_URI=http://127.0.0.1:$MASTER_PORT
+
+WORKER=yes
 WORKER_PORT=8001
+WORKER_SLOTS=1

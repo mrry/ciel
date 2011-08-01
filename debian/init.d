@@ -19,8 +19,7 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC=ciel
 NAME=ciel
-MASTER=/usr/bin/sw-master
-WORKER=/usr/bin/sw-worker
+CMD=/usr/bin/ciel
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
@@ -37,8 +36,20 @@ SCRIPTNAME=/etc/init.d/$NAME
 # Depend on lsb-base (>= 3.0-6) to ensure that this file is present.
 . /lib/lsb/init-functions
 
-MASTER_CMD="--role master --port $MASTER_PORT -b $BLOCK_STORE $MASTER_ARGS"
-WORKER_CMD="--role worker --port $WORKER_PORT -b $BLOCK_STORE $WORKER_ARGS"
+if [ "$MASTER_BLOCK_STORE" = "" ]; then
+  MASTER_BLOCK_STORE="$BLOCK_STORE/$MASTER_PORT"
+fi
+
+if [ "$WORKER_BLOCK_STORE" = "" ]; then
+  WORKER_BLOCK_STORE="$BLOCK_STORE/$WORKER_PORT"
+fi
+
+WORKER_BIN=/usr/bin/sw-worker
+MASTER_BIN=/usr/bin/sw-master
+MASTER_PID="/var/run/ciel.master.$MASTER_PORT.pid"
+WORKER_PID="/var/run/ciel.worker.$WORKER_PORT.pid"
+MASTER_CMD="--role master -D --port $MASTER_PORT -b $MASTER_BLOCK_STORE -i $MASTER_PID $MASTER_ARGS"
+WORKER_CMD="--role worker -D --port $WORKER_PORT -b $WORKER_BLOCK_STORE -i $MASTER_PID -m $MASTER_URI -n $WORKER_SLOTS $WORKER_ARGS"
 
 #
 # Function that starts the daemon/service
@@ -49,9 +60,19 @@ do_start()
 	#   0 if daemon has been started
 	#   1 if daemon was already running
 	#   2 if daemon could not be started
-	start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $MASTER -- \
-		$MASTER_CMD \
-		|| return 2
+	if [ "$MASTER" = "yes" ]; then
+	  start-stop-daemon --start --pidfile $MASTER_PID --exec $CMD -- $MASTER_CMD
+	  RETVAL1="$?"
+	fi
+	if [ "$WORKER" = "yes" ]; then
+	  start-stop-daemon --start --pidfile $WORKER_PID --exec $CMD -- $WORKER_CMD
+	  RETVAL2="$?"
+	fi
+	[ "$RETVAL1" = 2 ] && return 2
+	[ "$RETVAL2" = 2 ] && return 2
+	[ "$RETVAL1" = 1 ] && return 1
+	[ "$RETVAL2" = 1 ] && return 1
+	return $RETVAL1
 }
 
 #
@@ -64,20 +85,21 @@ do_stop()
 	#   1 if daemon was already stopped
 	#   2 if daemon could not be stopped
 	#   other if a failure occurred
-	start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE --name $NAME
-	RETVAL="$?"
-	[ "$RETVAL" = 2 ] && return 2
-	# Wait for children to finish too if this is a daemon that forks
-	# and if the daemon is only ever run from this initscript.
-	# If the above conditions are not satisfied then add some other code
-	# that waits for the process to drop all resources that could be
-	# needed by services started subsequently.  A last resort is to
-	# sleep for some time.
-	start-stop-daemon --stop --quiet --oknodo --retry=0/30/KILL/5 --exec $DAEMON
-	[ "$?" = 2 ] && return 2
-	# Many daemons don't delete their pidfiles when they exit.
-	rm -f $PIDFILE
-	return "$RETVAL"
+	if [ "$MASTER" = "yes" ]; then
+	  start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $MASTER_PID 
+	  RETVAL1="$?"
+	  rm -f $MASTER_PID
+	fi
+	if [ "$WORKER" = "yes" ]; then
+	  start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $WORKER_PID
+	  RETVAL2="$?"
+	  rm -f $WORKER_PID
+	fi
+	[ "$RETVAL1" = 2 ] && return 2
+	[ "$RETVAL2" = 2 ] && return 2
+	[ "$RETVAL1" = 1 ] && return 1
+	[ "$RETVAL2" = 1 ] && return 1
+	return $RETVAL1
 }
 
 #
@@ -89,7 +111,9 @@ do_reload() {
 	# restarting (for example, when it is sent a SIGHUP),
 	# then implement that here.
 	#
-	start-stop-daemon --stop --signal 1 --quiet --pidfile $PIDFILE --name $NAME
+	if [ "$MASTER" = "yes" ]; then
+	  start-stop-daemon --stop --signal 1 --quiet --pidfile $MASTER_PID
+	fi
 	return 0
 }
 
