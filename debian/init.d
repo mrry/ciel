@@ -2,7 +2,7 @@
 ### BEGIN INIT INFO
 # Provides:          ciel
 # Required-Start:    $network $local_fs $remote_fs
-# Required-Stop:
+# Required-Stop:     $remote_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: a execution engine for distributed computing
@@ -44,12 +44,13 @@ if [ "$WORKER_BLOCK_STORE" = "" ]; then
   WORKER_BLOCK_STORE="$BLOCK_STORE/$WORKER_PORT"
 fi
 
+LOGDIR=/var/log/ciel
 WORKER_BIN=/usr/bin/sw-worker
 MASTER_BIN=/usr/bin/sw-master
 MASTER_PID="/var/run/ciel.master.$MASTER_PORT.pid"
 WORKER_PID="/var/run/ciel.worker.$WORKER_PORT.pid"
-MASTER_CMD="--role master -D --port $MASTER_PORT -b $MASTER_BLOCK_STORE -i $MASTER_PID $MASTER_ARGS"
-WORKER_CMD="--role worker -D --port $WORKER_PORT -b $WORKER_BLOCK_STORE -i $MASTER_PID -m $MASTER_URI -n $WORKER_SLOTS $WORKER_ARGS"
+MASTER_CMD="--role master --logfile $LOGDIR/master.log -D --port $MASTER_PORT -b $MASTER_BLOCK_STORE -i $MASTER_PID $MASTER_ARGS"
+WORKER_CMD="--role worker --logfile $LOGDIR/worker.log -D --port $WORKER_PORT -b $WORKER_BLOCK_STORE -i $WORKER_PID -m $MASTER_URI -n $WORKER_SLOTS $WORKER_ARGS"
 
 #
 # Function that starts the daemon/service

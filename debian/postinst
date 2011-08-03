@@ -26,7 +26,8 @@ case "$1" in
 	  exit 1
 	fi
         mkdir -p $BLOCK_STORE/$MASTER_PORT/data
-        mkdir -p $BLOCK_STORE/$WORKER_PORT
+        mkdir -p $BLOCK_STORE/$WORKER_PORT/data
+	mkdir -p /var/log/ciel
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)

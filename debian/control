@@ -12,7 +12,7 @@ Vcs-Browser: http://github.com/mrry/ciel
 Package: ciel
 Architecture: any
 Depends: ${misc:Depends}, ${python:Depends}, lighttpd, m4
-Description: a universal execution engine for distributed computation
+Description: universal execution engine for distributed computation
  CIEL is designed to achieve high scalability and reliability when run on a
  commodity cluster or cloud computing platform. CIEL supports the full range
  of MapReduce-style computations, as well as Turing-powerful support for 
