@@ -1,4 +1,0 @@
-#!/usr/bin/python
-
-import skywriting
-skywriting.main(default_role="master")
