@@ -45,12 +45,10 @@ if [ "$WORKER_BLOCK_STORE" = "" ]; then
 fi
 
 LOGDIR=/var/log/ciel
-WORKER_BIN=/usr/bin/sw-worker
-MASTER_BIN=/usr/bin/sw-master
 MASTER_PID="/var/run/ciel.master.$MASTER_PORT.pid"
 WORKER_PID="/var/run/ciel.worker.$WORKER_PORT.pid"
-MASTER_CMD="--role master --logfile $LOGDIR/master.log -D --port $MASTER_PORT -b $MASTER_BLOCK_STORE -i $MASTER_PID $MASTER_ARGS"
-WORKER_CMD="--role worker --logfile $LOGDIR/worker.log -D --port $WORKER_PORT -b $WORKER_BLOCK_STORE -i $WORKER_PID -m $MASTER_URI -n $WORKER_SLOTS $WORKER_ARGS"
+MASTER_CMD="master --logfile $LOGDIR/master.log -D --port $MASTER_PORT -b $MASTER_BLOCK_STORE -i $MASTER_PID $MASTER_ARGS"
+WORKER_CMD="worker --logfile $LOGDIR/worker.log -D --port $WORKER_PORT -b $WORKER_BLOCK_STORE -i $WORKER_PID -m $MASTER_URI -n $WORKER_SLOTS $WORKER_ARGS"
 
 #
 # Function that starts the daemon/service

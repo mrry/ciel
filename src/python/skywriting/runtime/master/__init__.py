@@ -37,6 +37,8 @@ import tempfile
 import urllib
 import urllib2
 from pkg_resources import Requirement, resource_filename
+import sys
+from optparse import OptionParser
 
 def master_main(options):
 
@@ -67,7 +69,8 @@ def master_main(options):
     ciel.log('Local port is %d' % local_port, 'STARTUP', logging.INFO)
     
     if options.blockstore is None:
-        static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+        static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/ciel-files-'))
+        ciel.log('Block store directory not specified: storing in %s' % static_content_root, 'STARTUP', logging.WARN)
     else:
         static_content_root = options.blockstore
     block_store_dir = os.path.join(static_content_root, "data")
@@ -80,11 +83,12 @@ def master_main(options):
     block_store.build_pin_set()
     block_store.check_local_blocks()
 
-    if options.master is not None:
-        monitor = MasterRecoveryMonitor(cherrypy.engine, 'http://%s/' % master_netloc, options.master, job_pool)
-        monitor.subscribe()
-    else:
-        monitor = None
+    # TODO: Re-enable this and test thoroughly.
+    #if options.master is not None:
+    #    monitor = MasterRecoveryMonitor(cherrypy.engine, 'http://%s/' % master_netloc, options.master, job_pool)
+    #    monitor.subscribe()
+    #else:
+    monitor = None
 
     recovery_manager = RecoveryManager(ciel.engine, job_pool, block_store, deferred_worker)
     recovery_manager.subscribe()
@@ -92,55 +96,66 @@ def master_main(options):
     root = MasterRoot(worker_pool, block_store, job_pool, backup_sender, monitor)
 
     cherrypy.config.update({"server.thread_pool" : 50})
+    cherrypy.config.update({"checker.on" : False})
 
     cherrypy_conf = dict()
     
     app = cherrypy.tree.mount(root, "", cherrypy_conf)
-    lighty_conf_template = resource_filename(Requirement.parse("ciel"), "skywriting/runtime/lighttpd.conf")
-    if lighty_conf_template is not None:
-        lighty = LighttpdAdapter(ciel.engine, lighty_conf_template, static_content_root, local_port)
-        lighty.subscribe()
-        # Zap CherryPy's original flavour server
-        cherrypy.server.unsubscribe()
-        server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=lighty.socket_path)
-        adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=lighty.socket_path)
-        # Insert a FastCGI server in its place
-        adapter.subscribe()
     
+    lighty = LighttpdAdapter(ciel.engine, static_content_root, local_port)
+    lighty.subscribe()
+    # Zap CherryPy's original flavour server
+    cherrypy.server.unsubscribe()
+    server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=lighty.socket_path)
+    adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=lighty.socket_path)
+    # Insert a FastCGI server in its place
+    adapter.subscribe()
+
     if hasattr(ciel.engine, "signal_handler"):
         ciel.engine.signal_handler.subscribe()
     if hasattr(ciel.engine, "console_control_handler"):
         ciel.engine.console_control_handler.subscribe()
 
     ciel.engine.start()
-    
-    if options.workerlist is not None:
-        master_details = {'netloc': master_netloc}
-        master_details_as_json = simplejson.dumps(master_details)
-        with (open(options.workerlist, "r")) as f:
-            for worker_url in f.readlines():
-                try:
-                    post_string(urllib2.urlparse.urljoin(worker_url, 'control/master/'), master_details_as_json)
-                    # Worker will be created by a callback.
-                except:
-                    ciel.log.error("Error adding worker: %s" % (worker_url, ), "WORKER", logging.WARNING)
-                    
     ciel.engine.block()
 
-#    sch = SchedulerProxy(ciel.engine)
-#    sch.subscribe()
-#
-#    reaper = WorkerReaper(ciel.engine)
-#    reaper.subscribe()
-#
-#    wr = WorkflowRunner(ciel.engine)
-#    wr.subscribe()
-#
-#    te = TaskExecutor(ciel.engine)
-#    te.subscribe()
-#
-#    ph = PingHandler(ciel.engine)
-#    ph.subscribe()
+def set_port(port):
+    cherrypy.config.update({'server.socket_port': port})
 
+def set_config(filename):
+    cherrypy.config.update(filename)
+
+def main():
+
+    cherrypy.config.update({'server.socket_host': '0.0.0.0'})
+    
+    cherrypy.config.update({'log.screen': False})
+    
+    if cherrypy.config.get('server.socket_port') is None:
+        cherrypy.config.update({'server.socket_port': 8000})
+    
+    parser = OptionParser(usage="Usage: ciel master [options]")
+    parser.add_option("-p", "--port", action="callback", callback=lambda w, x, y, z: set_port(y), default=cherrypy.config.get('server.socket_port'), type="int", help="Server port", metavar="PORT")
+    parser.add_option("-b", "--blockstore", action="store", dest="blockstore", help="Path to the block store directory", metavar="PATH", default=None)
+    parser.add_option("-j", "--journaldir", action="store", dest="journaldir", help="Path to the job journal directory", metavar="PATH", default=None)
+    parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
+    parser.add_option("-D", "--daemonise", action="store_true", dest="daemonise", help="Run as a daemon", default=False)
+    parser.add_option("-o", "--logfile", action="store", dest="logfile", help="If daemonised, log to FILE", default="/dev/null", metavar="FILE")
+    parser.add_option("-v", "--verbose", action="callback", callback=lambda w, x, y, z: ciel.set_log_level(logging.DEBUG), help="Turns on debugging output")
+    parser.add_option("-6", "--task-log-root", action="store", dest="task_log_root", help="Path to store task state log", metavar="PATH", default=None)
+    parser.add_option("-i", "--pidfile", action="store", dest="pidfile", help="Record the PID of the process", default=None);
+    (options, args) = parser.parse_args()
+
+    if options.pidfile:
+        cherrypy.process.plugins.PIDFile(cherrypy.engine, options.pidfile).subscribe()
+
+    if options.daemonise:
+        if options.logfile is None:
+            cherrypy.config.update({'log.screen': False})
+        daemon = cherrypy.process.plugins.Daemonizer(cherrypy.engine, stdout=options.logfile, stderr=options.logfile)
+        cherrypy.engine.subscribe("start", daemon.start, 0)
+
+    master_main(options)
+    
 if __name__ == '__main__':
-    skywriting.main("master")
+    main()

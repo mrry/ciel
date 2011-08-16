@@ -39,6 +39,7 @@ from skywriting.runtime.pycurl_thread import create_pycurl_thread
 from skywriting.runtime.tcp_server import create_tcp_server
 from skywriting.runtime.worker.execution_features import ExecutionFeatures
 from pkg_resources import Requirement, resource_filename
+from optparse import OptionParser
 
 class WorkerState:
     pass
@@ -68,9 +69,8 @@ class Worker(plugins.SimplePlugin):
 #        else:
 #            self.hostname = options.hostname
 
-        self.lighty_conf_template = resource_filename(Requirement.parse("ciel"), "skywriting/runtime/lighttpd.conf")
         if options.blockstore is None:
-            self.static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/sw-files-'))
+            self.static_content_root = tempfile.mkdtemp(prefix=os.getenv('TEMP', default='/tmp/ciel-files-'))
         else:
             self.static_content_root = options.blockstore
         block_store_dir = os.path.join(self.static_content_root, "data")
@@ -80,7 +80,7 @@ class Worker(plugins.SimplePlugin):
             pass
         
         # The hostname is None because we get this from the master.
-        self.block_store = BlockStore(None, self.port, block_store_dir, ignore_blocks=options.ignore_blocks)
+        self.block_store = BlockStore(None, self.port, block_store_dir, ignore_blocks=False)
         self.block_store.build_pin_set()
         self.block_store.check_local_blocks()
         create_watcher_thread(bus, self.block_store)
@@ -91,7 +91,7 @@ class Worker(plugins.SimplePlugin):
         #self.task_executor = TaskExecutorPlugin(bus, self, self.master_proxy, self.execution_features, 1)
         #self.task_executor.subscribe()
         
-        self.scheduling_classes = parse_scheduling_class_option(options.scheduling_classes, options.num_threads)
+        self.scheduling_classes = parse_scheduling_class_option(None, options.num_threads)
         
         self.multiworker = MultiWorker(ciel.engine, self)
         self.multiworker.subscribe()
@@ -139,16 +139,14 @@ class Worker(plugins.SimplePlugin):
 
         app = cherrypy.tree.mount(self.server_root, "", self.cherrypy_conf)
 
-        if self.lighty_conf_template is not None:
-
-            lighty = LighttpdAdapter(ciel.engine, self.lighty_conf_template, self.static_content_root, self.port)
-            lighty.subscribe()
-            # Zap CherryPy's original flavour server
-            cherrypy.server.unsubscribe()
-            server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=lighty.socket_path)
-            adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=lighty.socket_path)
-            # Insert a FastCGI server in its place
-            adapter.subscribe()
+        lighty = LighttpdAdapter(ciel.engine, self.static_content_root, self.port)
+        lighty.subscribe()
+        # Zap CherryPy's original flavour server
+        cherrypy.server.unsubscribe()
+        server = cherrypy.process.servers.FlupFCGIServer(application=app, bindAddress=lighty.socket_path)
+        adapter = cherrypy.process.servers.ServerAdapter(cherrypy.engine, httpserver=server, bind_addr=lighty.socket_path)
+        # Insert a FastCGI server in its place
+        adapter.subscribe()
 
         ciel.engine.start()
         if hasattr(ciel.engine, "signal_handler"):
@@ -207,10 +205,45 @@ def parse_scheduling_class_option(scheduling_classes, num_threads):
 
 def worker_main(options):
     local_port = cherrypy.config.get('server.socket_port')
-    assert(local_port)
-    
     w = Worker(ciel.engine, local_port, options)
     w.start_running()
 
+def set_port(port):
+    cherrypy.config.update({'server.socket_port': port})
+
+def set_config(filename):
+    cherrypy.config.update(filename)
+
+def main(default_role=None):
+    cherrypy.config.update({'server.socket_host': '0.0.0.0'})
+    cherrypy.config.update({'log.screen': False})
+    if cherrypy.config.get('server.socket_port') is None:
+        cherrypy.config.update({'server.socket_port': 8001})
+    
+    parser = OptionParser(usage="Usage: ciel worker [options]")
+    parser.add_option("-p", "--port", action="callback", callback=lambda w, x, y, z: set_port(y), default=cherrypy.config.get('server.socket_port'), type="int", help="Server port", metavar="PORT")
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="URI", default=os.getenv("CIEL_MASTER", "http://localhost:8000"))
+    parser.add_option("-b", "--blockstore", action="store", dest="blockstore", help="Path to the block store directory", metavar="PATH", default=None)
+    parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
+    parser.add_option("-n", "--num-threads", action="store", dest="num_threads", help="Number of worker threads to create (for worker/all-in-one)", type="int", default=1)
+    parser.add_option("-D", "--daemonise", action="store_true", dest="daemonise", help="Run as a daemon", default=False)
+    parser.add_option("-o", "--logfile", action="store", dest="logfile", help="If daemonised, log to FILE", default="/dev/null", metavar="FILE")
+    #parser.add_option("-C", "--scheduling-classes", action="store", dest="scheduling_classes", help="List of semicolon-delimited scheduling classes", metavar="CLASS,N;CLASS,N;...", default=None)
+    parser.add_option("-P", "--auxiliary-port", action="store", dest="aux_port", type="int", help="Listen port for auxiliary TCP connections (for workers)", metavar="PORT", default=None)
+    parser.add_option("-v", "--verbose", action="callback", callback=lambda w, x, y, z: ciel.set_log_level(logging.DEBUG), help="Turns on debugging output")
+    parser.add_option("-i", "--pidfile", action="store", dest="pidfile", help="Record the PID of the process", default=None);
+    (options, args) = parser.parse_args()
+
+    if options.pidfile:
+        cherrypy.process.plugins.PIDFile(cherrypy.engine, options.pidfile).subscribe()
+
+    if options.daemonise:
+        if options.logfile is None:
+            cherrypy.config.update({'log.screen': False})
+        daemon = cherrypy.process.plugins.Daemonizer(cherrypy.engine, stdout=options.logfile, stderr=options.logfile)
+        cherrypy.engine.subscribe("start", daemon.start, 0)
+
+    worker_main(options)
+    
 if __name__ == '__main__':
-    skywriting.main("worker")
+    main()

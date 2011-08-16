@@ -11,13 +11,11 @@ setup(
                  'skywriting.runtime.master', 'skywriting.runtime.worker',
                  'skywriting.runtime.executors', 'skywriting.runtime.util', 'ciel', 'shared', 'fcpy' ],
     package_dir = { '' : 'src/python' },
-    entry_points= { 'console_scripts': ['ciel = skywriting:main' ]},
-    scripts = [ "scripts/%s" %s for s in
-                  ['ciel-launch-master', 'ciel-launch-worker', 'ciel-poll-job',
-                   'ciel-print-job-result', 'ciel-run-job', 'ciel-run-job-async',
-                   'ciel-task-crawler', 'sw-job', 'sw-start-job' ] ],
-    package_data = {"ciel": ["src/python/skywriting/runtime/lighttpd.conf"]},
-    include_package_data = True,
+    entry_points= { 'console_scripts': ['ciel = ciel.cli:main' ]},
+#    scripts = [ "scripts/%s" %s for s in
+#                  ['ciel-launch-master', 'ciel-launch-worker', 'ciel-poll-job',
+#                   'ciel-print-job-result', 'ciel-run-job', 'ciel-run-job-async',
+#                   'ciel-task-crawler', 'sw-job', 'sw-start-job' ] ],
     classifiers = [
             'Development Status :: 3 - Alpha',
             'Intended Audience :: Developers',

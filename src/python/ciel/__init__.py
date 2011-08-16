@@ -15,6 +15,8 @@ from ciel.logger import CielLogger
 import logging
 import skywriting.runtime.stopwatch
 
+CIEL_VERSION_STRING = 'Ciel version 0.1'
+
 try:
     import cherrypy
     log = cherrypy.log

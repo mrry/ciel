@@ -242,14 +242,20 @@ def recursive_decode(to_decode, template, jobid, master_uri):
 
 def main():
 
-    parser = OptionParser()
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
+    parser = OptionParser(usage='Usage: ciel run [options] PACKAGE_FILE')
+    parser.add_option("-m", "--master", action="store", dest="master", help="URI of the cluster master", metavar="MASTER", default=os.getenv("CIEL_MASTER", "http://localhost:8000"))
     
     (options, args) = parser.parse_args()
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
-        raise Exception("Must specify a master with -m or SW_MASTER")
+        print >>sys.stderr, "Must specify a master with -m or CIEL_MASTER"
+        parser.print_help()
+        sys.exit(-1)
+    elif len(args) < 1:
+        print >>sys.stderr, "Must specify a package file to run"
+        parser.print_help()
+        sys.exit(-1)
     
     with open(args[0], "r") as package_file:
         job_dict = simplejson.load(package_file)
