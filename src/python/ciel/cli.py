@@ -11,20 +11,19 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-import skywriting
-import skywriting.runtime.master
-import skywriting.runtime.util.start_job
+import ciel.runtime.master
+import ciel.runtime.util.start_job
 from ciel import CIEL_VERSION_STRING
 import sys
 
 def start_master():
-    skywriting.runtime.master.main()
+    ciel.runtime.master.main()
 
 def start_worker():
-    skywriting.runtime.worker.main()
+    ciel.runtime.worker.main()
 
 def run_job():
-    skywriting.runtime.util.start_job.main()
+    ciel.runtime.util.start_job.main()
 
 def show_help():
     print >>sys.stderr, "usage: ciel COMMAND [ARGS]"

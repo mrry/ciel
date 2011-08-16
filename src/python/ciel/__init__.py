@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from ciel.logger import CielLogger
 import logging
-import skywriting.runtime.stopwatch
+import ciel.runtime.stopwatch
 
 CIEL_VERSION_STRING = 'Ciel version 0.1'
 
@@ -45,4 +45,4 @@ except ImportError:
 def set_log_level(lvl):
     _handler.setLevel(lvl)
 
-stopwatch = skywriting.runtime.stopwatch.Stopwatch()
+stopwatch = ciel.runtime.stopwatch.Stopwatch()

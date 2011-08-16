@@ -7,9 +7,9 @@ setup(
     author = "Derek Murray",
     author_email = "Derek.Murray@cl.cam.ac.uk",
     url = "http://www.cl.cam.ac.uk/netos/ciel/",
-    packages = [ 'skywriting', 'skywriting.runtime',
-                 'skywriting.runtime.master', 'skywriting.runtime.worker',
-                 'skywriting.runtime.executors', 'skywriting.runtime.util', 'ciel', 'shared', 'fcpy' ],
+    packages = [ 'ciel', 'ciel.runtime',
+                 'ciel.runtime.master', 'ciel.runtime.worker',
+                 'ciel.runtime.executors', 'ciel.runtime.util', 'shared', 'fcpy' ],
     package_dir = { '' : 'src/python' },
     entry_points= { 'console_scripts': ['ciel = ciel.cli:main' ]},
 #    scripts = [ "scripts/%s" %s for s in
