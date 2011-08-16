@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-from shared.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference,\
+from ciel.public.references import SW2_ConcreteReference, SW2_StreamReference, SW2_SocketStreamReference,\
     SWDataValue, SWErrorReference, SW2_FixedReference, decode_datavalue,\
     SW2_FetchReference, decode_datavalue_string, encode_datavalue,\
     SW2_TombstoneReference

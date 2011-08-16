@@ -19,14 +19,14 @@ import logging
 import simplejson
 import shutil
 from datetime import datetime
-from shared.references import SW2_FixedReference
+from ciel.public.references import SW2_FixedReference
 import urlparse
-from shared.references import SWReferenceJSONEncoder
+from ciel.public.references import SWReferenceJSONEncoder
 import pickle
 import threading
 from ciel.runtime.pycurl_rpc import post_string
 from ciel.runtime.block_store import is_ref_local
-from shared.io_helpers import write_framed_json
+from ciel.public.io_helpers import write_framed_json
 from ciel.runtime.producer import write_fixed_ref_string
 
 class ProcessRecord:

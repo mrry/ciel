@@ -16,7 +16,7 @@ from ciel.runtime.block_store import sw_to_external_url,\
 import sys
 import httplib2
 import simplejson
-from shared.references import SW2_ConcreteReference, json_decode_object_hook
+from ciel.public.references import SW2_ConcreteReference, json_decode_object_hook
 from optparse import OptionParser
 
 def main():

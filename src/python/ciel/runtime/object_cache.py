@@ -2,7 +2,7 @@
 import pickle
 import simplejson
 from cStringIO import StringIO
-from shared.references import SWReferenceJSONEncoder, json_decode_object_hook,\
+from ciel.public.references import SWReferenceJSONEncoder, json_decode_object_hook,\
     SWDataValue, encode_datavalue
 from ciel.runtime.producer import make_local_output, ref_from_string
 from ciel.runtime.fetcher import retrieve_strings_for_refs

@@ -14,12 +14,12 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 
-from shared.references import \
+from ciel.public.references import \
     SWRealReference, SW2_FutureReference, SWDataValue, \
     SWErrorReference, SW2_SweetheartReference,\
     SW2_FixedReference, SWReferenceJSONEncoder, SW2_ConcreteReference,\
     decode_datavalue_string, encode_datavalue, SW2_TombstoneReference
-from shared.io_helpers import read_framed_json, write_framed_json
+from ciel.public.io_helpers import read_framed_json, write_framed_json
 from ciel.runtime.exceptions import BlameUserException, ReferenceUnavailableException,\
     MissingInputException, TaskFailedError
 from ciel.runtime.block_store import get_own_netloc, filename_for_ref

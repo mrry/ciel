@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from cherrypy.process import plugins
-from shared.references import SWReferenceJSONEncoder
+from ciel.public.references import SWReferenceJSONEncoder
 from ciel.runtime.task import TASK_STATES, TASK_STATE_NAMES, \
     build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED,\
     TASK_COMMITTED, TASK_QUEUED_STREAMING
@@ -27,7 +27,7 @@ import struct
 import time
 import uuid
 from ciel.runtime.task_graph import DynamicTaskGraph, TaskGraphUpdate
-from shared.references import SWErrorReference
+from ciel.public.references import SWErrorReference
 from ciel.runtime.master.scheduling_policy import LocalitySchedulingPolicy,\
     get_scheduling_policy
 import collections

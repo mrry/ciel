@@ -21,7 +21,7 @@ Created on 8 Feb 2010
 @author: dgm36
 '''
 from cherrypy.lib.static import serve_file
-from shared.references import json_decode_object_hook,\
+from ciel.public.references import json_decode_object_hook,\
     SWReferenceJSONEncoder
 from ciel.runtime.remote_stat import receive_stream_advertisment
 from ciel.runtime.producer_stat import subscribe_output, unsubscribe_output

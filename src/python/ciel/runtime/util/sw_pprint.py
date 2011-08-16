@@ -1,6 +1,6 @@
 
 from pprint import PrettyPrinter
-from shared.references import SWRealReference
+from ciel.public.references import SWRealReference
 
 class RefPrettyPrinter(PrettyPrinter):
 

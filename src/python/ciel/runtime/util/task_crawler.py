@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 from Queue import Queue, Empty
-from shared.references import json_decode_object_hook
+from ciel.public.references import json_decode_object_hook
 from urlparse import urljoin, urlparse
 import httplib2
 import simplejson

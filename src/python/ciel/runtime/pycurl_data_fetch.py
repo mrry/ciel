@@ -14,7 +14,7 @@
 
 from ciel.runtime.pycurl_thread import pycURLContext, do_from_curl_thread
 from ciel.runtime.block_store import get_fetch_urls_for_ref, create_fetch_file_for_ref, get_own_netloc
-from shared.references import SW2_ConcreteReference, SW2_FetchReference
+from ciel.public.references import SW2_ConcreteReference, SW2_FetchReference
 import ciel.runtime.remote_stat as remote_stat
 
 import pycurl

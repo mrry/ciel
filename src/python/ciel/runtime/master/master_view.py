@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from __future__ import with_statement
 from cherrypy import HTTPError
-from shared.references import json_decode_object_hook,\
+from ciel.public.references import json_decode_object_hook,\
     SWReferenceJSONEncoder
 import sys
 import simplejson

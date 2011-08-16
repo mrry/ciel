@@ -14,14 +14,14 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from optparse import OptionParser
 from ciel.runtime.object_cache import retrieve_object_for_ref
-from shared.references import SWReferenceJSONEncoder,\
+from ciel.public.references import SWReferenceJSONEncoder,\
     json_decode_object_hook
 import sys
 import os
 import simplejson
 import httplib2
 from urlparse import urljoin
-from shared.references import SWURLReference
+from ciel.public.references import SWURLReference
 
 def main():
     parser = OptionParser()

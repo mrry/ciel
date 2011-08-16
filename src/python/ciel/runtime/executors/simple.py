@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import hashlib
-from shared.references import SW2_FutureReference, SWRealReference
+from ciel.public.references import SW2_FutureReference, SWRealReference
 import ciel
 import logging
 import threading

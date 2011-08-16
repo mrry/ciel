@@ -16,7 +16,7 @@ from cherrypy._cperror import HTTPError
 from ciel.runtime.task import TASK_STATES, TASK_STATE_NAMES
 import cherrypy
 import time
-from shared.references import SWDataValue, decode_datavalue
+from ciel.public.references import SWDataValue, decode_datavalue
 
 def table_row(key, *args):
     return '<tr><td><b>%s</b></td>' % key + ''.join(['<td>%s</td>' % str(x) for x in args]) + '</tr>'

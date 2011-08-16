@@ -3,7 +3,7 @@ from __future__ import with_statement
 
 import select
 import sys
-from shared.io_helpers import read_framed_json, write_framed_json
+from ciel.public.io_helpers import read_framed_json, write_framed_json
 
 class ShutdownException(Exception):
     

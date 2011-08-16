@@ -24,7 +24,7 @@ from datetime import datetime
 
 # XXX: Hack because urlparse doesn't nicely support custom schemes.
 import urlparse
-from shared.references import SW2_ConcreteReference, SW2_StreamReference,\
+from ciel.public.references import SW2_ConcreteReference, SW2_StreamReference,\
     SW2_FetchReference, SW2_FixedReference, SWRealReference, SWErrorReference,\
     SWDataValue, decode_datavalue
 import ciel

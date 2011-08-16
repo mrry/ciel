@@ -9,7 +9,7 @@ import datetime
 import os.path
 from ciel.runtime.util.sw_pprint import sw_pprint
 
-from shared.references import SWReferenceJSONEncoder,json_decode_object_hook,\
+from ciel.public.references import SWReferenceJSONEncoder,json_decode_object_hook,\
     SW2_FutureReference, SWDataValue, SWErrorReference,\
     SW2_SocketStreamReference, SW2_StreamReference, SW2_ConcreteReference,\
     build_reference_from_tuple

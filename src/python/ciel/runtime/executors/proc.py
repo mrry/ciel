@@ -15,7 +15,7 @@
 import threading
 import ciel
 import os
-from shared.references import SW2_ConcreteReference, SW2_SweetheartReference,\
+from ciel.public.references import SW2_ConcreteReference, SW2_SweetheartReference,\
     SW2_FixedReference, SW2_FutureReference, SWErrorReference
 import pickle
 from ciel.runtime.executors.base import BaseExecutor
@@ -27,7 +27,7 @@ from ciel.runtime.exceptions import BlameUserException, TaskFailedError,\
 from ciel.runtime.executors import ContextManager,\
     spawn_task_helper, OngoingOutput, package_lookup
 import subprocess
-from shared.io_helpers import write_framed_json, read_framed_json
+from ciel.public.io_helpers import write_framed_json, read_framed_json
 import logging
 from ciel.runtime.fetcher import retrieve_filename_for_ref,\
     retrieve_file_or_string_for_ref, OngoingFetch

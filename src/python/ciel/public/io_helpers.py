@@ -4,7 +4,7 @@ import os
 import tempfile
 import simplejson
 import struct
-from shared.references import json_decode_object_hook, SWReferenceJSONEncoder
+from ciel.public.references import json_decode_object_hook, SWReferenceJSONEncoder
 
 class MaybeFile:
 

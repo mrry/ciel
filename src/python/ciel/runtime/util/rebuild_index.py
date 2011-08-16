@@ -18,7 +18,7 @@ import httplib2
 import os
 import sys
 import simplejson
-from shared.references import SWReferenceJSONEncoder, json_decode_object_hook
+from ciel.public.references import SWReferenceJSONEncoder, json_decode_object_hook
 import uuid
 
 def main():

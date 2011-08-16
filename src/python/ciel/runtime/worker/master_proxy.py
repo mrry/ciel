@@ -19,7 +19,7 @@ Created on 15 Apr 2010
 @author: dgm36
 '''
 from urlparse import urljoin
-from shared.references import SWReferenceJSONEncoder
+from ciel.public.references import SWReferenceJSONEncoder
 from ciel.runtime.exceptions import MasterNotRespondingException,\
     WorkerShutdownException
 import logging

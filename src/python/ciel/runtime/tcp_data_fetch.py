@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-from shared.references import SW2_SocketStreamReference
+from ciel.public.references import SW2_SocketStreamReference
 from ciel.runtime.remote_stat import subscribe_remote_output_nopost, unsubscribe_remote_output_nopost
 from ciel.runtime.block_store import get_own_netloc
 import threading

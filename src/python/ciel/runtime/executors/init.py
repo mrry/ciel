@@ -15,7 +15,7 @@ from ciel.runtime.executors.base import BaseExecutor
 import pickle
 from ciel.runtime.exceptions import BlameUserException
 from ciel.runtime.executors import spawn_task_helper
-from shared.references import SWRealReference
+from ciel.public.references import SWRealReference
 
 # XXX: Passing ref_of_string to get round a circular import. Should really move ref_of_string() to
 #      a nice utility package.

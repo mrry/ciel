@@ -25,7 +25,7 @@ import ciel.runtime.tcp_server
 import ciel.runtime.file_watcher as fwt
 from ciel.runtime.block_store import get_own_netloc, producer_filename,\
     filename_for_ref
-from shared.references import SWDataValue, encode_datavalue, SW2_ConcreteReference, \
+from ciel.public.references import SWDataValue, encode_datavalue, SW2_ConcreteReference, \
     SW2_StreamReference, SW2_CompletedReference, SW2_SocketStreamReference,\
     decode_datavalue_string
 import shutil

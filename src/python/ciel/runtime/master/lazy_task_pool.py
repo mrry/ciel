@@ -15,7 +15,7 @@
 from Queue import Queue
 from cherrypy.process import plugins
 from ciel.runtime.master.job_pool import Job
-from shared.references import SW2_FutureReference, \
+from ciel.public.references import SW2_FutureReference, \
     SWErrorReference, combine_references, SW2_StreamReference
 from ciel.runtime.task import TASK_CREATED, TASK_BLOCKING, TASK_RUNNABLE, \
     TASK_COMMITTED, build_taskpool_task_from_descriptor, TASK_QUEUED, TASK_FAILED, TASK_QUEUED_STREAMING

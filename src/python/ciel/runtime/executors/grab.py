@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import ciel
 import logging
-from shared.references import SWReferenceJSONEncoder, SWDataValue
+from ciel.public.references import SWReferenceJSONEncoder, SWDataValue
 import simplejson
 from ciel.runtime.executors.simple import SimpleExecutor
 from ciel.runtime.exceptions import BlameUserException
