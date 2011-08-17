@@ -9,7 +9,7 @@ setup(
     url = "http://www.cl.cam.ac.uk/netos/ciel/",
     packages = [ 'ciel', 'ciel.runtime',
                  'ciel.runtime.master', 'ciel.runtime.worker',
-                 'ciel.runtime.executors', 'ciel.runtime.util', 'shared', 'fcpy' ],
+                 'ciel.runtime.executors', 'ciel.runtime.util', 'ciel.public' ],
     package_dir = { '' : 'src/python' },
     entry_points= { 'console_scripts': ['ciel = ciel.cli:main' ]},
 #    scripts = [ "scripts/%s" %s for s in
