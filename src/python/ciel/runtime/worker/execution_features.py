@@ -20,6 +20,8 @@ from ciel.runtime.executors.sync import SyncExecutor
 from ciel.runtime.executors.init import InitExecutor
 from ciel.runtime.executors.proc import ProcExecutor
 from ciel.runtime.executors.ocaml import OCamlExecutor
+from ciel.runtime.executors.java import JavaExecutor
+from ciel.runtime.executors.java2 import Java2Executor
 import ciel
 import logging
 import pkg_resources
@@ -31,7 +33,7 @@ class ExecutionFeatures:
         self.executors = dict([(x.handler_name, x) for x in [SWStdinoutExecutor, 
                                                              EnvironmentExecutor, DotNetExecutor, 
                                                              CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
-                                                             OCamlExecutor, ProcExecutor]])
+                                                             OCamlExecutor, ProcExecutor, JavaExecutor, Java2Executor]])
 
         for entrypoint in pkg_resources.iter_entry_points(group="ciel.executor.plugin"):
             classes_function = entrypoint.load()
@@ -41,10 +43,10 @@ class ExecutionFeatures:
                 self.executors[plugin_class.handler_name] = plugin_class
 
         self.runnable_executors = dict([(x, self.executors[x]) for x in self.check_executors()])
-        #cacheable_executors = [SkywritingExecutor, SkyPyExecutor, Java2Executor]
-        #self.process_cacheing_executors = filter(lambda x: x in self.runnable_executors.values(), cacheable_executors)
         # TODO: Implement a class method for this.
-        self.process_cacheing_executors = []
+        cacheable_executor_names = set(['swi', 'skypy', 'java2'])
+        self.process_cacheing_executors = [self.runnable_executors[x] 
+                                           for x in cacheable_executor_names & set(self.runnable_executors.keys())]
 
     def all_features(self):
         return self.executors.keys()
