@@ -81,11 +81,11 @@ class Java2Executor(ProcExecutor):
 
         jars_dir = os.getenv('CIEL_JARS_DIR')
         if jars_dir is None:
-            ciel.log.error("Cannot run Java2 executor. The CIEL_JARS_DIR environment variable must be set.", "JAVA", logging.WARN)
+            ciel.log.error("Cannot run Java2 executor. The CIEL_JARS_DIR environment variable must be set.", "JAVA", logging.INFO)
             return False
         for lib in REQUIRED_LIBS:
             if not os.path.exists(os.path.join(jars_dir, lib)):
-                ciel.log.error("Cannot run Java2 executor. The file '%s' is not installed in CIEL_JARS_DIR." % lib, "JAVA", logging.WARN)
+                ciel.log.error("Cannot run Java2 executor. The file '%s' is not installed in CIEL_JARS_DIR." % lib, "JAVA", logging.INFO)
                 return False
 
         Java2Executor.classpath = ":".join([os.path.join(jars_dir, x) for x in REQUIRED_LIBS])

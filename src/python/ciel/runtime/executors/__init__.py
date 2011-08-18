@@ -125,10 +125,10 @@ def test_program(args, friendly_name):
             ciel.log.error("Successfully tested %s: wrote '%s'" % (friendly_name, multi_to_single_line(outstr)), "EXEC", logging.INFO)
             return True
         else:
-            ciel.log.error("Can't run %s: returned %d, stdout: '%s', stderr: '%s'" % (friendly_name, proc.returncode, outstr, errstr), "EXEC", logging.WARNING)
+            ciel.log.error("Can't run %s: returned %d, stdout: '%s', stderr: '%s'" % (friendly_name, proc.returncode, outstr, errstr), "EXEC", logging.INFO)
             return False
     except Exception as e:
-        ciel.log.error("Can't run %s: exception '%s'" % (friendly_name, e), "EXEC", logging.WARNING)
+        ciel.log.error("Can't run %s: exception '%s'" % (friendly_name, e), "EXEC", logging.INFO, True)
         return False
 
 def add_package_dep(package_ref, task_descriptor):

@@ -59,7 +59,7 @@ class ExecutionFeatures:
                 ciel.log.error("Executor '%s' can run" % name, "EXEC", logging.INFO)
                 retval.append(name)
             else:
-                ciel.log.error("Executor '%s' CANNOT run" % name, "EXEC", logging.WARNING)
+                ciel.log.error("Executor '%s' CANNOT run" % name, "EXEC", logging.INFO)
         return retval
     
     def can_run(self, name):

@@ -34,10 +34,10 @@ class JavaExecutor(FilenamesOnStdinExecutor):
     def can_run():
         jars_dir = os.getenv('CIEL_JARS_DIR')
         if jars_dir is None:
-            ciel.log.error("Cannot run Java executor. The CIEL_JARS_DIR environment variable must be set.", "JAVA", logging.WARN)
+            ciel.log.error("Cannot run Java executor. The CIEL_JARS_DIR environment variable must be set.", "JAVA", logging.INFO)
             return False
         if not os.path.exists(os.path.join(jars_dir, 'ciel-0.1.jar')):
-            ciel.log.error("Cannot run Java executor. The file 'ciel-0.1.jar' is not installed in CIEL_JARS_DIR.", "JAVA", logging.WARN)
+            ciel.log.error("Cannot run Java executor. The file 'ciel-0.1.jar' is not installed in CIEL_JARS_DIR.", "JAVA", logging.INFO)
             return False
         JavaExecutor.classpath = os.path.join(jars_dir, 'ciel-0.1.jar')
         print JavaExecutor.classpath
