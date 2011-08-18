@@ -29,6 +29,6 @@ setup(
             'Topic :: System :: Clustering',
             'Topic :: System :: Distributed Computing',
         ],
-    requires=['simplejson', 'CherryPy (>=3.1.0)', 'pycurl', 'httplib2' ]
+    requires=['simplejson', 'CherryPy (>=3.1.0)', 'pycurl', 'httplib2', 'flup']
 )
 
