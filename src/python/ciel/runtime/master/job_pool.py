@@ -692,7 +692,7 @@ class JobPool(plugins.SimplePlugin):
                 self.task_log = open(os.path.join(self.task_log_root, "ciel-task-log.txt"), "w")
             except:
                 import sys
-                print >>sys.stderr, "Error configuring task log root (%s), disabling task logging" % task_log_root
+                ciel.log.error("Error configuring task log root (%s), disabling task logging" % task_log_root, 'JOB_POOL', logging.WARNING)
                 import traceback
                 traceback.print_exc()
                 self.task_log_root = None

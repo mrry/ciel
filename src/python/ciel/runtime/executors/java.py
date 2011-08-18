@@ -40,7 +40,6 @@ class JavaExecutor(FilenamesOnStdinExecutor):
             ciel.log.error("Cannot run Java executor. The file 'ciel-0.1.jar' is not installed in CIEL_JARS_DIR.", "JAVA", logging.INFO)
             return False
         JavaExecutor.classpath = os.path.join(jars_dir, 'ciel-0.1.jar')
-        print JavaExecutor.classpath
         return test_program(["java", "-cp", JavaExecutor.classpath, "uk.co.mrry.mercator.task.JarTaskLoader", "--version"], "Java")
 
     @classmethod

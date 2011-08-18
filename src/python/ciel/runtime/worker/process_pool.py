@@ -185,9 +185,7 @@ class ProcessPool:
     
     def stop(self):
         self.gc_thread_stop.set()
-        print "Cleaning up!"
         for record in self.processes.values():
-            print record
             record.cleanup()
         
     def get_reference_for_process(self, record):

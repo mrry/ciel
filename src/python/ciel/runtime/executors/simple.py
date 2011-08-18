@@ -344,7 +344,7 @@ class FilenamesOnStdinExecutor(ProcessRunningExecutor):
                     else:
                         message = message + c
             except Exception as e:
-                print e
+                ciel.log.error("Error gathering I/O trace", "EXEC", logging.DEBUG, True)
                 break
 
     def await_process(self, input_files, output_files):
