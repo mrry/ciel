@@ -12,29 +12,36 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import os
+import os.path
 import ciel
 import logging
-from skywriting.runtime.executors.simple import FilenamesOnStdinExecutor
-from skywriting.runtime.executors import test_program
-from skywriting.runtime.exceptions import BlameUserException
-from skywriting.runtime.fetcher import retrieve_filenames_for_refs
-
+from ciel.runtime.executors.simple import FilenamesOnStdinExecutor
+from ciel.runtime.executors import test_program
+from ciel.runtime.exceptions import BlameUserException
+from ciel.runtime.fetcher import retrieve_filenames_for_refs
+import pkg_resources
 
 class JavaExecutor(FilenamesOnStdinExecutor):
 
     handler_name = "java"
+
+    classpath = None
 
     def __init__(self, worker):
         FilenamesOnStdinExecutor.__init__(self, worker)
 
     @staticmethod
     def can_run():
-        cp = os.getenv("CLASSPATH")
-        if cp is None:
-            ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
+        jars_dir = os.getenv('CIEL_JARS_DIR')
+        if jars_dir is None:
+            ciel.log.error("Cannot run Java executor. The CIEL_JARS_DIR environment variable must be set.", "JAVA", logging.WARN)
             return False
-        else:
-            return test_program(["java", "-cp", cp, "uk.co.mrry.mercator.task.JarTaskLoader", "--version"], "Java")
+        if not os.path.exists(os.path.join(jars_dir, 'ciel-0.1.jar')):
+            ciel.log.error("Cannot run Java executor. The file 'ciel-0.1.jar' is not installed in CIEL_JARS_DIR.", "JAVA", logging.WARN)
+            return False
+        JavaExecutor.classpath = os.path.join(jars_dir, 'ciel-0.1.jar')
+        print JavaExecutor.classpath
+        return test_program(["java", "-cp", JavaExecutor.classpath, "uk.co.mrry.mercator.task.JarTaskLoader", "--version"], "Java")
 
     @classmethod
     def check_args_valid(cls, args, n_outputs):
@@ -54,8 +61,7 @@ class JavaExecutor(FilenamesOnStdinExecutor):
         self.jar_filenames = retrieve_filenames_for_refs(self.jar_refs, self.task_record)
 
     def get_process_args(self):
-        cp = os.getenv('CLASSPATH')
-        process_args = ["java", "-cp", cp]
+        process_args = ["java", "-cp", JavaExecutor.classpath]
         if "trace_io" in self.debug_opts:
             process_args.append("-Dskywriting.trace_io=1")
         process_args.extend(["uk.co.mrry.mercator.task.JarTaskLoader", self.class_name])

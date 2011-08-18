@@ -11,19 +11,24 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-from skywriting.runtime.executors.proc import ProcExecutor
-from skywriting.runtime.exceptions import BlameUserException
+from ciel.runtime.executors.proc import ProcExecutor
+from ciel.runtime.exceptions import BlameUserException
 import hashlib
-from skywriting.runtime.executors import hash_update_with_structure,\
+from ciel.runtime.executors import hash_update_with_structure,\
     add_package_dep, test_program
 import ciel
 import os
 import logging
+import pkg_resources
+
+REQUIRED_LIBS = ['ciel-0.1.jar', 'gson-1.7.1.jar']
 
 class Java2Executor(ProcExecutor):
     
     handler_name = "java2"
     process_cache = set()
+
+    classpath = None
     
     def __init__(self, worker):
         ProcExecutor.__init__(self, worker)
@@ -69,13 +74,20 @@ class Java2Executor(ProcExecutor):
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, accept_ref_list_for_single=True, **kwargs)
         
     def get_command(self):
-        return ["java", "-Xmx2048M", "-cp", os.getenv('CLASSPATH'), "com.asgow.ciel.executor.Java2Executor"]
+        return ["java", "-Xmx2048M", "-cp", Java2Executor.classpath, "com.asgow.ciel.executor.Java2Executor"]
 
     @staticmethod
     def can_run():
-        cp = os.getenv("CLASSPATH")
-        if cp is None:
-            ciel.log.error("Can't run Java: no CLASSPATH set", "JAVA", logging.WARNING)
+
+        jars_dir = os.getenv('CIEL_JARS_DIR')
+        if jars_dir is None:
+            ciel.log.error("Cannot run Java2 executor. The CIEL_JARS_DIR environment variable must be set.", "JAVA", logging.WARN)
             return False
-        else:
-            return test_program(["java", "-cp", cp, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
+        for lib in REQUIRED_LIBS:
+            if not os.path.exists(os.path.join(jars_dir, lib)):
+                ciel.log.error("Cannot run Java2 executor. The file '%s' is not installed in CIEL_JARS_DIR." % lib, "JAVA", logging.WARN)
+                return False
+
+        Java2Executor.classpath = ":".join([os.path.join(jars_dir, x) for x in REQUIRED_LIBS])
+
+        return test_program(["java", "-cp", Java2Executor.classpath, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
