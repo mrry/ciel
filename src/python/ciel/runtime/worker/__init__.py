@@ -109,6 +109,7 @@ class Worker(plugins.SimplePlugin):
         self.cherrypy_conf = {}
 
         cherrypy.config.update({"server.thread_pool" : 20})
+        cherrypy.config.update({"checker.on" : False})
 
         self.subscribe()
 
