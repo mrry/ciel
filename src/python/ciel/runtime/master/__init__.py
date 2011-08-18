@@ -35,6 +35,7 @@ import subprocess
 import tempfile
 import urllib
 import urllib2
+import sys
 from pkg_resources import Requirement, resource_filename
 import sys
 from optparse import OptionParser
@@ -124,7 +125,7 @@ def set_port(port):
 def set_config(filename):
     cherrypy.config.update(filename)
 
-def main():
+def main(args=sys.argv):
 
     cherrypy.config.update({'server.socket_host': '0.0.0.0'})
     
@@ -143,7 +144,7 @@ def main():
     parser.add_option("-v", "--verbose", action="callback", callback=lambda w, x, y, z: ciel.set_log_level(logging.DEBUG), help="Turns on debugging output")
     parser.add_option("-6", "--task-log-root", action="store", dest="task_log_root", help="Path to store task state log", metavar="PATH", default=None)
     parser.add_option("-i", "--pidfile", action="store", dest="pidfile", help="Record the PID of the process", default=None);
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(args=args)
 
     if options.pidfile:
         cherrypy.process.plugins.PIDFile(cherrypy.engine, options.pidfile).subscribe()

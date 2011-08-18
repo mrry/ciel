@@ -1,4 +1,4 @@
-
+import sys
 import simplejson
 import load
 import urlparse
@@ -240,12 +240,12 @@ def recursive_decode(to_decode, template, jobid, master_uri):
                 result_list.append(recursive_decode(elem_decode, elem_template, jobid, master_uri))
         return result_list
 
-def main():
+def main(my_args=sys.argv):
 
     parser = OptionParser(usage='Usage: ciel run [options] PACKAGE_FILE')
     parser.add_option("-m", "--master", action="store", dest="master", help="URI of the cluster master", metavar="MASTER", default=os.getenv("CIEL_MASTER", "http://localhost:8000"))
     
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(args=my_args)
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
@@ -257,7 +257,7 @@ def main():
         parser.print_help()
         sys.exit(-1)
     
-    with open(args[0], "r") as package_file:
+    with open(args[-1], "r") as package_file:
         job_dict = simplejson.load(package_file)
 
     package_dict = job_dict.get("package",{})
@@ -269,12 +269,11 @@ def main():
     except KeyError:
         job_options = {}
     
-
-    (package_path, _) = os.path.split(args[0])
+    (package_path, _) = os.path.split(args[-1])
 
     print "BEFORE_SUBMIT", now_as_timestamp()
 
-    new_job = submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args[1:])
+    new_job = submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args[2:])
 
     print "SUBMITTED", now_as_timestamp()
     

@@ -29,6 +29,7 @@ import socket
 import urlparse
 import simplejson
 import subprocess
+import sys
 from threading import Lock, Condition
 from datetime import datetime
 from ciel.runtime.lighttpd import LighttpdAdapter
@@ -213,7 +214,7 @@ def set_port(port):
 def set_config(filename):
     cherrypy.config.update(filename)
 
-def main(default_role=None):
+def main(args=sys.argv):
     cherrypy.config.update({'server.socket_host': '0.0.0.0'})
     cherrypy.config.update({'log.screen': False})
     if cherrypy.config.get('server.socket_port') is None:
@@ -231,7 +232,7 @@ def main(default_role=None):
     parser.add_option("-P", "--auxiliary-port", action="store", dest="aux_port", type="int", help="Listen port for auxiliary TCP connections (for workers)", metavar="PORT", default=None)
     parser.add_option("-v", "--verbose", action="callback", callback=lambda w, x, y, z: ciel.set_log_level(logging.DEBUG), help="Turns on debugging output")
     parser.add_option("-i", "--pidfile", action="store", dest="pidfile", help="Record the PID of the process", default=None);
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(args=args)
 
     if options.pidfile:
         cherrypy.process.plugins.PIDFile(cherrypy.engine, options.pidfile).subscribe()
