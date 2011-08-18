@@ -1,3 +1,5 @@
 /src/python/ciel.egg-info
 *.pyc
 *~
+.#*
+\#*
