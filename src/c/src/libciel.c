@@ -305,6 +305,31 @@ json_t* ciel_close_output(struct ciel_output* out) {
 
 }
 
+json_t* ciel_package_lookup(char *key) {
+  json_error_t error_bucket;
+
+  json_t* package_lookup_request = json_pack_ex(&error_bucket, 0, "[s{ss}]", "package_lookup", "key", key);
+  if (!package_lookup_request)
+    ciel_json_error(0, &error_bucket);
+  ciel_write_framed_json(package_lookup_request, ciel_out);
+  json_decref(package_lookup_request);
+
+  json_t* response = ciel_read_framed_json(ciel_in);
+
+  char* response_verb;
+  json_t* value;
+  if (json_unpack_ex(response, &error_bucket, 0, "[s{sO}]", &response_verb, "value", &value))
+    ciel_json_error(0, &error_bucket);
+  
+  if (strcmp(response_verb, "package_lookup") != 0) {
+    fprintf(stderr, "package_lookup: bad response: %s\n", response_verb);
+    exit(1);
+  }
+
+  json_decref(response);
+  return value;
+}
+
 void ciel_exit() {
 
   json_error_t error_bucket;
@@ -448,7 +473,7 @@ struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_con
   int fd_coming;
   int is_blocking;
   int is_done;
-  int size;
+  /*int size;*/
 
   if(json_unpack_ex(response_args, &error_bucket, 0, "{sbsbsb}", 
 		    "sending_fd", &fd_coming, "blocking", &is_blocking, 
