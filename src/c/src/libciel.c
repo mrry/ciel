@@ -16,8 +16,10 @@
 static FILE* ciel_out;
 static FILE* ciel_in;
 
+#ifdef CIEL_SOCKET
 static char* ciel_socket_name;
 static int ciel_socket_fd;
+#endif /* CIEL_SOCKET */
 
 void ciel_json_error(char* string, json_error_t* error) {
 
@@ -118,6 +120,7 @@ void ciel_write_framed_json(json_t* json, FILE* fout) {
 
 }
 
+#ifdef CIEL_SOCKET
 int ciel_receive_fd() {
 
   struct sockaddr_un otherend_addr;
@@ -173,6 +176,7 @@ int ciel_receive_fd() {
   return recvd_fd;
 
 }
+#endif /* CIEL_SOCKET */
 
 struct ciel_output {
   FILE* fp;
@@ -184,11 +188,18 @@ struct ciel_output* ciel_open_output(int index, int may_stream, int may_pipe, in
 
   json_error_t error_bucket;
 
+#ifdef CIEL_SOCKET
   json_t* open_output_message = json_pack_ex(&error_bucket, 0, "[s{sisbsbsbss}]", 
 					     "open_output", "index", index,
 					     "may_stream", may_stream, "may_pipe", may_pipe, 
 					     "make_local_sweetheart", make_sweetheart,
 					     "fd_socket_name", ciel_socket_name);
+#else
+  json_t* open_output_message = json_pack_ex(&error_bucket, 0, "[s{sisbsbsb}]", 
+					     "open_output", "index", index,
+					     "may_stream", may_stream, "may_pipe", may_pipe, 
+					     "make_local_sweetheart", make_sweetheart);
+#endif /* CIEL_SOCKET */
 
   if(!open_output_message)
     ciel_json_error(0, &error_bucket);
@@ -220,6 +231,7 @@ struct ciel_output* ciel_open_output(int index, int may_stream, int may_pipe, in
   ret->index = index;
   ret->bytes_written = 0;
 
+#ifdef CIEL_SOCKET
   if(json_typeof(sending_fd_json) == JSON_TRUE) {
 
     int fd = ciel_receive_fd();
@@ -232,6 +244,10 @@ struct ciel_output* ciel_open_output(int index, int may_stream, int may_pipe, in
     ret->fp = fopen(json_string_value(filename_json), "w");
 
   }
+#else
+  json_t* filename_json = json_object_get(response_args, "filename");
+  ret->fp = fopen(json_string_value(filename_json), "w");
+#endif /* CIEL_SOCKET */
 
   json_decref(open_response);
   return ret;
@@ -401,9 +417,16 @@ struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_con
 
   json_error_t error_bucket;
 
+#ifdef CIEL_SOCKET
   json_t* open_message = json_pack_ex(&error_bucket, 0, "[s{sOsisbsbsbss}]", "open_ref_async",
 				      "ref", ref, "chunk_size", chunk_size, "sole_consumer", sole_consumer,
 				      "make_sweetheart", 0, "must_block", must_block, "fd_socket_name", ciel_socket_name);
+#else
+  json_t* open_message = json_pack_ex(&error_bucket, 0, "[s{sOsisbsbsb}]", "open_ref_async",
+				      "ref", ref, "chunk_size", chunk_size, "sole_consumer", sole_consumer,
+				      "make_sweetheart", 0, "must_block", must_block);
+#endif /* CIEL_SOCKET */
+
   if(!open_message)
     ciel_json_error(0, &error_bucket);
 
@@ -444,7 +467,9 @@ struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_con
   new_input->eof = is_done;
   new_input->bytes_read = 0;
 
+#ifdef CIEL_SOCKET
   if(!fd_coming) {
+#endif /* CIEL_SOCKET */
     json_t* filename_obj = json_object_get(response_args, "filename");
     if(!filename_obj) {
       fprintf(stderr, "No member 'filename' in open_ref_async response\n");
@@ -458,6 +483,7 @@ struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_con
       return 0;
     }
     new_input->fp = fopen(filename, "r");
+#ifdef CIEL_SOCKET
   }
   else {
     
@@ -470,6 +496,7 @@ struct ciel_input* ciel_open_ref_async(json_t* ref, int chunk_size, int sole_con
     new_input->fp = fdopen(recvd_fd, "r");
     
   }
+#endif /* CIEL_SOCKET */
 
   json_decref(response);
 
@@ -607,6 +634,7 @@ void ciel_init(char* out_fname, char* in_fname) {
     exit(1);
   }
 
+#ifdef CIEL_SOCKET
   char socket_name[] = "/tmp/ciel_fdsockXXXXXX";
   char* real_name = mktemp(socket_name);
   if(!real_name) {
@@ -637,5 +665,5 @@ void ciel_init(char* out_fname, char* in_fname) {
 
   ciel_socket_fd = sock;
   ciel_socket_name = strdup(real_name);
-
+#endif /* CIEL_SOCKET */
 }
