@@ -271,18 +271,18 @@ def main(my_args=sys.argv):
     
     (package_path, _) = os.path.split(args[-1])
 
-    print "BEFORE_SUBMIT", now_as_timestamp()
+    #print "BEFORE_SUBMIT", now_as_timestamp()
 
     new_job = submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args[2:])
 
-    print "SUBMITTED", now_as_timestamp()
+    #print "SUBMITTED", now_as_timestamp()
     
     job_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % new_job['job_id'])
-    print "JOB_URL", job_url
+    #print "JOB_URL", job_url
 
     result = await_job(new_job['job_id'], master_uri)
 
-    print "GOT_RESULT", now_as_timestamp()
+    #print "GOT_RESULT", now_as_timestamp()
     
     reflist = simple_retrieve_object_for_ref(result, "json", new_job['job_id'], master_uri)
     
@@ -292,6 +292,7 @@ def main(my_args=sys.argv):
     else:
         try:
             decoded = recursive_decode(reflist, decode_template, new_job['job_id'], master_uri)
+            print decoded
             return decoded
         except Exception as e:
             print "Failed to decode due to exception", repr(e)

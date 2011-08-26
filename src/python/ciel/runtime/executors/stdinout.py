@@ -34,6 +34,10 @@ class SWStdinoutExecutor(ProcessRunningExecutor):
         ProcessRunningExecutor.__init__(self, worker)
 
     @classmethod
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, args, is_tail_spawn=False):
+        return ProcessRunningExecutor.build_task_descriptor(task_descriptor, parent_task_record, args, 1, is_tail_spawn, SWStdinoutExecutor.handler_name)
+
+    @classmethod
     def check_args_valid(cls, args, n_outputs):
 
         ProcessRunningExecutor.check_args_valid(args, n_outputs)

@@ -35,7 +35,12 @@ class SimpleExecutor(BaseExecutor):
         BaseExecutor.__init__(self, worker)
 
     @classmethod
-    def build_task_descriptor(cls, task_descriptor, parent_task_record, args, n_outputs, is_tail_spawn=False):
+    def build_task_descriptor(cls, task_descriptor, parent_task_record, args, n_outputs, is_tail_spawn=False, handler_name=None):
+
+        # This is needed to work around the fact that stdinout has its own implementation of build_task_descriptor, so
+        # we can't rely using cls.handler_name to find the actual executor.
+        if handler_name is None:
+            handler_name = cls.handler_name
 
         if is_tail_spawn and len(task_descriptor["expected_outputs"]) != n_outputs:
             raise BlameUserException("SimpleExecutor being built with delegated outputs %s but n_outputs=%d" % (task_descriptor["expected_outputs"], n_outputs))
@@ -49,7 +54,7 @@ class SimpleExecutor(BaseExecutor):
 
         sha = hashlib.sha1()
         hash_update_with_structure(sha, [args, n_outputs])
-        name_prefix = "%s:%s:" % (cls.handler_name, sha.hexdigest())
+        name_prefix = "%s:%s:" % (handler_name, sha.hexdigest())
 
         # Name our outputs
         if not is_tail_spawn:
