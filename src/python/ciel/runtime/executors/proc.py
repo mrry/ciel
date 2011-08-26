@@ -136,7 +136,12 @@ class ProcExecutor(BaseExecutor):
             if self.process_record is None:
                 self.process_record = self.process_pool.create_process_record(None, "json")
                 if "command" in task_private:
-                    command = [task_private["command"]]
+                    if isinstance(task_private["command"], SWRealReference):
+                        # Command has been passed in as a reference.
+                        command = [retrieve_filename_for_ref(arg, self.task_record, False)]
+                        os.chmod(command_line[0], stat.S_IRWXU)
+                    else:
+                        command = [task_private["command"]]
                 else:
                     command = self.get_command()
                 command.extend(["--write-fifo", self.process_record.get_read_fifo_name(), 
