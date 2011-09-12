@@ -20,6 +20,7 @@ from ciel.runtime.executors.sync import SyncExecutor
 from ciel.runtime.executors.init import InitExecutor
 from ciel.runtime.executors.proc import ProcExecutor
 from ciel.runtime.executors.ocaml import OCamlExecutor
+from ciel.runtime.executors.haskell import HaskellExecutor
 from ciel.runtime.executors.java import JavaExecutor
 from ciel.runtime.executors.java2 import Java2Executor
 import ciel
@@ -33,7 +34,8 @@ class ExecutionFeatures:
         self.executors = dict([(x.handler_name, x) for x in [SWStdinoutExecutor, 
                                                              EnvironmentExecutor, DotNetExecutor, 
                                                              CExecutor, GrabURLExecutor, SyncExecutor, InitExecutor,
-                                                             OCamlExecutor, ProcExecutor, JavaExecutor, Java2Executor]])
+                                                             OCamlExecutor, HaskellExecutor,
+                                                             ProcExecutor, JavaExecutor, Java2Executor]])
 
         for entrypoint in pkg_resources.iter_entry_points(group="ciel.executor.plugin"):
             classes_function = entrypoint.load()
