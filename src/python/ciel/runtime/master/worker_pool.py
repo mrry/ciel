@@ -126,6 +126,7 @@ class WorkerPool:
         with self._lock:
             id = self.allocate_worker_id()
             worker = Worker(id, worker_descriptor, self.feature_queues, self)
+            ciel.log.error('Worker registered: %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING, True)
             self.workers[id] = worker
             try:
                 previous_worker_at_netloc = self.netlocs[worker.netloc]

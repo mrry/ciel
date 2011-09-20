@@ -117,6 +117,8 @@ class Pinger(plugins.SimplePlugin):
                 except Empty:
                     pass
             
+
+            ciel.log.error("Registered with master at %s" % self.master_proxy.master_url, 'PINGER', logging.WARNING)
             
             # While connected, periodically ping the master.
             while self.is_connected:
