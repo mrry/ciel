@@ -98,8 +98,8 @@ class WorkerPool:
         self.max_concurrent_waiters = 5
         self.current_waiters = 0
         self.is_stopping = False
-        self.scheduling_class_capacities = {}
-        self.scheduling_class_total_capacities = {}
+        self.scheduling_class_capacities = {'*' : []}
+        self.scheduling_class_total_capacities = {'*' : 0}
 
     def subscribe(self):
         self.bus.subscribe('start', self.start, 75)
@@ -255,6 +255,9 @@ class WorkerPool:
                 candidates = self.scheduling_class_capacities['*']
                 total_capacity = self.scheduling_class_total_capacities['*']
         
+            if total_capacity == 0:
+                return None
+
             selected_slot = random.randrange(total_capacity)
             curr_slot = 0
             i = 0

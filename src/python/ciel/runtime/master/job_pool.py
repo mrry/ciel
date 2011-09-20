@@ -136,18 +136,31 @@ class Job:
         with self._lock:
             
             # 1. Assign runnable tasks to worker queues.
+            unassigned_tasks = []
             while True:
                 try:
                     task = self.runnable_queue.get_nowait()
+                    unassigned = True
                     self.assign_scheduling_class_to_task(task)
                     workers = self.select_workers_for_task(task)
                     for worker in workers:
+                        if worker is None:
+                            continue
                         ciel.log('Adding task %s to queue for worker %s' % (task.task_id, worker.id), 'SCHED', logging.DEBUG)
                         self.workers[worker].queue_task(task)
+                        unassigned = False
                     if task.get_constrained_location() is None:
                         self.push_task_on_global_queue(task)
+                        unassigned = False
+                    if unassigned:
+                        ciel.log('No workers available for task %s' % task.task_id, 'SCHED', logging.WARNING)
+                        unassigned_tasks.append(task)
                 except Queue.Empty:
                     break
+
+            # 1a. If we have unassigned tasks, put them back on the queue for the next schedule.
+            for task in unassigned_tasks:
+                self.runnable_queue.put(task)
             
             # 2. For each worker, check if we need to assign any tasks.
             total_assigned = 0
