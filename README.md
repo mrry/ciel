@@ -23,6 +23,9 @@ downloaded and installed separately:
   also experimental support for using Scala to write distributed
   threads.
 
+* [OCaml](https://github.com/avsm/ciel-ocaml) support is provided by
+  using delimited continuations to serialise OCaml into CIEL tasks.
+
 Installing CIEL
 ---------------
 
