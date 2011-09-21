@@ -121,7 +121,7 @@ class ProcExecutor(BaseExecutor):
             self._guarded_run(task_private, task_descriptor, task_record)
             
     def _guarded_run(self, task_private, task_descriptor, task_record):
-        
+        self.task_private = task_private
         self.task_record = task_record
         self.task_descriptor = task_descriptor
         self.expected_outputs = list(self.task_descriptor['expected_outputs'])
@@ -148,6 +148,7 @@ class ProcExecutor(BaseExecutor):
                                 "--read-fifo", self.process_record.get_write_fifo_name()])
                 new_proc_env = os.environ.copy()
                 new_proc_env.update(self.get_env())
+
                 new_proc = subprocess.Popen(command, env=new_proc_env, close_fds=True)
                 self.process_record.set_pid(new_proc.pid)
                

@@ -7,6 +7,8 @@ import pickle
 import time
 import datetime
 import os.path
+import glob
+import ciel.config
 from ciel.runtime.util.sw_pprint import sw_pprint
 
 from ciel.public.references import SWReferenceJSONEncoder,json_decode_object_hook,\
@@ -244,6 +246,7 @@ def jar(my_args=sys.argv):
     parser.add_option("-j", "--extra-jar", action="append", dest="extra_jars", help="Filename of additional JAR to load", metavar="JAR_FILE", default=[])
     parser.add_option("-P", "--package", action="append", dest="package", help="Additional file to upload", metavar="ID=FILENAME", default=[])
     parser.add_option("-n", "--num-outputs", action="store", dest="num_outputs", help="Number of outputs for root task", type="int", metavar="N", default=1)
+    parser.add_option("-L", "--jar-lib", action="store", dest="jar_lib", help="Directory containing CIEL bindings JARs", type="str", metavar="PATH", default=ciel.config.get('java', 'jar_lib'))
  
     (options, args) = parser.parse_args(args=my_args)
     master_uri = options.master
@@ -256,9 +259,21 @@ def jar(my_args=sys.argv):
         parser.print_help()
         sys.exit(-1)
 
-    jars = options.extra_jars + [args[0]]
-    class_name = args[1]
-    args = args[2:]
+    jars = options.extra_jars + [args[1]]
+
+    # Consult the config to see where the standard JARs are installed.
+    jar_path = options.jar_lib
+    if jar_path is None:
+        print >>sys.stderr, "Could not find CIEL bindings. Set the JAR libary path using one of:"
+        print >>sys.stderr, "\tciel jar (--jar-lib|-L) PATH ..."
+        print >>sys.stderr, "\tciel config --set java.jar_lib PATH"
+        sys.exit(-1)
+
+    for jar_file in glob.glob(os.path.join(jar_path, '*.jar')):
+        jars = jars + [jar_file]
+
+    class_name = args[2]
+    args = args[3:]
 
     def upload_jar(filename):
         with open(filename, 'r') as infile:
@@ -272,20 +287,24 @@ def jar(my_args=sys.argv):
         with open(filename, 'r') as infile:
             package_dict[id] = ref_of_string(infile.read(), master_uri)
 
-    package_ref = ref_of_string(pickle.dumps(submit_package_dict), master_uri)
+    print package_dict
+            
+    package_ref = ref_of_string(pickle.dumps(package_dict), master_uri)
 
-    args = {'jar_lib' : jars,
+    args = {'jar_lib' : jar_refs,
             'class_name' : class_name,
             'args' : args,
             'n_outputs' : options.num_outputs}
 
     init_descriptor = build_init_descriptor("java2", args, package_ref, master_uri, ref_of_string)
 
+    print simplejson.dumps(init_descriptor, cls=SWReferenceJSONEncoder)
+
     job_descriptor = submit_job_for_task(init_descriptor, master_uri)
 
-    job_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % new_job['job_id'])
+    job_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % job_descriptor['job_id'])
 
-    result = await_job(new_job['job_id'], master_uri)
+    result = await_job(job_descriptor['job_id'], master_uri)
 
     reflist = simple_retrieve_object_for_ref(result, "json", job_descriptor['job_id'], master_uri)
 

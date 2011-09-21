@@ -16,10 +16,13 @@ from ciel.runtime.exceptions import BlameUserException
 import hashlib
 from ciel.runtime.executors import hash_update_with_structure,\
     add_package_dep, test_program
+from ciel.runtime.fetcher import retrieve_filename_for_ref
 import ciel
 import os
 import logging
 import pkg_resources
+import tempfile
+import shutil
 
 REQUIRED_LIBS = ['ciel-0.1.jar', 'gson-1.7.1.jar']
 
@@ -74,20 +77,15 @@ class Java2Executor(ProcExecutor):
         return ProcExecutor.build_task_descriptor(task_descriptor, parent_task_record, n_extra_outputs=0, is_tail_spawn=is_tail_spawn, accept_ref_list_for_single=True, **kwargs)
         
     def get_command(self):
-        return ["java", "-Xmx2048M", "-cp", Java2Executor.classpath, "com.asgow.ciel.executor.Java2Executor"]
+        jar_filenames = []
+        for ref in self.task_private['jar_lib']:
+            obj_store_filename = retrieve_filename_for_ref(ref, self.task_record, False)
+            with open(obj_store_filename, 'r') as f:
+                with tempfile.NamedTemporaryFile(suffix='.jar', delete=False) as temp_f:
+                    shutil.copyfileobj(f, temp_f)
+                    jar_filenames.append(temp_f.name)
+        return ["java", "-Xmx2048M", "-cp", str(':'.join(jar_filenames)), "com.asgow.ciel.executor.Java2Executor"]
 
     @staticmethod
     def can_run():
-
-        jars_dir = os.getenv('CIEL_JARS_DIR')
-        if jars_dir is None:
-            ciel.log.error("Cannot run Java2 executor. The CIEL_JARS_DIR environment variable must be set.", "JAVA", logging.INFO)
-            return False
-        for lib in REQUIRED_LIBS:
-            if not os.path.exists(os.path.join(jars_dir, lib)):
-                ciel.log.error("Cannot run Java2 executor. The file '%s' is not installed in CIEL_JARS_DIR." % lib, "JAVA", logging.INFO)
-                return False
-
-        Java2Executor.classpath = ":".join([os.path.join(jars_dir, x) for x in REQUIRED_LIBS])
-
-        return test_program(["java", "-cp", Java2Executor.classpath, "com.asgow.ciel.executor.Java2Executor", "--version"], "Java")
+        return test_program(["java", "-version"], "Java")
