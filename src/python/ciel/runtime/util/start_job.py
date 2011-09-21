@@ -306,10 +306,22 @@ def jar(my_args=sys.argv):
 
     result = await_job(job_descriptor['job_id'], master_uri)
 
-    reflist = simple_retrieve_object_for_ref(result, "json", job_descriptor['job_id'], master_uri)
 
-    print reflist
-    return reflist
+    try:
+        reflist = simple_retrieve_object_for_ref(result, "json", job_descriptor['job_id'], master_uri)
+    except:
+        print >>sys.stderr, "Error getting list of references as a result."
+
+    try:
+        j_return = retrieve_object_for_ref(reflist[0], "json", None)
+    except:
+        try:
+            j_return = retrieve_object_for_ref(reflist[0], "noop", None)
+        except:
+            print >>sys.stderr, "Error parsing job result."
+            sys.exit(-1)
+
+    print j_return
 
 def main(my_args=sys.argv):
 
