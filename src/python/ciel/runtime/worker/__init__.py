@@ -40,6 +40,7 @@ from ciel.runtime.tcp_server import create_tcp_server
 from ciel.runtime.worker.execution_features import ExecutionFeatures
 from pkg_resources import Requirement, resource_filename
 from optparse import OptionParser
+import ciel.config
 
 class WorkerState:
     pass
@@ -223,7 +224,7 @@ def main(args=sys.argv):
     
     parser = OptionParser(usage="Usage: ciel worker [options]")
     parser.add_option("-p", "--port", action="callback", callback=lambda w, x, y, z: set_port(y), default=cherrypy.config.get('server.socket_port'), type="int", help="Server port", metavar="PORT")
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="URI", default=os.getenv("CIEL_MASTER", "http://localhost:8000"))
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="URI", default=ciel.config.get('cluster', 'master', 'http://localhost:8000'))
     parser.add_option("-b", "--blockstore", action="store", dest="blockstore", help="Path to the block store directory", metavar="PATH", default=None)
     parser.add_option("-H", "--hostname", action="store", dest="hostname", help="Hostname the master and other workers should use to contact this host", default=None)
     parser.add_option("-n", "--num-threads", action="store", dest="num_threads", help="Number of worker threads to create (for worker/all-in-one)", type="int", default=1)

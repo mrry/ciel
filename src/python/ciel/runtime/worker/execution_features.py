@@ -71,7 +71,10 @@ class ExecutionFeatures:
         try:
             return self.runnable_executors[name](worker)
         except KeyError:
-            raise Exception("Can't run %s here" % name)
+            raise Exception("Executor %s not installed" % name)
 
     def get_executor_class(self, name):
-        return self.executors[name]
+        try:
+            return self.executors[name]
+        except KeyError:
+            raise Exception("Executor %s not installed" % name)

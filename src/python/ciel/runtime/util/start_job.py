@@ -117,23 +117,16 @@ def task_descriptor_for_package_and_initial_task(package_dict, start_handler, st
     start_args = resolve_vars(start_args, env_and_args_callbacks)
 
     submit_package_dict = dict([(k, ref_of_object(k, v, package_path, master_uri)) for (k, v) in package_dict.items()])
-    for key, ref in submit_package_dict.items():
-        print >>sys.stderr, key, '-->', simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
+    #for key, ref in submit_package_dict.items():
+    #    print >>sys.stderr, key, '-->', simplejson.dumps(ref, cls=SWReferenceJSONEncoder)
     package_ref = ref_of_string(pickle.dumps(submit_package_dict), master_uri)
 
     resolved_args = resolve_vars(start_args, {"__package__": lambda x: submit_package_dict[x["__package__"]]})
 
     return build_init_descriptor(start_handler, resolved_args, package_ref, master_uri, ref_of_string)
 
-def submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args):
-    
-    task_descriptor = task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri, args)
-
-    #print "Submitting descriptor:"
-    #sw_pprint(task_descriptor, indent=2)
-
+def submit_job_for_task(task_descriptor, master_uri, job_options={}):
     payload = {"root_task" : task_descriptor, "job_options" : job_options}
-
     master_task_submit_uri = urlparse.urljoin(master_uri, "control/job/")
     (_, content) = http.request(master_task_submit_uri, "POST", simplejson.dumps(payload, cls=SWReferenceJSONEncoder))
     try:
@@ -141,7 +134,11 @@ def submit_job_with_package(package_dict, start_handler, start_args, job_options
     except ValueError:
         print >>sys.stderr, 'Error submitting job'
         print >>sys.stderr, content
-        sys.exit(-1)
+        sys.exit(-1)    
+
+def submit_job_with_package(package_dict, start_handler, start_args, job_options, package_path, master_uri, args):
+    task_descriptor = task_descriptor_for_package_and_initial_task(package_dict, start_handler, start_args, package_path, master_uri, args)
+    return submit_job_for_task(task_descriptor, master_uri, job_options)
 
 def await_job(jobid, master_uri, timeout=None):
     notify_url = urlparse.urljoin(master_uri, "control/job/%s/completion" % jobid)
@@ -240,17 +237,71 @@ def recursive_decode(to_decode, template, jobid, master_uri):
                 result_list.append(recursive_decode(elem_decode, elem_template, jobid, master_uri))
         return result_list
 
+def jar(my_args=sys.argv):
+
+    parser = OptionParser(usage='Usage: ciel jar [options] JAR_FILE CLASS_NAME [args...]')
+    parser.add_option("-m", "--master", action="store", dest="master", help="URI of the cluster master", metavar="MASTER", default=ciel.config.get('cluster', 'master', 'http://localhost:8000'))
+    parser.add_option("-j", "--extra-jar", action="append", dest="extra_jars", help="Filename of additional JAR to load", metavar="JAR_FILE", default=[])
+    parser.add_option("-P", "--package", action="append", dest="package", help="Additional file to upload", metavar="ID=FILENAME", default=[])
+    parser.add_option("-n", "--num-outputs", action="store", dest="num_outputs", help="Number of outputs for root task", type="int", metavar="N", default=1)
+ 
+    (options, args) = parser.parse_args(args=my_args)
+    master_uri = options.master
+
+    if master_uri is None or master_uri == "":
+        print >>sys.stderr, ("Must specify a master with -m or `ciel config --set cluster.master URL`")
+        sys.exit(-1)
+    elif len(args) < 2:
+        print >>sys.stderr, "Must specify a fully-qualified class to run"
+        parser.print_help()
+        sys.exit(-1)
+
+    jars = options.extra_jars + [args[0]]
+    class_name = args[1]
+    args = args[2:]
+
+    def upload_jar(filename):
+        with open(filename, 'r') as infile:
+            return ref_of_string(infile.read(), master_uri)
+        
+    jar_refs = [upload_jar(j) for j in jars]
+
+    package_dict = {}
+    for binding in options.package:
+        id, filename = binding.split("=", 2)
+        with open(filename, 'r') as infile:
+            package_dict[id] = ref_of_string(infile.read(), master_uri)
+
+    package_ref = ref_of_string(pickle.dumps(submit_package_dict), master_uri)
+
+    args = {'jar_lib' : jars,
+            'class_name' : class_name,
+            'args' : args,
+            'n_outputs' : options.num_outputs}
+
+    init_descriptor = build_init_descriptor("java2", args, package_ref, master_uri, ref_of_string)
+
+    job_descriptor = submit_job_for_task(init_descriptor, master_uri)
+
+    job_url = urlparse.urljoin(master_uri, "control/browse/job/%s" % new_job['job_id'])
+
+    result = await_job(new_job['job_id'], master_uri)
+
+    reflist = simple_retrieve_object_for_ref(result, "json", job_descriptor['job_id'], master_uri)
+
+    print reflist
+    return reflist
+
 def main(my_args=sys.argv):
 
     parser = OptionParser(usage='Usage: ciel run [options] PACKAGE_FILE')
-    parser.add_option("-m", "--master", action="store", dest="master", help="URI of the cluster master", metavar="MASTER", default=os.getenv("CIEL_MASTER", "http://localhost:8000"))
+    parser.add_option("-m", "--master", action="store", dest="master", help="URI of the cluster master", metavar="MASTER", default=ciel.config.get('cluster', 'master', 'http://localhost:8000'))
     
     (options, args) = parser.parse_args(args=my_args)
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
-        print >>sys.stderr, "Must specify a master with -m or CIEL_MASTER"
-        parser.print_help()
+        print >>sys.stderr, ("Must specify a master with -m or `ciel config --set cluster.master URL`")
         sys.exit(-1)
     elif len(args) < 1:
         print >>sys.stderr, "Must specify a package file to run"
@@ -301,13 +352,14 @@ def main(my_args=sys.argv):
 def submit():
     """Toned-down version of the above for automation purposes."""        
     parser = OptionParser()
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=ciel.config.get('cluster', 'master', 'http://localhost:8000'))
     
     (options, args) = parser.parse_args()
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
-        raise Exception("Must specify a master with -m or CIEL_MASTER")
+        print >>sys.stderr, ("Must specify a master with -m or `ciel config --set cluster.master URL`")
+        sys.exit(-1)
     
     with open(args[0], "r") as package_file:
         job_dict = simplejson.load(package_file)
@@ -334,7 +386,7 @@ def submit():
 def wait():
     """Toned-down version of the above for automation purposes."""        
     parser = OptionParser()
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=ciel.config.get('cluster', 'master', 'http://localhost:8000'))
     parser.add_option("-t", "--timeout", action="store", dest="timeout", help="Timeout", metavar="DURATION", default=10)
     
     (options, args) = parser.parse_args()
@@ -342,7 +394,8 @@ def wait():
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
-        raise Exception("Must specify a master with -m or CIEL_MASTER")
+        print >>sys.stderr, ("Must specify a master with -m or `ciel config --set cluster.master URL`")
+        sys.exit(-1)
 
     result = await_job(args[0], master_uri, options.timeout)
 
@@ -354,7 +407,7 @@ def result():
     """Toned-down version of the above for automation purposes."""        
     
     parser = OptionParser()
-    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=os.getenv("CIEL_MASTER"))
+    parser.add_option("-m", "--master", action="store", dest="master", help="Master URI", metavar="MASTER", default=ciel.config.get('cluster', 'master', 'http://localhost:8000'))
     parser.add_option("-t", "--timeout", action="store", dest="timeout", help="Timeout", metavar="DURATION", default=10)
     parser.add_option("-p", "--package", action="store", dest="package", help="Package file (for parsing format)", metavar="FILE", default=None)
 
@@ -367,7 +420,7 @@ def result():
     master_uri = options.master
 
     if master_uri is None or master_uri == "":
-        print >>sys.stderr, ("Must specify a master with -m or CIEL_MASTER")
+        print >>sys.stderr, ("Must specify a master with -m or `ciel config --set cluster.master URL`")
         sys.exit(-1)
 
     result = await_job(args[0], master_uri)

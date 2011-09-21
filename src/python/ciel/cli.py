@@ -13,6 +13,8 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import ciel.runtime.master
 import ciel.runtime.util.start_job
+import ciel.runtime.util.run_script
+import ciel.config
 from ciel import CIEL_VERSION_STRING
 import sys
 
@@ -24,6 +26,15 @@ def start_worker(args):
 
 def run_job(args):
     ciel.runtime.util.start_job.main(args)
+
+def run_jar(args):
+    ciel.runtime.util.start_job.jar(args)
+
+def run_sw(args):
+    ciel.runtime.util.run_script.main(args)
+
+def config(args):
+    ciel.config.main(args)
 
 def show_help(args):
     print >>sys.stderr, "usage: ciel COMMAND [ARGS]"
@@ -39,6 +50,9 @@ def version():
 default_command_list = [('master',    start_master, "Start running a CIEL master"),
                         ('worker',    start_worker, "Start running a CIEL worker"),
                         ('run',       run_job,      "Run a CIEL job"),
+                        ('java',      run_jar,      "Run a Java-based CIEL job"),
+                        ('sw',        run_sw,       "Run a Skywriting script"),
+                        ('config',    config,       "Configure CIEL"),
                         ('help',      show_help,    "Display this message"),
                         ('--version', version,      None)]
 
