@@ -287,8 +287,6 @@ def jar(my_args=sys.argv):
         with open(filename, 'r') as infile:
             package_dict[id] = ref_of_string(infile.read(), master_uri)
 
-    print package_dict
-            
     package_ref = ref_of_string(pickle.dumps(package_dict), master_uri)
 
     args = {'jar_lib' : jar_refs,
@@ -297,8 +295,6 @@ def jar(my_args=sys.argv):
             'n_outputs' : options.num_outputs}
 
     init_descriptor = build_init_descriptor("java2", args, package_ref, master_uri, ref_of_string)
-
-    print simplejson.dumps(init_descriptor, cls=SWReferenceJSONEncoder)
 
     job_descriptor = submit_job_for_task(init_descriptor, master_uri)
 
