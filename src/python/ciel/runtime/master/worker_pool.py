@@ -234,7 +234,7 @@ class WorkerPool:
     def investigate_worker_failure(self, worker):
         ciel.log.error('Investigating possible failure of worker %s (%s)' % (worker.id, worker.netloc), 'WORKER_POOL', logging.WARNING)
         try:
-            content = get_string('http://%s/control' % worker.netloc)
+            content = get_string('http://%s/control/master/' % worker.netloc)
             id = simplejson.loads(content)
             assert id == worker.id
         except:

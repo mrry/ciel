@@ -54,7 +54,7 @@ class MasterProxy:
         self.master_url = master_url
         
     def get_master_details(self):
-        return {'netloc': self.master_netloc}
+        return {'netloc': self.master_url, 'id':str(self.worker.id)}
 
     def handle_shutdown(self):
         self.stop_event.set()
